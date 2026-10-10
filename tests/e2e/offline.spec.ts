@@ -289,3 +289,39 @@ test('sign-out clears private cached data and Help is available by keyboard', as
   await page.reload();
   await expect(page.getByRole('region', { name: 'Tasks' })).toHaveCount(0);
 });
+
+test('views not yet opened load offline at their own URLs after one online visit', async ({
+  page,
+  context,
+}) => {
+  await warm(page);
+  // Views are prefetched after sign-in; wait until the service worker has them.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async () =>
+          (
+            await Promise.all(
+              (await caches.keys()).map(async (name) =>
+                (await caches.open(name)).keys(),
+              ),
+            )
+          )
+            .flat()
+            .filter((request) =>
+              /(Preferences|Connections)View/.test(request.url),
+            ).length,
+      ),
+    )
+    .toBe(2);
+  await context.setOffline(true);
+  await page.goto('/preferences');
+  await expect(
+    page.getByRole('checkbox', { name: 'Use e-ink mode' }),
+  ).toBeVisible();
+  await page.goto('/connections');
+  await expect(
+    page.getByRole('heading', { name: 'Your accounts' }),
+  ).toBeVisible();
+  await context.setOffline(false);
+});

@@ -1,29 +1,22 @@
-import { useEffect, useRef, useState } from 'react';
-import type { BootstrapResponse } from '@hub/contracts';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { loadWorkspace } from './lib/api';
-import { Help } from './components/Help';
 import { SyncStatus } from './components/SyncStatus';
 import { AuthGate } from './components/AuthGate';
 import { PlannerBoard } from './components/PlannerBoard';
-import { CalendarWorkspace } from './components/CalendarWorkspace';
 import type { StudyDraft } from './components/CalendarWorkspace';
-import { AcademicWorkspace } from './components/AcademicWorkspace';
-import { ReminderWorkspace } from './components/ReminderWorkspace';
-import { AccountSettings } from './components/AccountSettings';
-import { CanvasConnection } from './components/CanvasConnection';
-import { CanvasLmsConnection } from './components/CanvasLmsConnection';
-import { CanvasReconciliation } from './components/CanvasReconciliation';
-import { AIRoutingSettings } from './components/AIRoutingSettings';
-import { AIPreflights } from './components/AIPreflights';
-import { AIBudgetSettings } from './components/AIBudgetSettings';
 import type { User } from '@hub/contracts';
 import { useRoute, viewLabels } from './lib/router';
 import type { View } from './lib/router';
+import type { WorkspaceState } from './views/ConnectionsView';
+import {
+  AcademicWorkspace,
+  CalendarWorkspace,
+  ConnectionsView,
+  PreferencesView,
+  ReminderWorkspace,
+  preloadViews,
+} from './views/lazy';
 
-type WorkspaceState =
-  | { status: 'loading' }
-  | { status: 'unavailable' }
-  | { status: 'ready'; data: BootstrapResponse };
 const navigation: { id: View; label: string; icon: string }[] = [
   { id: 'today', label: 'Today', icon: '◷' },
   { id: 'calendar', label: 'Calendar', icon: '\u25a6' },
@@ -67,6 +60,7 @@ function Workspace({
     if (navigated.current) heading.current?.focus();
     navigated.current = true;
   }, [view]);
+  useEffect(preloadViews, []);
   const [studyDraft, setStudyDraft] = useState<StudyDraft | null>(null);
   const [eink, setEink] = useState(readEinkPreference);
   const [workspace, setWorkspace] = useState<WorkspaceState>({
@@ -206,84 +200,26 @@ function Workspace({
             </>
           )}
 
-          {view === 'calendar' && <CalendarWorkspace studyDraft={studyDraft} />}
-          {view === 'classes' && (
-            <AcademicWorkspace
-              onSchedule={(draft) => {
-                setStudyDraft(draft);
-                setView('calendar');
-              }}
-            />
-          )}
-          {view === 'reminders' && <ReminderWorkspace />}
-
-          {view === 'connections' && (
-            <section
-              className="connections-section"
-              aria-labelledby="connections-title"
-            >
-              <h2 id="connections-title">Your accounts</h2>
-              <CanvasConnection />
-              <CanvasLmsConnection />
-              <CanvasReconciliation />
-              <Help label="Connections">
-                Email and Proton Calendar connections are not implemented yet.
-              </Help>
-              {workspace.status === 'ready' ? (
-                <div className="connection-grid">
-                  {workspace.data.connections
-                    .filter((connection) => connection.id !== 'canvas')
-                    .map((connection) => (
-                      <article className="connection-card" key={connection.id}>
-                        <div className="connection-card-top">
-                          <span className="account-icon" aria-hidden="true">
-                            {connection.name.charAt(0)}
-                          </span>
-                          <span className="status-tag">Not connected</span>
-                        </div>
-                        <h3>{connection.name}</h3>
-                        <Help label={connection.name}>
-                          {connection.description}
-                        </Help>
-                      </article>
-                    ))}
-                </div>
-              ) : (
-                <div className="panel connection-placeholder">
-                  <p>
-                    {workspace.status === 'loading'
-                      ? 'Loading connection information…'
-                      : 'Connect to the hub server to view the planned accounts.'}
-                  </p>
-                </div>
-              )}
-            </section>
-          )}
-
-          {view === 'preferences' && (
-            <div className="preferences-grid">
-              <AccountSettings />
-              <section className="panel preference-panel">
-                <span className="small-label">APPEARANCE</span>
-                <h2>Appearance</h2>
-                <Help label="E-ink">
-                  E-ink mode uses crisp black and white, clear borders, and a
-                  stable layout.
-                </Help>
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={eink}
-                    onChange={(event) => setEink(event.target.checked)}
-                  />
-                  Use e-ink mode
-                </label>
-              </section>
-              <AIRoutingSettings />
-              <AIBudgetSettings />
-              <AIPreflights />
-            </div>
-          )}
+          <Suspense fallback={<p role="status">Loading…</p>}>
+            {view === 'calendar' && (
+              <CalendarWorkspace studyDraft={studyDraft} />
+            )}
+            {view === 'classes' && (
+              <AcademicWorkspace
+                onSchedule={(draft) => {
+                  setStudyDraft(draft);
+                  setView('calendar');
+                }}
+              />
+            )}
+            {view === 'reminders' && <ReminderWorkspace />}
+            {view === 'connections' && (
+              <ConnectionsView workspace={workspace} />
+            )}
+            {view === 'preferences' && (
+              <PreferencesView eink={eink} onEinkChange={setEink} />
+            )}
+          </Suspense>
 
           <footer className="workspace-footer">
             <span className={`api-indicator ${workspace.status}`} role="status">
