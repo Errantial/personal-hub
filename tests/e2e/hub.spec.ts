@@ -240,3 +240,26 @@ test('a conflict preserves the draft and reload enables a deliberate retry', asy
   ).toBeVisible();
   await expect(panel.getByRole('alert')).toHaveCount(0);
 });
+
+test('views have URLs that survive reload and browser Back/Forward', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await expect(page).toHaveURL(/\/today$/);
+  await page.getByRole('button', { name: 'Calendar', exact: true }).click();
+  await expect(page).toHaveURL(/\/calendar$/);
+  await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
+  await expect(page).toHaveTitle('Calendar · Personal Hub');
+  await page.getByRole('button', { name: 'Preferences', exact: true }).click();
+  await page.reload();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+    'Preferences',
+  );
+  await page.goBack();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Calendar');
+  await page.goForward();
+  await expect(page).toHaveURL(/\/preferences$/);
+  await page.goto('/not-a-view');
+  await expect(page).toHaveURL(/\/today$/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Today');
+});

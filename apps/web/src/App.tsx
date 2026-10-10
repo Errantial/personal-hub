@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { BootstrapResponse } from '@hub/contracts';
 import { loadWorkspace } from './lib/api';
 import { Help } from './components/Help';
@@ -17,14 +17,9 @@ import { AIRoutingSettings } from './components/AIRoutingSettings';
 import { AIPreflights } from './components/AIPreflights';
 import { AIBudgetSettings } from './components/AIBudgetSettings';
 import type { User } from '@hub/contracts';
+import { useRoute, viewLabels } from './lib/router';
+import type { View } from './lib/router';
 
-type View =
-  | 'today'
-  | 'calendar'
-  | 'classes'
-  | 'reminders'
-  | 'connections'
-  | 'preferences';
 type WorkspaceState =
   | { status: 'loading' }
   | { status: 'unavailable' }
@@ -61,7 +56,17 @@ function Workspace({
   user: User;
   signOut: () => Promise<void>;
 }) {
-  const [view, setView] = useState<View>('today');
+  const [route, navigate] = useRoute();
+  const view = route.name;
+  const heading = useRef<HTMLHeadingElement>(null);
+  const navigated = useRef(false);
+  const setView = (next: View) => navigate({ name: next });
+  useEffect(() => {
+    // Move focus to the new view's heading after in-app or Back navigation,
+    // but not on first load.
+    if (navigated.current) heading.current?.focus();
+    navigated.current = true;
+  }, [view]);
   const [studyDraft, setStudyDraft] = useState<StudyDraft | null>(null);
   const [eink, setEink] = useState(readEinkPreference);
   const [workspace, setWorkspace] = useState<WorkspaceState>({
@@ -153,7 +158,7 @@ function Workspace({
 
       <div className="main-shell">
         <header className="topbar">
-          <span>{navigation.find((item) => item.id === view)?.label}</span>
+          <span>{viewLabels[view]}</span>
           <div className="topbar-actions">
             <button
               className="text-button"
@@ -178,7 +183,9 @@ function Workspace({
             <span className="eyebrow">
               {view === 'today' ? date : 'YOUR PERSONAL HUB'}
             </span>
-            <h1>{navigation.find((item) => item.id === view)?.label}</h1>
+            <h1 ref={heading} tabIndex={-1}>
+              {viewLabels[view]}
+            </h1>
           </div>
 
           {workspace.status === 'unavailable' && (
