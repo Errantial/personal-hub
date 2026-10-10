@@ -1,59 +1,5 @@
-:root {
-  font-family: 'Segoe UI', system-ui, sans-serif;
-  color: #253630;
-  background: #f4f5f0;
-  font-synthesis: none;
-  --background: #f4f5f0;
-  --surface: #fff;
-  --ink: #253630;
-  --muted: #65706b;
-  --border: #dfe3d9;
-  --accent: #284b40;
-  --tint: #e9eee3;
-  --hero: #e8eedf;
-  --soft: #f8f9f5;
-}
-* {
-  box-sizing: border-box;
-}
-body {
-  margin: 0;
-}
-button,
-input {
-  font: inherit;
-}
-button,
-a,
-input {
-  -webkit-tap-highlight-color: transparent;
-}
-button {
-  cursor: pointer;
-}
-button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible {
-  outline: 3px solid var(--accent);
-  outline-offset: 4px;
-}
-button {
-  color: inherit;
-}
-a {
-  color: inherit;
-}
-h1,
-h2,
-h3,
-p {
-  margin-top: 0;
-}
-button {
-  min-height: 44px;
-}
+/* Pre-rewrite component styles mapped onto design tokens. Each block is
+   removed when its screen is replaced (docs/frontend-plan.md). */
 .skip-link {
   position: fixed;
   top: -80px;
@@ -61,7 +7,7 @@ button {
   z-index: 10;
   background: var(--surface);
   padding: 14px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--text);
 }
 .skip-link:focus {
   top: 12px;
@@ -77,7 +23,7 @@ button {
   min-height: 100vh;
 }
 .sidebar {
-  background: var(--soft);
+  background: var(--surface-subtle);
   border-right: 1px solid var(--border);
   padding: 35px 24px 20px;
   display: flex;
@@ -90,7 +36,7 @@ button {
   gap: 12px;
   text-decoration: none;
   font-size: 19px;
-  font-weight: 650;
+  font-weight: var(--weight-strong);
   letter-spacing: -0.5px;
 }
 .brand-mark {
@@ -98,28 +44,19 @@ button {
   place-items: center;
   width: 39px;
   height: 43px;
-  border-radius: 12px;
+  border-radius: var(--radius-surface);
   background: var(--accent);
-  color: white;
-  font-family: Georgia, serif;
+  color: var(--on-accent);
   font-size: 34px;
   font-weight: 400;
-}
-.brand-caption {
-  display: block;
-  font-size: 10px;
-  font-weight: 400;
-  color: var(--muted);
-  margin-top: 4px;
-  letter-spacing: 0;
 }
 .nav-caption,
 .small-label,
 .eyebrow {
-  font-size: 10px;
-  letter-spacing: 1.5px;
-  font-weight: 650;
-  color: var(--muted);
+  font-size: var(--text-caption);
+  letter-spacing: 0.06em;
+  font-weight: var(--weight-strong);
+  color: var(--text-muted);
 }
 .nav-caption {
   display: block;
@@ -135,39 +72,28 @@ button {
   padding: 12px;
   margin: 5px 0;
   text-align: left;
-  border-radius: 8px;
-  font-size: 14px;
+  border-radius: var(--radius-surface);
+  font-size: var(--text-small);
 }
 .nav-item.active {
-  background: var(--tint);
-  font-weight: 650;
+  background: var(--selected-bg);
+  font-weight: var(--weight-strong);
 }
 .nav-icon {
   font-size: 22px;
   width: 24px;
   text-align: center;
 }
-.sidebar-note {
-  margin-top: auto;
-  padding: 19px 12px;
-  border-top: 1px solid var(--border);
-}
-.sidebar-note p {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.8;
-  margin: 10px 0 0;
-}
 .profile {
   display: flex;
   gap: 10px;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--text-caption);
   border-top: 1px solid var(--border);
   padding-top: 20px;
 }
 .avatar {
-  background: var(--tint);
+  background: var(--selected-bg);
   border: 1px solid var(--border);
   width: 34px;
   height: 34px;
@@ -178,8 +104,8 @@ button {
 .profile small {
   display: block;
   margin-top: 3px;
-  color: var(--muted);
-  font-size: 10px;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
 }
 .main-shell {
   min-width: 0;
@@ -191,28 +117,24 @@ button {
   justify-content: space-between;
   padding: 0 48px;
   border-bottom: 1px solid var(--border);
-  font-size: 13px;
+  font-size: var(--text-caption);
 }
 .topbar-actions {
   display: flex;
   gap: 20px;
   align-items: center;
 }
-.preview-label {
-  color: var(--muted);
-  font-size: 11px;
-}
 .theme-button,
 .secondary-button {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   padding: 0 13px;
-  font-size: 12px;
+  font-size: var(--text-small);
 }
 .theme-button span {
   margin-left: 9px;
-  font-weight: 650;
+  font-weight: var(--weight-strong);
 }
 main {
   max-width: 1240px;
@@ -224,81 +146,27 @@ main {
   text-transform: uppercase;
 }
 .page-heading h1 {
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(28px, 3vw, 40px);
-  font-weight: 400;
-  letter-spacing: -1.1px;
-  margin: 14px 0 12px;
-  line-height: 1.15;
+  font-size: var(--text-page-title);
+  margin: var(--space-2) 0 var(--space-4);
 }
 .page-heading p {
-  color: var(--muted);
-  font-size: 13px;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
   line-height: 1.7;
   margin-bottom: 30px;
-}
-.welcome-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--hero);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 30px 34px;
-  gap: 24px;
-  margin-bottom: 24px;
-  overflow: hidden;
-}
-.welcome-card h2 {
-  font-family: Georgia, serif;
-  font-weight: 400;
-  font-size: 28px;
-  margin: 13px 0 12px;
-  letter-spacing: -0.6px;
-}
-.welcome-card p {
-  max-width: 410px;
-  line-height: 1.8;
-  font-size: 13px;
-  color: var(--muted);
-  margin-bottom: 20px;
 }
 .primary-button {
   border: 1px solid var(--accent);
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   padding: 0 17px;
-  border-radius: 7px;
-  font-size: 12px;
+  border-radius: var(--radius-control);
+  font-size: var(--text-small);
+  font-weight: var(--weight-strong);
 }
 .primary-button span {
   margin-left: 18px;
-  font-size: 17px;
-}
-.welcome-art {
-  width: 155px;
-  height: 155px;
-  flex-shrink: 0;
-  position: relative;
-  display: grid;
-  place-items: center;
-}
-.orbit {
-  position: absolute;
-  border: 1px solid #b2bfa7;
-  width: 143px;
-  height: 95px;
-  border-radius: 50%;
-}
-.orbit-one {
-  transform: rotate(45deg);
-}
-.orbit-two {
-  transform: rotate(-45deg);
-}
-.orbit-center {
-  font-size: 63px;
-  color: var(--accent);
+  font-size: var(--text-body);
 }
 .planner-grid {
   display: grid;
@@ -306,8 +174,8 @@ main {
   gap: 24px;
 }
 .panel {
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-surface);
   background: var(--surface);
 }
 .panel-heading {
@@ -319,73 +187,9 @@ main {
 }
 .panel-heading h2,
 .connections-section h2 {
-  font-size: 15px;
+  font-size: var(--text-small);
   font-weight: 600;
   margin: 0;
-}
-.empty-state {
-  text-align: center;
-  padding: 28px 24px 34px;
-}
-.empty-icon {
-  display: grid;
-  place-items: center;
-  margin: 0 auto 16px;
-  width: 43px;
-  height: 43px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  color: var(--muted);
-  background: var(--soft);
-  font-size: 24px;
-}
-.empty-state h3 {
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-.empty-state p {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.8;
-  max-width: 260px;
-  margin: 0 auto;
-}
-.coming-next {
-  margin-top: 34px;
-}
-.coming-next h2 {
-  font-family: Georgia, serif;
-  font-size: 22px;
-  font-weight: 400;
-  margin: 10px 0 20px;
-}
-.feature-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 24px;
-}
-.feature {
-  border-top: 1px solid var(--border);
-  padding-top: 17px;
-}
-.feature-line {
-  display: block;
-  width: 18px;
-  height: 3px;
-  background: var(--accent);
-  margin-bottom: 15px;
-}
-.feature h3 {
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-.feature p {
-  font-size: 12px;
-  line-height: 1.7;
-  color: var(--muted);
-  margin-bottom: 0;
 }
 .workspace-footer {
   border-top: 1px solid var(--border);
@@ -394,8 +198,8 @@ main {
   display: flex;
   justify-content: space-between;
   gap: 16px;
-  font-size: 10px;
-  color: var(--muted);
+  font-size: var(--text-caption);
+  color: var(--text-muted);
 }
 .api-indicator {
   display: inline-flex;
@@ -405,7 +209,7 @@ main {
 .status-dot {
   width: 6px;
   height: 6px;
-  background: var(--muted);
+  background: var(--text-muted);
   border-radius: 50%;
 }
 .api-indicator.ready .status-dot {
@@ -419,23 +223,17 @@ main {
   border: 1px solid var(--border);
   background: var(--surface);
   padding: 20px;
-  border-radius: 10px;
+  border-radius: var(--radius-surface);
   margin-bottom: 24px;
-  font-size: 13px;
+  font-size: var(--text-caption);
 }
 .connection-error p {
-  font-size: 12px;
+  font-size: var(--text-caption);
   margin: 7px 0 0;
   line-height: 1.7;
 }
 .secondary-button {
   flex-shrink: 0;
-}
-.section-description {
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.7;
-  margin-top: 10px;
 }
 .connection-grid {
   display: grid;
@@ -445,8 +243,8 @@ main {
 }
 .connection-card {
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-surface);
   padding: 24px;
 }
 .connection-card-top {
@@ -460,28 +258,27 @@ main {
   width: 39px;
   height: 39px;
   border: 1px solid var(--border);
-  background: var(--soft);
+  background: var(--surface-subtle);
   display: grid;
   place-items: center;
-  border-radius: 10px;
-  font-family: Georgia, serif;
+  border-radius: var(--radius-surface);
   font-size: 22px;
 }
 .status-tag {
   border: 1px solid var(--border);
   border-radius: 20px;
   padding: 5px 9px;
-  font-size: 10px;
-  color: var(--muted);
+  font-size: var(--text-caption);
+  color: var(--text-muted);
 }
 .connection-card h3 {
-  font-size: 16px;
+  font-size: var(--text-body);
   margin-bottom: 9px;
   font-weight: 600;
 }
 .connection-card p {
-  font-size: 12px;
-  color: var(--muted);
+  font-size: var(--text-caption);
+  color: var(--text-muted);
   line-height: 1.8;
   margin: 0;
 }
@@ -523,7 +320,7 @@ main {
 }
 .canvas-item {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   padding: 16px;
   min-width: 0;
   overflow-wrap: anywhere;
@@ -562,64 +359,32 @@ main {
   overflow-wrap: anywhere;
 }
 .preference-panel h2 {
-  font-family: Georgia, serif;
-  font-weight: 400;
-  font-size: 23px;
-  margin: 14px 0;
+  font-size: var(--text-title);
+  margin: 0 0 var(--space-3);
 }
 .preference-panel p {
-  font-size: 13px;
-  color: var(--muted);
+  font-size: var(--text-caption);
+  color: var(--text-muted);
   line-height: 1.8;
 }
 .checkbox-label {
   display: flex;
   gap: 10px;
   align-items: center;
-  font-size: 13px;
-  min-height: 44px;
+  font-size: var(--text-caption);
+  min-height: var(--target);
 }
 .checkbox-label input {
   width: 20px;
   height: 20px;
   accent-color: var(--accent);
 }
-.muted-note {
-  padding-top: 15px;
-  border-top: 1px solid var(--border);
-}
-:root[data-theme='eink'] {
-  --background: #fff;
-  --surface: #fff;
-  --ink: #000;
-  --muted: #000;
-  --border: #000;
-  --accent: #000;
-  --tint: #fff;
-  --hero: #fff;
-  --soft: #fff;
-  color: #000;
-  background: #fff;
-}
 [data-theme='eink'] .nav-item.active {
-  border-color: #000;
+  border-color: var(--border);
   text-decoration: underline;
 }
-[data-theme='eink'] .welcome-art {
-  display: none;
-}
 [data-theme='eink'] .primary-button {
-  background: #fff;
-  color: #000;
-  border: 2px solid #000;
-  font-weight: 700;
-}
-[data-theme='eink'] *,
-[data-theme='eink'] *::before,
-[data-theme='eink'] *::after {
-  animation: none !important;
-  transition: none !important;
-  box-shadow: none !important;
+  border-width: 2px;
 }
 @media (max-width: 1000px) {
   .app-shell {
@@ -633,19 +398,6 @@ main {
   }
   .sidebar {
     padding: 28px 18px 20px;
-  }
-  .brand-caption {
-    font-size: 9px;
-  }
-  .welcome-art {
-    width: 105px;
-  }
-  .orbit {
-    width: 106px;
-    height: 74px;
-  }
-  .welcome-card {
-    padding: 26px;
   }
 }
 @media (max-width: 720px) {
@@ -669,7 +421,7 @@ main {
     justify-content: center;
     padding: 8px 5px;
     margin: 0;
-    font-size: 12px;
+    font-size: var(--text-caption);
     gap: 6px;
   }
   .nav-icon {
@@ -677,16 +429,12 @@ main {
     width: 18px;
   }
   .nav-caption,
-  .sidebar-note,
   .profile {
     display: none;
   }
   .topbar {
     padding: 0 20px;
     height: 65px;
-  }
-  .preview-label {
-    display: none;
   }
   main {
     padding: 30px 20px 22px;
@@ -699,16 +447,6 @@ main {
   .connection-grid {
     grid-template-columns: 1fr;
   }
-  .welcome-card {
-    padding: 24px;
-  }
-  .welcome-art {
-    display: none;
-  }
-  .feature-grid {
-    grid-template-columns: 1fr;
-    gap: 20px;
-  }
   .workspace-footer {
     flex-wrap: wrap;
     margin-top: 30px;
@@ -719,15 +457,6 @@ main {
   }
   .topbar-actions {
     gap: 8px;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation: none !important;
-    transition: none !important;
-    scroll-behavior: auto !important;
   }
 }
 /* Planner and account forms share the same touch-friendly controls. */
@@ -775,12 +504,12 @@ main {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  min-height: 44px;
+  min-height: var(--target);
   padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: var(--surface);
-  color: var(--ink);
+  color: var(--text);
   font: inherit;
 }
 .editor-form textarea {
@@ -799,7 +528,7 @@ main {
 .form-error {
   padding: 12px;
   border: 2px solid currentColor;
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   overflow-wrap: anywhere;
 }
 .planner-panel {
@@ -808,7 +537,7 @@ main {
 }
 .planner-empty {
   margin-block: 24px;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 .planner-list {
   list-style: none;
@@ -854,22 +583,18 @@ main {
 .item-label {
   font-size: 0.75rem;
   border: 1px solid currentColor;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   padding: 2px 6px;
 }
 .text-button {
   background: none;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   color: inherit;
   padding: 8px;
-  min-height: 44px;
+  min-height: var(--target);
   font: inherit;
   cursor: pointer;
-}
-button:disabled {
-  cursor: wait;
-  opacity: 0.65;
 }
 @media (max-width: 480px) {
   .planner-panel {
@@ -896,13 +621,13 @@ button:disabled {
 }
 .context-help {
   font-size: 0.875rem;
-  color: var(--muted);
+  color: var(--text-muted);
   margin-block: 8px;
 }
 .context-help summary {
   cursor: pointer;
   padding: 8px;
-  min-height: 44px;
+  min-height: var(--target);
   width: fit-content;
 }
 .context-help > div {
@@ -927,13 +652,13 @@ button:disabled {
 }
 .calendar-toolbar input {
   min-width: 0;
-  min-height: 44px;
+  min-height: var(--target);
   max-width: 100%;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   padding: 8px;
   background: var(--surface);
-  color: var(--ink);
+  color: var(--text);
 }
 .calendar-days {
   display: grid;
