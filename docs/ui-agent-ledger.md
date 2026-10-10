@@ -128,3 +128,18 @@ The web build remains about 603 kB minified with a size advisory. No new depende
 ### 2026-10-10 — UI guidelines and rewrite plan (adopted)
 
 Added [ui-guidelines.md](ui-guidelines.md) and [frontend-plan.md](frontend-plan.md). Owner decisions are recorded in plan §6 and D46; Phase 0 starts on branch `ui/phase-0`. Audit findings recorded in the plan: no URL routing (reload/Back lose the view), always-open editors, a full sync panel on every screen, 600 kB single bundle, and a service worker that caches only fetched files keyed by URL. Lazy-loaded routes must not ship before navigation fallback and asset precaching exist, or offline navigation breaks. Platform floor for the rewrite is Chromium 113 (verified emulator WebView) until Kompakt is measured.
+
+### 2026-10-10 — Phase 0 foundations (branch `ui/phase-0`)
+
+Implemented; see [frontend-plan.md](frontend-plan.md) Phase 0.
+
+- **URLs.** Views live at `/today`, `/calendar`, `/classes`, `/reminders`, `/connections` and `/preferences` (renamed in Phase 1). `/` and unknown paths become `/today` without a history entry. Reload, Back/Forward and bookmarks restore the view; focus moves to the view `<h1>` after navigation and `document.title` follows. `lib/router.ts` re-reads the address bar when it subscribes, because a Back pressed before the listener attached was otherwise lost (found by e2e). Static hosts must serve `index.html` for unknown non-asset paths.
+- **Offline shell.** The build writes a versioned precache list into `sw.js` (now `src/sw.js`, served by a Vite plugin in development). Install caches every built asset, so views outside Today, which load lazily and are prefetched after sign-in, work offline after one online load. All navigations share the cached app shell. Lookups ignore `Vary` because servers answer module requests with `Vary: Origin`. Fonts are cached. Native Android still does not register the service worker.
+- **Bundle.** Initial chunk 525 kB (was 604 kB), dominated by react-dom, Zod and the Temporal polyfill via the contracts barrel. Reaching ≤ 250 kB needs a contracts entry-point split (Phase 8).
+- **Styles.** Tokens/base/legacy layers; self-hosted Atkinson Hyperlegible Next (~53 kB woff2, Latin and Latin-extended); no text below 13 px; control borders ≥ 3:1. E-ink targets are 48 px and disabled controls use dashed borders instead of opacity.
+- **Data hooks.** `useResource` (abort, stale-response guard, optional polling) and `useMutation` (per-action operation identity, conflict flag, per-action pending) in `lib/hooks.ts`. Reminders uses them with unchanged markup; mark-read now reuses its operation ID on retry. Other screens still use their own copies until replaced.
+- **Offline status.** `offlineStatus()` adds `queued` task IDs and `locked`; not yet shown in the UI.
+- **Checks.** `tests/e2e/accessibility.spec.ts` runs axe (WCAG 2.0–2.2 A/AA tags), overflow and target-size checks on every view for standard 1280 px and e-ink 320 px. These automated checks do not replace keyboard or screen-reader passes.
+- **Known issue for Phase 1.** `AuthGate` shows the sign-in form while the session check is pending, so every load briefly shows Sign in.
+- **Verification.** `npm run check` passed (110 tests; 1 PostgreSQL test skipped); `npm run test:e2e` passed 37 browser tests. Synthetic databases only.
+
