@@ -1,4 +1,7 @@
 import { z } from 'zod';
+import { recurrenceSchema } from './features.js';
+export * from './features.js';
+export * from './occurrences.js';
 
 export const healthResponseSchema = z.object({
   status: z.literal('ok'),
@@ -118,7 +121,13 @@ const eventFields = {
 const validEventRange = (event: { startsAt: string; endsAt: string }) =>
   new Date(event.endsAt) > new Date(event.startsAt);
 export const eventSchema = z
-  .object({ ...eventFields, ...metadata })
+  .object({
+    ...eventFields,
+    ...metadata,
+    allDay: z.boolean().default(false),
+    recurrence: recurrenceSchema.nullable().default(null),
+    courseId: z.string().uuid().nullable().default(null),
+  })
   .refine(validEventRange, 'Event end must follow its start.');
 export const createEventSchema = z
   .strictObject({ ...eventFields, operationId: z.string().uuid() })

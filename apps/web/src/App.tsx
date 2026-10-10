@@ -3,15 +3,28 @@ import type { BootstrapResponse } from '@hub/contracts';
 import { loadWorkspace } from './lib/api';
 import { AuthGate } from './components/AuthGate';
 import { PlannerBoard } from './components/PlannerBoard';
+import { CalendarWorkspace } from './components/CalendarWorkspace';
+import type { StudyDraft } from './components/CalendarWorkspace';
+import { AcademicWorkspace } from './components/AcademicWorkspace';
+import { ReminderWorkspace } from './components/ReminderWorkspace';
 import type { User } from '@hub/contracts';
 
-type View = 'today' | 'connections' | 'preferences';
+type View =
+  | 'today'
+  | 'calendar'
+  | 'classes'
+  | 'reminders'
+  | 'connections'
+  | 'preferences';
 type WorkspaceState =
   | { status: 'loading' }
   | { status: 'unavailable' }
   | { status: 'ready'; data: BootstrapResponse };
 const navigation: { id: View; label: string; icon: string }[] = [
   { id: 'today', label: 'Today', icon: '◷' },
+  { id: 'calendar', label: 'Calendar', icon: '\u25a6' },
+  { id: 'classes', label: 'Classes', icon: '\u25a4' },
+  { id: 'reminders', label: 'Reminders', icon: '\u25f4' },
   { id: 'connections', label: 'Connections', icon: '⌘' },
   { id: 'preferences', label: 'Preferences', icon: '☷' },
 ];
@@ -40,6 +53,7 @@ function Workspace({
   signOut: () => Promise<void>;
 }) {
   const [view, setView] = useState<View>('today');
+  const [studyDraft, setStudyDraft] = useState<StudyDraft | null>(null);
   const [eink, setEink] = useState(readEinkPreference);
   const [workspace, setWorkspace] = useState<WorkspaceState>({
     status: 'loading',
@@ -167,14 +181,26 @@ function Workspace({
                 ? 'Make room for what matters.'
                 : view === 'connections'
                   ? 'Bring your world together.'
-                  : 'Make yourself at home.'}
+                  : view === 'calendar'
+                    ? 'Make time for your plans.'
+                    : view === 'classes'
+                      ? 'See your learning take shape.'
+                      : view === 'reminders'
+                        ? 'Keep the next step in sight.'
+                        : 'Make yourself at home.'}
             </h1>
             <p>
               {view === 'today'
                 ? 'A calm place for your schedule, your next steps, and everything in between.'
                 : view === 'connections'
                   ? 'Your existing accounts will meet here, with their sources kept clear.'
-                  : 'Start with a comfortable view. More controls will arrive as the hub grows.'}
+                  : view === 'calendar'
+                    ? 'Events, repeated commitments, and study time in one calendar.'
+                    : view === 'classes'
+                      ? 'Your courses, topics, and self-reported progress.'
+                      : view === 'reminders'
+                        ? 'Scheduled reminders and their delivery history.'
+                        : 'Start with a comfortable view. More controls will arrive as the hub grows.'}
             </p>
           </div>
 
@@ -237,6 +263,17 @@ function Workspace({
               </section>
             </>
           )}
+
+          {view === 'calendar' && <CalendarWorkspace studyDraft={studyDraft} />}
+          {view === 'classes' && (
+            <AcademicWorkspace
+              onSchedule={(draft) => {
+                setStudyDraft(draft);
+                setView('calendar');
+              }}
+            />
+          )}
+          {view === 'reminders' && <ReminderWorkspace />}
 
           {view === 'connections' && (
             <section

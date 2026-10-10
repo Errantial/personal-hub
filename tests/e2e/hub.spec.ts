@@ -1,19 +1,12 @@
 import { expect, test } from '@playwright/test';
+import { authenticate } from './auth';
 
 const credentials = {
   email: 'browser@example.test',
   password: 'synthetic-browser-password',
 };
 test.beforeEach(async ({ page }) => {
-  const options = {
-    data: credentials,
-    headers: { Origin: 'http://127.0.0.1:5180' },
-  };
-  const setup = await page.request.post('/api/v1/auth/setup', options);
-  if (setup.status() === 409) {
-    const login = await page.request.post('/api/v1/auth/login', options);
-    expect(login.status()).toBe(200);
-  } else expect(setup.status()).toBe(201);
+  await authenticate(page);
 });
 
 test('web and API connect and show the actual scaffold account state', async ({

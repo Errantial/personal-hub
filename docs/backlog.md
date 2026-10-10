@@ -11,17 +11,22 @@ Updated 2026-10-10. This is the work queue; product.md remains the full scope, d
 - Local embedded PostgreSQL through PGlite; standard PostgreSQL driver selected by DATABASE_URL and required in production.
 - Browser CRUD forms, persistence across reload/restart, responsive layout, local e-ink preference, visible save/load errors.
 - Local doctor command, contributor instructions, isolated API/browser tests, and CI definition for Windows/Linux plus PostgreSQL.
-- Dots/OpenDots-style persistent agent capabilities recorded as later scope; no agent execution dependency installed.
+- CopilotKit/OpenDots confirmed as the later feature reference: specialist assistants, Spaces/pages, persistent conversations, scheduled work, memory/learning, tool controls, and later voice/Slack. No agent execution dependency installed.
 
-## Next: finish reliable planner behavior
+## Completed planner slices 1–3
 
-1. Calendar day/week view, all-day events and recurrence. Define occurrence/exception storage before edits; test daylight-saving transitions, skipped/ambiguous local times, and date-only deadlines separately from timed commitments.
-2. Basic class/topic portfolios, progress, and manual study-time blocks. Imported grades remain unknown until a connector proves their availability.
-3. Durable jobs/reminder delivery records. Add bounded worker execution, leases, retry/reconciliation, notification status, and stop controls before scheduled AI responsibilities.
+1. Calendar day/week agendas, IANA timezone viewing/input, date-only all-day events, daily/weekly/monthly rules and single-occurrence replacement/cancellation. Shared bounded expansion preserves local recurring starts through DST; gaps/folds, missing monthly dates, moved occurrences, stale versions and receipt retries have synthetic checks.
+2. Owner-scoped class/topic portfolios with manual progress/confidence, notes and labels; linked study blocks with planned/completed/cancelled status. Source labels inherit through study blocks and occurrence replacements. Imported grades and automated study recommendations remain unknown/unimplemented.
+3. Durable reminder schedules and inbox records, bounded server worker with leases/recovery/backoff, failure/heartbeat visibility, pause/resume/retry/cancel and read receipts. Restart recovery and duplicate suppression are tested. Optional browser alerts require permission and an open Reminders view; closed-app push/native delivery is not implemented.
+
+See [planner behavior](planner.md) for exact recurrence/editing and reminder policies. Migration 002 adds these records without changing migration 001. These three backlog slices are distinct from roadmap phases 1–3: Canvas and email ingestion have not been implemented.
+
+## Next: Android/offline and operational readiness
+
 4. Kompakt compatibility prototype, Android local storage and durable offline operation queue. Preserve operation IDs across app/process restarts. Show stale data and conflicts; prove no Google Services dependency and test native reminders on the owner's firmware.
 5. Export/deletion and backup/restore, session/password management and recovery, server deployment acceptance checks. Embedded local storage is not an Oracle production deployment.
 
-Acceptance for the next planner slice: a task deadline and a reserved study interval have different meanings; recurring/all-day items remain correct through DST; an Android edit survives process death and synchronizes once; conflicts are visible; denied notification permission is understandable; monochrome navigation works on actual Kompakt hardware.
+Acceptance remaining for the broader planner milestone: an Android edit survives process death and synchronizes once; closed-app reminders and denied/revoked permissions are understood; monochrome navigation works on actual Kompakt hardware. Current web tests distinguish task deadlines from reserved study intervals and exercise recurrence/DST, conflict preservation, permission denial and 320px e-ink layout.
 
 ## Integration gates, before dependent features
 
@@ -37,7 +42,7 @@ Implement the text/provenance/provider-routing gateway, typed action policies an
 
 ## Local verification receipt (2026-10-10)
 
-Lint, strict type checks, formatting and production builds passed. API/client suite: 20 passed; one standard PostgreSQL test skipped locally because TEST_DATABASE_URL is unset. Browser suite: 9 passed, including lost-response retry and conflict/draft preservation. Dependency audit: zero reported vulnerabilities. The default development server starts with database readiness and enrollment open; synthetic tests did not create the owner account.
+Lint, strict type checks, formatting and production builds passed. API/client suite: 37 passed; one standard PostgreSQL test skipped locally because TEST_DATABASE_URL is unset. Browser suite: 14 passed, covering planner CRUD, occurrence edits, study blocks, server delivery, permission denial, 320px e-ink layout, lost-response retry and deliberate conflict recovery. Dependency audit reported zero production vulnerabilities. The build emits a bundle-size advisory (about 520 kB minified); Kompakt loading/performance still needs measurement. Synthetic tests use separate databases and did not enroll or reset the owner's database. Standard PostgreSQL coverage now includes recurring study blocks and the reminder worker; its remote result remains unverified.
 
 ## Verification still outstanding
 

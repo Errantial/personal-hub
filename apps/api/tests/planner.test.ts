@@ -429,7 +429,7 @@ describe('durable planner mutations', () => {
   });
 });
 
-it('persists a planner item across closing and reopening the database', async () => {
+it('persists planner records and delivers a queued reminder once after restarting', async () => {
   const root = resolve('.artifacts', 'persistence-tests');
   await mkdir(root, { recursive: true });
   const directory = await mkdtemp(resolve(root, 'run-'));
@@ -457,17 +457,51 @@ it('persists a planner item across closing and reopening the database', async ()
       payload: { title: 'Survives restart', operationId: randomUUID() },
     });
     expect(created.statusCode).toBe(200);
+    const scheduled = await persistentApp.inject({
+      method: 'POST',
+      url: '/api/v1/reminders',
+      headers: headers(persistentCookie),
+      payload: {
+        title: 'Restart reminder',
+        scheduledAt: '2020-01-01T10:00:00Z',
+        operationId: randomUUID(),
+      },
+    });
+    expect(scheduled.statusCode).toBe(200);
     await persistentApp.close();
     persistentApp = undefined;
     persistentApp = await buildApp(
       { logger: false },
-      { config: persistentConfig },
+      { config: persistentConfig, runWorker: true },
     );
     const list = await persistentApp.inject({
       url: '/api/v1/tasks',
       headers: headers(persistentCookie),
     });
     expect(list.json().tasks[0].title).toBe('Survives restart');
+    await expect
+      .poll(
+        async () => {
+          const inbox = await persistentApp!.inject({
+            url: '/api/v1/notifications',
+            headers: headers(persistentCookie),
+          });
+          return inbox.json().notifications.length;
+        },
+        { timeout: 10000 },
+      )
+      .toBe(1);
+    await persistentApp.close();
+    persistentApp = await buildApp(
+      { logger: false },
+      { config: persistentConfig, runWorker: true },
+    );
+    const inbox = await persistentApp.inject({
+      url: '/api/v1/notifications',
+      headers: headers(persistentCookie),
+    });
+    expect(inbox.json().notifications).toHaveLength(1);
+    expect(inbox.json().notifications[0].title).toBe('Restart reminder');
   } finally {
     await persistentApp?.close();
     if (dirname(resolve(directory)) === root)

@@ -29,6 +29,7 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
             NODE_ENV: 'test',
             DATABASE_URL: connection.toString(),
           }),
+          runWorker: true,
         },
       );
       const setup = await app.inject({
@@ -92,6 +93,63 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
       });
       expect(event.statusCode).toBe(200);
       expect(event.json().event.startsAt).toBe('2026-11-03T16:00:00.000Z');
+      const course = await app.inject({
+        method: 'POST',
+        url: '/api/v1/courses',
+        headers,
+        payload: { name: 'PostgreSQL class', operationId: randomUUID() },
+      });
+      expect(course.statusCode).toBe(200);
+      const calendar = await app.inject({
+        method: 'POST',
+        url: '/api/v1/calendar',
+        headers,
+        payload: {
+          title: 'Repeated study',
+          startsAt: '2027-03-07T16:00:00Z',
+          endsAt: '2027-03-07T17:00:00Z',
+          timeZone: 'America/Denver',
+          courseId: course.json().course.id,
+          recurrence: {
+            frequency: 'weekly',
+            interval: 1,
+            count: 2,
+            until: null,
+          },
+          operationId: randomUUID(),
+        },
+      });
+      expect(calendar.statusCode).toBe(200);
+      const occurrences = await app.inject({
+        url: '/api/v1/calendar/occurrences?from=2027-03-14&to=2027-03-15&timeZone=America%2FDenver',
+        headers,
+      });
+      expect(occurrences.json().occurrences[0].startsAt).toBe(
+        '2027-03-14T15:00:00.000Z',
+      );
+      const reminder = await app.inject({
+        method: 'POST',
+        url: '/api/v1/reminders',
+        headers,
+        payload: {
+          title: 'PostgreSQL reminder',
+          scheduledAt: '2020-01-01T10:00:00Z',
+          operationId: randomUUID(),
+        },
+      });
+      expect(reminder.statusCode).toBe(200);
+      await expect
+        .poll(
+          async () => {
+            const inbox = await app!.inject({
+              url: '/api/v1/notifications',
+              headers,
+            });
+            return inbox.json().notifications.length;
+          },
+          { timeout: 10000 },
+        )
+        .toBe(1);
     } finally {
       await app?.close();
       await administrator.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

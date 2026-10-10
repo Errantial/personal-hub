@@ -19,7 +19,7 @@ async function start() {
         },
       },
     },
-    { config },
+    { config, runWorker: true },
   );
 
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {

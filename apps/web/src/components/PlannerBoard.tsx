@@ -39,7 +39,12 @@ function PlannerPanel({ kind }: { kind: Kind }) {
     const data = isTask
       ? await getJson(base, tasksResponseSchema, signal)
       : await getJson(base, eventsResponseSchema, signal);
-    const latest = 'tasks' in data ? data.tasks : data.events;
+    const latest =
+      'tasks' in data
+        ? data.tasks
+        : data.events.filter(
+            (item) => !item.allDay && !item.recurrence && !item.courseId,
+          );
     setItems(latest);
     setLoaded(true);
     setEditing((previous) => {
@@ -177,7 +182,7 @@ function PlannerPanel({ kind }: { kind: Kind }) {
       <p className="muted-note">
         {isTask
           ? 'Tasks saved to your hub.'
-          : 'One-time events in your hub calendar.'}
+          : 'Quick one-time events. Use Calendar for the full schedule, repeats and study time.'}
       </p>
       {error && (
         <p className="form-error" role="alert">

@@ -1,6 +1,6 @@
 # Proposed architecture
 
-Status: initial web/API scaffold authorized and implemented. React/Vite, Fastify, npm workspaces, and shared TypeScript/Zod contracts are selected for the scaffold. Owner authentication, SQL migrations, embedded local PostgreSQL and a standard PostgreSQL driver, versioned tasks/events, optimistic conflicts and mutation receipts are implemented. Android packaging, worker, integrations, AI, and MCP remain proposed/unimplemented; their feasibility gates still apply before dependent features are promised. See [local development](development.md).
+Status: React/Vite, Fastify, npm workspaces and shared TypeScript/Zod contracts are implemented. The local planner includes owner authentication, common SQL migrations, embedded/standard PostgreSQL adapters, versioned tasks/calendar, occurrence exceptions, class/topic records, study blocks, and an in-process durable reminder worker with inbox receipts. Android packaging, synchronization, integrations, AI and MCP remain proposed/unimplemented; their feasibility gates still apply before dependent features are promised. See [local development](development.md) and [planner behavior](planner.md).
 
 ## Platform and stack direction
 
@@ -12,7 +12,7 @@ Kompakt compatibility is a prerequisite to committing to the mobile framework: p
 
 These are proposals rather than proof of suitability. Capacitor officially targets Android, iOS, and web; a native Windows shell would be a separate adapter. Tauri supports Windows and mobile targets, but its platform capabilities still require testing. [Capacitor setup](https://capacitorjs.com/docs/getting-started/environment-setup), [Tauri](https://tauri.app/).
 
-Start with a modular monolith: one API service plus a durable worker process, one database, and a model-serving endpoint if self-hosting is selected. Do not start with microservices or a separate vector database. A PostgreSQL-backed job queue is a candidate; select its implementation during scaffolding.
+The current modular monolith runs the API and bounded reminder worker in one process, backed by PostgreSQL rows, leases and atomic delivery receipts. A separate synchronization/agent worker process and model-serving endpoint remain later options. No microservices or separate vector database are required for the current planner.
 
 Confirmed initial target: Oracle Cloud Ubuntu Linux, 24 GB RAM and 4 OCPUs. Use bounded worker concurrency and verify CPU architecture before selecting browser/Bridge binaries. Measure resource use before claiming capacity. See [deployment and AI policy](deployment.md).
 

@@ -2,7 +2,7 @@
 
 Schedule, task, email, and study hub targeting the web, Android, and Windows.
 
-Status: local web/API foundation plus authenticated planner implemented. Includes owner login, durable tasks and one-time calendar events, SQL migrations, shared TypeScript/Zod contracts, conflict checks and retry deduplication. Account integrations, reminders, Android/offline support, AI/MCP/persistent agents, and server deployment remain upcoming.
+Status: authenticated web/API planner implemented, including tasks, day/week calendar, all-day and recurring events, individual occurrence edits, class/topic portfolios, manual study blocks, and durable reminders with an in-app inbox. Includes SQL migrations, shared TypeScript/Zod contracts, conflict checks and retry deduplication. Account integrations, Android/offline support, AI/MCP/persistent agents, and server deployment remain upcoming. Browser alerts require permission and an open Reminders view; closed-app device alerts remain future work.
 
 ## Run locally
 

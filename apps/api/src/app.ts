@@ -12,10 +12,16 @@ import type { Database } from './db/database.js';
 import { registerAuth } from './auth/routes.js';
 import { registerPlanner } from './planner/routes.js';
 import { ApiError } from './errors.js';
+import { registerAcademics } from './features/academics.js';
+import { registerCalendar } from './features/calendar.js';
+import {
+  registerReminders,
+  startReminderWorker,
+} from './features/reminders.js';
 
 export async function buildApp(
   options: FastifyServerOptions = {},
-  runtime: { config?: Config; database?: Database } = {},
+  runtime: { config?: Config; database?: Database; runWorker?: boolean } = {},
 ) {
   const config = runtime.config ?? readConfig({});
   const database = runtime.database ?? (await openDatabase(config));
@@ -26,11 +32,18 @@ export async function buildApp(
     throw error;
   }
   const app = Fastify({ bodyLimit: 64 * 1024, ...options });
+  let worker: ReturnType<typeof startReminderWorker> | undefined;
   app.addHook('onClose', async () => {
+    await worker?.stop();
     await database.close();
   });
   await app.register(cookie);
-  await app.register(rateLimit, { max: 300, timeWindow: '1 minute' });
+  // Isolated browser suites exercise many page lifetimes in seconds. Keep the
+  // deployed limit unchanged; enrollment/login retain their own tighter limit.
+  await app.register(rateLimit, {
+    max: config.NODE_ENV === 'test' ? 3000 : 300,
+    timeWindow: '1 minute',
+  });
   app.addHook('onRequest', async (request, reply) => {
     reply.header('Cache-Control', 'no-store');
     if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
@@ -49,6 +62,13 @@ export async function buildApp(
   });
   const auth = registerAuth(app, database, config);
   registerPlanner(app, database, auth);
+  registerAcademics(app, database, auth);
+  registerCalendar(app, database, auth);
+  registerReminders(app, database, auth);
+  if (runtime.runWorker)
+    app.addHook('onReady', async () => {
+      worker = startReminderWorker(database);
+    });
 
   app.get('/api/health', async () =>
     healthResponseSchema.parse({

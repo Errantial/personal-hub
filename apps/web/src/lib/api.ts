@@ -47,6 +47,10 @@ export async function requestJson<T>(
       .safeParse(payload);
     const code = result.success ? result.data.error.code : 'REQUEST_FAILED';
     const messages: Record<string, string> = {
+      CALENDAR_EDITOR_REQUIRED:
+        'Edit this event in Calendar to preserve its schedule and class links.',
+      REMINDER_STATE:
+        'The reminder status changed. Reload the list before trying again.',
       UNAUTHENTICATED: 'Your session ended. Sign out and sign in again.',
       INVALID_CREDENTIALS: 'Email or password is incorrect.',
       OWNER_EXISTS: 'This workspace already has an owner. Refresh to sign in.',

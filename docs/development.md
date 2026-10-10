@@ -2,9 +2,9 @@
 
 ## Current implementation
 
-A local authenticated planner: React/Vite web, Fastify API, shared Zod contracts, single-owner enrollment/login, versioned tasks and one-time calendar events, durable storage/migrations, optimistic conflicts, duplicate-safe retries, and e-ink appearance.
+A local authenticated planner: React/Vite web, Fastify API, shared Zod contracts, single-owner enrollment/login, versioned tasks, day/week calendar with all-day/recurring events and occurrence edits, class/topic portfolios, manual study blocks, durable reminders/inbox, optimistic conflicts, duplicate-safe retries, and e-ink appearance. See [planner behavior](planner.md) for recurrence rules, label inheritance and delivery limits.
 
-Not implemented: recurrence/all-day calendar UI, reminders, class portfolios, Android APK/offline queue, provider connections, hosted AI/routing enforcement, memory, MCP or autonomous agent execution. Explicit content labels can be stored now; they do not imply AI is configured. No real account content is imported. See [implementation backlog](backlog.md).
+Not implemented: Android APK/offline queue, closed-app device alerts, provider connections, imported grades, automatic study suggestions, hosted AI/routing enforcement, memory, MCP or autonomous agent execution. Explicit content labels can be stored now; they do not imply AI is configured. No real account content is imported. See [implementation backlog](backlog.md).
 
 ## First run
 
@@ -48,7 +48,7 @@ npm run db:migrate
 
 Tasks/events are scoped by owner, versioned, and soft-deleted. Mutations require an operationId UUID; the owner/operation pair atomically stores the result with its payload hash. An exact retry returns that original result, including after deletion. Reusing the ID for a different operation/payload returns 409. Updates/deletes also require expectedVersion; stale writes return 409 and do not overwrite newer data. Lists exclude tombstones. Omitted sensitivity on an update preserves the existing owner label; changing/removing a label requires an explicit value. Receipts/tombstones have no pruning policy yet and must be retained until future device synchronization rules define safe cleanup.
 
-Task dueDate is a date-only deadline. Timed events use explicit UTC/offset timestamps and a display timezone; end must follow start. The browser enters datetime-local values in the device timezone and labels that behavior explicitly; changing display timezone does not move the UTC instant. All-day/recurrence and ambiguous/nonexistent local-time handling remain next work.
+Task dueDate is a date-only deadline. Calendar timed events use explicit UTC/offset timestamps and an IANA timezone; end must follow start. Calendar input uses the selected event timezone and requires an earlier/later offset choice for repeated local times; nonexistent local times are rejected. The Today quick editor uses device local time for simple one-time events. All-day dates have an exclusive end date in storage. Recurring timed events preserve local start time through DST; see [planner behavior](planner.md).
 
 For local backups, stop the API before copying the entire embedded data directory and test restoring into a separate directory. Standard PostgreSQL uses database-aware backup/restore, not copying a live data directory. No automated backup/export/restore service or production restore test is claimed implemented.
 
@@ -67,6 +67,14 @@ For local backups, stop the API before copying the entire embedded data director
 | `POST /api/v1/tasks`, `POST /api/v1/events` | Create with operationId |
 | `PUT /api/v1/tasks/:id`, `PUT /api/v1/events/:id` | Replace editable fields with operationId and expectedVersion |
 | `DELETE /api/v1/tasks/:id`, `DELETE /api/v1/events/:id` | Tombstone with operationId and expectedVersion |
+| `GET/POST /api/v1/calendar`, `PUT/DELETE /api/v1/calendar/:id` | Full series CRUD; legacy event edits reject advanced records |
+| `GET /api/v1/calendar/occurrences?from=YYYY-MM-DD&to=YYYY-MM-DD&timeZone=...` | Expand a date window, exclusive to, maximum 93 days |
+| `PUT/DELETE /api/v1/calendar/:id/occurrences/:date` | Replace/cancel one occurrence using the series expectedVersion |
+| `GET/POST /api/v1/courses`, `PUT/DELETE /api/v1/courses/:id` | Owner class portfolios and tombstones |
+| `GET/POST /api/v1/topics`, `PUT/DELETE /api/v1/topics/:id` | Manual progress/confidence linked to an owned class |
+| `GET/POST /api/v1/reminders`, `PUT /api/v1/reminders/:id` | Durable schedules and worker health; reschedule queued/paused/failed jobs |
+| `POST /api/v1/reminders/:id/control` | Versioned pause/resume/retry/cancel action |
+| `GET /api/v1/notifications`, `POST /api/v1/notifications/:id/read` | Owner inbox and idempotent read receipts |
 
 Request/response types and runtime schemas live in `packages/contracts/src/index.ts`. Session tokens are random, hashed in storage, sent in HttpOnly/SameSite=Strict cookies, Secure in production, and expire after seven days. Passwords use salted scrypt. All responses disable caching. Routes validate ownership before planner access; unknown endpoints and internal errors return sanitized structured errors. Logs omit query strings, cookies, authorization, and private error content. Unexpected database startup errors also omit raw exception details.
 

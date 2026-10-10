@@ -15,6 +15,7 @@ import {
 import type { Database } from '../db/database.js';
 import type { authService } from '../auth/routes.js';
 import { missingOrConflict, mutate } from './mutations.js';
+import { ApiError } from '../errors.js';
 
 const idSchema = z.object({ id: z.string().uuid() });
 // SQL aliases and to_char preserve date-only deadlines and normalize timestamps on both drivers.
@@ -22,7 +23,7 @@ const taskColumns = `id, title, notes, to_char(due_date, 'YYYY-MM-DD') AS "dueDa
   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
   to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
   to_char(deleted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "deletedAt"`;
-const eventColumns = `id, title, notes, time_zone AS "timeZone", sensitivity, version,
+const eventColumns = `id, title, notes, time_zone AS "timeZone", sensitivity, version, all_day AS "allDay", recurrence, course_id AS "courseId",
   to_char(starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startsAt",
   to_char(ends_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "endsAt",
   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
@@ -162,6 +163,19 @@ export function registerPlanner(
       input.operationId,
       { kind: 'event.update', id, input },
       async (transaction) => {
+        const [advanced] = await transaction.query(
+          'SELECT all_day,recurrence,course_id FROM events WHERE owner_id=$1 AND id=$2 AND deleted_at IS NULL FOR UPDATE',
+          [user.id, id],
+        );
+        if (
+          advanced &&
+          (advanced.all_day || advanced.recurrence || advanced.course_id)
+        )
+          throw new ApiError(
+            409,
+            'CALENDAR_EDITOR_REQUIRED',
+            'Edit this event in Calendar to preserve its schedule and class links.',
+          );
         const [event] = await transaction.query(
           `UPDATE events SET title = $3, notes = $4, starts_at = $5, ends_at = $6, time_zone = $7, sensitivity = COALESCE($8, sensitivity), version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE owner_id = $1 AND id = $2 AND version = $9 AND deleted_at IS NULL RETURNING ${eventColumns}`,
           [
