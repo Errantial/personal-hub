@@ -1,0 +1,43 @@
+{
+  "name": "personal-productivity-hub",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25",
+    "npm": ">=11"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "predev": "npm run build --workspace @hub/contracts",
+    "dev": "concurrently --kill-others --names contracts,api,web \"npm run dev --workspace @hub/contracts\" \"npm run dev --workspace @hub/api\" \"npm run dev --workspace @hub/web\"",
+    "build": "npm run build --workspace @hub/contracts && npm run build --workspace @hub/api && npm run build --workspace @hub/web",
+    "typecheck": "npm run build --workspace @hub/contracts && npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "pretest": "npm run build --workspace @hub/contracts",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "check": "npm run lint && npm run typecheck && npm test && npm run format:check && npm run build",
+    "start:api": "npm run start --workspace @hub/api",
+    "db:migrate": "npm run build --workspace @hub/contracts && npm run db:migrate --workspace @hub/api",
+    "doctor": "node scripts/doctor.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.64.0",
+    "@types/node": "24.19.2",
+    "concurrently": "10.0.6",
+    "eslint": "10.12.0",
+    "globals": "17.13.0",
+    "prettier": "3.9.9",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.1",
+    "vitest": "5.0.3"
+  }
+}

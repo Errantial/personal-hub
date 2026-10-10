@@ -1,0 +1,40 @@
+# Decision register
+
+Status: pending unless explicitly confirmed. These entries prevent draft recommendations from becoming accidental requirements.
+
+| ID | Decision | Current proposal or question | Why it matters |
+| --- | --- | --- | --- |
+| D01 | Audience | Confirmed: personal use first, designed for future expansion; ownership checks from day one | OAuth, onboarding, hosting, and isolation scope |
+| D02 | Providers | Confirmed: Canvas at canvas.colorado.edu, school email through Outlook, Proton Mail including Gmail, and Proton Calendar. School mailbox backend still to verify | Integration feasibility |
+| D03 | Platforms | Confirmed: web on Windows and Android APK first; dedicated Windows app preferred but deferred until the core app is complete | Shells and background behavior |
+| D04 | E-ink device | Confirmed: Mudita Kompakt is the primary mobile/e-ink target; Kindle Scribe deferred until the rest of the app is complete | Hardware capabilities and testing |
+| D05 | Offline | Confirmed: Android supports offline viewing and edits, durably queued for server synchronization after reconnect | Storage and synchronization complexity |
+| D06 | AI authority | Confirmed: AI may change writable calendars without per-action approval; email sending requires explicit approval. Permissions configurable later | Action policy and UX |
+| D07 | AI hosting | Confirmed: hosted AI API initially; backend on existing server without sufficient inference compute. Preserve a later self-hosted endpoint option | GPU needs, budget, privacy, and operations |
+| D08 | AI data | Confirmed: relevant email/Canvas text only for hosted AI; no screenshots, attachments, or indirect attachment-derived inputs | Processing boundary and retention |
+| D09 | Proton availability | Confirmed: paid plan with Bridge. Main server is Ubuntu; Bridge host location/uptime and CPU compatibility still unresolved | Automatic mail sync while devices are off |
+| D10 | Canvas access | Personal testing access versus institution-enabled OAuth | Whether the connector can launch |
+| D11 | Calendar authority | AI write authority confirmed; actual Proton write route unresolved. Hub-owned study plans proposed; ICS-only sources remain read-only | Separates authorization from provider capability |
+| D12 | MCP direction | Confirmed: both inbound hub tools for external assistants and outbound external MCP servers for built-in AI | Authentication and trust boundaries |
+| D13 | Costs | Confirmed: minimize routine AI spend; higher spend acceptable for material features/improvements. No numeric budget or cap set | Feasible model and deployment choices |
+| D14 | Release scope | Follow milestone order; all listed features remain in the long-term vision | Keeps the initial release measurable |
+| D15 | Retention | Agree defaults for mail cache, AI chats, memories, and backups | Storage and deletion behavior |
+| D16 | Stack | Implemented: React/Vite + Fastify, TypeScript/Zod contracts, npm workspaces; PGlite development storage and pg production driver using common SQL migrations. Worker/platform shells remain later implementation | Avoid premature framework lock-in |
+| D17 | Workaround adapters | Confirmed prior approach: Canvas browser inspection plus ICS feed; Proton Mail Bridge; Outlook browser inspection; Proton Calendar browser access. Revalidate unattended execution and exact write capabilities | May unlock required Proton workflows |
+| D18 | Gmail ingestion | Prefer existing Proton aggregation if it exposes the required messages; prove completeness before requiring a direct Gmail connector | Avoids duplicate ingestion and extra account setup |
+| D19 | Initial server | Confirmed planned Oracle Cloud Ubuntu VM: 24 GB RAM, 4 OCPUs; exact shape/architecture, storage, and tenancy pricing to verify | Binary compatibility and capacity |
+| D20 | Browser AI input | Text/DOM/accessibility-based fallback only; screenshot-driven hosted computer use excluded. Prototype provider coverage | Automation feasibility under privacy choice |
+| D21 | Provider permissions | Confirmed: configurable rules route sensitive requests to a different approved provider. Default and sensitive providers/models still unselected; Claude is an example | Prevents private context reaching an unapproved provider |
+| D22 | Sensitivity labeling | Confirmed: only sources or content explicitly labeled by the owner determine sensitive routing. Derived content inherits labels; no automatic sensitivity detection. Unlabeled content uses the configured default route | Owner controls the data boundary |
+| D23 | Persistent agents | Confirmed scope addition: OpenAI Dots/OpenDots-equivalent capabilities. Exact OpenDots reference/priorities pending; see agent-scope.md | Adds ongoing responsibilities and durable background work |
+| D24 | Local development storage | Implementation choice: PGlite embedded PostgreSQL without Docker; DATABASE_URL selects standard PostgreSQL, required in production | Reproducible local setup and one SQL schema |
+| D25 | Initial authentication | Implementation choice: one owner, salted scrypt passwords and revocable cookie sessions; production enrollment requires server token. Recovery/session management remains upcoming | Protect persisted planner data before integrations |
+
+## Next decision sequence
+
+1. Audience, provider list, Android offline behavior, and initial AI authority are confirmed.
+2. Server sizing, text-only hosted AI, both MCP directions, and cost priorities are confirmed. Verify CPU shape, Bridge host, numeric spending limits, model provider, and retention during technical setup.
+3. Demonstrate the constrained integrations and reminder behavior.
+4. Stack and initial authenticated planner slice are implemented. Finish the planner milestone using backlog.md acceptance checks.
+
+No secrets, provider tokens, passwords, or private email samples should be placed in these planning documents.
