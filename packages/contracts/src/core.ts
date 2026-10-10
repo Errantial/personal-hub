@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { recurrenceSchema } from './features.js';
+import { canvasSourceRefSchema, plannerSourceSchema } from './provenance.js';
 
 export const healthResponseSchema = z.object({
   status: z.literal('ok'),
@@ -72,9 +73,14 @@ const metadata = {
   updatedAt: z.string().datetime(),
   deletedAt: z.string().datetime().nullable(),
 };
-export const taskSchema = z.object({ ...taskFields, ...metadata });
+export const taskSchema = z.object({
+  ...taskFields,
+  ...metadata,
+  canvasSource: plannerSourceSchema.nullable().default(null),
+});
 export const createTaskSchema = z.strictObject({
   ...taskFields,
+  canvasSourceRef: canvasSourceRefSchema.optional(),
   clientId: z.string().uuid().optional(),
   operationId: z.string().uuid(),
 });
@@ -127,6 +133,7 @@ export const eventSchema = z
     allDay: z.boolean().default(false),
     recurrence: recurrenceSchema.nullable().default(null),
     courseId: z.string().uuid().nullable().default(null),
+    canvasSource: plannerSourceSchema.nullable().default(null),
   })
   .refine(validEventRange, 'Event end must follow its start.');
 export const createEventSchema = z

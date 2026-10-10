@@ -1,9 +1,10 @@
 import type { QueryExecutor } from '../db/database.js';
 import { ApiError } from '../errors.js';
+import { plannerSourceColumns } from '../connections/canvas-provenance.js';
 export const stamp = (column: string, alias: string) =>
   `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "${alias}"`;
 export const metadataColumns = `id, version, ${stamp('created_at', 'createdAt')}, ${stamp('updated_at', 'updatedAt')}, ${stamp('deleted_at', 'deletedAt')}`;
-export const eventColumns = `${metadataColumns}, title, notes, ${stamp('starts_at', 'startsAt')}, ${stamp('ends_at', 'endsAt')}, time_zone AS "timeZone", sensitivity, all_day AS "allDay", to_char(start_date,'YYYY-MM-DD') AS "startDate", to_char(end_date,'YYYY-MM-DD') AS "endDate", recurrence, course_id AS "courseId", topic_id AS "topicId", study_status AS "studyStatus"`;
+export const eventColumns = `${plannerSourceColumns('events')}, ${metadataColumns}, title, notes, ${stamp('starts_at', 'startsAt')}, ${stamp('ends_at', 'endsAt')}, time_zone AS "timeZone", sensitivity, all_day AS "allDay", to_char(start_date,'YYYY-MM-DD') AS "startDate", to_char(end_date,'YYYY-MM-DD') AS "endDate", recurrence, course_id AS "courseId", topic_id AS "topicId", study_status AS "studyStatus"`;
 export const rank = (value: string) =>
   ['unlabeled', 'personal', 'restricted'].indexOf(value);
 export const strongest = (...values: string[]) =>

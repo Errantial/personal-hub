@@ -199,6 +199,44 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
       expect(canvasAgenda.json().items[0].courseId).toBe(
         course.json().course.id,
       );
+      const sourceTask = await app.inject({
+        method: 'POST',
+        url: '/api/v1/tasks',
+        headers,
+        payload: {
+          operationId: randomUUID(),
+          title: 'Postgres source task',
+          canvasSourceRef: {
+            itemId: canvasItem.id,
+            expectedVersion: linked.json().item.version,
+          },
+        },
+      });
+      expect(sourceTask.statusCode).toBe(200);
+      expect(sourceTask.json().task.canvasSource).toMatchObject({
+        itemId: canvasItem.id,
+        inputKind: 'calendar-file',
+        currentInputKind: 'calendar-file',
+      });
+      const sourceStudy = await app.inject({
+        method: 'POST',
+        url: '/api/v1/calendar',
+        headers,
+        payload: {
+          operationId: randomUUID(),
+          title: 'Postgres source study',
+          courseId: course.json().course.id,
+          timeZone: 'UTC',
+          startsAt: '2027-02-28T17:00:00Z',
+          endsAt: '2027-02-28T18:00:00Z',
+          canvasSourceRef: {
+            itemId: canvasItem.id,
+            expectedVersion: linked.json().item.version,
+          },
+        },
+      });
+      expect(sourceStudy.statusCode).toBe(200);
+      expect(sourceStudy.json().event.canvasSource.itemId).toBe(canvasItem.id);
     } finally {
       await app?.close();
       await administrator.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

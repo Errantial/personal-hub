@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db/database.js';
 import type { authService } from '../auth/routes.js';
 import { ApiError } from '../errors.js';
+import { taskColumns } from '../planner/routes.js';
 import { eventColumns, metadataColumns } from './common.js';
 import { reminderColumns, notificationColumns } from './reminders.js';
 import {
@@ -29,10 +30,7 @@ export function registerExport(
           [owner.id],
         );
       // Explicit projections exclude credentials, receipts and worker lease tokens.
-      const tasks = await read(
-        'tasks',
-        `${metadataColumns},title,notes,to_char(due_date,'YYYY-MM-DD') AS "dueDate",priority,completed,sensitivity`,
-      );
+      const tasks = await read('tasks', taskColumns);
       const events = await read('events', eventColumns);
       const courses = await read(
         'courses',

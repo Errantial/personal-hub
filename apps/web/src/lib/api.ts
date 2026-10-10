@@ -65,6 +65,9 @@ export async function liveRequestJson<T>(
     const code = result.success ? result.data.error.code : 'REQUEST_FAILED';
     const messages: Record<string, string> = {
       CANVAS_NOT_CONFIGURED: 'Configure the Canvas feed on the server first.',
+      SOURCE_UNAVAILABLE:
+        'Canvas entry is missing or cancelled. Reload Canvas before planning.',
+      SOURCE_IMMUTABLE: 'Planner source links cannot be replaced.',
       CANVAS_SYNC_ACTIVE:
         'Wait for the active refresh or pause it before importing.',
       CANVAS_ITEMS_LIMIT:
@@ -130,9 +133,13 @@ export async function requestJson<T>(
     mutation && method === 'POST'
       ? { ...body, clientId: body.clientId ?? body.operationId }
       : body;
+  const sourceCreation =
+    mutation && method === 'POST' && !!body.canvasSourceRef;
   if (path === '/api/v1/auth/logout' && (await pendingCount().catch(() => 0)))
     throw new Error('Sync or discard pending tasks before signing out.');
   if (mutation && (await hasTaskQueue().catch(() => false))) {
+    if (sourceCreation)
+      throw new Error('Sync queued tasks before creating from Canvas.');
     const response = await enqueueTask(path, method, prepared);
     void synchronize().catch(() => undefined);
     return schema.parse(response);
@@ -192,6 +199,10 @@ export async function requestJson<T>(
       if (data !== undefined) return schema.parse(data);
     }
     if (mutation) {
+      if (sourceCreation)
+        throw new Error('Connect to create a task from Canvas.', {
+          cause: error,
+        });
       const response = await enqueueTask(path, method, prepared);
       void synchronize().catch(() => undefined);
       return schema.parse(response);

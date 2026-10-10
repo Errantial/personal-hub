@@ -8,6 +8,8 @@ A local authenticated planner: React/Vite web, Fastify API, shared Zod contracts
 
 Connections supports read-only Canvas calendar feeds, explicit ICS import, automatic/manual durable refresh jobs and personal notes/labels/class links. Imported entries appear read-only in Calendar and linked class portfolios; previously loaded ranges/lists have owner-scoped cached viewing. Configure the private URL only on the server; see [Canvas setup and boundaries](canvas.md). School completeness and richer API access remain unverified. No real feed is accessed by routine tests.
 
+Connections can create owned tasks and one-time study blocks with `canvasSourceRef` on the existing create operations. Creation requires an available owned entry's current version and a connection; source facts and labels are retained with live source metadata in `canvasSource`. Planner edits/tombstones preserve provenance, and refreshes never overwrite personal planning fields. Future AI routing must evaluate captured/current source labels and file-derived provenance; see canvas.md. No AI processing is enabled.
+
 A provisional Capacitor APK bundles this UI and its IndexedDB task outbox. Native login, offline task edits and process-restart/replay are tested on an AOSP emulator. Actual Kompakt hardware, native alarms/background delivery, offline calendar/class/reminder edits, email/Proton connections, richer Canvas access, imported grades, automatic study suggestions, hosted AI/routing enforcement, memory, MCP and autonomous agent execution remain pending. Stored labels do not imply AI is configured. Development checks have not accessed real account content. See [implementation backlog](backlog.md).
 
 ## First run

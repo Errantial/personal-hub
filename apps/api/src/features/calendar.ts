@@ -23,6 +23,7 @@ import type { Database, QueryExecutor } from '../db/database.js';
 import type { authService } from '../auth/routes.js';
 import { mutate } from '../planner/mutations.js';
 import { ApiError } from '../errors.js';
+import { captureCanvasSource } from '../connections/canvas-provenance.js';
 import {
   academicAccess,
   active,
@@ -146,6 +147,22 @@ export function registerCalendar(
           input.operationId,
           { method, id: method === 'PUT' ? id : null, input },
           async (tx) => {
+            if (method === 'PUT' && input.canvasSourceRef)
+              throw new ApiError(
+                400,
+                'SOURCE_IMMUTABLE',
+                'Planner source links cannot be replaced.',
+              );
+            const source =
+              method === 'POST'
+                ? await captureCanvasSource(tx, user.id, input.canvasSourceRef)
+                : null;
+            if (source && (!input.courseId || input.allDay || input.recurrence))
+              throw new ApiError(
+                400,
+                'INVALID_INPUT',
+                'Select a class and a one-time timed study block.',
+              );
             const old =
               method === 'PUT' ? await active(tx, 'events', user.id, id) : null;
             if (old) version(old, input.expectedVersion);
@@ -180,8 +197,12 @@ export function registerCalendar(
             const [row] =
               method === 'POST'
                 ? await tx.query(
-                    `INSERT INTO events (id,owner_id,title,notes,starts_at,ends_at,time_zone,sensitivity,all_day,start_date,end_date,recurrence,course_id,topic_id,study_status) VALUES (${params.map((_, i) => `$${i + 1}`).join(',')}) RETURNING ${eventColumns}`,
-                    params,
+                    `INSERT INTO events (id,owner_id,title,notes,starts_at,ends_at,time_zone,sensitivity,all_day,start_date,end_date,recurrence,course_id,topic_id,study_status,canvas_source_id,canvas_source_snapshot) VALUES (${params.map((_, i) => `$${i + 1}`).join(',')},$16,$17::jsonb) RETURNING ${eventColumns}`,
+                    [
+                      ...params,
+                      source?.itemId ?? null,
+                      source ? JSON.stringify(source) : null,
+                    ],
                   )
                 : await tx.query(
                     `UPDATE events SET title=$3,notes=$4,starts_at=$5,ends_at=$6,time_zone=$7,sensitivity=$8,all_day=$9,start_date=$10,end_date=$11,recurrence=$12,course_id=$13,topic_id=$14,study_status=$15,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${eventColumns}`,
@@ -247,6 +268,12 @@ export function registerCalendar(
           method === 'PUT'
             ? calendarWriteSchema.parse(request.body)
             : deleteItemSchema.parse(request.body);
+        if ('canvasSourceRef' in input && input.canvasSourceRef)
+          throw new ApiError(
+            400,
+            'SOURCE_IMMUTABLE',
+            'Planner source links cannot be replaced.',
+          );
         return mutate(
           database,
           user.id,

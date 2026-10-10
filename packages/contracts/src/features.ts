@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Temporal } from '@js-temporal/polyfill';
+import { canvasSourceRefSchema, plannerSourceSchema } from './provenance.js';
 export { Temporal };
 export const dateOnly = z
   .string()
@@ -102,11 +103,13 @@ export const calendarInputSchema = z
       });
   });
 export const calendarWriteSchema = calendarInputSchema.safeExtend({
+  canvasSourceRef: canvasSourceRefSchema.optional(),
   operationId: z.string().uuid(),
   expectedVersion: z.number().int().positive().optional(),
 });
 export const calendarRecordSchema = z.object({
   ...calendarFields,
+  canvasSource: plannerSourceSchema.nullable().default(null),
   id: z.string().uuid(),
   version: z.number().int().positive(),
   createdAt: instant,

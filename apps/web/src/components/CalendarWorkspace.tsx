@@ -1,4 +1,5 @@
 import { Help } from './Help';
+import { PlannerSource } from './PlannerSource';
 import { CanvasEntry } from './CanvasEntry';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
@@ -14,6 +15,7 @@ import {
   zone,
   canvasItemsResponseSchema,
   canvasItemInRange,
+  plannerSensitivity,
 } from '@hub/contracts';
 import type {
   CalendarRecord,
@@ -391,6 +393,10 @@ export function CalendarWorkspace({
                       {item.overridden ? ' · edited occurrence' : ''}
                     </small>
                   )}
+                  {plannerSensitivity(item) !== 'unlabeled' && (
+                    <small>{plannerSensitivity(item)}</small>
+                  )}
+                  <PlannerSource source={item.canvasSource} />
                   <div className="item-actions calendar-actions">
                     <button
                       className="text-button"

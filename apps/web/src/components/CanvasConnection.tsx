@@ -13,6 +13,7 @@ import type {
 } from '@hub/contracts';
 import { requestJson } from '../lib/api';
 import { Help } from './Help';
+import { CanvasPlanning } from './CanvasPlanning';
 
 const base = '/api/v1/connections/canvas';
 export function CanvasConnection() {
@@ -268,6 +269,7 @@ export function CanvasConnection() {
                 >
                   Edit notes
                 </button>
+                <CanvasPlanning item={item} courses={courses} />
                 {editing?.id === item.id && (
                   <form
                     className="editor-form"

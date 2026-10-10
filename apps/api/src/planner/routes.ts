@@ -16,14 +16,18 @@ import type { Database } from '../db/database.js';
 import type { authService } from '../auth/routes.js';
 import { missingOrConflict, mutate } from './mutations.js';
 import { ApiError } from '../errors.js';
+import {
+  captureCanvasSource,
+  plannerSourceColumns,
+} from '../connections/canvas-provenance.js';
 
 const idSchema = z.object({ id: z.string().uuid() });
 // SQL aliases and to_char preserve date-only deadlines and normalize timestamps on both drivers.
-const taskColumns = `id, title, notes, to_char(due_date, 'YYYY-MM-DD') AS "dueDate", priority, completed, sensitivity, version,
+export const taskColumns = `${plannerSourceColumns('tasks')}, id, title, notes, to_char(due_date, 'YYYY-MM-DD') AS "dueDate", priority, completed, sensitivity, version,
   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
   to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
   to_char(deleted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "deletedAt"`;
-const eventColumns = `id, title, notes, time_zone AS "timeZone", sensitivity, version, all_day AS "allDay", recurrence, course_id AS "courseId",
+const eventColumns = `${plannerSourceColumns('events')}, id, title, notes, time_zone AS "timeZone", sensitivity, version, all_day AS "allDay", recurrence, course_id AS "courseId",
   to_char(starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startsAt",
   to_char(ends_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "endsAt",
   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
@@ -54,8 +58,13 @@ export function registerPlanner(
       { kind: 'task.create', input },
       async (transaction) => {
         const id = input.clientId ?? randomUUID();
+        const source = await captureCanvasSource(
+          transaction,
+          user.id,
+          input.canvasSourceRef,
+        );
         const [task] = await transaction.query(
-          `INSERT INTO tasks (id, owner_id, title, notes, due_date, priority, completed, sensitivity) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING RETURNING ${taskColumns}`,
+          `INSERT INTO tasks (id, owner_id, title, notes, due_date, priority, completed, sensitivity,canvas_source_id,canvas_source_snapshot) VALUES ($1, $2, $3, $4, $5, $6, $7, $8,$9,$10::jsonb) ON CONFLICT (id) DO NOTHING RETURNING ${taskColumns}`,
           [
             id,
             user.id,
@@ -65,6 +74,8 @@ export function registerPlanner(
             input.priority,
             input.completed,
             input.sensitivity,
+            source?.itemId ?? null,
+            source ? JSON.stringify(source) : null,
           ],
         );
         if (!task)

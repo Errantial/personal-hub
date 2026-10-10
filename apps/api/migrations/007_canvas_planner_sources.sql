@@ -1,0 +1,11 @@
+ALTER TABLE canvas_items ADD CONSTRAINT canvas_items_owned_id UNIQUE(id,owner_id);
+ALTER TABLE tasks ADD COLUMN canvas_source_id UUID;
+ALTER TABLE tasks ADD COLUMN canvas_source_snapshot JSONB;
+ALTER TABLE tasks ADD CONSTRAINT task_owned_canvas_source FOREIGN KEY(canvas_source_id,owner_id) REFERENCES canvas_items(id,owner_id);
+ALTER TABLE tasks ADD CONSTRAINT task_canvas_snapshot CHECK ((canvas_source_id IS NULL) = (canvas_source_snapshot IS NULL));
+ALTER TABLE events ADD COLUMN canvas_source_id UUID;
+ALTER TABLE events ADD COLUMN canvas_source_snapshot JSONB;
+ALTER TABLE events ADD CONSTRAINT event_owned_canvas_source FOREIGN KEY(canvas_source_id,owner_id) REFERENCES canvas_items(id,owner_id);
+ALTER TABLE events ADD CONSTRAINT event_canvas_snapshot CHECK ((canvas_source_id IS NULL) = (canvas_source_snapshot IS NULL));
+CREATE INDEX task_canvas_source ON tasks(owner_id,canvas_source_id);
+CREATE INDEX event_canvas_source ON events(owner_id,canvas_source_id);

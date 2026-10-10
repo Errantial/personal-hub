@@ -7,6 +7,142 @@ test.beforeEach(async ({ page }) => {
   await authenticate(page);
 });
 
+test('Canvas planning creates editable tasks and study blocks, retaining provenance through offline edits and refreshes', async ({
+  page,
+  context,
+}) => {
+  const importFeed = async (title: string) => {
+    const reply = await page.request.post('/api/v1/connections/canvas/import', {
+      headers,
+      data: {
+        operationId: crypto.randomUUID(),
+        feed: feed(title, '20270415T170000Z').replace(
+          'browser-canvas-entry',
+          'planning-browser-source',
+        ),
+      },
+    });
+    expect(reply.status()).toBe(200);
+  };
+  await importFeed('Planning browser deadline');
+  const courseReply = await page.request.post('/api/v1/courses', {
+    headers,
+    data: { operationId: crypto.randomUUID(), name: 'Planning browser class' },
+  });
+  expect(courseReply.status()).toBe(200);
+  const course = (await courseReply.json()).course;
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Connections', exact: true }).click();
+  const connection = page.getByRole('region', { name: 'Canvas connection' });
+  const entry = connection.locator('article').filter({
+    has: page.getByRole('heading', {
+      name: /^Planning browser (refreshed )?deadline$/,
+    }),
+  });
+  await page.setViewportSize({ width: 320, height: 900 });
+  await entry.getByRole('button', { name: 'Create task', exact: true }).click();
+  const form = entry.getByRole('form', { name: 'Canvas planning' });
+  await form.getByLabel('Planner title').fill('Canvas planned browser task');
+  await form.getByLabel('Task deadline').fill('2027-04-16');
+  // A refresh must produce a conflict while preserving the owner's draft.
+  await importFeed('Planning browser refreshed deadline');
+  await form.getByRole('button', { name: 'Save task', exact: true }).click();
+  await expect(entry.getByRole('alert')).toContainText('Canvas entry changed');
+  await connection
+    .getByRole('button', { name: 'Reload Canvas', exact: true })
+    .click();
+  await form
+    .getByRole('button', { name: 'Reload source version', exact: true })
+    .click();
+  await expect(form.getByLabel('Planner title')).toHaveValue(
+    'Canvas planned browser task',
+  );
+  await form.getByRole('button', { name: 'Save task', exact: true }).click();
+  await expect(entry.getByRole('status')).toHaveText('Task created.');
+  await entry.getByRole('button', { name: 'Plan study', exact: true }).click();
+  await form.getByLabel('Planner title').fill('Canvas planned browser study');
+  await form.getByLabel('Study class').selectOption(course.id);
+  await form.getByLabel('Study timezone').fill('UTC');
+  await form.getByLabel('Study starts').fill('2027-04-14T15:00');
+  await form.getByLabel('Study ends').fill('2027-04-14T16:00');
+  await form
+    .getByRole('button', { name: 'Save study block', exact: true })
+    .click();
+  await expect(entry.getByRole('status')).toHaveText('Study block created.');
+  await entry.getByRole('button', { name: 'Create task', exact: true }).click();
+  await form.getByLabel('Planner title').fill('Unqueued Canvas task');
+  await context.setOffline(true);
+  await form.getByRole('button', { name: 'Save task', exact: true }).click();
+  await expect(entry.getByRole('alert')).toContainText(
+    'Connect to create a task from Canvas',
+  );
+  await expect(form.getByLabel('Planner title')).toHaveValue(
+    'Unqueued Canvas task',
+  );
+  await expect(
+    page.getByRole('region', { name: 'Task sync' }).getByRole('status'),
+  ).toContainText('0 pending changes');
+  await context.setOffline(false);
+  await form.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.getByRole('button', { name: 'Today', exact: true }).click();
+  const tasks = page.getByRole('region', { name: 'Tasks', exact: true });
+  const task = tasks.locator('li').filter({
+    has: page.getByText('Canvas planned browser task', { exact: true }),
+  });
+  await expect(task).toContainText('Due 2027-04-16');
+  await task.getByText('Canvas source', { exact: true }).click();
+  await expect(task).toContainText('calendar-file');
+  await context.setOffline(true);
+  await task
+    .getByRole('checkbox', { name: 'Complete Canvas planned browser task' })
+    .check();
+  await expect(task.getByRole('checkbox')).toBeChecked();
+  await expect(task).toContainText('calendar-file');
+  await context.setOffline(false);
+  await page.getByRole('button', { name: 'Sync now', exact: true }).click();
+  await expect
+    .poll(async () => {
+      const reply = await page.request.get('/api/v1/tasks');
+      return (await reply.json()).tasks.find(
+        (item: { title: string }) =>
+          item.title === 'Canvas planned browser task',
+      )?.completed;
+    })
+    .toBe(true);
+  await importFeed('Planning final browser deadline');
+  await tasks.getByRole('button', { name: 'Reload list', exact: true }).click();
+  await expect(task.getByRole('checkbox')).toBeChecked();
+  await expect(task).toContainText('Due 2027-04-16');
+  await expect(task).toContainText('Canvas source · Changed');
+  await page.getByRole('button', { name: 'Calendar', exact: true }).click();
+  await page.getByLabel('Viewing timezone', { exact: true }).fill('UTC');
+  await page
+    .getByRole('button', { name: 'Apply timezone', exact: true })
+    .click();
+  await page.getByLabel('Calendar date', { exact: true }).fill('2027-04-14');
+  await page.getByRole('button', { name: 'Day view', exact: true }).click();
+  const agenda = page.getByRole('region', {
+    name: 'Agenda 2027-04-14',
+    exact: true,
+  });
+  const study = agenda.locator('article').filter({
+    has: page.getByText('Canvas planned browser study', { exact: true }),
+  });
+  await expect(study).toContainText('Planning browser class');
+  await study.getByText('Canvas source · Changed', { exact: true }).click();
+  await expect(study).toContainText('Planning final browser deadline');
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+});
+
 test('Canvas class links survive refreshes and appear as read-only entries in portfolios and cached agendas', async ({
   page,
   context,

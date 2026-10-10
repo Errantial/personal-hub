@@ -207,6 +207,8 @@ export async function enqueueTask(
     let item: Task;
     if (method === 'POST') {
       const input = createTaskSchema.parse(body);
+      if (input.canvasSourceRef)
+        throw new Error('Connect to create a task from Canvas.');
       item = taskSchema.parse({
         ...input,
         id: input.clientId,

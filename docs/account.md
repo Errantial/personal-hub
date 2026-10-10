@@ -13,6 +13,7 @@ Session lists expose random public IDs, versions, creation/expiration times and 
 `GET /api/v1/planner/export` requires owner authorization and returns a consistent read-only snapshot with `format: personal-hub-planner`, `formatVersion: 1`, export timestamp, owner ID/email and these collections:
 
 - Tasks, calendar records, courses and topics, including versions, sensitivity labels and delete tombstones.
+- Linked tasks/calendar records include captured Canvas facts and current source metadata; absent links in older exports default to null.
 - Recurrence exceptions, including cancelled or replaced occurrences.
 - Reminder schedules and notification inbox history.
 - Imported Canvas entries, file/network provenance, personal notes, labels, class links, archived-class metadata and source settings; private feed URLs and sync lease tokens remain excluded. These are additive format-v1 fields; older exports default to empty Canvas data and absent class links.

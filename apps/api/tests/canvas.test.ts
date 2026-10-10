@@ -4,6 +4,11 @@ import {
   canvasConnectionSchema,
   plannerExportSchema,
   canvasItemsResponseSchema,
+  taskResponseSchema,
+  tasksResponseSchema,
+  calendarResponseSchema,
+  plannerSensitivity,
+  plannerTextIsAttachmentDerived,
 } from '@hub/contracts';
 import { readConfig } from '../src/config.js';
 import { openDatabase } from '../src/db/database.js';
@@ -682,4 +687,381 @@ it('recovers interrupted leases once, suppresses duplicate fetches, and discards
   expect(
     (await read()).jobs.find((job) => job.id === failedJob.json().job.id),
   ).toMatchObject({ status: 'failed', errorCode: 'LEASE_EXPIRED' });
+});
+
+it('creates source-linked tasks and study blocks with immutable snapshots, owner isolation and preserved edits', async () => {
+  const seed = calendar(
+    entry('Planner source', '20270401T170000Z').replace(
+      'synthetic-1',
+      'planner-source',
+    ),
+  );
+  await upload(seed);
+  let state = await read();
+  await app.inject({
+    method: 'PUT',
+    url: base,
+    headers: headers(),
+    payload: {
+      operationId: randomUUID(),
+      expectedVersion: state.version,
+      enabled: false,
+      sensitivity: 'unlabeled',
+    },
+  });
+  const item = (await read()).items.find(
+    (item) => item.uid === 'planner-source',
+  )!;
+  const courseReply = await app.inject({
+    method: 'POST',
+    url: '/api/v1/courses',
+    headers: headers(),
+    payload: { operationId: randomUUID(), name: 'Planner source class' },
+  });
+  const courseId = courseReply.json().course.id;
+  const entryReply = await app.inject({
+    method: 'PUT',
+    url: `${base}/items/${item.id}`,
+    headers: headers(),
+    payload: {
+      operationId: randomUUID(),
+      expectedVersion: item.version,
+      notes: 'Source note',
+      sensitivity: 'personal',
+      courseId,
+    },
+  });
+  expect(entryReply.statusCode).toBe(200);
+  const source = entryReply.json().item;
+  const body = {
+    operationId: randomUUID(),
+    title: 'Personal task title',
+    notes: 'Personal notes',
+    dueDate: '2027-04-02',
+    canvasSourceRef: { itemId: source.id, expectedVersion: source.version },
+  };
+  const writeTask = (payload: Record<string, unknown>, session = cookie) =>
+    app.inject({
+      method: 'POST',
+      url: '/api/v1/tasks',
+      headers: headers(session),
+      payload,
+    });
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: '/api/v1/tasks',
+        headers: { origin },
+        payload: body,
+      })
+    ).statusCode,
+  ).toBe(401);
+  expect((await writeTask(body, otherCookie)).statusCode).toBe(404);
+  expect(
+    (
+      await writeTask({
+        ...body,
+        operationId: randomUUID(),
+        canvasSourceRef: {
+          ...body.canvasSourceRef,
+          expectedVersion: source.version - 1,
+        },
+      })
+    ).statusCode,
+  ).toBe(409);
+  const created = await writeTask(body);
+  expect(created.statusCode).toBe(200);
+  const task = taskResponseSchema.parse(created.json()).task;
+  expect(task.canvasSource).toMatchObject({
+    itemId: source.id,
+    version: source.version,
+    title: 'Planner source',
+    sensitivity: 'personal',
+    inputKind: 'calendar-file',
+    timing: { startsAt: '2027-04-01T17:00:00.000Z' },
+  });
+  expect(task.notes).toBe('Personal notes');
+  expect(plannerSensitivity(task)).toBe('personal');
+  expect(plannerTextIsAttachmentDerived(task)).toBe(true);
+  const studyBody = {
+    operationId: randomUUID(),
+    title: 'Personal study block',
+    notes: 'Study notes',
+    courseId,
+    timeZone: 'America/Denver',
+    startsAt: '2027-03-30T15:00:00Z',
+    endsAt: '2027-03-30T16:00:00Z',
+    canvasSourceRef: body.canvasSourceRef,
+  };
+  const studyReply = await app.inject({
+    method: 'POST',
+    url: '/api/v1/calendar',
+    headers: headers(),
+    payload: studyBody,
+  });
+  expect(studyReply.statusCode).toBe(200);
+  const study = calendarResponseSchema.parse(studyReply.json()).event;
+  expect(study.canvasSource?.itemId).toBe(source.id);
+  const invalidStudy = await app.inject({
+    method: 'POST',
+    url: '/api/v1/calendar',
+    headers: headers(),
+    payload: { ...studyBody, operationId: randomUUID(), courseId: null },
+  });
+  expect(invalidStudy.statusCode).toBe(400);
+  const edit = {
+    title: 'Owner edited task',
+    notes: 'Retained owner notes',
+    dueDate: '2027-04-05',
+    priority: 'high',
+    completed: true,
+    sensitivity: 'unlabeled',
+    expectedVersion: task.version,
+    operationId: randomUUID(),
+  };
+  expect(
+    (
+      await app.inject({
+        method: 'PUT',
+        url: `/api/v1/tasks/${task.id}`,
+        headers: headers(),
+        payload: edit,
+      })
+    ).statusCode,
+  ).toBe(200);
+  const studyFields = {
+    title: study.title,
+    notes: study.notes,
+    timeZone: study.timeZone,
+    courseId: study.courseId,
+    startsAt: study.startsAt,
+    endsAt: study.endsAt,
+  };
+  expect(
+    (
+      await app.inject({
+        method: 'PUT',
+        url: `/api/v1/calendar/${study.id}`,
+        headers: headers(),
+        payload: {
+          ...studyFields,
+          title: 'Owner edited study',
+          startsAt: '2027-03-31T15:00:00Z',
+          endsAt: '2027-03-31T16:00:00Z',
+          expectedVersion: study.version,
+          operationId: randomUUID(),
+        },
+      })
+    ).statusCode,
+  ).toBe(200);
+  expect(
+    (
+      await app.inject({
+        method: 'PUT',
+        url: `/api/v1/calendar/${study.id}`,
+        headers: headers(),
+        payload: {
+          ...studyBody,
+          operationId: randomUUID(),
+          expectedVersion: 2,
+        },
+      })
+    ).statusCode,
+  ).toBe(400);
+  await upload(
+    calendar(
+      entry('Refreshed planner source', '20270403T180000Z').replace(
+        'synthetic-1',
+        'planner-source',
+      ),
+    ),
+  );
+  expect((await writeTask(body)).json()).toEqual(created.json());
+  expect(
+    (await writeTask({ ...body, title: 'Another title' })).statusCode,
+  ).toBe(409);
+  state = await read();
+  await app.inject({
+    method: 'PUT',
+    url: base,
+    headers: headers(),
+    payload: {
+      operationId: randomUUID(),
+      expectedVersion: state.version,
+      enabled: false,
+      sensitivity: 'restricted',
+    },
+  });
+  let current = tasksResponseSchema
+    .parse(
+      (await app.inject({ url: '/api/v1/tasks', headers: headers() })).json(),
+    )
+    .tasks.find((value) => value.id === task.id)!;
+  expect(current).toMatchObject({
+    title: 'Owner edited task',
+    notes: 'Retained owner notes',
+    dueDate: '2027-04-05',
+    completed: true,
+    version: 2,
+    canvasSource: {
+      title: 'Planner source',
+      currentTitle: 'Refreshed planner source',
+      currentSensitivity: 'restricted',
+      timing: { startsAt: '2027-04-01T17:00:00.000Z' },
+      currentTiming: { startsAt: '2027-04-03T18:00:00.000Z' },
+    },
+  });
+  expect(plannerSensitivity(current)).toBe('restricted');
+  const changedSource = (await read()).items.find(
+    (value) => value.id === source.id,
+  )!;
+  await app.inject({
+    method: 'PUT',
+    url: `${base}/items/${source.id}`,
+    headers: headers(),
+    payload: {
+      operationId: randomUUID(),
+      expectedVersion: changedSource.version,
+      notes: '',
+      sensitivity: 'unlabeled',
+      courseId: null,
+    },
+  });
+  state = await read();
+  await app.inject({
+    method: 'PUT',
+    url: base,
+    headers: headers(),
+    payload: {
+      operationId: randomUUID(),
+      expectedVersion: state.version,
+      enabled: false,
+      sensitivity: 'unlabeled',
+    },
+  });
+  await upload(calendar(''));
+  current = tasksResponseSchema
+    .parse(
+      (await app.inject({ url: '/api/v1/tasks', headers: headers() })).json(),
+    )
+    .tasks.find((value) => value.id === task.id)!;
+  expect(plannerSensitivity(current)).toBe('personal');
+  expect(current.canvasSource?.currentAvailability).toBe('missing');
+  expect(
+    (
+      await writeTask({
+        ...body,
+        operationId: randomUUID(),
+        canvasSourceRef: {
+          itemId: source.id,
+          expectedVersion: current.canvasSource!.currentVersion,
+        },
+      })
+    ).statusCode,
+  ).toBe(409);
+  const exportBefore = plannerExportSchema.parse(
+    (
+      await app.inject({ url: '/api/v1/planner/export', headers: headers() })
+    ).json(),
+  );
+  expect(
+    exportBefore.records.events.find((value) => value.id === study.id),
+  ).toMatchObject({
+    title: 'Owner edited study',
+    startsAt: '2027-03-31T15:00:00.000Z',
+    version: 2,
+    canvasSource: { currentAvailability: 'missing' },
+  });
+  const deleted = await app.inject({
+    method: 'DELETE',
+    url: `/api/v1/tasks/${task.id}`,
+    headers: headers(),
+    payload: { operationId: randomUUID(), expectedVersion: 2 },
+  });
+  expect(deleted.statusCode).toBe(200);
+  await upload(seed);
+  expect((await writeTask(body)).json()).toEqual(created.json());
+  const exported = plannerExportSchema.parse(
+    (
+      await app.inject({ url: '/api/v1/planner/export', headers: headers() })
+    ).json(),
+  );
+  expect(
+    exported.records.tasks.find((value) => value.id === task.id),
+  ).toMatchObject({
+    version: 3,
+    canvasSource: { itemId: source.id, title: 'Planner source' },
+  });
+  expect(
+    exported.records.tasks.find((value) => value.id === task.id)?.deletedAt,
+  ).not.toBeNull();
+  expect(
+    tasksResponseSchema
+      .parse(
+        (await app.inject({ url: '/api/v1/tasks', headers: headers() })).json(),
+      )
+      .tasks.some((value) => value.id === task.id),
+  ).toBe(false);
+});
+
+it('keeps file-derived provenance when a linked source is later refreshed over the network', async () => {
+  const source = (await read()).items.find(
+    (value) => value.uid === 'planner-source',
+  )!;
+  const reply = await app.inject({
+    method: 'POST',
+    url: '/api/v1/tasks',
+    headers: headers(),
+    payload: {
+      operationId: randomUUID(),
+      title: 'File derived planning',
+      canvasSourceRef: { itemId: source.id, expectedVersion: source.version },
+    },
+  });
+  expect(reply.statusCode).toBe(200);
+  const task = taskResponseSchema.parse(reply.json()).task;
+  await post('/sync', { operationId: randomUUID() });
+  await runCanvasSync(db, config, async () =>
+    calendar(entry('Network source').replace('synthetic-1', 'planner-source')),
+  );
+  const readTask = () =>
+    app.inject({ url: '/api/v1/tasks', headers: headers() });
+  let current = tasksResponseSchema
+    .parse((await readTask()).json())
+    .tasks.find((value) => value.id === task.id)!;
+  expect(current.canvasSource).toMatchObject({
+    inputKind: 'calendar-file',
+    currentInputKind: 'calendar-feed',
+  });
+  expect(plannerTextIsAttachmentDerived(current)).toBe(true);
+  const feedReply = await app.inject({
+    method: 'POST',
+    url: '/api/v1/tasks',
+    headers: headers(),
+    payload: {
+      operationId: randomUUID(),
+      title: 'Network derived planning',
+      canvasSourceRef: {
+        itemId: source.id,
+        expectedVersion: current.canvasSource!.currentVersion,
+      },
+    },
+  });
+  expect(feedReply.statusCode).toBe(200);
+  const feedTask = taskResponseSchema.parse(feedReply.json()).task;
+  expect(plannerTextIsAttachmentDerived(feedTask)).toBe(false);
+  await upload(
+    calendar(
+      entry('File source again').replace('synthetic-1', 'planner-source'),
+    ),
+  );
+  current = tasksResponseSchema
+    .parse((await readTask()).json())
+    .tasks.find((value) => value.id === feedTask.id)!;
+  expect(current.canvasSource).toMatchObject({
+    inputKind: 'calendar-feed',
+    currentInputKind: 'calendar-file',
+  });
+  expect(plannerTextIsAttachmentDerived(current)).toBe(true);
 });

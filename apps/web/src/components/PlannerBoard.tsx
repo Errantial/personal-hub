@@ -1,4 +1,5 @@
 import { Help } from './Help';
+import { PlannerSource } from './PlannerSource';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
@@ -6,6 +7,7 @@ import {
   eventsResponseSchema,
   taskResponseSchema,
   eventResponseSchema,
+  plannerSensitivity,
 } from '@hub/contracts';
 import type { Task, CalendarEvent } from '@hub/contracts';
 import { getJson, requestJson } from '../lib/api';
@@ -230,9 +232,10 @@ function PlannerPanel({ kind }: { kind: Kind }) {
                     : `${new Date(item.startsAt).toLocaleString(undefined, { timeZone: item.timeZone })} – ${new Date(item.endsAt).toLocaleString(undefined, { timeZone: item.timeZone })} (${item.timeZone})`}
                 </small>
                 {item.notes && <p className="item-notes">{item.notes}</p>}
-                {item.sensitivity !== 'unlabeled' && (
-                  <span className="item-label">{item.sensitivity}</span>
+                {plannerSensitivity(item) !== 'unlabeled' && (
+                  <span className="item-label">{plannerSensitivity(item)}</span>
                 )}
+                <PlannerSource source={item.canvasSource} />
               </div>
               <div className="item-actions">
                 <button
