@@ -4,6 +4,7 @@ import type { Database } from '../db/database.js';
 import type { authService } from '../auth/routes.js';
 import { ApiError } from '../errors.js';
 import { taskColumns } from '../planner/routes.js';
+import { readCanvasLms } from '../connections/canvas-lms.js';
 import { eventColumns, metadataColumns } from './common.js';
 import { reminderColumns, notificationColumns } from './reminders.js';
 import {
@@ -59,6 +60,11 @@ export function registerExport(
           ),
         }),
       );
+      const lms = await readCanvasLms(tx, owner.id, undefined, 10000);
+      const [canvasLmsSource] = await tx.query(
+        'SELECT enabled,sensitivity,version FROM canvas_lms_sources WHERE owner_id=$1',
+        [owner.id],
+      );
       return {
         tasks,
         events,
@@ -69,6 +75,9 @@ export function registerExport(
         notifications,
         canvasItems,
         canvasSource: canvasSource ?? null,
+        canvasLmsCourses: lms.courses,
+        canvasLmsAssignments: lms.assignments,
+        canvasLmsSource: canvasLmsSource ?? null,
       };
     });
     const tooLarge = () =>

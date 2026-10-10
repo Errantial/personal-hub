@@ -10,6 +10,8 @@ Connections supports read-only Canvas calendar feeds, explicit ICS import, autom
 
 Connections can create owned tasks and one-time study blocks with `canvasSourceRef` on the existing create operations. Creation requires an available owned entry's current version and a connection; source facts and labels are retained with live source metadata in `canvasSource`. Planner edits/tombstones preserve provenance, and refreshes never overwrite personal planning fields. Future AI routing must evaluate captured/current source labels and file-derived provenance; see canvas.md. No AI processing is enabled.
 
+Canvas API separately syncs read-only course/assignment metadata with durable jobs and a server-held personal-test token, explicit class links, owner notes/labels, cached portfolio viewing and export. It neither merges feed entries nor imports grades/submissions/descriptions. See [Canvas API setup and boundaries](canvas-api.md). Live school access/completeness and expansion through OAuth remain unverified.
+
 A provisional Capacitor APK bundles this UI and its IndexedDB task outbox. Native login, offline task edits and process-restart/replay are tested on an AOSP emulator. Actual Kompakt hardware, native alarms/background delivery, offline calendar/class/reminder edits, email/Proton connections, richer Canvas access, imported grades, automatic study suggestions, hosted AI/routing enforcement, memory, MCP and autonomous agent execution remain pending. Stored labels do not imply AI is configured. Development checks have not accessed real account content. See [implementation backlog](backlog.md).
 
 ## First run
@@ -52,6 +54,7 @@ Copy `.env.example` to repository-root `.env` only when changing defaults. Exist
 | `SETUP_TOKEN` | At least 32 random characters; required for first enrollment in production. Remove from server settings after owner creation |
 | `LOG_LEVEL` | API logging level, default info |
 | `CANVAS_CALENDAR_FEED_URL` | Optional private calendar URL on the exact school host; never returned to clients or exported. Enable automatic refresh in Connections after setup |
+| `CANVAS_API_TOKEN` | Optional server-only token for personal Canvas API testing; fixed school origin/enrolled owner, read-only metadata adapter. Expansion requires OAuth |
 
 Open the exact configured browser origin: `localhost` and `127.0.0.1` are different origins. The frontend uses relative `/api` URLs through the same-origin proxy; no permissive CORS policy is installed. Unsafe methods require an allowed `Origin` and JSON content type, including scripts/CLI clients. Future MCP callers will need their own authenticated transport rather than borrowing browser cookies.
 
@@ -98,6 +101,10 @@ For local backups, stop the API before copying the entire embedded data director
 | `PUT /api/v1/connections/canvas/items/:id` | Versioned personal notes, entry label and optional owned courseId; provider fields remain read-only |
 | `GET /api/v1/connections/canvas/calendar?from=...&to=...&timeZone=...` | Read-only imported entries for a maximum 93-day viewing range |
 | `GET /api/v1/connections/canvas/items?courseId=...` | Owned class's linked read-only records and last import time |
+| `GET/PUT /api/v1/connections/canvas/lms` | Canvas API records, settings and safe job history |
+| `POST /api/v1/connections/canvas/lms/sync` | Queue an enrolled-owner API refresh; server token required |
+| `PUT /api/v1/connections/canvas/lms/courses/:id`, `.../assignments/:id` | Versioned notes/labels; courses also accept an explicit owned class link |
+| `GET /api/v1/connections/canvas/lms/records?courseId=...` | Owned class's linked API courses/assignments and freshness |
 
 Request/response types and runtime schemas live in `packages/contracts/src/index.ts`. Session tokens are random, hashed in storage, sent in HttpOnly/SameSite=Strict cookies, Secure in production, and expire after seven days. Passwords use salted scrypt. All responses disable caching. Routes validate ownership before planner access; unknown endpoints and internal errors return sanitized structured errors. Logs omit query strings, cookies, authorization, and private error content. Unexpected database startup errors also omit raw exception details.
 

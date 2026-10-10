@@ -27,6 +27,7 @@ export default defineConfig({
       PGLITE_DATA_DIR: resolve('.artifacts', 'e2e', randomUUID()),
       DATABASE_URL: '',
       CANVAS_CALENDAR_FEED_URL: '',
+      CANVAS_API_TOKEN: '',
     },
     timeout: 60000,
   },

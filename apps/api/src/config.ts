@@ -42,6 +42,15 @@ const environmentSchema = z
       .transform((value) => value.split(',').map((origin) => origin.trim()))
       .pipe(z.array(originSchema).min(1)),
     SETUP_TOKEN: z.string().min(32).optional(),
+    CANVAS_API_TOKEN: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z
+        .string()
+        .min(1)
+        .max(4096)
+        .regex(/^[\x21-\x7e]+$/)
+        .optional(),
+    ),
     CANVAS_CALENDAR_FEED_URL: z.preprocess(
       (value) => (value === '' ? undefined : value),
       z

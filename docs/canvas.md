@@ -1,6 +1,6 @@
 # Canvas calendar ingestion
 
-The Connections screen now imports read-only calendar entries from Canvas. It supports a private school feed configured on the server and manual ICS file imports. This is a calendar baseline, not full Canvas assignment, grade, submission or alert access. No real school feed has been accessed during implementation.
+The Connections screen imports read-only calendar entries from Canvas through a private school feed configured on the server or manual ICS file imports. This adapter covers calendar entries only. A separate [Canvas API adapter](canvas-api.md) imports course and assignment metadata; grades, submissions and alerts remain pending. No real school feed has been accessed during implementation.
 
 ## Setup
 
@@ -58,4 +58,4 @@ Migration 004 adds owner-scoped source settings, imported records and durable jo
 
 Only one queued/running job per owner is permitted. Workers claim jobs with a random thirty-second lease, fetch outside the transaction, and atomically commit only while holding the current lease. Snapshot writes, notes and settings serialize on the source row. Expired leases are recovered across restarts; three interrupted attempts produce `LEASE_EXPIRED`. Fetch/parse failures terminate that job with a fixed error code; automatic refresh tries again at the next scheduled interval, or the owner can queue a new manual job. Pause invalidates leases before any late snapshot can commit.
 
-The current server feed is bound to the enrolled owner in owner_setup and the agreed school host; another user's source cannot fetch it. Multi-owner onboarding/OAuth, account-specific credentials, provider API pagination, ETags, progress/grades and browser enrichment remain pending. Standard PostgreSQL checks exist in CI but have not run locally without TEST_DATABASE_URL. All routine tests use synthetic feeds or mock fetches; browser tests explicitly clear inherited feed configuration.
+The current server feed is bound to the enrolled owner in owner_setup and the agreed school host; another user's source cannot fetch it. Multi-owner onboarding/OAuth, account-specific credentials, ETags, progress/grades and browser enrichment remain pending. Provider API pagination is implemented separately in the [metadata adapter](canvas-api.md). Standard PostgreSQL checks exist in CI but have not run locally without TEST_DATABASE_URL. All routine tests use synthetic feeds or mock fetches; browser tests explicitly clear inherited feed and API-token configuration.

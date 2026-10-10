@@ -11,6 +11,7 @@ import { AcademicWorkspace } from './components/AcademicWorkspace';
 import { ReminderWorkspace } from './components/ReminderWorkspace';
 import { AccountSettings } from './components/AccountSettings';
 import { CanvasConnection } from './components/CanvasConnection';
+import { CanvasLmsConnection } from './components/CanvasLmsConnection';
 import type { User } from '@hub/contracts';
 
 type View =
@@ -212,6 +213,7 @@ function Workspace({
             >
               <h2 id="connections-title">Your accounts</h2>
               <CanvasConnection />
+              <CanvasLmsConnection />
               <Help label="Connections">
                 Email and Proton Calendar connections are not implemented yet.
               </Help>

@@ -15,6 +15,11 @@ import { registerExport } from './features/export.js';
 import { registerCanvas, startCanvasWorker } from './connections/canvas.js';
 import { FeedError } from './connections/canvas-feed.js';
 import type { FeedFetcher } from './connections/canvas-feed.js';
+import {
+  registerCanvasLms,
+  startCanvasLmsWorker,
+} from './connections/canvas-lms.js';
+import type { CanvasApiFetcher } from './connections/canvas-api.js';
 import { registerPlanner } from './planner/routes.js';
 import { ApiError } from './errors.js';
 import { registerAcademics } from './features/academics.js';
@@ -31,6 +36,7 @@ export async function buildApp(
     database?: Database;
     runWorker?: boolean;
     canvasFetcher?: FeedFetcher;
+    canvasApiFetcher?: CanvasApiFetcher;
   } = {},
 ) {
   const config = runtime.config ?? readConfig({});
@@ -44,9 +50,11 @@ export async function buildApp(
   const app = Fastify({ bodyLimit: 64 * 1024, ...options });
   let worker: ReturnType<typeof startReminderWorker> | undefined;
   let canvasWorker: ReturnType<typeof startCanvasWorker> | undefined;
+  let canvasLmsWorker: ReturnType<typeof startCanvasLmsWorker> | undefined;
   app.addHook('onClose', async () => {
     await worker?.stop();
     await canvasWorker?.stop();
+    await canvasLmsWorker?.stop();
     await database.close();
   });
   await app.register(cookie);
@@ -76,6 +84,7 @@ export async function buildApp(
   registerAccount(app, database, auth);
   registerExport(app, database, auth);
   registerCanvas(app, database, auth, config);
+  registerCanvasLms(app, database, auth, config);
   registerPlanner(app, database, auth);
   registerAcademics(app, database, auth);
   registerCalendar(app, database, auth);
@@ -84,6 +93,11 @@ export async function buildApp(
     app.addHook('onReady', async () => {
       worker = startReminderWorker(database);
       canvasWorker = startCanvasWorker(database, config, runtime.canvasFetcher);
+      canvasLmsWorker = startCanvasLmsWorker(
+        database,
+        config,
+        runtime.canvasApiFetcher,
+      );
     });
 
   app.get('/api/health', async () =>

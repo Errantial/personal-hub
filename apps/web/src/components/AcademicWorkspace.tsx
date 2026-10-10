@@ -1,5 +1,6 @@
 import { Help } from './Help';
 import { ClassCanvasEntries } from './ClassCanvasEntries';
+import { ClassCanvasAssignments } from './ClassCanvasAssignments';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
@@ -281,6 +282,10 @@ export function AcademicWorkspace({
             <>
               <p className="item-notes">{current.notes}</p>
               <ClassCanvasEntries key={current.id} courseId={current.id} />
+              <ClassCanvasAssignments
+                key={`assignments:${current.id}`}
+                courseId={current.id}
+              />
               <button
                 className="secondary-button"
                 onClick={() =>
