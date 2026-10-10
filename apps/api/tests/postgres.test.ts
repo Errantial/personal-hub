@@ -162,6 +162,21 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
       });
       expect(exported.statusCode).toBe(200);
       expect(exported.json().records.notifications).toHaveLength(1);
+      const imported = await app.inject({
+        method: 'POST',
+        url: '/api/v1/connections/canvas/import',
+        headers,
+        payload: {
+          operationId: randomUUID(),
+          feed: 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:postgres-synthetic\r\nDTSTART:20270301T170000Z\r\nSUMMARY:Postgres source entry\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
+        },
+      });
+      expect(imported.statusCode).toBe(200);
+      const canvasConnection = await app.inject({
+        url: '/api/v1/connections/canvas',
+        headers,
+      });
+      expect(canvasConnection.json().items[0].inputKind).toBe('calendar-file');
     } finally {
       await app?.close();
       await administrator.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

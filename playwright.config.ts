@@ -26,6 +26,7 @@ export default defineConfig({
       WEB_ORIGINS: 'http://127.0.0.1:5180',
       PGLITE_DATA_DIR: resolve('.artifacts', 'e2e', randomUUID()),
       DATABASE_URL: '',
+      CANVAS_CALENDAR_FEED_URL: '',
     },
     timeout: 60000,
   },

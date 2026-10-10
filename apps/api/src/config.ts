@@ -42,6 +42,24 @@ const environmentSchema = z
       .transform((value) => value.split(',').map((origin) => origin.trim()))
       .pipe(z.array(originSchema).min(1)),
     SETUP_TOKEN: z.string().min(32).optional(),
+    CANVAS_CALENDAR_FEED_URL: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z
+        .string()
+        .url()
+        .refine((value) => {
+          const url = new URL(value);
+          return (
+            url.origin === 'https://canvas.colorado.edu' &&
+            !url.username &&
+            !url.password &&
+            !url.search &&
+            !url.hash &&
+            /^\/feeds\/calendars\/[A-Za-z0-9_-]+\.ics$/.test(url.pathname)
+          );
+        })
+        .optional(),
+    ),
   })
   .superRefine((config, context) => {
     if (config.NODE_ENV === 'production') {

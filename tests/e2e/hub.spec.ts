@@ -21,7 +21,12 @@ test('web and API connect and show the actual scaffold account state', async ({
   await expect(
     page.getByRole('heading', { name: 'School Outlook' }),
   ).toBeVisible();
-  await expect(page.getByText('Not connected', { exact: true })).toHaveCount(4);
+  await expect(page.getByText('Not connected', { exact: true })).toHaveCount(3);
+  await expect(
+    page
+      .getByRole('region', { name: 'Canvas connection' })
+      .getByText('Feed not configured', { exact: true }),
+  ).toBeVisible();
   expect(errors).toEqual([]);
 });
 

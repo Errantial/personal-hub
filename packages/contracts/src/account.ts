@@ -9,6 +9,7 @@ import {
   dateOnly,
 } from './features.js';
 import { taskSchema, userSchema } from './core.js';
+import { canvasItemSchema } from './connections.js';
 
 export const accountSessionSchema = z.object({
   id: z.string().uuid(),
@@ -53,6 +54,15 @@ export const plannerExportSchema = z.object({
     ),
     reminders: z.array(reminderSchema),
     notifications: z.array(notificationSchema),
+    canvasItems: z.array(canvasItemSchema).default([]),
+    canvasSource: z
+      .object({
+        enabled: z.boolean(),
+        sensitivity: z.enum(['unlabeled', 'personal', 'restricted']),
+        version: z.number().int().positive(),
+      })
+      .nullable()
+      .default(null),
   }),
 });
 export type AccountResponse = z.infer<typeof accountResponseSchema>;

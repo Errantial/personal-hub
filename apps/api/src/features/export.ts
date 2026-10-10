@@ -5,6 +5,8 @@ import type { authService } from '../auth/routes.js';
 import { ApiError } from '../errors.js';
 import { eventColumns, metadataColumns } from './common.js';
 import { reminderColumns, notificationColumns } from './reminders.js';
+import { canvasItemColumns } from '../connections/canvas.js';
+import { strongest } from './common.js';
 
 export function registerExport(
   app: FastifyInstance,
@@ -44,6 +46,19 @@ export function registerExport(
       );
       const reminders = await read('reminders', reminderColumns);
       const notifications = await read('notifications', notificationColumns);
+      const [canvasSource] = await tx.query(
+        'SELECT enabled,sensitivity,version FROM canvas_sources WHERE owner_id=$1',
+        [owner.id],
+      );
+      const canvasItems = (await read('canvas_items', canvasItemColumns)).map(
+        (item) => ({
+          ...item,
+          effectiveSensitivity: strongest(
+            String(canvasSource?.sensitivity ?? 'unlabeled'),
+            String(item.sensitivity),
+          ),
+        }),
+      );
       return {
         tasks,
         events,
@@ -52,6 +67,8 @@ export function registerExport(
         exceptions,
         reminders,
         notifications,
+        canvasItems,
+        canvasSource: canvasSource ?? null,
       };
     });
     const tooLarge = () =>
@@ -60,7 +77,11 @@ export function registerExport(
         'EXPORT_TOO_LARGE',
         'Export exceeds the supported download size.',
       );
-    if (Object.values(records).some((rows) => rows.length > 10000))
+    if (
+      Object.values(records).some(
+        (rows) => Array.isArray(rows) && rows.length > 10000,
+      )
+    )
       throw tooLarge();
     const exportedAt = new Date().toISOString();
     const output = plannerExportSchema.parse({

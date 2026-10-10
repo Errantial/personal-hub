@@ -498,6 +498,40 @@ main {
   gap: 12px;
   margin-top: 16px;
 }
+.canvas-connection {
+  padding: 24px;
+  margin-bottom: 24px;
+}
+.canvas-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+}
+.canvas-actions label,
+.canvas-actions input {
+  max-width: 100%;
+  min-width: 0;
+}
+.canvas-actions input {
+  display: block;
+}
+.canvas-items {
+  display: grid;
+  gap: 16px;
+}
+.canvas-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.canvas-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .account-form label {
   display: grid;
   gap: 6px;

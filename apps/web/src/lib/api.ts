@@ -64,6 +64,18 @@ export async function liveRequestJson<T>(
       .safeParse(payload);
     const code = result.success ? result.data.error.code : 'REQUEST_FAILED';
     const messages: Record<string, string> = {
+      CANVAS_NOT_CONFIGURED: 'Configure the Canvas feed on the server first.',
+      CANVAS_SYNC_ACTIVE:
+        'Wait for the active refresh or pause it before importing.',
+      CANVAS_ITEMS_LIMIT:
+        'Too many retained Canvas entries. Export your data; paging is not available yet.',
+      INVALID_FEED:
+        'This is not a supported complete calendar feed. Previous records are unchanged.',
+      UNSUPPORTED_FEED:
+        'This feed uses unsupported recurrence, duration or floating/ambiguous times. Previous records are unchanged.',
+      DUPLICATE_UID:
+        'This feed contains duplicate event IDs. Previous records are unchanged.',
+      FEED_TOO_LARGE: 'Calendar feed exceeds 1 MiB or 2,000 entries.',
       PASSWORD_MISMATCH: 'Current password is incorrect.',
       EXPORT_TOO_LARGE: 'Planner export exceeds the supported download size.',
       CURRENT_SESSION: 'Use Sign out for this session.',

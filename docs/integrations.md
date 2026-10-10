@@ -4,6 +4,8 @@ Verified against the official documentation below on 2026-10-09. School-specific
 
 ## Canvas LMS
 
+Implementation update (2026-10-10): a read-only school feed adapter, manual ICS import, durable refresh jobs and separate owner annotations are implemented and verified with synthetic fixtures. See [Canvas setup](canvas.md). Live school access, completeness, richer API/browser enrichment and grades remain unverified.
+
 Confirmed: school Canvas LMS at `canvas.colorado.edu`, including its calendar. The owner has an existing personal ICS feed and previously used a model-driven browser to inspect assignments and alerts. Do not place the personal feed URL in source, documentation, or logs; configure it later as a secret.
 
 - Use the REST API for accessible courses, assignments, submissions, and other allowed academic data.

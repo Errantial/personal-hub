@@ -15,6 +15,7 @@ Session lists expose random public IDs, versions, creation/expiration times and 
 - Tasks, calendar records, courses and topics, including versions, sensitivity labels and delete tombstones.
 - Recurrence exceptions, including cancelled or replaced occurrences.
 - Reminder schedules and notification inbox history.
+- Imported Canvas entries, file/network provenance, personal notes, labels and source settings; private feed URLs and sync lease tokens remain excluded. These are additive format-v1 fields; older exports default to empty Canvas data.
 
 Only explicitly selected planner fields are exported. Authentication records, password/session hashes, setup configuration, mutation receipts and worker lease tokens are excluded. Records retain their stored labels and class/topic links; downstream processing must still apply inherited provenance rules. Treat the downloaded file as private data.
 

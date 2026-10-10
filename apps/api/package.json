@@ -16,6 +16,7 @@
     "@fastify/rate-limit": "11.2.1",
     "@hub/contracts": "0.1.0",
     "fastify": "5.12.5",
+    "ical.js": "2.2.1",
     "pg": "8.23.1",
     "zod": "4.6.5"
   },

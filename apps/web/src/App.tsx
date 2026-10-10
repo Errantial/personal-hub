@@ -10,6 +10,7 @@ import type { StudyDraft } from './components/CalendarWorkspace';
 import { AcademicWorkspace } from './components/AcademicWorkspace';
 import { ReminderWorkspace } from './components/ReminderWorkspace';
 import { AccountSettings } from './components/AccountSettings';
+import { CanvasConnection } from './components/CanvasConnection';
 import type { User } from '@hub/contracts';
 
 type View =
@@ -210,25 +211,28 @@ function Workspace({
               aria-labelledby="connections-title"
             >
               <h2 id="connections-title">Your accounts</h2>
+              <CanvasConnection />
               <Help label="Connections">
-                Connections are not implemented yet.
+                Email and Proton Calendar connections are not implemented yet.
               </Help>
               {workspace.status === 'ready' ? (
                 <div className="connection-grid">
-                  {workspace.data.connections.map((connection) => (
-                    <article className="connection-card" key={connection.id}>
-                      <div className="connection-card-top">
-                        <span className="account-icon" aria-hidden="true">
-                          {connection.name.charAt(0)}
-                        </span>
-                        <span className="status-tag">Not connected</span>
-                      </div>
-                      <h3>{connection.name}</h3>
-                      <Help label={connection.name}>
-                        {connection.description}
-                      </Help>
-                    </article>
-                  ))}
+                  {workspace.data.connections
+                    .filter((connection) => connection.id !== 'canvas')
+                    .map((connection) => (
+                      <article className="connection-card" key={connection.id}>
+                        <div className="connection-card-top">
+                          <span className="account-icon" aria-hidden="true">
+                            {connection.name.charAt(0)}
+                          </span>
+                          <span className="status-tag">Not connected</span>
+                        </div>
+                        <h3>{connection.name}</h3>
+                        <Help label={connection.name}>
+                          {connection.description}
+                        </Help>
+                      </article>
+                    ))}
                 </div>
               ) : (
                 <div className="panel connection-placeholder">

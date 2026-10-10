@@ -36,6 +36,7 @@ Status: pending unless explicitly confirmed. These entries prevent draft recomme
 | D30 | Android prototype | Provisional Capacitor 8.5.3 APK, bundled UI, native HTTP/HttpOnly cookie jar and fixed HTTPS server origin; isolated loopback test build. No Google Services, request logging or Android backup. IndexedDB is the initial device outbox; native alarms/background delivery/release signing pending | Verify actual API/WebView, durability and e-ink behavior on Kompakt |
 | D31 | Development priority | Confirmed 2026-10-10: defer actual Kompakt verification and continue core server/site features and backend. Hardware acceptance remains required before claiming device support | Device work no longer gates core development |
 | D32 | Planner export | Implemented portable format v1 with owner records/tombstones, labels, exceptions, reminders and inbox history; excludes authentication/operational secrets. Import and full backup/restore remain pending | Reviewable data portability without claiming recovery |
+| D33 | Canvas ingestion baseline | Implemented: read-only school ICS feed with server-only configuration, optional file import, durable refreshes and separate notes/labels. Missing entries are retained; file provenance cannot become AI input. No live completeness proof, grades, Canvas writes or richer API access claimed | Starts ingestion without implying full LMS parity |
 
 ## Next decision sequence
 
