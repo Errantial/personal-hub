@@ -7,7 +7,14 @@ export function SyncStatus() {
   const [online, setOnline] = useState(navigator.onLine);
   const [status, setStatus] = useState<
     Awaited<ReturnType<typeof offlineStatus>>
-  >({ pending: 0, lastSaved: null, conflicts: [], unavailable: false });
+  >({
+    pending: 0,
+    queued: [],
+    locked: false,
+    lastSaved: null,
+    conflicts: [],
+    unavailable: false,
+  });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   async function sync() {

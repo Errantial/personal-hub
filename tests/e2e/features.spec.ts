@@ -249,3 +249,45 @@ test('new screens fit monochrome on a narrow viewport and explain denied alert p
     page.getByText(/Change this site’s notification setting/),
   ).toBeVisible();
 });
+
+test('a reminder whose save response is lost retries with the same operation and saves once', async ({
+  page,
+}) => {
+  await page.goto('/reminders');
+  const view = page.getByRole('region', { name: 'Reminders workspace' });
+  await view.getByLabel('Reminder title').fill('Lost response reminder');
+  await view.getByLabel('Remind at', { exact: true }).fill('2036-01-01T10:00');
+  const operations: string[] = [];
+  let interrupted = false;
+  await page.route('**/api/v1/reminders', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    operations.push(
+      (route.request().postDataJSON() as { operationId: string }).operationId,
+    );
+    if (!interrupted) {
+      interrupted = true;
+      const response = await route.fetch();
+      expect(response.ok()).toBe(true);
+      return route.abort();
+    }
+    return route.continue();
+  });
+  const add = view.getByRole('button', { name: 'Add reminder', exact: true });
+  await add.click();
+  await expect(view.getByRole('alert')).toBeVisible();
+  // The form keeps the draft; an unchanged retry reuses the operation ID.
+  await expect(view.getByLabel('Reminder title')).toHaveValue(
+    'Lost response reminder',
+  );
+  await add.click();
+  await expect(
+    view.locator('li').filter({ hasText: 'Lost response reminder' }),
+  ).toHaveCount(1);
+  expect(operations).toHaveLength(2);
+  expect(operations[1]).toBe(operations[0]);
+  const response = await page.request.get('/api/v1/reminders');
+  const data = (await response.json()) as { reminders: { title: string }[] };
+  expect(
+    data.reminders.filter((item) => item.title === 'Lost response reminder'),
+  ).toHaveLength(1);
+});
