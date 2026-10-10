@@ -177,6 +177,28 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
         headers,
       });
       expect(canvasConnection.json().items[0].inputKind).toBe('calendar-file');
+      const canvasItem = canvasConnection.json().items[0];
+      const linked = await app.inject({
+        method: 'PUT',
+        url: `/api/v1/connections/canvas/items/${canvasItem.id}`,
+        headers,
+        payload: {
+          operationId: randomUUID(),
+          expectedVersion: canvasItem.version,
+          notes: 'Postgres linked note',
+          sensitivity: 'unlabeled',
+          courseId: course.json().course.id,
+        },
+      });
+      expect(linked.statusCode).toBe(200);
+      const canvasAgenda = await app.inject({
+        url: '/api/v1/connections/canvas/calendar?from=2027-03-01&to=2027-03-02&timeZone=UTC',
+        headers,
+      });
+      expect(canvasAgenda.statusCode).toBe(200);
+      expect(canvasAgenda.json().items[0].courseId).toBe(
+        course.json().course.id,
+      );
     } finally {
       await app?.close();
       await administrator.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

@@ -6,7 +6,7 @@ Interface copy: prefer titles and labels over flavor text. Put secondary explana
 
 A local authenticated planner: React/Vite web, Fastify API, shared Zod contracts, single-owner enrollment/login, versioned tasks, day/week calendar with all-day/recurring events and occurrence edits, class/topic portfolios, manual study blocks, durable reminders/inbox, optimistic conflicts, duplicate-safe retries, and e-ink appearance. See [planner behavior](planner.md) for recurrence rules, label inheritance and delivery limits.
 
-Connections supports read-only Canvas calendar feeds, explicit ICS import, automatic/manual durable refresh jobs and personal notes/labels. Configure the private URL only on the server; see [Canvas setup and boundaries](canvas.md). School completeness and richer API access remain unverified. No real feed is accessed by routine tests.
+Connections supports read-only Canvas calendar feeds, explicit ICS import, automatic/manual durable refresh jobs and personal notes/labels/class links. Imported entries appear read-only in Calendar and linked class portfolios; previously loaded ranges/lists have owner-scoped cached viewing. Configure the private URL only on the server; see [Canvas setup and boundaries](canvas.md). School completeness and richer API access remain unverified. No real feed is accessed by routine tests.
 
 A provisional Capacitor APK bundles this UI and its IndexedDB task outbox. Native login, offline task edits and process-restart/replay are tested on an AOSP emulator. Actual Kompakt hardware, native alarms/background delivery, offline calendar/class/reminder edits, email/Proton connections, richer Canvas access, imported grades, automatic study suggestions, hosted AI/routing enforcement, memory, MCP and autonomous agent execution remain pending. Stored labels do not imply AI is configured. Development checks have not accessed real account content. See [implementation backlog](backlog.md).
 
@@ -93,7 +93,9 @@ For local backups, stop the API before copying the entire embedded data director
 | `GET/PUT /api/v1/connections/canvas` | Canvas source settings, safe status/history, imported entries and inherited labels |
 | `POST /api/v1/connections/canvas/sync` | Queue a duplicate-safe network refresh; server feed required |
 | `POST /api/v1/connections/canvas/import` | Import a complete ICS snapshot with an operation ID; up to 1 MiB |
-| `PUT /api/v1/connections/canvas/items/:id` | Versioned personal notes and entry label; provider fields remain read-only |
+| `PUT /api/v1/connections/canvas/items/:id` | Versioned personal notes, entry label and optional owned courseId; provider fields remain read-only |
+| `GET /api/v1/connections/canvas/calendar?from=...&to=...&timeZone=...` | Read-only imported entries for a maximum 93-day viewing range |
+| `GET /api/v1/connections/canvas/items?courseId=...` | Owned class's linked read-only records and last import time |
 
 Request/response types and runtime schemas live in `packages/contracts/src/index.ts`. Session tokens are random, hashed in storage, sent in HttpOnly/SameSite=Strict cookies, Secure in production, and expire after seven days. Passwords use salted scrypt. All responses disable caching. Routes validate ownership before planner access; unknown endpoints and internal errors return sanitized structured errors. Logs omit query strings, cookies, authorization, and private error content. Unexpected database startup errors also omit raw exception details.
 

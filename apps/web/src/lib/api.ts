@@ -107,6 +107,7 @@ export async function liveRequestJson<T>(
 }
 
 const cachedPath = (path: string) =>
+  /^\/api\/v1\/connections\/canvas\/(calendar|items)\?.+$/.test(path) ||
   /^\/api\/v1\/(tasks|events|calendar|courses|topics|reminders|notifications)(\/occurrences\?.*)?$/.test(
     path,
   );

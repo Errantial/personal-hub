@@ -1,4 +1,5 @@
 import { Help } from './Help';
+import { CanvasEntry } from './CanvasEntry';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
@@ -11,6 +12,8 @@ import {
   wallTimeToInstant,
   instantToWall,
   zone,
+  canvasItemsResponseSchema,
+  canvasItemInRange,
 } from '@hub/contracts';
 import type {
   CalendarRecord,
@@ -18,6 +21,7 @@ import type {
   Course,
   Topic,
   Occurrence,
+  CanvasItem,
 } from '@hub/contracts';
 import { getJson, requestJson } from '../lib/api';
 export type StudyDraft = {
@@ -45,6 +49,13 @@ export function CalendarWorkspace({
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [canvas, setCanvas] = useState<{
+    key: string;
+    items: CanvasItem[];
+    lastImportedAt: string | null;
+    error: string;
+  } | null>(null);
+  const canvasRequest = useRef(0);
   const pending = useRef<{ key: string; id: string } | null>(null);
   const chosen = Temporal.PlainDate.from(date);
   const from = (
@@ -53,8 +64,29 @@ export function CalendarWorkspace({
   const to = Temporal.PlainDate.from(from)
     .add({ days: mode === 'week' ? 7 : 1 })
     .toString();
+  const canvasKey = `${from}:${to}:${timeZone}`;
   async function load(signal?: AbortSignal, refreshEditor = false) {
     const query = new URLSearchParams({ from, to, timeZone });
+    const request = ++canvasRequest.current;
+    void getJson(
+      `/api/v1/connections/canvas/calendar?${query}`,
+      canvasItemsResponseSchema,
+      signal,
+    ).then(
+      (result) => {
+        if (!signal?.aborted && request === canvasRequest.current)
+          setCanvas({ key: canvasKey, ...result, error: '' });
+      },
+      () => {
+        if (!signal?.aborted && request === canvasRequest.current)
+          setCanvas({
+            key: canvasKey,
+            items: [],
+            lastImportedAt: null,
+            error: 'Canvas entries unavailable. Reload calendar to retry.',
+          });
+      },
+    );
     const [series, expanded, classes, subjects] = await Promise.all([
       getJson('/api/v1/calendar', calendarListSchema, signal),
       getJson(
@@ -274,7 +306,20 @@ export function CalendarWorkspace({
         {from} through{' '}
         {Temporal.PlainDate.from(to).subtract({ days: 1 }).toString()} ·{' '}
         {timeZone}. Task deadlines are separate from reserved calendar time.
+        <br />
+        Canvas entries are read-only. Point entries are deadlines;
+        cancelled/missing entries are kept visible and do not reserve time.
       </Help>
+      {canvas?.key === canvasKey && canvas.error && (
+        <p role="alert" className="form-error">
+          {canvas.error}
+        </p>
+      )}
+      {canvas?.key === canvasKey && canvas.lastImportedAt && (
+        <p className="meta">
+          Canvas last import: {new Date(canvas.lastImportedAt).toLocaleString()}
+        </p>
+      )}
       <div className={`calendar-days ${mode}`}>
         {days.map((day) => (
           <section
@@ -290,6 +335,19 @@ export function CalendarWorkspace({
                 day: 'numeric',
               })}
             </h2>
+            {canvas?.key === canvasKey &&
+              canvas.items
+                .filter((item) =>
+                  canvasItemInRange(
+                    item,
+                    day,
+                    Temporal.PlainDate.from(day).add({ days: 1 }).toString(),
+                    timeZone,
+                  ),
+                )
+                .map((item) => (
+                  <CanvasEntry key={item.id} item={item} timeZone={timeZone} />
+                ))}
             {occurrences
               .filter((item) =>
                 item.allDay

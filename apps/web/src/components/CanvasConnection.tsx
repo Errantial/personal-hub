@@ -4,10 +4,12 @@ import {
   canvasConnectionSchema,
   canvasJobResponseSchema,
   canvasItemSchema,
+  coursesSchema,
 } from '@hub/contracts';
 import type {
   CanvasConnection as Connection,
   CanvasItem,
+  Course,
 } from '@hub/contracts';
 import { requestJson } from '../lib/api';
 import { Help } from './Help';
@@ -21,14 +23,16 @@ export function CanvasConnection() {
   const [editing, setEditing] = useState<CanvasItem | null>(null);
   const [notes, setNotes] = useState('');
   const [label, setLabel] = useState<CanvasItem['sensitivity']>('unlabeled');
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [courseId, setCourseId] = useState('');
   const pending = useRef<{ key: string; id: string } | null>(null);
   async function load(signal?: AbortSignal) {
-    const result = await requestJson(
-      base,
-      canvasConnectionSchema,
-      signal ? { signal } : {},
-    );
+    const [result, classes] = await Promise.all([
+      requestJson(base, canvasConnectionSchema, signal ? { signal } : {}),
+      requestJson('/api/v1/courses', coursesSchema, signal ? { signal } : {}),
+    ]);
     setData(result);
+    setCourses(classes.courses);
     return result;
   }
   useEffect(() => {
@@ -246,6 +250,12 @@ export function CanvasConnection() {
                   </details>
                 )}
                 {item.notes && <p className="canvas-text">{item.notes}</p>}
+                {item.courseId && (
+                  <p>
+                    {item.courseName ?? 'Class'}
+                    {item.courseDeleted ? ' · Archived class' : ''}
+                  </p>
+                )}
                 <button
                   className="text-button"
                   disabled={busy}
@@ -253,6 +263,7 @@ export function CanvasConnection() {
                     setEditing(item);
                     setNotes(item.notes);
                     setLabel(item.sensitivity);
+                    setCourseId(item.courseId ?? '');
                   }}
                 >
                   Edit notes
@@ -267,6 +278,7 @@ export function CanvasConnection() {
                           notes,
                           sensitivity: label,
                           expectedVersion: editing.version,
+                          courseId: courseId || null,
                         });
                         setEditing(null);
                         await load();
@@ -299,6 +311,29 @@ export function CanvasConnection() {
                             <option key={value}>{value}</option>
                           ),
                         )}
+                      </select>
+                    </label>
+                    <label>
+                      Linked class
+                      <select
+                        aria-label="Linked class"
+                        value={courseId}
+                        onChange={(event) => setCourseId(event.target.value)}
+                      >
+                        <option value="">No class</option>
+                        {editing.courseId &&
+                          !courses.some(
+                            (course) => course.id === editing.courseId,
+                          ) && (
+                            <option value={editing.courseId}>
+                              {editing.courseName ?? 'Class'} · Archived class
+                            </option>
+                          )}
+                        {courses.map((course) => (
+                          <option key={course.id} value={course.id}>
+                            {course.name}
+                          </option>
+                        ))}
                       </select>
                     </label>
                     <button className="primary-button" disabled={busy}>

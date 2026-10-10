@@ -7,18 +7,67 @@ import {
   canvasUploadSchema,
   canvasJobResponseSchema,
   canvasItemSchema,
+  canvasItemsResponseSchema,
+  canvasItemInRange,
+  rangeSchema,
 } from '@hub/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { Database, QueryExecutor } from '../db/database.js';
 import type { Config } from '../config.js';
 import type { authService } from '../auth/routes.js';
 import { mutate } from '../planner/mutations.js';
-import { stamp, strongest } from '../features/common.js';
+import { stamp, strongest, active } from '../features/common.js';
 import { ApiError } from '../errors.js';
 import { FeedError, parseCanvasFeed, fetchCanvasFeed } from './canvas-feed.js';
 import type { FeedEntry, FeedFetcher } from './canvas-feed.js';
 
-export const canvasItemColumns = `id,uid,input_kind AS "inputKind",provider_data AS "providerData",availability,notes,sensitivity,version,${stamp('created_at', 'createdAt')},${stamp('updated_at', 'updatedAt')}`;
+export const canvasItemColumns = `id,uid,input_kind AS "inputKind",provider_data AS "providerData",availability,notes,sensitivity,version,course_id AS "courseId",
+  (SELECT c.name FROM courses c WHERE c.id=canvas_items.course_id AND c.owner_id=canvas_items.owner_id) AS "courseName",
+  COALESCE((SELECT c.deleted_at IS NOT NULL FROM courses c WHERE c.id=canvas_items.course_id AND c.owner_id=canvas_items.owner_id),FALSE) AS "courseDeleted",
+  (SELECT c.sensitivity FROM courses c WHERE c.id=canvas_items.course_id AND c.owner_id=canvas_items.owner_id) AS "courseSensitivity",
+  ${stamp('created_at', 'createdAt')},${stamp('updated_at', 'updatedAt')}`;
+export function canvasEffectiveSensitivity(
+  source: unknown,
+  item: Record<string, unknown>,
+) {
+  return strongest(
+    String(source ?? 'unlabeled'),
+    String(item.sensitivity),
+    String(item.courseSensitivity ?? 'unlabeled'),
+  );
+}
+export async function readCanvasItems(
+  tx: QueryExecutor,
+  owner: string,
+  courseId?: string,
+) {
+  const [source] = await tx.query(
+    `SELECT sensitivity,${stamp('last_imported_at', 'lastImportedAt')} FROM canvas_sources WHERE owner_id=$1`,
+    [owner],
+  );
+  const rows = await tx.query(
+    `SELECT ${canvasItemColumns} FROM canvas_items WHERE owner_id=$1${courseId ? ' AND course_id=$2' : ''} ORDER BY (provider_data->>'startDate') NULLS LAST,(provider_data->>'startsAt') NULLS LAST,id LIMIT 2001`,
+    courseId ? [owner, courseId] : [owner],
+  );
+  if (rows.length > 2000)
+    throw new ApiError(
+      413,
+      'CANVAS_ITEMS_LIMIT',
+      'Too many retained Canvas entries.',
+    );
+  return {
+    lastImportedAt: source?.lastImportedAt ?? null,
+    items: rows.map((row) =>
+      canvasItemSchema.parse({
+        ...row,
+        effectiveSensitivity: canvasEffectiveSensitivity(
+          source?.sensitivity,
+          row,
+        ),
+      }),
+    ),
+  };
+}
 export const canvasJobColumns = `id,trigger,status,attempts,error_code AS "errorCode",counts,${stamp('created_at', 'createdAt')},${stamp('updated_at', 'updatedAt')}`;
 async function ensure(tx: QueryExecutor, owner: string) {
   await tx.query(
@@ -188,6 +237,41 @@ export function registerCanvas(
   config: Config,
 ) {
   const base = '/api/v1/connections/canvas';
+  app.get(`${base}/calendar`, async (request) => {
+    const user = await auth.requireUser(request);
+    const range = rangeSchema.parse(request.query);
+    return database.transaction(async (tx) => {
+      await tx.query(
+        'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY',
+      );
+      const result = await readCanvasItems(tx, user.id);
+      return canvasItemsResponseSchema.parse({
+        ...result,
+        items: result.items.filter((item) =>
+          canvasItemInRange(item, range.from, range.to, range.timeZone),
+        ),
+      });
+    });
+  });
+  app.get(`${base}/items`, async (request) => {
+    const user = await auth.requireUser(request);
+    const { courseId } = z
+      .strictObject({ courseId: z.string().uuid() })
+      .parse(request.query);
+    return database.transaction(async (tx) => {
+      await tx.query(
+        'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY',
+      );
+      const [owned] = await tx.query(
+        'SELECT id FROM courses WHERE owner_id=$1 AND id=$2',
+        [user.id, courseId],
+      );
+      if (!owned) throw new ApiError(404, 'NOT_FOUND', 'Class not available.');
+      return canvasItemsResponseSchema.parse(
+        await readCanvasItems(tx, user.id, courseId),
+      );
+    });
+  });
   app.get(base, async (request) => {
     const user = await auth.requireUser(request);
     return database.transaction(async (tx) => {
@@ -215,9 +299,9 @@ export function registerCanvas(
         ),
         items: items.map((item) => ({
           ...item,
-          effectiveSensitivity: strongest(
-            String(source!.sensitivity),
-            String(item.sensitivity),
+          effectiveSensitivity: canvasEffectiveSensitivity(
+            source!.sensitivity,
+            item,
           ),
         })),
       });
@@ -359,9 +443,23 @@ export function registerCanvas(
           'SELECT owner_id FROM canvas_sources WHERE owner_id=$1 FOR UPDATE',
           [user.id],
         );
+        const [old] = await tx.query(
+          'SELECT course_id FROM canvas_items WHERE owner_id=$1 AND id=$2 FOR UPDATE',
+          [user.id, id],
+        );
+        if (input.courseId && input.courseId !== old?.course_id)
+          await active(tx, 'courses', user.id, input.courseId);
         const [saved] = await tx.query(
-          `UPDATE canvas_items SET notes=$3,sensitivity=$4,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2 AND version=$5 RETURNING ${canvasItemColumns}`,
-          [user.id, id, input.notes, input.sensitivity, input.expectedVersion],
+          `UPDATE canvas_items SET notes=$3,sensitivity=$4,course_id=CASE WHEN $6::boolean THEN $7::uuid ELSE course_id END,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2 AND version=$5 RETURNING ${canvasItemColumns}`,
+          [
+            user.id,
+            id,
+            input.notes,
+            input.sensitivity,
+            input.expectedVersion,
+            input.courseId !== undefined,
+            input.courseId ?? null,
+          ],
         );
         if (!saved) {
           const exists = await tx.query(
@@ -381,9 +479,9 @@ export function registerCanvas(
         return {
           item: canvasItemSchema.parse({
             ...saved,
-            effectiveSensitivity: strongest(
-              String(source!.sensitivity),
-              String(saved.sensitivity),
+            effectiveSensitivity: canvasEffectiveSensitivity(
+              source!.sensitivity,
+              saved,
             ),
           }),
         };
