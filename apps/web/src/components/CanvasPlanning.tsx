@@ -10,15 +10,27 @@ import type { CanvasItem, Course } from '@hub/contracts';
 import { requestJson, RequestError } from '../lib/api';
 import { Help } from './Help';
 
+export type CanvasPlanningItem = Pick<
+  CanvasItem,
+  'id' | 'version' | 'courseId' | 'availability'
+> & {
+  providerData: Pick<
+    CanvasItem['providerData'],
+    'title' | 'startDate' | 'startsAt'
+  >;
+};
 export function CanvasPlanning({
   item,
   courses,
+  apiCourseVersion,
 }: {
-  item: CanvasItem;
+  item: CanvasPlanningItem;
   courses: Course[];
+  apiCourseVersion?: number;
 }) {
   const [kind, setKind] = useState<'task' | 'study' | null>(null);
   const [source, setSource] = useState(item);
+  const [courseVersion, setCourseVersion] = useState(apiCourseVersion);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -42,7 +54,13 @@ export function CanvasPlanning({
       const common = {
         title: String(form.get('title')),
         notes: String(form.get('notes')),
-        canvasSourceRef: { itemId: source.id, expectedVersion: source.version },
+        canvasSourceRef: {
+          itemId: source.id,
+          expectedVersion: source.version,
+          ...(courseVersion
+            ? { kind: 'assignment-api', expectedCourseVersion: courseVersion }
+            : {}),
+        },
       };
       const body =
         kind === 'task'
@@ -82,7 +100,7 @@ export function CanvasPlanning({
     } catch (failure) {
       setError(
         failure instanceof RequestError && failure.code === 'VERSION_CONFLICT'
-          ? 'Canvas entry changed. Reload Canvas, then reload source version. Your planner draft is retained.'
+          ? `Canvas ${courseVersion ? 'assignment or course' : 'entry'} changed. Reload Canvas, then reload source version. Your planner draft is retained.`
           : failure instanceof Error
             ? failure.message
             : 'Could not create planner item.',
@@ -93,6 +111,7 @@ export function CanvasPlanning({
   }
   function open(next: 'task' | 'study') {
     setSource(item);
+    setCourseVersion(apiCourseVersion);
     setKind(next);
     setError('');
     setMessage('');
@@ -137,11 +156,15 @@ export function CanvasPlanning({
             item is a separate action.
           </Help>
           <p className="meta">Source version {source.version}</p>
-          {source.version !== item.version && (
+          {(source.version !== item.version ||
+            courseVersion !== apiCourseVersion) && (
             <button
               type="button"
               disabled={busy}
-              onClick={() => setSource(item)}
+              onClick={() => {
+                setSource(item);
+                setCourseVersion(apiCourseVersion);
+              }}
             >
               Reload source version
             </button>

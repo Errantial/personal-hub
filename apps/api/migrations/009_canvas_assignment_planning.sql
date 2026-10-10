@@ -1,0 +1,13 @@
+ALTER TABLE canvas_lms_assignments ADD CONSTRAINT canvas_lms_assignment_owned_id UNIQUE(id,owner_id);
+ALTER TABLE tasks ADD COLUMN canvas_assignment_id UUID;
+ALTER TABLE tasks ADD COLUMN canvas_assignment_snapshot JSONB;
+ALTER TABLE tasks ADD CONSTRAINT task_owned_canvas_assignment FOREIGN KEY(canvas_assignment_id,owner_id) REFERENCES canvas_lms_assignments(id,owner_id);
+ALTER TABLE tasks ADD CONSTRAINT task_assignment_snapshot CHECK ((canvas_assignment_id IS NULL) = (canvas_assignment_snapshot IS NULL));
+ALTER TABLE tasks ADD CONSTRAINT task_single_canvas_source CHECK (canvas_assignment_id IS NULL OR canvas_source_id IS NULL);
+ALTER TABLE events ADD COLUMN canvas_assignment_id UUID;
+ALTER TABLE events ADD COLUMN canvas_assignment_snapshot JSONB;
+ALTER TABLE events ADD CONSTRAINT event_owned_canvas_assignment FOREIGN KEY(canvas_assignment_id,owner_id) REFERENCES canvas_lms_assignments(id,owner_id);
+ALTER TABLE events ADD CONSTRAINT event_assignment_snapshot CHECK ((canvas_assignment_id IS NULL) = (canvas_assignment_snapshot IS NULL));
+ALTER TABLE events ADD CONSTRAINT event_single_canvas_source CHECK (canvas_assignment_id IS NULL OR canvas_source_id IS NULL);
+CREATE INDEX task_canvas_assignment ON tasks(owner_id,canvas_assignment_id);
+CREATE INDEX event_canvas_assignment ON events(owner_id,canvas_assignment_id);

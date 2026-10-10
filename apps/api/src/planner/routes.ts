@@ -64,7 +64,7 @@ export function registerPlanner(
           input.canvasSourceRef,
         );
         const [task] = await transaction.query(
-          `INSERT INTO tasks (id, owner_id, title, notes, due_date, priority, completed, sensitivity,canvas_source_id,canvas_source_snapshot) VALUES ($1, $2, $3, $4, $5, $6, $7, $8,$9,$10::jsonb) ON CONFLICT (id) DO NOTHING RETURNING ${taskColumns}`,
+          `INSERT INTO tasks (id, owner_id, title, notes, due_date, priority, completed, sensitivity,canvas_source_id,canvas_source_snapshot,canvas_assignment_id,canvas_assignment_snapshot) VALUES ($1, $2, $3, $4, $5, $6, $7, $8,$9,$10::jsonb,$11,$12::jsonb) ON CONFLICT (id) DO NOTHING RETURNING ${taskColumns}`,
           [
             id,
             user.id,
@@ -74,8 +74,16 @@ export function registerPlanner(
             input.priority,
             input.completed,
             input.sensitivity,
-            source?.itemId ?? null,
-            source ? JSON.stringify(source) : null,
+            source?.inputKind !== 'assignment-api'
+              ? (source?.itemId ?? null)
+              : null,
+            source && source.inputKind !== 'assignment-api'
+              ? JSON.stringify(source)
+              : null,
+            source?.inputKind === 'assignment-api' ? source.itemId : null,
+            source?.inputKind === 'assignment-api'
+              ? JSON.stringify(source)
+              : null,
           ],
         );
         if (!task)

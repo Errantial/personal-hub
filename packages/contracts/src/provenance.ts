@@ -8,22 +8,37 @@ const timing = z.object({
   startsAt: z.string().datetime().nullable(),
   endsAt: z.string().datetime().nullable(),
 });
-export const canvasSourceRefSchema = z.strictObject({
+const sourceRef = {
   itemId: z.string().uuid(),
   expectedVersion: z.number().int().positive(),
-});
+};
+export const canvasSourceRefSchema = z.union([
+  z.strictObject(sourceRef),
+  z.strictObject({
+    ...sourceRef,
+    kind: z.literal('assignment-api'),
+    expectedCourseVersion: z.number().int().positive(),
+  }),
+]);
+export type CanvasSourceRef = z.infer<typeof canvasSourceRefSchema>;
 export const plannerSourceSchema = z.object({
   itemId: z.string().uuid(),
   version: z.number().int().positive(),
   title: z.string(),
   sourceUrl: z.string().url().nullable(),
-  inputKind: z.enum(['calendar-feed', 'calendar-file']),
+  inputKind: z.enum(['calendar-feed', 'calendar-file', 'assignment-api']),
+  courseVersion: z.number().int().positive().optional(),
+  currentCourseVersion: z.number().int().positive().optional(),
   sensitivity: label,
   timing,
   currentVersion: z.number().int().positive(),
   currentTitle: z.string(),
   currentAvailability: z.enum(['available', 'cancelled', 'missing']),
-  currentInputKind: z.enum(['calendar-feed', 'calendar-file']),
+  currentInputKind: z.enum([
+    'calendar-feed',
+    'calendar-file',
+    'assignment-api',
+  ]),
   currentSensitivity: label,
   currentTiming: timing,
 });

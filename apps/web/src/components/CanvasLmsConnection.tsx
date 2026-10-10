@@ -16,6 +16,7 @@ import type {
 import { requestJson } from '../lib/api';
 import { Help } from './Help';
 import { CanvasAssignment } from './CanvasAssignment';
+import { CanvasAssignmentPlanning } from './CanvasAssignmentPlanning';
 const base = '/api/v1/connections/canvas/lms';
 type Editing =
   | { kind: 'courses'; item: CanvasLmsCourse }
@@ -359,6 +360,11 @@ export function CanvasLmsConnection() {
                     key={item.id}
                   >
                     <CanvasAssignment item={item} course={course} />
+                    <CanvasAssignmentPlanning
+                      assignment={item}
+                      course={course}
+                      classes={courses}
+                    />
                     <button
                       className="text-button"
                       disabled={busy}

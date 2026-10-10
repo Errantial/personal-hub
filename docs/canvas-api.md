@@ -16,7 +16,17 @@ The adapter requests the current user's active student course enrollments, inclu
 
 Persisted provider fields are restricted to course ID/name/code/term/timezone and assignment ID/title/due instant/possible points/published flag/locked flag. Missing deadlines and flags remain unknown; no deadline is inferred from text. Due instants display in the device timezone. Possible points describe the assignment, not the owner's earned score. Descriptions, HTML, syllabi, enrollments, grades, submissions, feedback, attachment references and calendar-feed URLs are not persisted; linked resources are never fetched. Assignment links are constructed from validated numeric IDs on the fixed school origin.
 
-API records remain separate from ICS entries because their identity/coverage differs. There is no inferred merge, duplicate agenda deadline, new planner event or automatic class creation. Existing feed-derived tasks and study blocks are unaffected. API-assignment task/study conversion, grades/submission status, announcements, browser enrichment and cross-adapter reconciliation are upcoming work.
+API records remain separate from ICS entries because their identity/coverage differs. There is no inferred merge, automatic agenda deadline or class creation. Existing feed-derived tasks and study blocks are unaffected. Grades/submission status, announcements, browser enrichment and cross-adapter reconciliation are upcoming work.
+
+## Assignment planning
+
+Connections offers Create task and Plan study for available API assignments. Review the title, personal notes and date-only task deadline or timed study interval before saving. A missing source deadline stays empty. Timed deadlines propose a date in the device timezone; study time is chosen separately. Study blocks require an active owned class and may use a different class from the source's explicit link. No provider writes or automatic conversion occur.
+
+Creation uses the existing task/calendar APIs with `canvasSourceRef: {kind: 'assignment-api', itemId, expectedVersion, expectedCourseVersion}`. The source and course must still be available at those versions. Changes retain the planner draft; explicitly reload Canvas API, then Reload source version, before retrying. An unchanged request retries with its original operation ID. Deliberately creating another planner item remains allowed; feed/API records are not automatically deduplicated against planner work.
+
+Migration 009 adds owned assignment foreign keys and separate immutable snapshots to tasks/events without changing earlier migrations. Planner `canvasSource` includes captured title/deadline/labels/course version and current facts/status/course version. Source labels inherit from API source, course, assignment and linked local class, including archived classes. Refreshes never overwrite the owner's task deadline, study time, notes, completion or tombstone. Changing/detaching the source link is unsupported. Export includes provenance on active and deleted planner records.
+
+Creation requires a connection; existing assignment-linked tasks retain ordinary offline edits/replay. Study editing remains online-only. API metadata is not file-derived; future AI still requires the provider-routing gateway and evaluates captured/current labels. No AI processing is enabled.
 
 ## Personal records and class portfolios
 

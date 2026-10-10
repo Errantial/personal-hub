@@ -1,6 +1,13 @@
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { beforeAll, afterAll, it, expect, vi } from 'vitest';
-import { canvasLmsConnectionSchema, plannerExportSchema } from '@hub/contracts';
+import {
+  canvasLmsConnectionSchema,
+  plannerExportSchema,
+  taskResponseSchema,
+  calendarResponseSchema,
+  plannerSensitivity,
+  plannerTextIsAttachmentDerived,
+} from '@hub/contracts';
 import { buildApp } from '../src/app.js';
 import { readConfig } from '../src/config.js';
 import { openDatabase } from '../src/db/database.js';
@@ -242,6 +249,196 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   await app?.close();
+});
+it('creates assignment-linked planner records with version guards, immutable snapshots and inherited labels', async () => {
+  await get();
+  await sync();
+  await runCanvasLmsSync(db, config, async () => snapshot());
+  let state = await get();
+  const local = (
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/courses',
+      headers: headers(),
+      payload: {
+        operationId: randomUUID(),
+        name: 'Assignment planning class',
+        sensitivity: 'restricted',
+      },
+    })
+  ).json().course;
+  const link = await app.inject({
+    method: 'PUT',
+    url: `${base}/courses/${state.courses[0]!.id}`,
+    headers: headers(),
+    payload: {
+      operationId: randomUUID(),
+      expectedVersion: state.courses[0]!.version,
+      courseId: local.id,
+      notes: '',
+      sensitivity: 'unlabeled',
+    },
+  });
+  expect(link.statusCode).toBe(200);
+  state = await get();
+  const ref = {
+    kind: 'assignment-api',
+    itemId: state.assignments[0]!.id,
+    expectedVersion: state.assignments[0]!.version,
+    expectedCourseVersion: state.courses[0]!.version,
+  };
+  const create = (payload: object, session = cookie) =>
+    app.inject({
+      method: 'POST',
+      url: '/api/v1/tasks',
+      headers: headers(session),
+      payload,
+    });
+  const body = {
+    operationId: randomUUID(),
+    title: 'Owner assignment task',
+    dueDate: '2027-05-02',
+    canvasSourceRef: ref,
+  };
+  expect((await create(body, otherCookie)).statusCode).toBe(404);
+  expect(
+    (
+      await create({
+        ...body,
+        operationId: randomUUID(),
+        canvasSourceRef: {
+          ...ref,
+          expectedCourseVersion: ref.expectedCourseVersion + 1,
+        },
+      })
+    ).statusCode,
+  ).toBe(409);
+  const reply = await create(body);
+  expect(reply.statusCode).toBe(200);
+  const task = taskResponseSchema.parse(reply.json()).task;
+  expect(task.canvasSource).toMatchObject({
+    inputKind: 'assignment-api',
+    title: 'Synthetic API assignment',
+    sensitivity: 'restricted',
+    courseVersion: ref.expectedCourseVersion,
+  });
+  expect(plannerSensitivity(task)).toBe('restricted');
+  expect(plannerTextIsAttachmentDerived(task)).toBe(false);
+  expect((await create(body)).json()).toEqual(reply.json());
+  const studyReply = await app.inject({
+    method: 'POST',
+    url: '/api/v1/calendar',
+    headers: headers(),
+    payload: {
+      operationId: randomUUID(),
+      title: 'Assignment study',
+      courseId: local.id,
+      startsAt: '2027-04-30T15:00:00Z',
+      endsAt: '2027-04-30T16:00:00Z',
+      timeZone: 'UTC',
+      canvasSourceRef: ref,
+    },
+  });
+  expect(studyReply.statusCode).toBe(200);
+  const study = calendarResponseSchema.parse(studyReply.json()).event;
+  expect(study.canvasSource?.inputKind).toBe('assignment-api');
+  expect(study.startsAt).toBe('2027-04-30T15:00:00.000Z');
+  expect(
+    (
+      await app.inject({
+        method: 'PUT',
+        url: `/api/v1/calendar/${study.id}`,
+        headers: headers(),
+        payload: {
+          operationId: randomUUID(),
+          expectedVersion: study.version,
+          title: study.title,
+          courseId: local.id,
+          startsAt: study.startsAt,
+          endsAt: study.endsAt,
+          timeZone: 'UTC',
+          canvasSourceRef: ref,
+        },
+      })
+    ).statusCode,
+  ).toBe(400);
+  expect(
+    (
+      await app.inject({
+        method: 'PUT',
+        url: `/api/v1/tasks/${task.id}`,
+        headers: headers(),
+        payload: {
+          operationId: randomUUID(),
+          expectedVersion: task.version,
+          title: 'Retained owner title',
+          dueDate: '2027-05-03',
+          notes: 'Personal work',
+          completed: true,
+        },
+      })
+    ).statusCode,
+  ).toBe(200);
+  await sync();
+  await runCanvasLmsSync(db, config, async () =>
+    snapshot('Changed API deadline', null),
+  );
+  const refreshed = (
+    await app.inject({ url: '/api/v1/tasks', headers: headers() })
+  )
+    .json()
+    .tasks.find((row: { id: string }) => row.id === task.id);
+  expect(refreshed).toMatchObject({
+    title: 'Retained owner title',
+    dueDate: '2027-05-03',
+    completed: true,
+    canvasSource: {
+      title: 'Synthetic API assignment',
+      currentTitle: 'Changed API deadline',
+      currentTiming: { startsAt: null },
+      timing: { startsAt: '2027-05-01T17:00:00.000Z' },
+    },
+  });
+  expect(
+    (await create({ ...body, operationId: randomUUID() })).statusCode,
+  ).toBe(409);
+  await app.inject({
+    method: 'DELETE',
+    url: `/api/v1/tasks/${task.id}`,
+    headers: headers(),
+    payload: { operationId: randomUUID(), expectedVersion: refreshed.version },
+  });
+  await sync();
+  await runCanvasLmsSync(db, config, async () => ({
+    courses: [],
+    assignments: [],
+  }));
+  state = await get();
+  expect(
+    (
+      await create({
+        ...body,
+        operationId: randomUUID(),
+        canvasSourceRef: {
+          ...ref,
+          expectedVersion: state.assignments[0]!.version,
+          expectedCourseVersion: state.courses[0]!.version,
+        },
+      })
+    ).statusCode,
+  ).toBe(409);
+  const exported = plannerExportSchema.parse(
+    (
+      await app.inject({ url: '/api/v1/planner/export', headers: headers() })
+    ).json(),
+  );
+  expect(
+    exported.records.tasks.find((row) => row.id === task.id),
+  ).toMatchObject({
+    deletedAt: expect.any(String),
+    canvasSource: { currentAvailability: 'missing', sensitivity: 'restricted' },
+  });
+  expect((await create(body)).json()).toEqual(reply.json());
 });
 it('binds API credentials to the enrolled owner and protects every read/write', async () => {
   expect((await app.inject(base)).statusCode).toBe(401);

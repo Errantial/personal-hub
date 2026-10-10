@@ -9,7 +9,10 @@ export function PlannerSource({
     <details>
       <summary>
         Canvas source
-        {source.currentVersion !== source.version ? ' · Changed' : ''}
+        {source.currentVersion !== source.version ||
+        source.currentCourseVersion !== source.courseVersion
+          ? ' · Changed'
+          : ''}
         {source.currentAvailability !== 'available'
           ? ` · ${source.currentAvailability}`
           : ''}

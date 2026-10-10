@@ -197,11 +197,21 @@ export function registerCalendar(
             const [row] =
               method === 'POST'
                 ? await tx.query(
-                    `INSERT INTO events (id,owner_id,title,notes,starts_at,ends_at,time_zone,sensitivity,all_day,start_date,end_date,recurrence,course_id,topic_id,study_status,canvas_source_id,canvas_source_snapshot) VALUES (${params.map((_, i) => `$${i + 1}`).join(',')},$16,$17::jsonb) RETURNING ${eventColumns}`,
+                    `INSERT INTO events (id,owner_id,title,notes,starts_at,ends_at,time_zone,sensitivity,all_day,start_date,end_date,recurrence,course_id,topic_id,study_status,canvas_source_id,canvas_source_snapshot,canvas_assignment_id,canvas_assignment_snapshot) VALUES (${params.map((_, i) => `$${i + 1}`).join(',')},$16,$17::jsonb,$18,$19::jsonb) RETURNING ${eventColumns}`,
                     [
                       ...params,
-                      source?.itemId ?? null,
-                      source ? JSON.stringify(source) : null,
+                      source?.inputKind !== 'assignment-api'
+                        ? (source?.itemId ?? null)
+                        : null,
+                      source && source.inputKind !== 'assignment-api'
+                        ? JSON.stringify(source)
+                        : null,
+                      source?.inputKind === 'assignment-api'
+                        ? source.itemId
+                        : null,
+                      source?.inputKind === 'assignment-api'
+                        ? JSON.stringify(source)
+                        : null,
                     ],
                   )
                 : await tx.query(

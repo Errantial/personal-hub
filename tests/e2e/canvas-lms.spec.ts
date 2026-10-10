@@ -167,6 +167,112 @@ test('Canvas API views preserve note conflicts and show linked assignments offli
   await expect(connection.getByRole('status')).toHaveText(
     'Canvas API notes saved.',
   );
+  const plannerRequests: Record<string, unknown>[] = [];
+  await page.route('**/api/v1/tasks', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    if (!(await page.evaluate(() => navigator.onLine)))
+      return route.abort('internetdisconnected');
+    const body = route.request().postDataJSON();
+    plannerRequests.push(body);
+    if (body.canvasSourceRef.expectedCourseVersion !== course.version)
+      return route.fulfill({
+        status: 409,
+        json: { error: { code: 'VERSION_CONFLICT' } },
+      });
+    return route.fulfill({
+      json: {
+        task: {
+          id: crypto.randomUUID(),
+          title: body.title,
+          notes: body.notes,
+          dueDate: body.dueDate,
+          priority: 'normal',
+          completed: false,
+          sensitivity: 'unlabeled',
+          version: 1,
+          createdAt: stamp,
+          updatedAt: stamp,
+          deletedAt: null,
+        },
+      },
+    });
+  });
+  await apiAssignment
+    .getByRole('button', { name: 'Create task', exact: true })
+    .click();
+  const planning = apiAssignment.getByRole('form', { name: 'Canvas planning' });
+  await expect(planning.getByLabel('Task deadline')).toHaveValue('');
+  await planning.getByLabel('Planner title').fill('API planner retained draft');
+  course.version++;
+  await planning
+    .getByRole('button', { name: 'Save task', exact: true })
+    .click();
+  await expect(apiAssignment.getByRole('alert')).toContainText(
+    'assignment or course changed',
+  );
+  await connection
+    .getByRole('button', { name: 'Reload Canvas API', exact: true })
+    .click();
+  await planning
+    .getByRole('button', { name: 'Reload source version', exact: true })
+    .click();
+  await expect(planning.getByLabel('Planner title')).toHaveValue(
+    'API planner retained draft',
+  );
+  await context.setOffline(true);
+  await planning
+    .getByRole('button', { name: 'Save task', exact: true })
+    .click();
+  await expect(apiAssignment.getByRole('alert')).toContainText(
+    'Connect to create a task from Canvas',
+  );
+  await context.setOffline(false);
+  await planning
+    .getByRole('button', { name: 'Save task', exact: true })
+    .click();
+  await expect(apiAssignment.getByRole('status')).toHaveText('Task created.');
+  expect(plannerRequests.at(-1)?.canvasSourceRef).toEqual({
+    kind: 'assignment-api',
+    itemId: assignment.id,
+    expectedVersion: assignment.version,
+    expectedCourseVersion: course.version,
+  });
+  let studyRequest: Record<string, unknown> | undefined;
+  await page.route('**/api/v1/calendar', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    studyRequest = route.request().postDataJSON();
+    return route.fulfill({
+      json: {
+        event: {
+          ...studyRequest,
+          id: crypto.randomUUID(),
+          sensitivity: 'unlabeled',
+          version: 1,
+          createdAt: stamp,
+          updatedAt: stamp,
+          deletedAt: null,
+        },
+      },
+    });
+  });
+  await apiAssignment
+    .getByRole('button', { name: 'Plan study', exact: true })
+    .click();
+  await expect(planning.getByLabel('Study class')).toHaveValue(local.id);
+  await planning.getByLabel('Study timezone').fill('UTC');
+  await planning.getByLabel('Study starts').fill('2027-04-30T15:00');
+  await planning.getByLabel('Study ends').fill('2027-04-30T16:00');
+  await planning
+    .getByRole('button', { name: 'Save study block', exact: true })
+    .click();
+  await expect(apiAssignment.getByRole('status')).toHaveText(
+    'Study block created.',
+  );
+  expect(studyRequest).toMatchObject({
+    courseId: local.id,
+    startsAt: '2027-04-30T15:00:00.000Z',
+    canvasSourceRef: { kind: 'assignment-api' },
+  });
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,

@@ -1,9 +1,11 @@
 import type { QueryExecutor } from '../db/database.js';
 import { ApiError } from '../errors.js';
+import type { CanvasSourceRef } from '@hub/contracts';
+import { strongest, version } from '../features/common.js';
 
 // Retain the captured facts and expose current metadata without rewriting planner fields.
 export function plannerSourceColumns(table: 'tasks' | 'events') {
-  return `(SELECT ${table}.canvas_source_snapshot || jsonb_build_object(
+  return `COALESCE((SELECT ${table}.canvas_source_snapshot || jsonb_build_object(
     'currentVersion',i.version,'currentTitle',i.provider_data->>'title',
     'currentAvailability',i.availability,'currentInputKind',i.input_kind,
     'currentTiming',jsonb_build_object('allDay',i.provider_data->'allDay','startDate',i.provider_data->'startDate','endDate',i.provider_data->'endDate','startsAt',i.provider_data->'startsAt','endsAt',i.provider_data->'endsAt'),
@@ -11,14 +13,26 @@ export function plannerSourceColumns(table: 'tasks' | 'events') {
       WHEN 'personal' IN (s.sensitivity,i.sensitivity,c.sensitivity) THEN 'personal' ELSE 'unlabeled' END)
     FROM canvas_items i JOIN canvas_sources s ON s.owner_id=i.owner_id
     LEFT JOIN courses c ON c.id=i.course_id AND c.owner_id=i.owner_id
-    WHERE i.id=${table}.canvas_source_id AND i.owner_id=${table}.owner_id) AS "canvasSource"`;
+    WHERE i.id=${table}.canvas_source_id AND i.owner_id=${table}.owner_id),
+    (SELECT ${table}.canvas_assignment_snapshot || jsonb_build_object(
+      'currentVersion',a.version,'currentCourseVersion',lc.version,'currentTitle',a.provider_data->>'title',
+      'currentAvailability',CASE WHEN lc.availability='missing' THEN 'missing' ELSE a.availability END,
+      'currentInputKind','assignment-api',
+      'currentTiming',jsonb_build_object('allDay',FALSE,'startDate',NULL,'endDate',NULL,'startsAt',a.provider_data->'dueAt','endsAt',a.provider_data->'dueAt'),
+      'currentSensitivity',CASE WHEN 'restricted' IN (s.sensitivity,lc.sensitivity,a.sensitivity,c.sensitivity) THEN 'restricted'
+        WHEN 'personal' IN (s.sensitivity,lc.sensitivity,a.sensitivity,c.sensitivity) THEN 'personal' ELSE 'unlabeled' END)
+    FROM canvas_lms_assignments a JOIN canvas_lms_courses lc ON lc.id=a.canvas_course_id AND lc.owner_id=a.owner_id
+    JOIN canvas_lms_sources s ON s.owner_id=a.owner_id
+    LEFT JOIN courses c ON c.id=lc.course_id AND c.owner_id=lc.owner_id
+    WHERE a.id=${table}.canvas_assignment_id AND a.owner_id=${table}.owner_id)) AS "canvasSource"`;
 }
 export async function captureCanvasSource(
   tx: QueryExecutor,
   owner: string,
-  ref?: { itemId: string; expectedVersion: number },
+  ref?: CanvasSourceRef,
 ) {
   if (!ref) return null;
+  if ('kind' in ref) return captureAssignment(tx, owner, ref);
   // Same lock order as imports: source, then entry; labels and snapshot stay consistent.
   const [source] = await tx.query(
     'SELECT sensitivity FROM canvas_sources WHERE owner_id=$1 FOR UPDATE',
@@ -80,5 +94,64 @@ export async function captureCanvasSource(
           ),
         )
       ],
+  };
+}
+
+async function captureAssignment(
+  tx: QueryExecutor,
+  owner: string,
+  ref: Extract<CanvasSourceRef, { kind: 'assignment-api' }>,
+) {
+  const [source] = await tx.query(
+    'SELECT sensitivity FROM canvas_lms_sources WHERE owner_id=$1 FOR UPDATE',
+    [owner],
+  );
+  const [item] = await tx.query(
+    'SELECT * FROM canvas_lms_assignments WHERE owner_id=$1 AND id=$2 FOR UPDATE',
+    [owner, ref.itemId],
+  );
+  if (!source || !item)
+    throw new ApiError(404, 'NOT_FOUND', 'Canvas assignment not available.');
+  const [course] = await tx.query(
+    'SELECT * FROM canvas_lms_courses WHERE owner_id=$1 AND id=$2 FOR UPDATE',
+    [owner, item.canvas_course_id],
+  );
+  if (!course)
+    throw new ApiError(404, 'NOT_FOUND', 'Canvas course not available.');
+  version(item, ref.expectedVersion);
+  version(course, ref.expectedCourseVersion);
+  if (item.availability !== 'available' || course.availability !== 'available')
+    throw new ApiError(
+      409,
+      'SOURCE_UNAVAILABLE',
+      'Canvas assignment is missing.',
+    );
+  const [local] = course.course_id
+    ? await tx.query(
+        'SELECT sensitivity FROM courses WHERE owner_id=$1 AND id=$2 FOR UPDATE',
+        [owner, course.course_id],
+      )
+    : [];
+  const data = item.provider_data as { title: string; dueAt: string | null };
+  return {
+    itemId: ref.itemId,
+    version: item.version,
+    courseVersion: course.version,
+    title: data.title,
+    sourceUrl: `https://canvas.colorado.edu/courses/${course.provider_id}/assignments/${item.provider_id}`,
+    timing: {
+      allDay: false,
+      startDate: null,
+      endDate: null,
+      startsAt: data.dueAt,
+      endsAt: data.dueAt,
+    },
+    inputKind: 'assignment-api',
+    sensitivity: strongest(
+      String(source.sensitivity),
+      String(course.sensitivity),
+      String(item.sensitivity),
+      String(local?.sensitivity ?? 'unlabeled'),
+    ),
   };
 }
