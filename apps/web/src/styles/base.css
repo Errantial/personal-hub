@@ -33,6 +33,17 @@ button {
   cursor: pointer;
   min-height: var(--target);
 }
+/* Every control meets the touch target (docs/ui-guidelines.md §4).
+   Checkboxes and radios get their target from the wrapping label. */
+input:not([type='checkbox'], [type='radio']),
+select {
+  min-height: var(--target);
+}
+summary {
+  min-height: var(--target);
+  padding-block: var(--space-2);
+  cursor: pointer;
+}
 button:disabled {
   cursor: not-allowed;
   opacity: 0.65;

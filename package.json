@@ -30,6 +30,7 @@
     "android:server": "node --import tsx scripts/android-server.mjs"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@capacitor/android": "8.5.3",
     "@capacitor/cli": "8.5.3",
     "@eslint/js": "10.0.1",
