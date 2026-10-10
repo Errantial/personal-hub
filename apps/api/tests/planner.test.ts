@@ -429,6 +429,42 @@ describe('durable planner mutations', () => {
   });
 });
 
+it('accepts stable offline task IDs, rejects collisions, and reports the real session expiry', async () => {
+  const clientId = randomUUID();
+  const payload = {
+    title: 'Offline stable ID',
+    clientId,
+    operationId: randomUUID(),
+  };
+  const created = await app.inject({
+    method: 'POST',
+    url: '/api/v1/tasks',
+    headers: headers(),
+    payload,
+  });
+  expect(created.statusCode).toBe(200);
+  expect(created.json().task.id).toBe(clientId);
+  const repeated = await app.inject({
+    method: 'POST',
+    url: '/api/v1/tasks',
+    headers: headers(),
+    payload,
+  });
+  expect(repeated.json()).toEqual(created.json());
+  const collision = await app.inject({
+    method: 'POST',
+    url: '/api/v1/tasks',
+    headers: headers(),
+    payload: { ...payload, operationId: randomUUID() },
+  });
+  expect(collision.statusCode).toBe(409);
+  const session = await app.inject({
+    url: '/api/v1/auth/session',
+    headers: headers(),
+  });
+  expect(Date.parse(session.json().expiresAt)).toBeGreaterThan(Date.now());
+});
+
 it('persists planner records and delivers a queued reminder once after restarting', async () => {
   const root = resolve('.artifacts', 'persistence-tests');
   await mkdir(root, { recursive: true });

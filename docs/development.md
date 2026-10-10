@@ -2,9 +2,11 @@
 
 ## Current implementation
 
+Interface copy: prefer titles and labels over flavor text. Put secondary explanations in contextual Help, hover/focus tips or expandable details, accessible by keyboard and tap. Keep actionable errors, offline/pending/conflict state and essential warnings visible. See AGENTS.md.
+
 A local authenticated planner: React/Vite web, Fastify API, shared Zod contracts, single-owner enrollment/login, versioned tasks, day/week calendar with all-day/recurring events and occurrence edits, class/topic portfolios, manual study blocks, durable reminders/inbox, optimistic conflicts, duplicate-safe retries, and e-ink appearance. See [planner behavior](planner.md) for recurrence rules, label inheritance and delivery limits.
 
-Not implemented: Android APK/offline queue, closed-app device alerts, provider connections, imported grades, automatic study suggestions, hosted AI/routing enforcement, memory, MCP or autonomous agent execution. Explicit content labels can be stored now; they do not imply AI is configured. No real account content is imported. See [implementation backlog](backlog.md).
+Not implemented: Android APK/native storage and device testing, offline calendar/class/reminder edits, closed-app device alerts, provider connections, imported grades, automatic study suggestions, hosted AI/routing enforcement, memory, MCP or autonomous agent execution. Explicit content labels can be stored now; they do not imply AI is configured. No real account content is imported. See [implementation backlog](backlog.md).
 
 ## First run
 
@@ -18,7 +20,15 @@ npm run dev
 
 Open `http://127.0.0.1:5173`, create the owner with an email and password of at least 12 characters, then add tasks/events. The email is a login identifier; no verification email is sent. Keep the password in a password manager: reset/recovery and password changes are not implemented yet. Enrollment closes after the first owner. No account/password was created for the owner by development tests.
 
-API: `http://127.0.0.1:3001`. Root dev first builds shared contracts, then watches contracts/API/web together. Both listeners default to loopback; development API configuration rejects a non-loopback host. Stop with Ctrl+C. Embedded PostgreSQL data is saved under `.data/planner/`, excluded from Git. Do not run two API processes against the same embedded directory. This is server storage, not the future Android offline database.
+API: `http://127.0.0.1:3001`. Root dev first builds shared contracts, then watches contracts/API/web together. Both listeners default to loopback; development API configuration rejects a non-loopback host. Stop with Ctrl+C. Embedded PostgreSQL data is saved under `.data/planner/`, excluded from Git. Do not run two API processes against the same embedded directory. This is server storage. The browser offline prototype uses IndexedDB separately; Android native storage is not implemented.
+
+## Offline prototype
+
+The browser caches its static shell using a service worker and stores owner-scoped private snapshots and a task outbox in IndexedDB. After an online login and initial load, tasks can be created/edited/completed/deleted offline and survive reload. Reconnect or select Sync now to replay the original operation IDs in order. Web Locks prevent competing tabs from draining the same outbox. Cached views and task edits require the last verified session to remain unexpired; server revocation is checked before replay.
+
+Task conflicts keep their local draft and stop ordered replay. Review the draft and explicitly discard that task's queued changes to use the server record. Automatic overwrite/rebase is not implemented. Sign-out requires pending tasks to be synchronized or discarded, then clears private local storage. Reauthentication as the same owner retains locked drafts. A different owner clears the previous owner's cache. No cookies/passwords are stored in IndexedDB.
+
+Other screens can show previously loaded data, including only previously visited calendar ranges; their edits require a connection. Browser cache eviction, clearing site data and private browsing can remove the outbox. Service workers require a secure origin (HTTPS or loopback); first-time offline visits cannot work. The prototype is verified on Chromium, not Android process death or actual Kompakt firmware.
 
 ## Configuration
 
@@ -59,12 +69,12 @@ For local backups, stop the API before copying the entire embedded data director
 | `GET /api/health` | Process liveness and contract version |
 | `GET /api/ready` | Database query readiness, 503 when unavailable |
 | `GET /api/v1/bootstrap` | Four planned, explicitly unconfigured connections |
-| `GET /api/v1/auth/session` | Current user or null, and enrollment state |
+| `GET /api/v1/auth/session` | Current user or null, enrollment state and actual session expiry |
 | `POST /api/v1/auth/setup` | First owner enrollment; email, password, optional production setupToken |
 | `POST /api/v1/auth/login` | Email/password login |
 | `POST /api/v1/auth/logout` | Revoke current session |
 | `GET /api/v1/tasks`, `GET /api/v1/events` | Owner's active records |
-| `POST /api/v1/tasks`, `POST /api/v1/events` | Create with operationId |
+| `POST /api/v1/tasks`, `POST /api/v1/events` | Create with operationId; tasks accept an optional stable clientId UUID for offline creation |
 | `PUT /api/v1/tasks/:id`, `PUT /api/v1/events/:id` | Replace editable fields with operationId and expectedVersion |
 | `DELETE /api/v1/tasks/:id`, `DELETE /api/v1/events/:id` | Tombstone with operationId and expectedVersion |
 | `GET/POST /api/v1/calendar`, `PUT/DELETE /api/v1/calendar/:id` | Full series CRUD; legacy event edits reject advanced records |

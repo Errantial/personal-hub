@@ -4,6 +4,7 @@ import { sessionResponseSchema } from '@hub/contracts';
 import type { SessionResponse, User } from '@hub/contracts';
 import { z } from 'zod';
 import { getJson, requestJson } from '../lib/api';
+import { Help } from './Help';
 
 export function AuthGate({
   children,
@@ -14,6 +15,12 @@ export function AuthGate({
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    const locked = () =>
+      setSession({ user: null, setupRequired: false, expiresAt: null });
+    window.addEventListener('hub-auth-required', locked);
+    return () => window.removeEventListener('hub-auth-required', locked);
+  }, []);
   useEffect(() => {
     const controller = new AbortController();
     void getJson(
@@ -61,9 +68,13 @@ export function AuthGate({
         z.object({ ok: z.literal(true) }),
         { method: 'POST', body: {} },
       );
-      setSession({ user: null, setupRequired: false });
-    } catch {
-      setError('Sign-out failed. Try again.');
+      setSession({ user: null, setupRequired: false, expiresAt: null });
+    } catch (failure) {
+      setError(
+        failure instanceof Error
+          ? failure.message
+          : 'Sign-out failed. Try again.',
+      );
     } finally {
       setBusy(false);
     }
@@ -83,14 +94,7 @@ export function AuthGate({
     <main className="auth-page">
       <section className="panel auth-panel">
         <span className="small-label">PERSONAL HUB</span>
-        <h1>
-          {session?.setupRequired ? 'Create your workspace.' : 'Welcome back.'}
-        </h1>
-        <p>
-          {session?.setupRequired
-            ? 'Choose the owner login for this hub. Your tasks and schedule will be saved on its server.'
-            : 'Sign in to your personal workspace.'}
-        </p>
+        <h1>{session?.setupRequired ? 'Create owner account' : 'Sign in'}</h1>
         {error && (
           <p role="alert" className="form-error">
             {error}
@@ -138,10 +142,10 @@ export function AuthGate({
             </label>
             {session.setupRequired && (
               <>
-                <p className="muted-note">
+                <Help label="Password">
                   Use at least 12 characters. Keep your password in a password
                   manager; recovery is not available yet.
-                </p>
+                </Help>
                 <label>
                   Setup token (for a deployed server)
                   <input

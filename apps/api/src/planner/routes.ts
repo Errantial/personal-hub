@@ -53,10 +53,11 @@ export function registerPlanner(
       input.operationId,
       { kind: 'task.create', input },
       async (transaction) => {
+        const id = input.clientId ?? randomUUID();
         const [task] = await transaction.query(
-          `INSERT INTO tasks (id, owner_id, title, notes, due_date, priority, completed, sensitivity) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING ${taskColumns}`,
+          `INSERT INTO tasks (id, owner_id, title, notes, due_date, priority, completed, sensitivity) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING RETURNING ${taskColumns}`,
           [
-            randomUUID(),
+            id,
             user.id,
             input.title,
             input.notes,
@@ -66,6 +67,12 @@ export function registerPlanner(
             input.sensitivity,
           ],
         );
+        if (!task)
+          throw new ApiError(
+            409,
+            'OPERATION_CONFLICT',
+            'This task identifier is already in use.',
+          );
         return taskResponseSchema.parse({ task });
       },
     );

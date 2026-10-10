@@ -1,3 +1,4 @@
+import { Help } from './Help';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
@@ -269,11 +270,11 @@ export function CalendarWorkspace({
           {error}
         </p>
       )}
-      <p className="muted-note">
+      <Help label="Calendar">
         {from} through{' '}
         {Temporal.PlainDate.from(to).subtract({ days: 1 }).toString()} ·{' '}
         {timeZone}. Task deadlines are separate from reserved calendar time.
-      </p>
+      </Help>
       <div className={`calendar-days ${mode}`}>
         {days.map((day) => (
           <section
@@ -631,11 +632,11 @@ function CalendarEditor({
               <option value="later">Later offset</option>
             </select>
           </label>
-          <p className="muted-note">
+          <Help label="Calendar">
             Times use the event timezone. Nonexistent local times are rejected.
             Repeats preserve local start time; future DST gaps shift forward and
             repeated times use the earlier offset.
-          </p>
+          </Help>
         </>
       )}
       {!editing?.originalDate && (
@@ -685,10 +686,10 @@ function CalendarEditor({
                   defaultValue={event?.recurrence?.until ?? ''}
                 />
               </label>
-              <p className="muted-note">
+              <Help label="Calendar">
                 Weekly repeats use the start weekday. Monthly repeats skip
                 months without the start day.
-              </p>
+              </Help>
             </>
           )}
         </>
@@ -747,10 +748,10 @@ function CalendarEditor({
           <option value="restricted">Restricted</option>
         </select>
       </label>
-      <p className="muted-note">
+      <Help label="Calendar">
         Study blocks inherit class/topic labels. Completion does not
         automatically change topic confidence.
-      </p>
+      </Help>
       <div className="form-actions">
         <button className="primary-button" disabled={busy}>
           {busy

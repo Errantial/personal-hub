@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { BootstrapResponse } from '@hub/contracts';
 import { loadWorkspace } from './lib/api';
+import { Help } from './components/Help';
+import { SyncStatus } from './components/SyncStatus';
 import { AuthGate } from './components/AuthGate';
 import { PlannerBoard } from './components/PlannerBoard';
 import { CalendarWorkspace } from './components/CalendarWorkspace';
@@ -113,10 +115,7 @@ function Workspace({
           <span className="brand-mark" aria-hidden="true">
             h
           </span>
-          <span>
-            Personal Hub
-            <span className="brand-caption">A little more breathing room.</span>
-          </span>
+          <span>Personal Hub</span>
         </a>
         <nav aria-label="Main navigation">
           <span className="nav-caption">YOUR WORKSPACE</span>
@@ -134,10 +133,6 @@ function Workspace({
             </button>
           ))}
         </nav>
-        <div className="sidebar-note">
-          <span className="small-label">SPACE TO FOCUS</span>
-          <p>Your plans, classes, and conversations. Together, at your pace.</p>
-        </div>
         <div className="profile">
           <span className="avatar" aria-hidden="true">
             Y
@@ -176,42 +171,13 @@ function Workspace({
             <span className="eyebrow">
               {view === 'today' ? date : 'YOUR PERSONAL HUB'}
             </span>
-            <h1>
-              {view === 'today'
-                ? 'Make room for what matters.'
-                : view === 'connections'
-                  ? 'Bring your world together.'
-                  : view === 'calendar'
-                    ? 'Make time for your plans.'
-                    : view === 'classes'
-                      ? 'See your learning take shape.'
-                      : view === 'reminders'
-                        ? 'Keep the next step in sight.'
-                        : 'Make yourself at home.'}
-            </h1>
-            <p>
-              {view === 'today'
-                ? 'A calm place for your schedule, your next steps, and everything in between.'
-                : view === 'connections'
-                  ? 'Your existing accounts will meet here, with their sources kept clear.'
-                  : view === 'calendar'
-                    ? 'Events, repeated commitments, and study time in one calendar.'
-                    : view === 'classes'
-                      ? 'Your courses, topics, and self-reported progress.'
-                      : view === 'reminders'
-                        ? 'Scheduled reminders and their delivery history.'
-                        : 'Start with a comfortable view. More controls will arrive as the hub grows.'}
-            </p>
+            <h1>{navigation.find((item) => item.id === view)?.label}</h1>
           </div>
 
           {workspace.status === 'unavailable' && (
             <div className="connection-error" role="alert">
               <div>
                 <strong>The hub server is unavailable.</strong>
-                <p>
-                  The workspace preview is still here. Live account data has not
-                  been connected.
-                </p>
               </div>
               <button className="secondary-button" onClick={retryConnection}>
                 Retry connection
@@ -219,48 +185,10 @@ function Workspace({
             </div>
           )}
 
+          <SyncStatus />
           {view === 'today' && (
             <>
-              <section className="welcome-card" aria-labelledby="welcome-title">
-                <div>
-                  <span className="small-label">A FRESH START</span>
-                  <h2 id="welcome-title">Your day starts here.</h2>
-                  <p>
-                    Add your next steps and reserve time for what matters.
-                    Connected accounts will join this view as the hub grows.
-                  </p>
-                  <button
-                    className="primary-button"
-                    onClick={() => setView('connections')}
-                  >
-                    Explore connections <span aria-hidden="true">↗</span>
-                  </button>
-                </div>
-                <div className="welcome-art" aria-hidden="true">
-                  <div className="orbit orbit-one" />
-                  <div className="orbit orbit-two" />
-                  <span className="orbit-center">✳</span>
-                </div>
-              </section>
               <PlannerBoard />
-              <section className="coming-next" aria-labelledby="next-title">
-                <span className="small-label">TAKING SHAPE</span>
-                <h2 id="next-title">One home for the moving pieces.</h2>
-                <div className="feature-grid">
-                  <Feature
-                    title="Plan your time"
-                    description="Calendar, tasks, and gentle reminders."
-                  />
-                  <Feature
-                    title="Keep learning"
-                    description="Class progress and study plans that fit."
-                  />
-                  <Feature
-                    title="Find what matters"
-                    description="An organized inbox, with you in control."
-                  />
-                </div>
-              </section>
             </>
           )}
 
@@ -281,9 +209,9 @@ function Workspace({
               aria-labelledby="connections-title"
             >
               <h2 id="connections-title">Your accounts</h2>
-              <p className="section-description">
-                Connections are planned and are not active yet.
-              </p>
+              <Help label="Connections">
+                Connections are not implemented yet.
+              </Help>
               {workspace.status === 'ready' ? (
                 <div className="connection-grid">
                   {workspace.data.connections.map((connection) => (
@@ -295,7 +223,9 @@ function Workspace({
                         <span className="status-tag">Not connected</span>
                       </div>
                       <h3>{connection.name}</h3>
-                      <p>{connection.description}</p>
+                      <Help label={connection.name}>
+                        {connection.description}
+                      </Help>
                     </article>
                   ))}
                 </div>
@@ -315,11 +245,11 @@ function Workspace({
             <div className="preferences-grid">
               <section className="panel preference-panel">
                 <span className="small-label">APPEARANCE</span>
-                <h2>A quieter screen.</h2>
-                <p>
+                <h2>Appearance</h2>
+                <Help label="E-ink">
                   E-ink mode uses crisp black and white, clear borders, and a
                   stable layout.
-                </p>
+                </Help>
                 <label className="checkbox-label">
                   <input
                     type="checkbox"
@@ -331,15 +261,14 @@ function Workspace({
               </section>
               <section className="panel preference-panel">
                 <span className="small-label">AI & PRIVACY · PLANNED</span>
-                <h2>You decide what goes where.</h2>
-                <p>
+                <h2>AI permissions</h2>
+                <Help label="AI permissions">
                   Provider routing will follow the sources and content you
                   explicitly label. Sending email will require your approval.
-                </p>
-                <p className="muted-note">
+                  <br />
                   No AI provider is configured and no account content is being
-                  processed in this preview.
-                </p>
+                  processed.
+                </Help>
               </section>
             </div>
           )}
@@ -353,26 +282,9 @@ function Workspace({
                   ? 'Connecting to hub API…'
                   : 'Hub API unavailable'}
             </span>
-            <span>A foundation for your everyday.</span>
           </footer>
         </main>
       </div>
     </div>
-  );
-}
-
-function Feature({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <article className="feature">
-      <span className="feature-line" aria-hidden="true" />
-      <h3>{title}</h3>
-      <p>{description}</p>
-    </article>
   );
 }

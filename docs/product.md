@@ -24,6 +24,8 @@ Initial delivery targets are a responsive website used on Windows and a sideload
 
 An agenda must provide a usable alternative to a dense calendar grid, especially on small or e-ink displays.
 
+Interface copy uses concise titles and labels. Avoid unnecessary flavor text. Put useful secondary explanations in contextual Help or hover/focus details that also work by keyboard and tap. Keep actionable errors, offline/pending/conflict states and essential warnings visible.
+
 ## Feature requirements
 
 ### Calendar, tasks, and reminders

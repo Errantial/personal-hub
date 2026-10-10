@@ -1,6 +1,6 @@
 # Proposed architecture
 
-Status: React/Vite, Fastify, npm workspaces and shared TypeScript/Zod contracts are implemented. The local planner includes owner authentication, common SQL migrations, embedded/standard PostgreSQL adapters, versioned tasks/calendar, occurrence exceptions, class/topic records, study blocks, and an in-process durable reminder worker with inbox receipts. Android packaging, synchronization, integrations, AI and MCP remain proposed/unimplemented; their feasibility gates still apply before dependent features are promised. See [local development](development.md) and [planner behavior](planner.md).
+Status: React/Vite, Fastify, npm workspaces and shared TypeScript/Zod contracts are implemented. The local planner includes owner authentication, common SQL migrations, embedded/standard PostgreSQL adapters, versioned tasks/calendar, occurrence exceptions, class/topic records, study blocks, an in-process durable reminder worker with inbox receipts, and a browser offline task prototype (static shell, owner-scoped IndexedDB snapshots/outbox and Web Locks). Android packaging, synchronization, integrations, AI and MCP remain proposed/unimplemented; their feasibility gates still apply before dependent features are promised. See [local development](development.md) and [planner behavior](planner.md).
 
 ## Platform and stack direction
 

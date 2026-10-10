@@ -1,3 +1,4 @@
+import { Help } from './Help';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
@@ -191,12 +192,12 @@ export function ReminderWorkspace() {
               ? 'Reminder worker reported a failure.'
               : 'Reminder worker has not checked in recently.'}
         </p>
-        <p className="muted-note">
+        <Help label="Reminders">
           Server-side reminders are saved to this inbox while the page is
           closed. Browser alerts work while this view is open and permission is
           granted; closed-page push and Android native notifications are not
           implemented.
-        </p>
+        </Help>
         <div className="form-actions">
           <button
             className="secondary-button"
@@ -240,8 +241,8 @@ export function ReminderWorkspace() {
       )}
       <div className="academic-grid">
         <section className="panel planner-panel" aria-label="Reminder inbox">
-          <h2>Your reminder inbox</h2>
-          {notifications.length === 0 && <p>No delivered reminders yet.</p>}
+          <h2>Inbox</h2>
+          {notifications.length === 0 && <p>No reminders</p>}
           <ul className="planner-list">
             {notifications.map((item) => (
               <li key={item.id}>
@@ -365,10 +366,10 @@ export function ReminderWorkspace() {
                 }
               />
             </label>
-            <p className="muted-note">
+            <Help label="Reminders">
               Time uses this device's timezone ({timeZone}). Past times deliver
               on the next worker tick.
-            </p>
+            </Help>
             <label>
               Reminder repeated-time offset
               <select name="offset" defaultValue="reject">

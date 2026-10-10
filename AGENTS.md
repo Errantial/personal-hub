@@ -12,6 +12,10 @@ Read README.md and docs/development.md first. docs/product.md is the agreed scop
 
 Use Node 24/npm 11. Run npm run check for code changes and npm run test:e2e for UI/authentication changes. Browser tests use their own ports and synthetic database. Do not seed or reset the owner's development database during tests. Device tests must distinguish emulators from actual Mudita Kompakt hardware.
 
+## Interface copy
+
+Avoid unnecessary flavor text. Prefer a concise title or label. Put useful secondary explanations in contextual Help controls, hover/focus tips, or expandable details; make them available by keyboard and tap as well as hover. Keep actionable errors, pending/offline/conflict state, and essential warnings visible. Apply this to new features and touched screens.
+
 ## Product boundaries
 
 All private records and writes require owner authorization. Preserve optimistic versions, idempotency receipts, and delete tombstones for future offline sync. Development enrollment stays on loopback; production needs HTTPS, standard PostgreSQL, and a server setup token.

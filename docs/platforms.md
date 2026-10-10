@@ -40,3 +40,7 @@ Record actual firmware, Android API level, available WebView/version, and displa
 Dedicated Windows app: revisit shell choice, tray behavior, auto-start, closed-app notifications, signing, and updates after the core app is complete. A Bridge ingestion process is a separate operational requirement and can precede this UI.
 
 Kindle Scribe: no implementation or compatibility promise in the initial plan. Investigate its supported access methods and interaction constraints only after the rest of the app is complete.
+
+## Browser offline foundation
+
+A service-worker shell and IndexedDB task outbox now provide cached viewing and offline task creation/edit/completion/deletion in the Windows browser prototype. Web Locks serialize competing tabs; original operation IDs and optimistic versions survive reload. This proves browser behavior only. Android native storage, APK packaging, device networking/login and local alarms still need implementation and hardware verification. Android SDK command-line tools remain unavailable in this environment.

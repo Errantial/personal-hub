@@ -31,6 +31,8 @@ Status: pending unless explicitly confirmed. These entries prevent draft recomme
 | D25 | Initial authentication | Implementation choice: one owner, salted scrypt passwords and revocable cookie sessions; production enrollment requires server token. Recovery/session management remains upcoming | Protect persisted planner data before integrations |
 | D26 | Recurrence | Implementation choice: daily/weekly/monthly intervals, optional count/until; local start time preserved, constant elapsed duration, future DST gaps shift forward and folds use earlier offset; monthly absent dates skipped. Editing anchor/timezone/rule clears exceptions and cancels occurrence reminders | Predictable series editing; see planner.md |
 | D27 | Initial reminders | Implementation choice: server worker writes durable in-app notifications; optional browser alerts only while Reminders is open. Push/native closed-app alerts deferred | Separates durable delivery from device notification capability |
+| D28 | Interface copy | Confirmed: concise titles/labels; avoid unnecessary flavor text and move useful secondary information into contextual Help, accessible by keyboard/tap/focus | Reduces clutter, including on e-ink screens |
+| D29 | Offline prototype | Implemented in browser: static service-worker shell, owner-scoped IndexedDB snapshots/task outbox, stable task IDs, ordered receipt replay and Web Locks. Expired/revoked sessions lock drafts; conflicts require explicit review/discard. Native Android storage and calendar/class/reminder offline edits remain pending | Establishes sync behavior without claiming Kompakt/device compatibility |
 
 ## Next decision sequence
 

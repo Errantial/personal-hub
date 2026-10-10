@@ -23,7 +23,7 @@ See [planner behavior](planner.md) for exact recurrence/editing and reminder pol
 
 ## Next: Android/offline and operational readiness
 
-4. Kompakt compatibility prototype, Android local storage and durable offline operation queue. Preserve operation IDs across app/process restarts. Show stale data and conflicts; prove no Google Services dependency and test native reminders on the owner's firmware.
+4. In progress: browser task outbox, stable creation IDs, cached viewing, session-expiry/revocation locking, conflict retention and private cache cleanup are implemented as the offline foundation. Next: Kompakt compatibility prototype, Android local storage and durable offline operation queue. Preserve operation IDs across app/process restarts. Show stale data and conflicts; prove no Google Services dependency and test native reminders on the owner's firmware.
 5. Export/deletion and backup/restore, session/password management and recovery, server deployment acceptance checks. Embedded local storage is not an Oracle production deployment.
 
 Acceptance remaining for the broader planner milestone: an Android edit survives process death and synchronizes once; closed-app reminders and denied/revoked permissions are understood; monochrome navigation works on actual Kompakt hardware. Current web tests distinguish task deadlines from reserved study intervals and exercise recurrence/DST, conflict preservation, permission denial and 320px e-ink layout.
@@ -42,8 +42,12 @@ Implement the text/provenance/provider-routing gateway, typed action policies an
 
 ## Local verification receipt (2026-10-10)
 
-Lint, strict type checks, formatting and production builds passed. API/client suite: 37 passed; one standard PostgreSQL test skipped locally because TEST_DATABASE_URL is unset. Browser suite: 14 passed, covering planner CRUD, occurrence edits, study blocks, server delivery, permission denial, 320px e-ink layout, lost-response retry and deliberate conflict recovery. Dependency audit reported zero production vulnerabilities. The build emits a bundle-size advisory (about 520 kB minified); Kompakt loading/performance still needs measurement. Synthetic tests use separate databases and did not enroll or reset the owner's database. Standard PostgreSQL coverage now includes recurring study blocks and the reminder worker; its remote result remains unverified.
+Lint, strict type checks, formatting and production builds passed. API/client suite: 38 passed; one standard PostgreSQL test skipped locally because TEST_DATABASE_URL is unset. Browser suite: 20 passed, covering planner CRUD, occurrence edits, study blocks, server delivery, permission denial, 320px e-ink layout, lost-response retry, deliberate conflict recovery, offline reload/reconnect, two-tab queue replay, expiry/revocation locking and private cache cleanup. Dependency audit reported zero production vulnerabilities. The build emits a bundle-size advisory (about 527 kB minified); Kompakt loading/performance still needs measurement. Synthetic tests use separate databases and did not enroll or reset the owner's database. Standard PostgreSQL coverage now includes recurring study blocks and the reminder worker; its remote result remains unverified.
 
 ## Verification still outstanding
 
 The local suite covers the embedded PostgreSQL engine. The standard PostgreSQL check is opt-in via TEST_DATABASE_URL and configured in CI; a remote CI result must not be claimed before the repository is pushed and that job runs. CI has not run remotely. Android SDK command-line tools are unavailable on this Windows machine; no APK/device or actual Kompakt verification has occurred. No production deployment or real provider connection has occurred.
+
+## Interface guideline
+
+Prefer concise titles and labels. Use keyboard/tap-accessible contextual Help for useful secondary explanations. Keep errors, pending/offline/conflict state and essential warnings visible. Marketing/welcome copy has been removed from the current screens.

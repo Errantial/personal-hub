@@ -31,6 +31,7 @@ export const userSchema = z.object({
 export const sessionResponseSchema = z.object({
   user: userSchema.nullable(),
   setupRequired: z.boolean(),
+  expiresAt: z.string().datetime().nullable().default(null),
 });
 const emailSchema = z.string().trim().toLowerCase().email().max(254);
 export const loginRequestSchema = z.strictObject({
@@ -76,6 +77,7 @@ const metadata = {
 export const taskSchema = z.object({ ...taskFields, ...metadata });
 export const createTaskSchema = z.strictObject({
   ...taskFields,
+  clientId: z.string().uuid().optional(),
   operationId: z.string().uuid(),
 });
 export const updateTaskSchema = z.strictObject({

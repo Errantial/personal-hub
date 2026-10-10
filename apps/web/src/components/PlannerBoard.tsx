@@ -1,3 +1,4 @@
+import { Help } from './Help';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
@@ -8,6 +9,7 @@ import {
 } from '@hub/contracts';
 import type { Task, CalendarEvent } from '@hub/contracts';
 import { getJson, requestJson } from '../lib/api';
+import { offlineChanged } from '../lib/offline';
 
 type Item = Task | CalendarEvent;
 type Kind = 'tasks' | 'events';
@@ -62,6 +64,14 @@ function PlannerPanel({ kind }: { kind: Kind }) {
     });
     return () => controller.abort();
     // Each panel has a fixed kind for its lifetime.
+  }, []);
+  useEffect(() => {
+    if (!isTask) return;
+    const refresh = () => {
+      void load().catch(() => undefined);
+    };
+    window.addEventListener(offlineChanged, refresh);
+    return () => window.removeEventListener(offlineChanged, refresh);
   }, []);
   async function change(
     method: string,
@@ -165,9 +175,7 @@ function PlannerPanel({ kind }: { kind: Kind }) {
   return (
     <section className="panel planner-panel" aria-labelledby={`${kind}-title`}>
       <div className="panel-heading">
-        <h2 id={`${kind}-title`}>
-          {isTask ? 'Your next steps' : 'On your schedule'}
-        </h2>
+        <h2 id={`${kind}-title`}>{isTask ? 'Tasks' : 'Events'}</h2>
         <button
           className="text-button"
           disabled={busy}
@@ -179,11 +187,11 @@ function PlannerPanel({ kind }: { kind: Kind }) {
           Reload list
         </button>
       </div>
-      <p className="muted-note">
+      <Help label="Planner">
         {isTask
           ? 'Tasks saved to your hub.'
           : 'Quick one-time events. Use Calendar for the full schedule, repeats and study time.'}
-      </p>
+      </Help>
       {error && (
         <p className="form-error" role="alert">
           {error}
@@ -192,11 +200,7 @@ function PlannerPanel({ kind }: { kind: Kind }) {
       {!loaded ? (
         <p role="status">Loading…</p>
       ) : items.length === 0 ? (
-        <p className="planner-empty">
-          {isTask
-            ? 'No tasks yet. Start with one next step.'
-            : 'No events yet. Reserve some time below.'}
-        </p>
+        <p className="planner-empty">{isTask ? 'No tasks' : 'No events'}</p>
       ) : (
         <ul className="planner-list">
           {items.map((item) => (
@@ -340,10 +344,10 @@ function PlannerPanel({ kind }: { kind: Kind }) {
                 }
               />
             </label>
-            <p className="muted-note">
+            <Help label="Planner">
               Enter times in this device's timezone (
               {Intl.DateTimeFormat().resolvedOptions().timeZone}).
-            </p>
+            </Help>
             <label>
               Display timezone
               <input

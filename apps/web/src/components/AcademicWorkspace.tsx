@@ -1,3 +1,4 @@
+import { Help } from './Help';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
@@ -153,11 +154,11 @@ export function AcademicWorkspace({
       )}
       <div className="academic-grid">
         <section className="panel planner-panel">
-          <h2>Your classes</h2>
-          <p className="muted-note">
+          <h2>Classes</h2>
+          <Help label="Classes">
             Progress and confidence are your own assessments. Grades have not
             been imported.
-          </p>
+          </Help>
           <ul className="planner-list">
             {courses.map((course) => (
               <li key={course.id}>
@@ -267,10 +268,10 @@ export function AcademicWorkspace({
                 </button>
               )}
             </div>
-            <p className="muted-note">
+            <Help label="Classes">
               Deleting a class also removes its topics from the portfolio;
               existing calendar study blocks remain.
-            </p>
+            </Help>
           </form>
         </section>
         <section className="panel planner-panel" aria-label="Class topics">

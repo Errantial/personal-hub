@@ -818,6 +818,32 @@ button:disabled {
   gap: 16px;
   margin-bottom: 20px;
 }
+.context-help {
+  font-size: 0.875rem;
+  color: var(--muted);
+  margin-block: 8px;
+}
+.context-help summary {
+  cursor: pointer;
+  padding: 8px;
+  min-height: 44px;
+  width: fit-content;
+}
+.context-help > div {
+  padding: 8px;
+  max-width: 65ch;
+}
+.context-help summary:focus-visible {
+  outline: 2px solid currentColor;
+}
+.sync-status {
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  overflow-wrap: anywhere;
+}
+.sync-status .form-actions {
+  align-items: center;
+}
 .calendar-toolbar label {
   display: grid;
   gap: 6px;

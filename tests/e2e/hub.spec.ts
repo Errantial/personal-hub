@@ -16,10 +16,8 @@ test('web and API connect and show the actual scaffold account state', async ({
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
   await expect(page.locator('.api-indicator')).toHaveText('Hub API connected');
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText(
-    'Make room for what matters.',
-  );
-  await page.getByRole('button', { name: 'Explore connections' }).click();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Today');
+  await page.getByRole('button', { name: 'Connections', exact: true }).click();
   await expect(
     page.getByRole('heading', { name: 'School Outlook' }),
   ).toBeVisible();
@@ -77,7 +75,7 @@ test('tasks survive reload, support edits/completion/deletion, and carry owner l
   page,
 }) => {
   await page.goto('/');
-  const panel = page.getByRole('region', { name: 'Your next steps' });
+  const panel = page.getByRole('region', { name: 'Tasks' });
   await panel.getByLabel('Task title').fill('Browser planner task');
   await panel.getByLabel('Due date').fill('2026-11-05');
   await panel.getByLabel('Content label').selectOption('personal');
@@ -113,7 +111,7 @@ test('a lost save response can be retried without creating a duplicate', async (
   page,
 }) => {
   await page.goto('/');
-  const panel = page.getByRole('region', { name: 'Your next steps' });
+  const panel = page.getByRole('region', { name: 'Tasks' });
   await panel.getByLabel('Task title').fill('Lost response task');
   let interrupted = false;
   await page.route('**/api/v1/tasks', async (route) => {
@@ -125,14 +123,13 @@ test('a lost save response can be retried without creating a duplicate', async (
     } else await route.continue();
   });
   await panel.getByRole('button', { name: 'Add task', exact: true }).click();
-  await expect(panel.getByRole('alert')).toBeVisible();
-  await expect(panel.getByLabel('Task title')).toHaveValue(
-    'Lost response task',
-  );
-  await panel.getByRole('button', { name: 'Add task', exact: true }).click();
+  // A lost response is saved to the durable queue and retried with the same ID.
   await expect(
     panel.getByText('Lost response task', { exact: true }),
   ).toHaveCount(1);
+  await expect(page.getByRole('region', { name: 'Task sync' })).toContainText(
+    '0 pending changes',
+  );
   const response = await page.request.get('/api/v1/tasks');
   const data = (await response.json()) as { tasks: { title: string }[] };
   expect(
@@ -144,7 +141,7 @@ test('events reject reversed times and persist valid times with their display ti
   page,
 }) => {
   await page.goto('/');
-  const panel = page.getByRole('region', { name: 'On your schedule' });
+  const panel = page.getByRole('region', { name: 'Events' });
   await panel.getByLabel('Event title').fill('Browser study time');
   await panel.getByLabel('Starts', { exact: true }).fill('2026-11-05T10:00');
   await panel.getByLabel('Ends', { exact: true }).fill('2026-11-05T09:00');
@@ -200,7 +197,7 @@ test('a conflict preserves the draft and reload enables a deliberate retry', asy
     (await created.json()) as { task: { id: string; version: number } }
   ).task;
   await page.goto('/');
-  const panel = page.getByRole('region', { name: 'Your next steps' });
+  const panel = page.getByRole('region', { name: 'Tasks' });
   await panel
     .getByRole('button', { name: 'Edit Conflict original', exact: true })
     .click();

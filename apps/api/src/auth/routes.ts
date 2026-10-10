@@ -43,21 +43,19 @@ export function authService(database: Database, config: Config) {
   }
   async function createSession(ownerId: string, reply: FastifyReply) {
     const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + sessionDuration * 1000);
     await database.query(
       'DELETE FROM sessions WHERE expires_at <= CURRENT_TIMESTAMP',
     );
     await database.query(
       'INSERT INTO sessions (token_hash, owner_id, expires_at) VALUES ($1, $2, $3)',
-      [
-        tokenHash(token),
-        ownerId,
-        new Date(Date.now() + sessionDuration * 1000),
-      ],
+      [tokenHash(token), ownerId, expiresAt],
     );
     reply.setCookie(cookieName, token, {
       ...cookieOptions,
       maxAge: sessionDuration,
     });
+    return expiresAt.toISOString();
   }
   function setupAllowed(token?: string) {
     if (config.NODE_ENV !== 'production') return true;
@@ -88,7 +86,18 @@ export function registerAuth(
     const [owner] = await database.query(
       'SELECT owner_id FROM owner_setup WHERE singleton = 1',
     );
-    return { user: await auth.currentUser(request), setupRequired: !owner };
+    const user = await auth.currentUser(request);
+    const [session] = user
+      ? await database.query<{ expiresAt: string }>(
+          `SELECT to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "expiresAt" FROM sessions WHERE token_hash=$1`,
+          [tokenHash(request.cookies[cookieName]!)],
+        )
+      : [];
+    return {
+      user,
+      setupRequired: !owner,
+      expiresAt: session?.expiresAt ?? null,
+    };
   });
   app.post('/api/v1/auth/setup', { config: limit }, async (request, reply) => {
     const input = setupRequestSchema.parse(request.body);
@@ -134,8 +143,8 @@ export function registerAuth(
         );
       throw error;
     }
-    await auth.createSession(user.id, reply);
-    return reply.code(201).send({ user, setupRequired: false });
+    const expiresAt = await auth.createSession(user.id, reply);
+    return reply.code(201).send({ user, setupRequired: false, expiresAt });
   });
   app.post('/api/v1/auth/login', { config: limit }, async (request, reply) => {
     const input = loginRequestSchema.parse(request.body);
@@ -154,8 +163,12 @@ export function registerAuth(
         'INVALID_CREDENTIALS',
         'Email or password is incorrect.',
       );
-    await auth.createSession(user.id, reply);
-    return { user: { id: user.id, email: user.email }, setupRequired: false };
+    const expiresAt = await auth.createSession(user.id, reply);
+    return {
+      user: { id: user.id, email: user.email },
+      setupRequired: false,
+      expiresAt,
+    };
   });
   app.post('/api/v1/auth/logout', async (request, reply) => {
     const token = request.cookies[cookieName];
