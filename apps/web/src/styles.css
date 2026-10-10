@@ -558,6 +558,9 @@ main {
 .preference-panel {
   padding: 28px;
 }
+.preference-panel details {
+  overflow-wrap: anywhere;
+}
 .preference-panel h2 {
   font-family: Georgia, serif;
   font-weight: 400;

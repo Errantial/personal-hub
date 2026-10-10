@@ -8,3 +8,5 @@ export * from './canvas-lms.js';
 export * from './canvas-reconciliation.js';
 export * from './canvas-planner-work.js';
 export * from './ai-routing.js';
+export * from './ai-preflight.js';
+export * from './ai-budget.js';

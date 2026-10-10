@@ -14,9 +14,9 @@ Canvas API separately syncs read-only course/assignment metadata with durable jo
 
 Connections also supports explicit [feed/API reconciliation](canvas-reconciliation.md) based on matching assignment URLs, retaining separate facts and notes. Confirmed associations share effective labels and file-derived provenance, with version checks, stable rows and tombstones. No provider/planner facts are merged automatically.
 
-Preferences includes [AI routing permissions and preview](ai-permissions.md): versioned allowed/preferred aliases, deny-by-default settings, complete inherited-label intersection, and text-only simulation with owner-resolved source versions. File-derived or incomplete historical provenance blocks. No provider dispatch, actual availability probe, model credentials, budget, conversation or AI action is configured. Canvas API refreshes bind the upstream account ID after a successful import and reject tokens for another account.
+Preferences includes [AI routing permissions and preview](ai-permissions.md), server profile visibility, numeric spending limits, and durable [AI preflights](ai-gateway.md). Preflight uses server configuration status and bounded owned text projections, retaining metadata rather than prompt/source text. Provider dispatch, health/model verification, priced execution, conversations, retention consent and AI actions remain pending. Canvas API refreshes bind the upstream account ID after a successful import and reject tokens for another account. Maintain the [UI agent ledger](ui-agent-ledger.md) for the later rewrite.
 
-On restart, the API applies migrations 010-015 before readiness. They preserve existing planner fields, notes, versions, source snapshots, receipts and tombstones. Legacy Canvas account identity remains unverified until a complete successful refresh. Legacy calendar/topic history and old source snapshots without complete label arrays cannot be retroactively reconstructed; ordinary planner editing remains available, while the routing preview blocks that uncertain context. No automatic backfill or owner-history review/reset is implemented.
+On restart, the API applies migrations 010-018 before readiness. They preserve existing planner fields, notes, versions, source snapshots, receipts and tombstones. Legacy Canvas account identity remains unverified until a complete successful refresh. Legacy calendar/topic history and old source snapshots without complete label arrays cannot be retroactively reconstructed; ordinary planner editing remains available, while routing checks block that uncertain context. No automatic backfill or owner-history review/reset is implemented.
 
 A provisional Capacitor APK bundles this UI and its IndexedDB task outbox. Native login, offline task edits and process-restart/replay are tested on an AOSP emulator. Actual Kompakt hardware, native alarms/background delivery, offline calendar/class/reminder edits, email/Proton connections, richer Canvas access, imported grades, automatic study suggestions, hosted AI/routing enforcement, memory, MCP and autonomous agent execution remain pending. Stored labels do not imply AI is configured. Development checks have not accessed real account content. See [implementation backlog](backlog.md).
 
@@ -68,6 +68,8 @@ Open the exact configured browser origin: `localhost` and `127.0.0.1` are differ
 
 The same numbered SQL migrations/query layer run on PGlite locally and the `pg` driver with DATABASE_URL. Migrations run before API readiness. Applied migration SHA-256 checksums are recorded and changes to applied files are refused. Add a new numbered SQL migration for every schema change; do not rewrite an applied migration.
 
+AI preflight uses repeatable snapshots and retries only rolled-back database-only mutations. Never put provider calls inside a retryable mutation transaction. Internal budget accounting locks the owner policy before reservation rows; uncertain holds require confirmed usage to settle. Accounting/transition receipts never authorize a paid retry. Actual dispatch and its durable attempt/retention state machine remain pending; see ai-gateway.md.
+
 ```sh
 npm run db:migrate
 ```
@@ -116,6 +118,11 @@ For local backups, stop the API before copying the entire embedded data director
 | `GET /api/v1/connections/canvas/planner-work?kind=calendar\|assignment-api&itemId=...` | Active owned tasks/study blocks grouped through confirmed source links |
 | `GET/PUT /api/v1/ai/routing` | Owner routing policy, deny-by-default, versioned/idempotent writes |
 | `POST /api/v1/ai/routing/preview` | Read-only text policy simulation; no provider dispatch or preview-text persistence |
+| `GET /api/v1/ai/providers` | Safe server profile/configuration status; health unchecked, dispatch disabled |
+| `GET/PUT /api/v1/ai/budget` | Owner USD spending limits; versioned/idempotent settings |
+| `POST /api/v1/ai/preflights` | Versioned bounded text check; persists metadata only, never dispatches |
+| `GET /api/v1/ai/preflights` | Owner history with bounded ID-cursor pagination |
+| `GET/DELETE /api/v1/ai/preflights/:id` | Read an active receipt or versionedly retain a hide tombstone |
 
 Request/response types and runtime schemas live in `packages/contracts/src/index.ts`. Session tokens are random, hashed in storage, sent in HttpOnly/SameSite=Strict cookies, Secure in production, and expire after seven days. Passwords use salted scrypt. All responses disable caching. Routes validate ownership before planner access; unknown endpoints and internal errors return sanitized structured errors. Logs omit query strings, cookies, authorization, and private error content. Unexpected database startup errors also omit raw exception details.
 

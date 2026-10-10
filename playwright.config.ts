@@ -28,6 +28,7 @@ export default defineConfig({
       DATABASE_URL: '',
       CANVAS_CALENDAR_FEED_URL: '',
       CANVAS_API_TOKEN: '',
+      AI_PROVIDER_PROFILES: '[]',
     },
     timeout: 60000,
   },

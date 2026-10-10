@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { readAIProfiles } from './ai/profiles.js';
 
 const originSchema = z.string().refine((value) => {
   try {
@@ -101,7 +102,7 @@ export function readConfig(environment: Record<string, string | undefined>) {
     ];
     throw new Error(`Invalid environment configuration: ${fields.join(', ')}`);
   }
-  return result.data;
+  return { ...result.data, AI_PROVIDER_PROFILES: readAIProfiles(environment) };
 }
 
 export type Config = ReturnType<typeof readConfig>;

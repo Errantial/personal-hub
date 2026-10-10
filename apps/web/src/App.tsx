@@ -14,6 +14,8 @@ import { CanvasConnection } from './components/CanvasConnection';
 import { CanvasLmsConnection } from './components/CanvasLmsConnection';
 import { CanvasReconciliation } from './components/CanvasReconciliation';
 import { AIRoutingSettings } from './components/AIRoutingSettings';
+import { AIPreflights } from './components/AIPreflights';
+import { AIBudgetSettings } from './components/AIBudgetSettings';
 import type { User } from '@hub/contracts';
 
 type View =
@@ -271,6 +273,8 @@ function Workspace({
                 </label>
               </section>
               <AIRoutingSettings />
+              <AIBudgetSettings />
+              <AIPreflights />
             </div>
           )}
 

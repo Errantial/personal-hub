@@ -167,6 +167,7 @@ export function AIRoutingSettings() {
                 body: { ...body, operationId: pending.current.id },
               });
               pending.current = null;
+              window.dispatchEvent(new Event('hub-ai-settings-changed'));
               setSaved(result);
               setDraft(draftFrom(result));
               setPreview(null);

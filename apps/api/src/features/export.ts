@@ -7,6 +7,9 @@ import { taskColumns } from '../planner/routes.js';
 import { readCanvasLms } from '../connections/canvas-lms.js';
 import { readReconciliations } from '../connections/canvas-reconciliation.js';
 import { readAIRoutingPolicy } from './ai-routing.js';
+import { readAIPreflights } from './ai-preflight.js';
+import { readAIBudget } from './ai-budget.js';
+import { readBudgetReservations } from '../ai/budget.js';
 import { eventColumns, metadataColumns } from './common.js';
 import { reminderColumns, notificationColumns } from './reminders.js';
 import {
@@ -87,6 +90,9 @@ export function registerExport(
         canvasLmsSource: canvasLmsSource ?? null,
         canvasReconciliations,
         aiRouting: await readAIRoutingPolicy(tx, owner.id),
+        aiPreflights: await readAIPreflights(tx, owner.id),
+        aiBudget: await readAIBudget(tx, owner.id),
+        aiBudgetReservations: await readBudgetReservations(tx, owner.id),
       };
     });
     const tooLarge = () =>

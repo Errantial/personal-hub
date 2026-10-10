@@ -18,6 +18,8 @@ Session lists expose random public IDs, versions, creation/expiration times and 
 - Recurrence exceptions, including cancelled or replaced occurrences.
 - Explicit Canvas feed/API reconciliation rows, including removal tombstones; captured/current planner provenance retains associated labels and file-derived flags.
 - AI routing permissions with safe provider aliases and policy version; no preview text, provider credentials or dispatch history. Older exports default this field to null.
+- AI spending-limit settings and metadata-only preflight history, including hide tombstones. Prompt/source text and provider credentials remain excluded; preflights are not completed or queued AI work. Older exports default these fields to null/empty.
+- Safe budget reservation/accounting records and recorded usage. Operational hashes and credentials are excluded. Older exports default missing reservation records to empty and missing usage to unknown/null, not zero.
 - Reminder schedules and notification inbox history.
 - Imported Canvas entries, file/network provenance, personal notes, labels, class links, archived-class metadata and source settings; private feed URLs and sync lease tokens remain excluded. These are additive format-v1 fields; older exports default to empty Canvas data and absent class links.
 

@@ -28,7 +28,7 @@ export async function readAIRoutingPolicy(tx: QueryExecutor, owner: string) {
     row ?? { version: 1, policy: emptyAIRoutingPolicy },
   );
 }
-async function resolveContext(
+export async function resolveAIContext(
   tx: QueryExecutor,
   owner: string,
   ref: AIContextRef,
@@ -209,7 +209,7 @@ export function registerAIRouting(
       version(settings, input.expectedPolicyVersion);
       const sources = [];
       for (const ref of input.sources)
-        sources.push(await resolveContext(tx, user.id, ref));
+        sources.push(await resolveAIContext(tx, user.id, ref));
       const labels = [
         input.sensitivity,
         ...sources.flatMap((row) => row.labels),

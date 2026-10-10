@@ -64,6 +64,9 @@ export async function liveRequestJson<T>(
       .safeParse(payload);
     const code = result.success ? result.data.error.code : 'REQUEST_FAILED';
     const messages: Record<string, string> = {
+      REGISTRY_CONFLICT:
+        'Provider profiles changed. Reload preflights before trying again.',
+      RETRY_REQUIRED: 'The server was busy. Retry the same operation.',
       PROVENANCE_UNAVAILABLE:
         'Source label history is incomplete. This context cannot be routed.',
       CANVAS_NOT_CONFIGURED: 'Configure the Canvas feed on the server first.',

@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { canvasReconciliationSchema } from './canvas-reconciliation.js';
 import { aiRoutingSettingsSchema } from './ai-routing.js';
+import { aiPreflightSchema } from './ai-preflight.js';
+import {
+  aiBudgetSettingsSchema,
+  aiBudgetReservationSchema,
+} from './ai-budget.js';
 import {
   calendarRecordSchema,
   calendarInputSchema,
@@ -62,6 +67,9 @@ export const plannerExportSchema = z.object({
     notifications: z.array(notificationSchema),
     canvasItems: z.array(canvasItemSchema).default([]),
     aiRouting: aiRoutingSettingsSchema.nullable().default(null),
+    aiPreflights: z.array(aiPreflightSchema).default([]),
+    aiBudget: aiBudgetSettingsSchema.nullable().default(null),
+    aiBudgetReservations: z.array(aiBudgetReservationSchema).default([]),
     canvasReconciliations: z.array(canvasReconciliationSchema).default([]),
     canvasLmsCourses: z.array(canvasLmsCourseSchema).default([]),
     canvasLmsAssignments: z.array(canvasLmsAssignmentSchema).default([]),

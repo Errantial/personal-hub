@@ -10,7 +10,7 @@ Routing permissions are separate from action permissions. Every provider must ob
 
 ### Implemented: permissions and read-only preview
 
-Preferences now includes AI permissions and Routing preview. This is a policy simulation: AI dispatch remains disabled. No SDK, provider credentials, model profile, actual availability probe, conversation, memory, paid request or agent runtime is configured. Saving aliases does not connect a provider.
+Preferences includes AI permissions and Routing preview. This remains a policy simulation; dispatch is disabled. Separate server profiles, spending limits, and metadata-only preflights are implemented in the [gateway foundation](ai-gateway.md). Profiles are empty by default, and no SDK/transport, health/model verification, conversation, memory, paid request or agent runtime is enabled. Saving routing aliases does not connect a provider.
 
 Set allowed provider aliases and an optional preferred alias for Unlabeled, Personal and Restricted. Aliases are lowercase identifiers, not URLs, model names or secrets. Defaults allow no destination. A request can have an explicit owner label and owned source references. The web preview currently offers task context; the API also accepts calendar, class, topic and Canvas feed/assignment references. Sources require current versions and owner authorization. Preview text is accepted only to model the request shape; it is neither returned, persisted nor sent to another service, and its wording never determines a label.
 
@@ -33,6 +33,8 @@ Migrations 014 and 015 add academic label history to calendar records and topics
 Academic writes lock class, then topic, then event, matching source-label propagation. The optional PostgreSQL check also races academic edits with label propagation; conflicts are permitted, deadlock/internal-error responses are not. Local PGlite checks validate transitions and upgrade preservation, but do not establish standard PostgreSQL concurrency behavior.
 
 ### Planned: provider execution
+
+The [gateway foundation](ai-gateway.md) now provides server-declared profile/model names, private credential references, owned numeric limit settings, bounded text projections, and durable blocked preflight metadata. Actual availability, capability/model verification, pricing, integration of the internal reservation/accounting engine with retained executable requests, consent/retention and action execution remain pending. Server preflight never uses client-simulated availability or transmits assembled text.
 
 | Setting | Purpose |
 | --- | --- |

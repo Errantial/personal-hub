@@ -3,6 +3,12 @@ import { Pool } from 'pg';
 import { expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { readConfig } from '../src/config.js';
+import { openDatabase } from '../src/db/database.js';
+import {
+  reserveAIBudget,
+  changeAIBudgetReservation,
+  readBudgetUsage,
+} from '../src/ai/budget.js';
 
 // CI provides a disposable PostgreSQL instance. A dedicated schema keeps this
 // opt-in check separate from all existing tables in a developer's test database.
@@ -18,6 +24,7 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
     if (!/^hub_test_[a-f0-9]{32}$/.test(schema))
       throw new Error('Invalid test schema');
     let app: Awaited<ReturnType<typeof buildApp>> | undefined;
+    let accounting: Awaited<ReturnType<typeof openDatabase>> | undefined;
     try {
       await administrator.query(`CREATE SCHEMA ${schema}`);
       connection.searchParams.set('options', `-c search_path=${schema}`);
@@ -416,14 +423,141 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
         labels: ['unlabeled', 'personal', 'restricted'],
         dispatchEnabled: false,
       });
+      const registry = (
+        await app.inject({ url: '/api/v1/ai/providers', headers })
+      ).json();
+      const preflightPayload = {
+        operationId: randomUUID(),
+        expectedRegistryRevision: registry.revision,
+        expectedPolicyVersion: policy.json().version,
+        expectedBudgetVersion: 1,
+        text: 'Postgres synthetic preflight',
+        sensitivity: 'unlabeled',
+        sources: [],
+      };
+      const parallel = await Promise.all(
+        Array.from({ length: 4 }, () =>
+          app!.inject({
+            method: 'POST',
+            url: '/api/v1/ai/preflights',
+            headers,
+            payload: preflightPayload,
+          }),
+        ),
+      );
+      for (const response of parallel) {
+        expect(response.statusCode).toBe(201);
+        expect(response.json()).toEqual(parallel[0]!.json());
+      }
+      expect(parallel[0]!.json()).toMatchObject({
+        reason: 'PROVIDER_UNAVAILABLE',
+        contextAssembled: false,
+        budgetVersion: 1,
+      });
+      const secondPreflight = await app.inject({
+        method: 'POST',
+        url: '/api/v1/ai/preflights',
+        headers,
+        payload: { ...preflightPayload, operationId: randomUUID() },
+      });
+      expect(secondPreflight.statusCode).toBe(201);
+      await administrator.query(
+        `UPDATE ${schema}.ai_preflights SET created_at='2026-10-10T21:00:00.123456Z'`,
+      );
+      const firstPage = (
+        await app.inject({ url: '/api/v1/ai/preflights?limit=1', headers })
+      ).json();
+      const secondPage = (
+        await app.inject({
+          url: `/api/v1/ai/preflights?limit=1&before=${firstPage.nextBefore}`,
+          headers,
+        })
+      ).json();
+      expect(secondPage.preflights).toHaveLength(1);
+      expect(secondPage.preflights[0].id).not.toBe(firstPage.preflights[0].id);
+      const budgetWrite = await app.inject({
+        method: 'PUT',
+        url: '/api/v1/ai/budget',
+        headers,
+        payload: {
+          operationId: randomUUID(),
+          expectedVersion: 1,
+          policy: { monthlyLimitMicros: 100, perRequestLimitMicros: 80 },
+        },
+      });
+      expect(budgetWrite.statusCode).toBe(200);
+      accounting = await openDatabase(
+        readConfig({ NODE_ENV: 'test', DATABASE_URL: connection.toString() }),
+      );
+      const owner = setup.json().user.id;
+      const reserve = () =>
+        reserveAIBudget(accounting!, owner, {
+          requestId: randomUUID(),
+          expectedPolicyVersion: budgetWrite.json().version,
+          provider: 'synthetic',
+          model: 'synthetic-model',
+          maximumChargeMicros: 80,
+        });
+      const attempts = await Promise.allSettled([
+        reserve(),
+        reserve(),
+        reserve(),
+      ]);
+      expect(
+        attempts.filter((item) => item.status === 'fulfilled'),
+      ).toHaveLength(1);
+      const accepted = attempts.find((item) => item.status === 'fulfilled')!;
+      if (accepted.status !== 'fulfilled')
+        throw new Error('Expected synthetic reservation');
+      expect(
+        attempts.filter((item) => item.status === 'rejected'),
+      ).toHaveLength(2);
+      for (const item of attempts)
+        if (item.status === 'rejected')
+          expect(item.reason).toMatchObject({
+            code: 'MONTHLY_BUDGET_EXCEEDED',
+          });
+      const uncertain = await changeAIBudgetReservation(
+        accounting,
+        owner,
+        accepted.value.id,
+        { operationId: randomUUID(), expectedVersion: 1, outcome: 'uncertain' },
+      );
+      expect(await readBudgetUsage(accounting, owner)).toMatchObject({
+        heldMicros: '80',
+        uncertainMicros: '80',
+        spentMicros: '0',
+      });
+      await expect(
+        changeAIBudgetReservation(accounting, owner, uncertain.id, {
+          operationId: randomUUID(),
+          expectedVersion: uncertain.version,
+          outcome: 'released',
+        }),
+      ).rejects.toMatchObject({ code: 'BUDGET_STATE' });
+      await changeAIBudgetReservation(accounting, owner, uncertain.id, {
+        operationId: randomUUID(),
+        expectedVersion: uncertain.version,
+        outcome: 'settled',
+        actualMicros: 20,
+      });
+      await reserve();
+      expect(await readBudgetUsage(accounting, owner)).toMatchObject({
+        heldMicros: '80',
+        uncertainMicros: '0',
+        spentMicros: '20',
+      });
       const finalExport = (
         await app.inject({ url: '/api/v1/planner/export', headers })
       ).json();
       expect(finalExport.records.canvasReconciliations).toHaveLength(1);
       expect(finalExport.records.aiRouting.version).toBe(policy.json().version);
+      expect(finalExport.records.aiPreflights).toHaveLength(2);
+      expect(finalExport.records.aiBudgetReservations).toHaveLength(2);
       expect(finalExport.records.canvasLmsSource.accountProviderId).toBe('30');
     } finally {
       await app?.close();
+      await accounting?.close();
       await administrator.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
       await administrator.end();
     }

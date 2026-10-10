@@ -8,38 +8,62 @@ export async function mutate<T>(
   operationId: string,
   payload: unknown,
   work: (transaction: QueryExecutor) => Promise<T>,
+  options: { isolation?: 'repeatable read' } = {},
 ): Promise<T> {
   const hash = createHash('sha256')
     .update(JSON.stringify(payload))
     .digest('hex');
-  return database.transaction(async (transaction) => {
-    const [inserted] = await transaction.query(
-      'INSERT INTO mutation_receipts (owner_id, operation_id, payload_hash) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING operation_id',
-      [ownerId, operationId, hash],
-    );
-    if (!inserted) {
-      const [receipt] = await transaction.query<{
-        payload_hash: string;
-        result: T;
-      }>(
-        'SELECT payload_hash, result FROM mutation_receipts WHERE owner_id = $1 AND operation_id = $2',
-        [ownerId, operationId],
+  const attempt = () =>
+    database.transaction(async (transaction) => {
+      if (options.isolation)
+        await transaction.query(
+          'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ',
+        );
+      const [inserted] = await transaction.query(
+        'INSERT INTO mutation_receipts (owner_id, operation_id, payload_hash) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING operation_id',
+        [ownerId, operationId, hash],
       );
-      if (!receipt || receipt.payload_hash !== hash)
+      if (!inserted) {
+        const [receipt] = await transaction.query<{
+          payload_hash: string;
+          result: T;
+        }>(
+          'SELECT payload_hash, result FROM mutation_receipts WHERE owner_id = $1 AND operation_id = $2',
+          [ownerId, operationId],
+        );
+        if (!receipt || receipt.payload_hash !== hash)
+          throw new ApiError(
+            409,
+            'OPERATION_CONFLICT',
+            'This operation ID was already used for a different change.',
+          );
+        return receipt.result;
+      }
+      const result = await work(transaction);
+      await transaction.query(
+        'UPDATE mutation_receipts SET result = $3::jsonb WHERE owner_id = $1 AND operation_id = $2',
+        [ownerId, operationId, JSON.stringify(result)],
+      );
+      return result;
+    });
+  // Repeatable snapshots can lose a concurrent receipt-insert race on PostgreSQL.
+  // Retry only rolled-back snapshot transactions; work must have no external side effects.
+  for (let remaining = 3; ; remaining--) {
+    try {
+      return await attempt();
+    } catch (error) {
+      const code =
+        error instanceof Error && 'code' in error ? error.code : null;
+      if (!options.isolation || !['40001', '40P01'].includes(String(code)))
+        throw error;
+      if (!remaining)
         throw new ApiError(
           409,
-          'OPERATION_CONFLICT',
-          'This operation ID was already used for a different change.',
+          'RETRY_REQUIRED',
+          'Retry this operation with the same operation ID.',
         );
-      return receipt.result;
     }
-    const result = await work(transaction);
-    await transaction.query(
-      'UPDATE mutation_receipts SET result = $3::jsonb WHERE owner_id = $1 AND operation_id = $2',
-      [ownerId, operationId, JSON.stringify(result)],
-    );
-    return result;
-  });
+  }
 }
 
 export async function missingOrConflict(

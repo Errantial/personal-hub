@@ -23,6 +23,8 @@ import type { CanvasApiFetcher } from './connections/canvas-api.js';
 import { registerCanvasReconciliation } from './connections/canvas-reconciliation.js';
 import { registerCanvasPlannerWork } from './connections/canvas-planner-work.js';
 import { registerAIRouting } from './features/ai-routing.js';
+import { registerAIPreflight } from './features/ai-preflight.js';
+import { registerAIBudget } from './features/ai-budget.js';
 import { registerPlanner } from './planner/routes.js';
 import { ApiError } from './errors.js';
 import { registerAcademics } from './features/academics.js';
@@ -91,6 +93,8 @@ export async function buildApp(
   registerCanvasReconciliation(app, database, auth);
   registerCanvasPlannerWork(app, database, auth);
   registerAIRouting(app, database, auth);
+  registerAIPreflight(app, database, auth, config);
+  registerAIBudget(app, database, auth);
   registerPlanner(app, database, auth);
   registerAcademics(app, database, auth);
   registerCalendar(app, database, auth);
