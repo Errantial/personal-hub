@@ -73,6 +73,9 @@ export function useRoute() {
   useEffect(() => {
     const sync = () => setRoute(current());
     window.addEventListener('popstate', sync);
+    // A Back/Forward between first render and this effect fires popstate
+    // before the listener exists; re-read the address bar to catch it.
+    sync();
     // Canonicalize the root or unknown paths without adding history entries.
     const canonical = routePath(current());
     if (window.location.pathname + window.location.search !== canonical)
