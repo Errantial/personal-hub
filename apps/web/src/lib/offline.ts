@@ -6,6 +6,7 @@ import {
   tasksResponseSchema,
   sessionResponseSchema,
 } from '@hub/contracts';
+import { nativePlatform } from './transport';
 import type { Task, SessionResponse } from '@hub/contracts';
 
 type Job = {
@@ -43,7 +44,10 @@ export function networkAvailability(available: boolean) {
 }
 function open() {
   connection ??= new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open('hub-offline', 1);
+    const scope = nativePlatform()
+      ? `:${import.meta.env.VITE_HUB_API_ORIGIN}`
+      : '';
+    const request = indexedDB.open(`hub-offline${scope}`, 1);
     request.onupgradeneeded = () => request.result.createObjectStore('local');
     request.onerror = () => {
       connection = undefined;

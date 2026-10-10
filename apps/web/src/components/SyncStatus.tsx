@@ -72,8 +72,8 @@ export function SyncStatus() {
           Only previously visited calendar ranges are cached. Local data is
           stored on this device until sign-out. Offline access ends when the
           last verified session expires. Reconnect to check revocation and sync.
-          Browser storage can be cleared or evicted; native Android storage
-          remains future work.
+          Local storage can be cleared or evicted. Sync pending changes before
+          clearing browser or app data.
         </Help>
       </div>
       {(!online || status.unavailable) && status.lastSaved && (

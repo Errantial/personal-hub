@@ -1,0 +1,11 @@
+{
+  "appId": "dev.personalhub.app",
+  "appName": "Personal Hub",
+  "webDir": ".artifacts/android-web",
+  "android": {
+    "path": "apps/android",
+    "loggingBehavior": "none"
+  },
+  "loggingBehavior": "none",
+  "server": { "hostname": "localhost", "androidScheme": "https" }
+}

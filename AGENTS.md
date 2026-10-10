@@ -5,6 +5,7 @@ Read README.md and docs/development.md first. docs/product.md is the agreed scop
 ## Layout and validation
 
 - apps/web: React UI. Use relative /api URLs and shared contracts.
+- apps/android: provisional Capacitor shell. Bundle the UI; keep native request logging disabled. Device tests use an isolated server/database and distinguish emulator results from Kompakt hardware.
 - apps/api: Fastify, owner authorization, durable planner operations, database adapters.
 - packages/contracts: Zod request/response schemas and types shared by both apps.
 - apps/api/migrations: append-only numbered SQL migrations. Never change an applied migration; add a new one.

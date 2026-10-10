@@ -6,7 +6,7 @@ Interface copy: prefer titles and labels over flavor text. Put secondary explana
 
 A local authenticated planner: React/Vite web, Fastify API, shared Zod contracts, single-owner enrollment/login, versioned tasks, day/week calendar with all-day/recurring events and occurrence edits, class/topic portfolios, manual study blocks, durable reminders/inbox, optimistic conflicts, duplicate-safe retries, and e-ink appearance. See [planner behavior](planner.md) for recurrence rules, label inheritance and delivery limits.
 
-Not implemented: Android APK/native storage and device testing, offline calendar/class/reminder edits, closed-app device alerts, provider connections, imported grades, automatic study suggestions, hosted AI/routing enforcement, memory, MCP or autonomous agent execution. Explicit content labels can be stored now; they do not imply AI is configured. No real account content is imported. See [implementation backlog](backlog.md).
+A provisional Capacitor APK bundles this UI and its IndexedDB task outbox. Native login, offline task edits and process-restart/replay are tested on an AOSP emulator. Actual Kompakt hardware, native alarms/background delivery, offline calendar/class/reminder edits, provider connections, imported grades, automatic study suggestions, hosted AI/routing enforcement, memory, MCP and autonomous agent execution remain pending. Stored labels do not imply AI is configured. No real account content is imported. See [implementation backlog](backlog.md).
 
 ## First run
 
@@ -23,6 +23,8 @@ Open `http://127.0.0.1:5173`, create the owner with an email and password of at 
 API: `http://127.0.0.1:3001`. Root dev first builds shared contracts, then watches contracts/API/web together. Both listeners default to loopback; development API configuration rejects a non-loopback host. Stop with Ctrl+C. Embedded PostgreSQL data is saved under `.data/planner/`, excluded from Git. Do not run two API processes against the same embedded directory. This is server storage. The browser offline prototype uses IndexedDB separately; Android native storage is not implemented.
 
 ## Offline prototype
+
+Android builds and the isolated synthetic server are described in [android.md](android.md). Run `npm run android:build -- --test` separately from `npm run check`. Native requests use the shared contracts and existing API authorization. Never point device tests at the owner's database.
 
 The browser caches its static shell using a service worker and stores owner-scoped private snapshots and a task outbox in IndexedDB. After an online login and initial load, tasks can be created/edited/completed/deleted offline and survive reload. Reconnect or select Sync now to replay the original operation IDs in order. Web Locks prevent competing tabs from draining the same outbox. Cached views and task edits require the last verified session to remain unexpired; server revocation is checked before replay.
 

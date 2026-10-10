@@ -1,6 +1,6 @@
 # Proposed architecture
 
-Status: React/Vite, Fastify, npm workspaces and shared TypeScript/Zod contracts are implemented. The local planner includes owner authentication, common SQL migrations, embedded/standard PostgreSQL adapters, versioned tasks/calendar, occurrence exceptions, class/topic records, study blocks, an in-process durable reminder worker with inbox receipts, and a browser offline task prototype (static shell, owner-scoped IndexedDB snapshots/outbox and Web Locks). Android packaging, synchronization, integrations, AI and MCP remain proposed/unimplemented; their feasibility gates still apply before dependent features are promised. See [local development](development.md) and [planner behavior](planner.md).
+Status: React/Vite, Fastify, npm workspaces and shared TypeScript/Zod contracts are implemented. The local planner includes owner authentication, common SQL migrations, PostgreSQL adapters, versioned tasks/calendar, occurrence exceptions, class/topic records, study blocks and a durable reminder worker/inbox. Browser offline snapshots/outbox and a provisional bundled Capacitor APK are implemented. AOSP emulator checks prove queued task edits survive force-stop and reconcile once through native HTTP/cookie authorization. Kompakt hardware, native alarms/background delivery, integrations, AI and MCP remain open gates. See [local development](development.md), [Android prototype](android.md) and [planner behavior](planner.md).
 
 ## Platform and stack direction
 

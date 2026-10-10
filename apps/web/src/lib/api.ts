@@ -1,5 +1,7 @@
 import { bootstrapResponseSchema, healthResponseSchema } from '@hub/contracts';
 import { z } from 'zod';
+import { apiFetch } from './transport';
+import { requestSignal } from './request-signal';
 import { sessionResponseSchema, taskResponseSchema } from '@hub/contracts';
 import {
   cachedSession,
@@ -40,12 +42,11 @@ export async function liveRequestJson<T>(
   schema: z.ZodType<T>,
   options: { method?: string; body?: unknown; signal?: AbortSignal } = {},
 ): Promise<T> {
-  const response = await fetch(path, {
+  const deadline = requestSignal(options.signal);
+  const response = await apiFetch(path, {
     method: options.method ?? 'GET',
     credentials: 'same-origin',
-    signal: options.signal
-      ? AbortSignal.any([options.signal, AbortSignal.timeout(8000)])
-      : AbortSignal.timeout(8000),
+    signal: deadline.signal,
     headers: {
       Accept: 'application/json',
       ...(options.body !== undefined
@@ -55,7 +56,7 @@ export async function liveRequestJson<T>(
     ...(options.body !== undefined
       ? { body: JSON.stringify(options.body) }
       : {}),
-  });
+  }).finally(deadline.dispose);
   if (!response.ok) {
     const payload: unknown = await response.json().catch(() => null);
     const result = z
@@ -190,10 +191,9 @@ export async function requestJson<T>(
 }
 
 export async function loadWorkspace() {
-  const signal = AbortSignal.timeout(8000);
   const [health, bootstrap] = await Promise.all([
-    getJson('/api/health', healthResponseSchema, signal),
-    getJson('/api/v1/bootstrap', bootstrapResponseSchema, signal),
+    getJson('/api/health', healthResponseSchema),
+    getJson('/api/v1/bootstrap', bootstrapResponseSchema),
   ]);
   return { health, bootstrap };
 }

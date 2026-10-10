@@ -23,7 +23,7 @@ See [planner behavior](planner.md) for exact recurrence/editing and reminder pol
 
 ## Next: Android/offline and operational readiness
 
-4. In progress: browser task outbox, stable creation IDs, cached viewing, session-expiry/revocation locking, conflict retention and private cache cleanup are implemented as the offline foundation. Next: Kompakt compatibility prototype, Android local storage and durable offline operation queue. Preserve operation IDs across app/process restarts. Show stale data and conflicts; prove no Google Services dependency and test native reminders on the owner's firmware.
+4. In progress: browser task outbox, stable IDs, cached viewing, session-expiry/revocation locking, conflict retention and cache cleanup are implemented. A provisional Capacitor APK bundles the UI and WebView outbox, uses native cookie transport and separates cache per server. AOSP emulator checks prove offline create/edit/completion survives force-stop and replays once. Next: actual Kompakt API/WebView and e-ink checks, native alarms, denied permissions and reboot/power-mode behavior. Calendar/class/reminder offline edits and background delivery remain pending.
 5. Export/deletion and backup/restore, session/password management and recovery, server deployment acceptance checks. Embedded local storage is not an Oracle production deployment.
 
 Acceptance remaining for the broader planner milestone: an Android edit survives process death and synchronizes once; closed-app reminders and denied/revoked permissions are understood; monochrome navigation works on actual Kompakt hardware. Current web tests distinguish task deadlines from reserved study intervals and exercise recurrence/DST, conflict preservation, permission denial and 320px e-ink layout.
@@ -42,11 +42,13 @@ Implement the text/provenance/provider-routing gateway, typed action policies an
 
 ## Local verification receipt (2026-10-10)
 
-Lint, strict type checks, formatting and production builds passed. API/client suite: 38 passed; one standard PostgreSQL test skipped locally because TEST_DATABASE_URL is unset. Browser suite: 20 passed, covering planner CRUD, occurrence edits, study blocks, server delivery, permission denial, 320px e-ink layout, lost-response retry, deliberate conflict recovery, offline reload/reconnect, two-tab queue replay, expiry/revocation locking and private cache cleanup. Dependency audit reported zero production vulnerabilities. The build emits a bundle-size advisory (about 527 kB minified); Kompakt loading/performance still needs measurement. Synthetic tests use separate databases and did not enroll or reset the owner's database. Standard PostgreSQL coverage now includes recurring study blocks and the reminder worker; its remote result remains unverified.
+Lint, strict type checks, formatting and production builds passed. API/client suite: 42 passed; one standard PostgreSQL test skipped because TEST_DATABASE_URL is unset. Browser suite: 20 passed. Android debug APK and app instrumentation APK build; four phased AOSP API 34/WebView 113 tests pass for enrollment, offline create/edit/completion, force-stop recovery, and reconnect with persisted native session/e-ink preference. Independent API receipts verify zero server tasks while offline, then one completed task at version 3 after replay. No Google Services package is required. The device test found and fixed older WebViews' lack of AbortSignal.any. See [Android instructions](android.md) for reproducible phases and remaining limits.
+
+Dependency audit reported zero production vulnerabilities. The web bundle emits a size advisory (about 536 kB minified); actual Kompakt performance still needs measurement. Tests used separate synthetic databases and never enrolled or reset the owner's workspace. Standard PostgreSQL and remote CI results remain unverified.
 
 ## Verification still outstanding
 
-The local suite covers the embedded PostgreSQL engine. The standard PostgreSQL check is opt-in via TEST_DATABASE_URL and configured in CI; a remote CI result must not be claimed before the repository is pushed and that job runs. CI has not run remotely. Android SDK command-line tools are unavailable on this Windows machine; no APK/device or actual Kompakt verification has occurred. No production deployment or real provider connection has occurred.
+The standard PostgreSQL check is opt-in via TEST_DATABASE_URL and configured in CI; CI has not run remotely. Android SDK command-line tools are installed, but actual Kompakt, closed-app native reminders, production TLS and release signing are unverified. T3's Device panel could not attach to the booted emulator; verification used Android instrumentation and adb instead. No production deployment or real provider connection has occurred.
 
 ## Interface guideline
 

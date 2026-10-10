@@ -2,7 +2,7 @@
 
 No delivery dates are assigned before integration feasibility, budget, and development capacity are known.
 
-Completed locally: React/Vite web, Fastify API, shared contracts, owner authentication, migrations, versioned task/calendar CRUD, day/week and recurring/all-day calendar, class/topic portfolios, manual study blocks, and durable in-app reminders. The first three backlog slices and browser offline task foundation are implemented; the broader planner milestone still requires Android offline support and device alerts. Development/check commands, isolated tests and CI definition are present. See [implementation backlog](backlog.md) and [local development](development.md). Account/Android feasibility gates below remain open.
+Completed locally: React/Vite web, Fastify API, shared contracts, owner authentication, migrations, versioned task/calendar CRUD, recurring/all-day calendar, class/topic portfolios, study blocks and durable in-app reminders. Browser offline tasks and a provisional Capacitor APK pass isolated checks, including Android process-restart/replay. The broader planner milestone still requires actual Kompakt verification and native device alerts. Development/check commands, isolated tests and a CI definition are present. See [implementation backlog](backlog.md), [Android prototype](android.md) and [local development](development.md). Account and hardware feasibility gates remain open.
 
 ## 0. Resolve product and integration gates
 

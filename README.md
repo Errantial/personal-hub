@@ -2,7 +2,7 @@
 
 Schedule, task, email, and study hub targeting the web, Android, and Windows.
 
-Status: authenticated web/API planner implemented, including tasks, day/week calendar, all-day and recurring events, individual occurrence edits, class/topic portfolios, manual study blocks, and durable reminders with an in-app inbox. Includes SQL migrations, shared TypeScript/Zod contracts, conflict checks and retry deduplication. The browser prototype caches loaded views and queues task changes offline. Account integrations, Android packaging/native offline support, AI/MCP/persistent agents, and server deployment remain upcoming. Browser alerts require permission and an open Reminders view; closed-app device alerts remain future work.
+Status: authenticated web/API planner implemented, including tasks, day/week calendar, all-day and recurring events, individual occurrence edits, class/topic portfolios, manual study blocks, and durable reminders with an in-app inbox. Includes SQL migrations, shared TypeScript/Zod contracts, conflict checks and retry deduplication. Browser and provisional Android prototypes cache loaded views and queue task edits offline; APK process-restart/replay checks pass on an AOSP emulator. Account integrations, Kompakt hardware verification, AI/MCP/persistent agents and server deployment remain upcoming. Browser alerts require an open Reminders view; closed-app native alerts remain future work.
 
 ## Run locally
 
@@ -38,6 +38,7 @@ AI permissions include provider-routing rules based only on sources/content expl
 8. [AI permissions and routing](docs/ai-permissions.md): sensitivity rules, provider selection, and context boundaries.
 9. [Persistent agent scope](docs/agent-scope.md): OpenAI Dots/OpenDots-style responsibilities, scheduled work, memory and controls.
 10. [Implementation backlog](docs/backlog.md): current progress, acceptance checks, unresolved verification and next work.
+11. [Android prototype](docs/android.md): APK builds, isolated emulator server and hardware boundaries.
 
 ## Working direction
 
