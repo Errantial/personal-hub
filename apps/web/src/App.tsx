@@ -9,6 +9,7 @@ import { CalendarWorkspace } from './components/CalendarWorkspace';
 import type { StudyDraft } from './components/CalendarWorkspace';
 import { AcademicWorkspace } from './components/AcademicWorkspace';
 import { ReminderWorkspace } from './components/ReminderWorkspace';
+import { AccountSettings } from './components/AccountSettings';
 import type { User } from '@hub/contracts';
 
 type View =
@@ -243,6 +244,7 @@ function Workspace({
 
           {view === 'preferences' && (
             <div className="preferences-grid">
+              <AccountSettings />
               <section className="panel preference-panel">
                 <span className="small-label">APPEARANCE</span>
                 <h2>Appearance</h2>

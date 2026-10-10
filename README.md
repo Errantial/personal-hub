@@ -2,7 +2,7 @@
 
 Schedule, task, email, and study hub targeting the web, Android, and Windows.
 
-Status: authenticated web/API planner implemented, including tasks, day/week calendar, all-day and recurring events, individual occurrence edits, class/topic portfolios, manual study blocks, and durable reminders with an in-app inbox. Includes SQL migrations, shared TypeScript/Zod contracts, conflict checks and retry deduplication. Browser and provisional Android prototypes cache loaded views and queue task edits offline; APK process-restart/replay checks pass on an AOSP emulator. Account integrations, Kompakt hardware verification, AI/MCP/persistent agents and server deployment remain upcoming. Browser alerts require an open Reminders view; closed-app native alerts remain future work.
+Status: authenticated web/API planner implemented, including tasks, day/week calendar, all-day and recurring events, individual occurrence edits, class/topic portfolios, manual study blocks, and durable reminders with an in-app inbox. Preferences includes password changes, session revocation and versioned planner JSON export. Includes SQL migrations, shared TypeScript/Zod contracts, conflict checks and retry deduplication. Browser and provisional Android prototypes cache loaded views and queue task edits offline; APK process-restart/replay checks pass on an AOSP emulator. Account integrations, AI/MCP/persistent agents and server deployment remain upcoming. Kompakt hardware verification is deferred while core server/site development continues. Browser alerts require an open Reminders view; closed-app native alerts remain future work.
 
 ## Run locally
 

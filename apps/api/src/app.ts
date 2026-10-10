@@ -10,6 +10,8 @@ import { readConfig } from './config.js';
 import type { Config } from './config.js';
 import type { Database } from './db/database.js';
 import { registerAuth } from './auth/routes.js';
+import { registerAccount } from './auth/account.js';
+import { registerExport } from './features/export.js';
 import { registerPlanner } from './planner/routes.js';
 import { ApiError } from './errors.js';
 import { registerAcademics } from './features/academics.js';
@@ -61,6 +63,8 @@ export async function buildApp(
     }
   });
   const auth = registerAuth(app, database, config);
+  registerAccount(app, database, auth);
+  registerExport(app, database, auth);
   registerPlanner(app, database, auth);
   registerAcademics(app, database, auth);
   registerCalendar(app, database, auth);

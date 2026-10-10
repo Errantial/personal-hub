@@ -493,6 +493,34 @@ main {
   grid-template-columns: 1fr 1fr;
   gap: 24px;
 }
+.account-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+.account-form label {
+  display: grid;
+  gap: 6px;
+}
+.account-form input {
+  width: 100%;
+  min-width: 0;
+}
+.account-session {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+}
+.account-session span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.account-session small {
+  display: block;
+  margin-top: 6px;
+}
 .preference-panel {
   padding: 28px;
 }

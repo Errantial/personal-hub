@@ -21,10 +21,14 @@ Updated 2026-10-10. This is the work queue; product.md remains the full scope, d
 
 See [planner behavior](planner.md) for exact recurrence/editing and reminder policies. Migration 002 adds these records without changing migration 001. These three backlog slices are distinct from roadmap phases 1–3: Canvas and email ingestion have not been implemented.
 
-## Next: Android/offline and operational readiness
+## Current priority: core server/site
 
-4. In progress: browser task outbox, stable IDs, cached viewing, session-expiry/revocation locking, conflict retention and cache cleanup are implemented. A provisional Capacitor APK bundles the UI and WebView outbox, uses native cookie transport and separates cache per server. AOSP emulator checks prove offline create/edit/completion survives force-stop and replays once. Next: actual Kompakt API/WebView and e-ink checks, native alarms, denied permissions and reboot/power-mode behavior. Calendar/class/reminder offline edits and background delivery remain pending.
-5. Export/deletion and backup/restore, session/password management and recovery, server deployment acceptance checks. Embedded local storage is not an Oracle production deployment.
+4. Completed core account slice: Preferences password changes with reauthentication/session rotation, safe active-session lists and versioned/idempotent revocation, and owner-scoped versioned planner JSON export with tombstones and consistent snapshots. See [account controls](account.md). Recovery, import/permanent deletion, automated backup/restore and deployment acceptance remain pending. Embedded local storage is not an Oracle production deployment.
+5. Next core server/site work: connection configuration and durable ingestion foundations, starting with read-only Canvas once its access path is verified; then email ingestion and provider routing in the sequence below. Keep provider secrets server-side, statuses explicit and routine tests synthetic. No real provider connection is implemented by the account slice.
+
+## Deferred Android verification
+
+Actual Kompakt verification is deferred by owner request (2026-10-10) and does not block core server/site development. Browser task outbox, stable IDs, cached viewing, session-expiry/revocation locking, conflict retention and cache cleanup are implemented. A provisional Capacitor APK bundles the UI and WebView outbox, uses native cookie transport and separates cache per server. AOSP emulator checks prove offline create/edit/completion survives force-stop and replays once. Actual Kompakt API/WebView/e-ink checks, native alarms, denied permissions and reboot/power-mode behavior remain deferred. Calendar/class/reminder offline edits and background delivery remain pending.
 
 Acceptance remaining for the broader planner milestone: an Android edit survives process death and synchronizes once; closed-app reminders and denied/revoked permissions are understood; monochrome navigation works on actual Kompakt hardware. Current web tests distinguish task deadlines from reserved study intervals and exercise recurrence/DST, conflict preservation, permission denial and 320px e-ink layout.
 
@@ -42,9 +46,9 @@ Implement the text/provenance/provider-routing gateway, typed action policies an
 
 ## Local verification receipt (2026-10-10)
 
-Lint, strict type checks, formatting and production builds passed. API/client suite: 42 passed; one standard PostgreSQL test skipped because TEST_DATABASE_URL is unset. Browser suite: 20 passed. Android debug APK and app instrumentation APK build; four phased AOSP API 34/WebView 113 tests pass for enrollment, offline create/edit/completion, force-stop recovery, and reconnect with persisted native session/e-ink preference. Independent API receipts verify zero server tasks while offline, then one completed task at version 3 after replay. No Google Services package is required. The device test found and fixed older WebViews' lack of AbortSignal.any. See [Android instructions](android.md) for reproducible phases and remaining limits.
+Lint, strict type checks, formatting and production builds passed. API/client suite: 46 passed; one standard PostgreSQL test skipped because TEST_DATABASE_URL is unset. Browser suite: 22 passed, including password/session controls and planner download at 320px. Android debug APK and app instrumentation APK build; four phased AOSP API 34/WebView 113 tests pass for enrollment, offline create/edit/completion, force-stop recovery, and reconnect with persisted native session/e-ink preference. Independent API receipts verify zero server tasks while offline, then one completed task at version 3 after replay. No Google Services package is required. The device test found and fixed older WebViews' lack of AbortSignal.any. See [Android instructions](android.md) for reproducible phases and remaining limits.
 
-Dependency audit reported zero production vulnerabilities. The web bundle emits a size advisory (about 536 kB minified); actual Kompakt performance still needs measurement. Tests used separate synthetic databases and never enrolled or reset the owner's workspace. Standard PostgreSQL and remote CI results remain unverified.
+Dependency audit reported zero production vulnerabilities. The web bundle emits a size advisory (about 541 kB minified); actual Kompakt performance still needs measurement. Tests used separate synthetic databases and never enrolled or reset the owner's workspace. Standard PostgreSQL and remote CI results remain unverified.
 
 ## Verification still outstanding
 

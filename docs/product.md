@@ -101,6 +101,7 @@ Interface copy uses concise titles and labels. Avoid unnecessary flavor text. Pu
 - E-ink mode: monochrome, strong contrast, no animation, no reliance on color, stable layout, and optional manual refresh of nonurgent content.
 - Batch visual updates where possible; do not delay the underlying reminder or sync engine.
 - Mudita Kompakt is the primary e-ink acceptance device. Verify display refresh, touch targets, text input, local reminders, WebView support, and offline storage on the owner's firmware.
+- Actual Kompakt verification is deferred as of 2026-10-10 while core server/site development proceeds. This changes development priority, not the eventual device acceptance requirements.
 - Hardware refresh control is optional pending verified device support. Initial compatibility must not depend on root access or Google Services.
 
 ## First usable release

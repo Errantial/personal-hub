@@ -1,6 +1,6 @@
 # Development roadmap
 
-No delivery dates are assigned before integration feasibility, budget, and development capacity are known.
+No delivery dates are assigned before integration feasibility, budget, and development capacity are known. As of 2026-10-10, actual Kompakt verification is deferred by owner request; core server/site work continues independently. Hardware checks remain release acceptance requirements.
 
 Completed locally: React/Vite web, Fastify API, shared contracts, owner authentication, migrations, versioned task/calendar CRUD, recurring/all-day calendar, class/topic portfolios, study blocks and durable in-app reminders. Browser offline tasks and a provisional Capacitor APK pass isolated checks, including Android process-restart/replay. The broader planner milestone still requires actual Kompakt verification and native device alerts. Development/check commands, isolated tests and a CI definition are present. See [implementation backlog](backlog.md), [Android prototype](android.md) and [local development](development.md). Account and hardware feasibility gates remain open.
 

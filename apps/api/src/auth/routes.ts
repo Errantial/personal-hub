@@ -7,7 +7,7 @@ import {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { loginRequestSchema, setupRequestSchema } from '@hub/contracts';
 import type { User } from '@hub/contracts';
-import type { Database } from '../db/database.js';
+import type { Database, QueryExecutor } from '../db/database.js';
 import type { Config } from '../config.js';
 import { ApiError } from '../errors.js';
 import { hashPassword, verifyPassword } from './password.js';
@@ -22,11 +22,14 @@ export function authService(database: Database, config: Config) {
     secure: config.NODE_ENV === 'production',
     path: '/',
   };
-  async function currentUser(request: FastifyRequest): Promise<User | null> {
+  async function currentUser(
+    request: FastifyRequest,
+    executor: QueryExecutor = database,
+  ): Promise<User | null> {
     const token = request.cookies[cookieName];
     if (!token || !/^[a-f0-9]{64}$/.test(token)) return null;
-    const [user] = await database.query<{ id: string; email: string }>(
-      'SELECT u.id, u.email FROM sessions s JOIN users u ON u.id = s.owner_id WHERE s.token_hash = $1 AND s.expires_at > CURRENT_TIMESTAMP',
+    const [user] = await executor.query<{ id: string; email: string }>(
+      'SELECT u.id, u.email FROM sessions s JOIN users u ON u.id = s.owner_id WHERE s.token_hash = $1 AND s.expires_at > CURRENT_TIMESTAMP AND s.revoked_at IS NULL',
       [tokenHash(token)],
     );
     return user ?? null;
@@ -41,21 +44,44 @@ export function authService(database: Database, config: Config) {
       );
     return user;
   }
-  async function createSession(ownerId: string, reply: FastifyReply) {
+  async function issueSession(executor: QueryExecutor, ownerId: string) {
     const token = randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + sessionDuration * 1000);
-    await database.query(
-      'DELETE FROM sessions WHERE expires_at <= CURRENT_TIMESTAMP',
-    );
-    await database.query(
+    await executor.query(
       'INSERT INTO sessions (token_hash, owner_id, expires_at) VALUES ($1, $2, $3)',
       [tokenHash(token), ownerId, expiresAt],
     );
-    reply.setCookie(cookieName, token, {
+    return { token, expiresAt };
+  }
+  function setSession(
+    reply: FastifyReply,
+    session: { token: string; expiresAt: Date },
+  ) {
+    reply.setCookie(cookieName, session.token, {
       ...cookieOptions,
       maxAge: sessionDuration,
     });
-    return expiresAt.toISOString();
+    return session.expiresAt.toISOString();
+  }
+  async function createSession(
+    ownerId: string,
+    reply: FastifyReply,
+    expectedHash: string,
+  ) {
+    const session = await database.transaction(async (tx) => {
+      const [user] = await tx.query<{ password_hash: string }>(
+        'SELECT password_hash FROM users WHERE id=$1 FOR UPDATE',
+        [ownerId],
+      );
+      if (!user || user.password_hash !== expectedHash)
+        throw new ApiError(
+          401,
+          'INVALID_CREDENTIALS',
+          'Email or password is incorrect.',
+        );
+      return issueSession(tx, ownerId);
+    });
+    return setSession(reply, session);
   }
   function setupAllowed(token?: string) {
     if (config.NODE_ENV !== 'production') return true;
@@ -70,6 +96,10 @@ export function authService(database: Database, config: Config) {
     currentUser,
     requireUser,
     createSession,
+    issueSession,
+    setSession,
+    sessionHash: (request: FastifyRequest) =>
+      tokenHash(request.cookies[cookieName] ?? ''),
     setupAllowed,
     cookieOptions,
   };
@@ -143,7 +173,7 @@ export function registerAuth(
         );
       throw error;
     }
-    const expiresAt = await auth.createSession(user.id, reply);
+    const expiresAt = await auth.createSession(user.id, reply, passwordHash);
     return reply.code(201).send({ user, setupRequired: false, expiresAt });
   });
   app.post('/api/v1/auth/login', { config: limit }, async (request, reply) => {
@@ -163,7 +193,11 @@ export function registerAuth(
         'INVALID_CREDENTIALS',
         'Email or password is incorrect.',
       );
-    const expiresAt = await auth.createSession(user.id, reply);
+    const expiresAt = await auth.createSession(
+      user.id,
+      reply,
+      user.password_hash,
+    );
     return {
       user: { id: user.id, email: user.email },
       setupRequired: false,
@@ -173,9 +207,10 @@ export function registerAuth(
   app.post('/api/v1/auth/logout', async (request, reply) => {
     const token = request.cookies[cookieName];
     if (token)
-      await database.query('DELETE FROM sessions WHERE token_hash = $1', [
-        tokenHash(token),
-      ]);
+      await database.query(
+        'UPDATE sessions SET revoked_at=CURRENT_TIMESTAMP, version=version+1 WHERE token_hash = $1 AND revoked_at IS NULL',
+        [tokenHash(token)],
+      );
     reply.clearCookie(cookieName, auth.cookieOptions);
     return { ok: true };
   });

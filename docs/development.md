@@ -18,7 +18,7 @@ npm run doctor
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`, create the owner with an email and password of at least 12 characters, then add tasks/events. The email is a login identifier; no verification email is sent. Keep the password in a password manager: reset/recovery and password changes are not implemented yet. Enrollment closes after the first owner. No account/password was created for the owner by development tests.
+Open `http://127.0.0.1:5173`, create the owner with an email and password of at least 12 characters, then add tasks/events. The email is a login identifier; no verification email is sent. Preferences supports password changes, active-session revocation and planner JSON export; see [account controls](account.md). Keep the password in a password manager: reset/recovery is not implemented. Enrollment closes after the first owner. No account/password was created for the owner by development tests.
 
 API: `http://127.0.0.1:3001`. Root dev first builds shared contracts, then watches contracts/API/web together. Both listeners default to loopback; development API configuration rejects a non-loopback host. Stop with Ctrl+C. Embedded PostgreSQL data is saved under `.data/planner/`, excluded from Git. Do not run two API processes against the same embedded directory. This is server storage. The browser offline prototype uses IndexedDB separately; Android native storage is not implemented.
 
@@ -62,7 +62,7 @@ Tasks/events are scoped by owner, versioned, and soft-deleted. Mutations require
 
 Task dueDate is a date-only deadline. Calendar timed events use explicit UTC/offset timestamps and an IANA timezone; end must follow start. Calendar input uses the selected event timezone and requires an earlier/later offset choice for repeated local times; nonexistent local times are rejected. The Today quick editor uses device local time for simple one-time events. All-day dates have an exclusive end date in storage. Recurring timed events preserve local start time through DST; see [planner behavior](planner.md).
 
-For local backups, stop the API before copying the entire embedded data directory and test restoring into a separate directory. Standard PostgreSQL uses database-aware backup/restore, not copying a live data directory. No automated backup/export/restore service or production restore test is claimed implemented.
+For local backups, stop the API before copying the entire embedded data directory and test restoring into a separate directory. Standard PostgreSQL uses database-aware backup/restore, not copying a live data directory. The planner JSON download is a portable export, not a backup or supported import format. No automated backup/restore service or production restore test is claimed implemented.
 
 ## API contracts
 

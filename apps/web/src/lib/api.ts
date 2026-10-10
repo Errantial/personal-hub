@@ -64,6 +64,9 @@ export async function liveRequestJson<T>(
       .safeParse(payload);
     const code = result.success ? result.data.error.code : 'REQUEST_FAILED';
     const messages: Record<string, string> = {
+      PASSWORD_MISMATCH: 'Current password is incorrect.',
+      EXPORT_TOO_LARGE: 'Planner export exceeds the supported download size.',
+      CURRENT_SESSION: 'Use Sign out for this session.',
       CALENDAR_EDITOR_REQUIRED:
         'Edit this event in Calendar to preserve its schedule and class links.',
       REMINDER_STATE:
@@ -129,7 +132,7 @@ export async function requestJson<T>(
     });
     if (context !== ownerContext())
       throw new Error('Session changed. Reload to continue.');
-    if (/^\/api\/v1\/auth\/(session|login|setup)$/.test(path))
+    if (/^\/api\/v1\/auth\/(session|login|setup|password)$/.test(path))
       await rememberSession(sessionResponseSchema.parse(response)).catch(
         () => undefined,
       );
@@ -152,7 +155,10 @@ export async function requestJson<T>(
     return response;
   } catch (error) {
     if (error instanceof RequestError) {
-      if (error.status === 401 && !path.includes('/auth/')) {
+      if (
+        error.status === 401 &&
+        !/^\/api\/v1\/auth\/(login|setup|session)$/.test(path)
+      ) {
         await lockOffline().catch(() => undefined);
         window.dispatchEvent(new Event('hub-auth-required'));
       }

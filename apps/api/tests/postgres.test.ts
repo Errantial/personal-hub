@@ -150,6 +150,18 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
           { timeout: 10000 },
         )
         .toBe(1);
+      const account = await app.inject({
+        url: '/api/v1/auth/account',
+        headers,
+      });
+      expect(account.statusCode).toBe(200);
+      expect(account.json().sessions[0].current).toBe(true);
+      const exported = await app.inject({
+        url: '/api/v1/planner/export',
+        headers,
+      });
+      expect(exported.statusCode).toBe(200);
+      expect(exported.json().records.notifications).toHaveLength(1);
     } finally {
       await app?.close();
       await administrator.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
