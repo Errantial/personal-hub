@@ -22,6 +22,7 @@ import { FeedError, parseCanvasFeed, fetchCanvasFeed } from './canvas-feed.js';
 import type { FeedEntry, FeedFetcher } from './canvas-feed.js';
 
 export const canvasItemColumns = `id,uid,input_kind AS "inputKind",provider_data AS "providerData",availability,notes,sensitivity,version,course_id AS "courseId",
+  (SELECT x.sensitivity FROM canvas_item_context x WHERE x.id=canvas_items.id AND x.owner_id=canvas_items.owner_id) AS "reconciledSensitivity",
   (SELECT c.name FROM courses c WHERE c.id=canvas_items.course_id AND c.owner_id=canvas_items.owner_id) AS "courseName",
   COALESCE((SELECT c.deleted_at IS NOT NULL FROM courses c WHERE c.id=canvas_items.course_id AND c.owner_id=canvas_items.owner_id),FALSE) AS "courseDeleted",
   (SELECT c.sensitivity FROM courses c WHERE c.id=canvas_items.course_id AND c.owner_id=canvas_items.owner_id) AS "courseSensitivity",
@@ -34,6 +35,7 @@ export function canvasEffectiveSensitivity(
     String(source ?? 'unlabeled'),
     String(item.sensitivity),
     String(item.courseSensitivity ?? 'unlabeled'),
+    String(item.reconciledSensitivity ?? 'unlabeled'),
   );
 }
 export async function readCanvasItems(
@@ -476,12 +478,17 @@ export function registerCanvas(
           'SELECT sensitivity FROM canvas_sources WHERE owner_id=$1',
           [user.id],
         );
+        // Context views must be read after the UPDATE, rather than in its RETURNING snapshot.
+        const [current] = await tx.query(
+          `SELECT ${canvasItemColumns} FROM canvas_items WHERE owner_id=$1 AND id=$2`,
+          [user.id, id],
+        );
         return {
           item: canvasItemSchema.parse({
-            ...saved,
+            ...current,
             effectiveSensitivity: canvasEffectiveSensitivity(
               source!.sensitivity,
-              saved,
+              current!,
             ),
           }),
         };

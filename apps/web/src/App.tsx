@@ -12,6 +12,8 @@ import { ReminderWorkspace } from './components/ReminderWorkspace';
 import { AccountSettings } from './components/AccountSettings';
 import { CanvasConnection } from './components/CanvasConnection';
 import { CanvasLmsConnection } from './components/CanvasLmsConnection';
+import { CanvasReconciliation } from './components/CanvasReconciliation';
+import { AIRoutingSettings } from './components/AIRoutingSettings';
 import type { User } from '@hub/contracts';
 
 type View =
@@ -214,6 +216,7 @@ function Workspace({
               <h2 id="connections-title">Your accounts</h2>
               <CanvasConnection />
               <CanvasLmsConnection />
+              <CanvasReconciliation />
               <Help label="Connections">
                 Email and Proton Calendar connections are not implemented yet.
               </Help>
@@ -267,17 +270,7 @@ function Workspace({
                   Use e-ink mode
                 </label>
               </section>
-              <section className="panel preference-panel">
-                <span className="small-label">AI & PRIVACY · PLANNED</span>
-                <h2>AI permissions</h2>
-                <Help label="AI permissions">
-                  Provider routing will follow the sources and content you
-                  explicitly label. Sending email will require your approval.
-                  <br />
-                  No AI provider is configured and no account content is being
-                  processed.
-                </Help>
-              </section>
+              <AIRoutingSettings />
             </div>
           )}
 

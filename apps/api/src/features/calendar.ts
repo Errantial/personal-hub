@@ -25,7 +25,8 @@ import { mutate } from '../planner/mutations.js';
 import { ApiError } from '../errors.js';
 import { captureCanvasSource } from '../connections/canvas-provenance.js';
 import {
-  academicAccess,
+  academicLabels,
+  mergeAcademicLabels,
   active,
   eventColumns,
   strongest,
@@ -163,6 +164,13 @@ export function registerCalendar(
                 'INVALID_INPUT',
                 'Select a class and a one-time timed study block.',
               );
+            // Lock academic ancestors before the event, matching source-label propagation.
+            const inherited = await academicLabels(
+              tx,
+              user.id,
+              input.courseId,
+              input.topicId,
+            );
             const old =
               method === 'PUT' ? await active(tx, 'events', user.id, id) : null;
             if (old) version(old, input.expectedVersion);
@@ -171,12 +179,21 @@ export function registerCalendar(
               request.body &&
               typeof request.body === 'object' &&
               'sensitivity' in request.body;
-            values.sensitivity = strongest(
-              explicit
-                ? values.sensitivity
-                : String(old?.sensitivity ?? values.sensitivity),
-              await academicAccess(tx, user.id, input.courseId, input.topicId),
+            const ownLabel = explicit
+              ? values.sensitivity
+              : String(old?.sensitivity ?? values.sensitivity);
+            const capturedLabels = mergeAcademicLabels(
+              old?.academic_labels,
+              inherited.complete
+                ? [
+                    ...inherited.labels,
+                    ...(input.courseId || input.topicId
+                      ? [ownLabel].filter((label) => label !== 'unlabeled')
+                      : []),
+                  ]
+                : null,
             );
+            values.sensitivity = strongest(ownLabel, ...inherited.labels);
             const params = [
               id,
               user.id,
@@ -197,7 +214,7 @@ export function registerCalendar(
             const [row] =
               method === 'POST'
                 ? await tx.query(
-                    `INSERT INTO events (id,owner_id,title,notes,starts_at,ends_at,time_zone,sensitivity,all_day,start_date,end_date,recurrence,course_id,topic_id,study_status,canvas_source_id,canvas_source_snapshot,canvas_assignment_id,canvas_assignment_snapshot) VALUES (${params.map((_, i) => `$${i + 1}`).join(',')},$16,$17::jsonb,$18,$19::jsonb) RETURNING ${eventColumns}`,
+                    `INSERT INTO events (id,owner_id,title,notes,starts_at,ends_at,time_zone,sensitivity,all_day,start_date,end_date,recurrence,course_id,topic_id,study_status,canvas_source_id,canvas_source_snapshot,canvas_assignment_id,canvas_assignment_snapshot,academic_labels) VALUES (${params.map((_, i) => `$${i + 1}`).join(',')},$16,$17::jsonb,$18,$19::jsonb,$20::text[]) RETURNING ${eventColumns}`,
                     [
                       ...params,
                       source?.inputKind !== 'assignment-api'
@@ -212,11 +229,12 @@ export function registerCalendar(
                       source?.inputKind === 'assignment-api'
                         ? JSON.stringify(source)
                         : null,
+                      capturedLabels,
                     ],
                   )
                 : await tx.query(
-                    `UPDATE events SET title=$3,notes=$4,starts_at=$5,ends_at=$6,time_zone=$7,sensitivity=$8,all_day=$9,start_date=$10,end_date=$11,recurrence=$12,course_id=$13,topic_id=$14,study_status=$15,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${eventColumns}`,
-                    params,
+                    `UPDATE events SET title=$3,notes=$4,starts_at=$5,ends_at=$6,time_zone=$7,sensitivity=$8,all_day=$9,start_date=$10,end_date=$11,recurrence=$12,course_id=$13,topic_id=$14,study_status=$15,academic_labels=$16::text[],version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${eventColumns}`,
+                    [...params, capturedLabels],
                   );
             // A changed series anchor/rule invalidates occurrence exceptions and linked occurrence reminders.
             if (
@@ -290,6 +308,15 @@ export function registerCalendar(
           input.operationId,
           { kind: 'occurrence', method, id, date, input },
           async (tx) => {
+            const inherited =
+              'title' in input
+                ? await academicLabels(
+                    tx,
+                    user.id,
+                    input.courseId,
+                    input.topicId,
+                  )
+                : null;
             version(
               await active(tx, 'events', user.id, id),
               input.expectedVersion,
@@ -302,6 +329,7 @@ export function registerCalendar(
                 'This occurrence does not exist.',
               );
             let replacement: CalendarInput | null = null;
+            let capturedLabels = event.academicLabels;
             if ('title' in input) {
               if (input.recurrence)
                 throw new ApiError(
@@ -310,15 +338,21 @@ export function registerCalendar(
                   'An occurrence cannot repeat.',
                 );
               replacement = normalizeEvent(input);
+              capturedLabels = mergeAcademicLabels(
+                event.academicLabels,
+                inherited!.complete
+                  ? [
+                      ...inherited!.labels,
+                      ...[input.sensitivity].filter(
+                        (label) => label !== 'unlabeled',
+                      ),
+                    ]
+                  : null,
+              );
               replacement.sensitivity = strongest(
                 event.sensitivity,
                 input.sensitivity,
-                await academicAccess(
-                  tx,
-                  user.id,
-                  input.courseId,
-                  input.topicId,
-                ),
+                ...inherited!.labels,
               );
             }
             await tx.query(
@@ -335,8 +369,8 @@ export function registerCalendar(
               [user.id, id, date],
             );
             await tx.query(
-              'UPDATE events SET version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1',
-              [id],
+              'UPDATE events SET version=version+1,academic_labels=$2::text[],updated_at=CURRENT_TIMESTAMP WHERE id=$1',
+              [id, capturedLabels],
             );
             return calendarResponseSchema.parse({
               event: await readEvent(tx, user.id, id),

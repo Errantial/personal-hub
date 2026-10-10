@@ -8,6 +8,32 @@ Routing permissions are separate from action permissions. Every provider must ob
 
 ## Settings
 
+### Implemented: permissions and read-only preview
+
+Preferences now includes AI permissions and Routing preview. This is a policy simulation: AI dispatch remains disabled. No SDK, provider credentials, model profile, actual availability probe, conversation, memory, paid request or agent runtime is configured. Saving aliases does not connect a provider.
+
+Set allowed provider aliases and an optional preferred alias for Unlabeled, Personal and Restricted. Aliases are lowercase identifiers, not URLs, model names or secrets. Defaults allow no destination. A request can have an explicit owner label and owned source references. The web preview currently offers task context; the API also accepts calendar, class, topic and Canvas feed/assignment references. Sources require current versions and owner authorization. Preview text is accepted only to model the request shape; it is neither returned, persisted nor sent to another service, and its wording never determines a label.
+
+The server resolves all explicit and inherited labels from a consistent database snapshot. Personal and Restricted are independent permission sets: a strongest display label does not discard another applied label. A labeled derived record inherits all applied ancestor labels; unlabeled ancestors do not add a separate restriction to that labeled record. Independently unlabeled request text or sources still require the Unlabeled route. Permitted destinations are the intersection of every included label's allowed aliases. Configure sensitive aliases under Unlabeled too if ordinary request text should be combined with sensitive context.
+
+Among that intersection, the strongest included label's preferred alias wins when permitted; otherwise its first permitted alias wins. Simulated availability is checked only after selection. An unavailable selected alias blocks even if another approved alias is simulated available; it never silently retries a default or alternate destination. Screenshot/attachment fields are rejected, and uploaded-file-derived context blocks before selection. Historical non-file planner snapshots without complete captured/current label arrays return PROVENANCE_UNAVAILABLE; the server does not invent historical labels or rewrite those snapshots.
+
+Permission writes use optimistic versions and atomic operation receipts. Unchanged lost-response retries return the original result. Reload permissions preserves edited fields while adopting the latest version; save those fields before previewing. Previews require the current policy version, do not create mutation receipts, and return only labels, source IDs/versions, a simulated decision and fixed reasons. Export adds safe policy aliases/versions and provenance; preview text and credentials are excluded.
+
+| Route | Behavior |
+| --- | --- |
+| `GET /api/v1/ai/routing` | Owner's current policy; deny-by-default version 1 before first save |
+| `PUT /api/v1/ai/routing` | Versioned/idempotent permission update |
+| `POST /api/v1/ai/routing/preview` | Read-only, text-only policy simulation with server-resolved context |
+
+Migrations 011 and 012 add owned policies and complete label views without changing earlier migrations. Synthetic checks cover owner isolation, incompatible mixed labels, preferred-provider unavailability, current/captured provenance, missing historical label arrays, archived ancestors, blocked file-derived records, stale versions, strict request fields and lost-response retries. The optional standard PostgreSQL check covers populated reconciliation/provenance views and policy preview; local execution still requires a disposable TEST_DATABASE_URL.
+
+Migrations 014 and 015 add academic label history to calendar records and topics. New academic records retain every captured label, including an explicit label hidden by a stronger parent label. Source relabeling appends labels and invalidates affected versions, including series with class/topic occurrence replacements. Study detachment, occurrence cancellation and later label changes never erase captured history. Current ancestors and captured history both constrain the preview. Ordinary new calendar records without academic provenance start with an empty history; older calendar/topic records remain null because historical ancestors cannot be reconstructed. Null history blocks routing, while planner editing still works. No review/reset workflow for captured or unknown history is implemented yet. Export preserves these arrays/nulls, and older files default to null.
+
+Academic writes lock class, then topic, then event, matching source-label propagation. The optional PostgreSQL check also races academic edits with label propagation; conflicts are permitted, deadlock/internal-error responses are not. Local PGlite checks validate transitions and upgrade preservation, but do not establish standard PostgreSQL concurrency behavior.
+
+### Planned: provider execution
+
 | Setting | Purpose |
 | --- | --- |
 | Provider profile | Endpoint, allowed models/capabilities, protected API key reference, and budget limits |
@@ -23,7 +49,7 @@ Keep provider credentials out of the model and browser. A provider profile can l
 
 Confirmed: only sources or content explicitly labeled by the owner determine sensitive routing. No local patterns, heuristic classifier, or hosted model automatically assigns sensitivity. Content derived from a labeled source inherits that label; this preserves the owner's choice rather than inferring a new category.
 
-Suggested owner-applied labels: personal and restricted, each with allowed destinations. Unlabeled content uses the configured default route. Exact label names remain configurable. Allow labels on connections, individual records/memories, and the current request; a request label does not remove labels carried by retrieved context.
+Current owner-applied labels are personal and restricted, each with allowed destinations; changing label names is later scope. Unlabeled content uses the configured default route. Planned memory/mail labels follow the same boundary. A request label does not remove labels carried by retrieved context.
 
 Do not automatically label Proton mail personal or Canvas routine. The owner chooses these source defaults. Existing content and derived records are re-evaluated after a source label changes. Labels cannot retract content already sent to a provider; apply them before processing where that boundary is required.
 

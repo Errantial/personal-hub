@@ -5,6 +5,8 @@ import type { authService } from '../auth/routes.js';
 import { ApiError } from '../errors.js';
 import { taskColumns } from '../planner/routes.js';
 import { readCanvasLms } from '../connections/canvas-lms.js';
+import { readReconciliations } from '../connections/canvas-reconciliation.js';
+import { readAIRoutingPolicy } from './ai-routing.js';
 import { eventColumns, metadataColumns } from './common.js';
 import { reminderColumns, notificationColumns } from './reminders.js';
 import {
@@ -39,7 +41,7 @@ export function registerExport(
       );
       const topics = await read(
         'topics',
-        `${metadataColumns},course_id AS "courseId",name,notes,confidence,progress,sensitivity`,
+        `${metadataColumns},course_id AS "courseId",name,notes,confidence,progress,sensitivity,academic_labels AS "academicLabels"`,
       );
       const exceptions = await tx.query(
         `SELECT x.event_id AS "eventId",to_char(x.original_date,'YYYY-MM-DD') AS "originalDate",x.cancelled,x.replacement FROM event_exceptions x JOIN events e ON e.id=x.event_id WHERE e.owner_id=$1 ORDER BY x.event_id,x.original_date LIMIT 10001`,
@@ -61,8 +63,13 @@ export function registerExport(
         }),
       );
       const lms = await readCanvasLms(tx, owner.id, undefined, 10000);
+      const canvasReconciliations = await readReconciliations(
+        tx,
+        owner.id,
+        10000,
+      );
       const [canvasLmsSource] = await tx.query(
-        'SELECT enabled,sensitivity,version FROM canvas_lms_sources WHERE owner_id=$1',
+        'SELECT enabled,sensitivity,version,account_provider_id AS "accountProviderId" FROM canvas_lms_sources WHERE owner_id=$1',
         [owner.id],
       );
       return {
@@ -78,6 +85,8 @@ export function registerExport(
         canvasLmsCourses: lms.courses,
         canvasLmsAssignments: lms.assignments,
         canvasLmsSource: canvasLmsSource ?? null,
+        canvasReconciliations,
+        aiRouting: await readAIRoutingPolicy(tx, owner.id),
       };
     });
     const tooLarge = () =>

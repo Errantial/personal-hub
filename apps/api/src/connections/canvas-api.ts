@@ -35,6 +35,7 @@ const assignmentSchema = z.object({
   locked_for_user: z.boolean().optional(),
 });
 export type CanvasApiSnapshot = {
+  accountProviderId: string;
   courses: {
     providerId: string;
     data: z.infer<typeof canvasLmsCourseDataSchema>;
@@ -45,12 +46,16 @@ export type CanvasApiSnapshot = {
     data: z.infer<typeof canvasLmsAssignmentDataSchema>;
   }[];
 };
-export type CanvasApiFetcher = (token: string) => Promise<CanvasApiSnapshot>;
+export type CanvasApiFetcher = (
+  token: string,
+  expectedAccountId?: string | null,
+) => Promise<CanvasApiSnapshot>;
 export function validateCanvasSnapshot(
   value: CanvasApiSnapshot,
 ): CanvasApiSnapshot {
   const snapshot = z
     .object({
+      accountProviderId: id,
       courses: z
         .array(z.object({ providerId: id, data: canvasLmsCourseDataSchema }))
         .max(100),
@@ -126,109 +131,123 @@ function nextPage(header: string | null, path: string) {
 export async function fetchCanvasApi(
   token: string,
   transport: typeof fetch = fetch,
+  expectedAccountId?: string | null,
 ): Promise<CanvasApiSnapshot> {
   const signal = AbortSignal.timeout(90000);
   const budget = { pages: 0, bytes: 0 };
+  async function readPage(next: string, path: string) {
+    if (signal.aborted) throw new CanvasApiError('API_TIMEOUT');
+    next = pageUrl(next, path);
+    if (++budget.pages > 100) throw new CanvasApiError('API_LIMIT');
+    let response: Response;
+    const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(10000)]);
+    try {
+      response = await transport(next, {
+        method: 'GET',
+        redirect: 'error',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        signal: requestSignal,
+      });
+    } catch {
+      throw new CanvasApiError(
+        requestSignal.aborted ? 'API_TIMEOUT' : 'API_FETCH_FAILED',
+      );
+    }
+    try {
+      if (!response.ok)
+        throw new CanvasApiError(
+          response.status === 401
+            ? 'API_AUTH_FAILED'
+            : response.status === 403
+              ? 'API_ACCESS_DENIED'
+              : response.status === 429
+                ? 'API_RATE_LIMITED'
+                : 'API_FETCH_FAILED',
+        );
+      if (
+        response.redirected ||
+        (response.url && pageUrl(response.url, path) !== next)
+      )
+        throw new CanvasApiError('UNSAFE_API_PAGE');
+      if (
+        !/^application\/json(?:;|$)/i.test(
+          response.headers.get('content-type') ?? '',
+        )
+      )
+        throw new CanvasApiError('INVALID_API_RESPONSE');
+    } catch (error) {
+      await response.body?.cancel().catch(() => undefined);
+      throw error;
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw new CanvasApiError('INVALID_API_RESPONSE');
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        budget.bytes += value.byteLength;
+        if (size > 1024 * 1024 || budget.bytes > 8 * 1024 * 1024)
+          throw new CanvasApiError('API_LIMIT');
+        chunks.push(value);
+      }
+    } catch (error) {
+      throw error instanceof CanvasApiError
+        ? error
+        : new CanvasApiError(
+            requestSignal.aborted ? 'API_TIMEOUT' : 'API_FETCH_FAILED',
+          );
+    } finally {
+      await reader.cancel().catch(() => undefined);
+      reader.releaseLock();
+    }
+    let page: unknown;
+    try {
+      page = JSON.parse(
+        new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)),
+      );
+    } catch {
+      throw new CanvasApiError('INVALID_API_RESPONSE');
+    }
+    return { page, link: response.headers.get('link') };
+  }
   async function pages(path: string, query: string) {
     let next: string | null = `${canvasApiOrigin}${path}?${query}`;
     const seen = new Set<string>();
     const rows: unknown[] = [];
     while (next) {
-      if (signal.aborted) throw new CanvasApiError('API_TIMEOUT');
       next = pageUrl(next, path);
       if (seen.has(next)) throw new CanvasApiError('INVALID_API_RESPONSE');
       seen.add(next);
-      if (++budget.pages > 100) throw new CanvasApiError('API_LIMIT');
-      let response: Response;
-      const requestSignal = AbortSignal.any([
-        signal,
-        AbortSignal.timeout(10000),
-      ]);
-      try {
-        response = await transport(next, {
-          method: 'GET',
-          redirect: 'error',
-          headers: {
-            Accept: 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          signal: requestSignal,
-        });
-      } catch {
-        throw new CanvasApiError(
-          requestSignal.aborted ? 'API_TIMEOUT' : 'API_FETCH_FAILED',
-        );
-      }
-      try {
-        if (!response.ok)
-          throw new CanvasApiError(
-            response.status === 401
-              ? 'API_AUTH_FAILED'
-              : response.status === 403
-                ? 'API_ACCESS_DENIED'
-                : response.status === 429
-                  ? 'API_RATE_LIMITED'
-                  : 'API_FETCH_FAILED',
-          );
-        if (
-          response.redirected ||
-          (response.url && pageUrl(response.url, path) !== next)
-        )
-          throw new CanvasApiError('UNSAFE_API_PAGE');
-        if (
-          !/^application\/json(?:;|$)/i.test(
-            response.headers.get('content-type') ?? '',
-          )
-        )
-          throw new CanvasApiError('INVALID_API_RESPONSE');
-      } catch (error) {
-        await response.body?.cancel().catch(() => undefined);
-        throw error;
-      }
-      const reader = response.body?.getReader();
-      if (!reader) throw new CanvasApiError('INVALID_API_RESPONSE');
-      const chunks: Uint8Array[] = [];
-      let size = 0;
-      try {
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          size += value.byteLength;
-          budget.bytes += value.byteLength;
-          if (size > 1024 * 1024 || budget.bytes > 8 * 1024 * 1024)
-            throw new CanvasApiError('API_LIMIT');
-          chunks.push(value);
-        }
-      } catch (error) {
-        throw error instanceof CanvasApiError
-          ? error
-          : new CanvasApiError(
-              requestSignal.aborted ? 'API_TIMEOUT' : 'API_FETCH_FAILED',
-            );
-      } finally {
-        await reader.cancel().catch(() => undefined);
-        reader.releaseLock();
-      }
-      let page: unknown;
-      try {
-        page = JSON.parse(
-          new TextDecoder('utf-8', { fatal: true }).decode(
-            Buffer.concat(chunks),
-          ),
-        );
-      } catch {
-        throw new CanvasApiError('INVALID_API_RESPONSE');
-      }
+      const { page, link } = await readPage(next, path);
       if (!Array.isArray(page))
         throw new CanvasApiError('INVALID_API_RESPONSE');
       if (rows.length + page.length > (path === '/api/v1/courses' ? 100 : 2000))
         throw new CanvasApiError('API_LIMIT');
       rows.push(...page);
-      next = nextPage(response.headers.get('link'), path);
+      next = nextPage(link, path);
     }
     return rows;
   }
-  const result: CanvasApiSnapshot = { courses: [], assignments: [] };
+  const identityPath = '/api/v1/users/self';
+  const identity = z
+    .object({ id })
+    .safeParse(
+      (await readPage(`${canvasApiOrigin}${identityPath}`, identityPath)).page,
+    );
+  if (!identity.success) throw new CanvasApiError('INVALID_API_RESPONSE');
+  if (expectedAccountId && identity.data.id !== expectedAccountId)
+    throw new CanvasApiError('API_ACCOUNT_MISMATCH');
+  const result: CanvasApiSnapshot = {
+    accountProviderId: identity.data.id,
+    courses: [],
+    assignments: [],
+  };
   const courses = z
     .array(courseSchema)
     .safeParse(

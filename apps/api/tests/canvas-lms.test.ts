@@ -28,6 +28,7 @@ const snapshot = (
   title = 'Synthetic API assignment',
   dueAt: string | null = '2027-05-01T17:00:00.000Z',
 ): CanvasApiSnapshot => ({
+  accountProviderId: '30',
   courses: [
     {
       providerId: '10',
@@ -70,6 +71,13 @@ it('reads paginated course/assignment metadata with header-only authorization an
     );
     expect(String(input)).not.toContain('synthetic-api-token');
     const url = new URL(String(input));
+    if (url.pathname === '/api/v1/users/self')
+      return response({
+        id: 30,
+        email: 'ignored-private-email',
+        name: 'Ignored name',
+        avatar_url: 'https://example.com/private-avatar',
+      });
     if (url.pathname === '/api/v1/courses')
       return response([
         {
@@ -104,11 +112,14 @@ it('reads paginated course/assignment metadata with header-only authorization an
     ]);
   });
   const result = await fetchCanvasApi('synthetic-api-token', transport);
-  expect(transport).toHaveBeenCalledTimes(3);
+  expect(transport).toHaveBeenCalledTimes(4);
+  expect(result.accountProviderId).toBe('30');
   expect(result.assignments).toHaveLength(2);
   expect(result.assignments[0]?.data.dueAt).toBe('2027-05-01T17:00:00.000Z');
   expect(result.assignments[1]?.data.dueAt).toBeNull();
   const text = JSON.stringify(result);
+  expect(text).not.toContain('ignored-private-email');
+  expect(text).not.toContain('avatar_url');
   for (const forbidden of [
     'description',
     'attachments',
@@ -126,37 +137,47 @@ it('rejects unsafe pagination before forwarding credentials and refuses malforme
     'https://canvas.colorado.edu/api/v1/courses?access_token=private',
     'https://user:pass@canvas.colorado.edu/api/v1/courses',
   ]) {
-    const transport = vi.fn<typeof fetch>(async () =>
-      response([], `<${next}>; rel="next"`),
+    const transport = vi.fn<typeof fetch>(async (input) =>
+      new URL(String(input)).pathname === '/api/v1/users/self'
+        ? response({ id: 30 })
+        : response([], `<${next}>; rel="next"`),
     );
     await expect(
       fetchCanvasApi('synthetic-api-token', transport),
     ).rejects.toMatchObject({ code: 'UNSAFE_API_PAGE' });
-    expect(transport).toHaveBeenCalledTimes(1);
+    expect(transport).toHaveBeenCalledTimes(2);
   }
   for (const header of [
     'malformed next',
     '<https://canvas.colorado.edu/api/v1/courses?page=2>; rel="next", <https://canvas.colorado.edu/api/v1/courses?page=3>; rel="next"',
   ])
     await expect(
-      fetchCanvasApi('synthetic-api-token', async () => response([], header)),
+      fetchCanvasApi('synthetic-api-token', async (input) =>
+        new URL(String(input)).pathname === '/api/v1/users/self'
+          ? response({ id: 30 })
+          : response([], header),
+      ),
     ).rejects.toMatchObject({ code: 'INVALID_API_RESPONSE' });
-  const cycle = vi.fn<typeof fetch>(async () =>
-    response(
-      [],
-      `<https://canvas.colorado.edu/api/v1/courses?per_page=100&enrollment_type=student&enrollment_state=active&include%5B%5D=term>; rel="next"`,
-    ),
+  const cycle = vi.fn<typeof fetch>(async (input) =>
+    new URL(String(input)).pathname === '/api/v1/users/self'
+      ? response({ id: 30 })
+      : response(
+          [],
+          `<https://canvas.colorado.edu/api/v1/courses?per_page=100&enrollment_type=student&enrollment_state=active&include%5B%5D=term>; rel="next"`,
+        ),
   );
   await expect(
     fetchCanvasApi('synthetic-api-token', cycle),
   ).rejects.toMatchObject({ code: 'INVALID_API_RESPONSE' });
-  expect(cycle).toHaveBeenCalledTimes(1);
+  expect(cycle).toHaveBeenCalledTimes(2);
   await expect(
-    fetchCanvasApi('synthetic-api-token', async () =>
-      response([
-        { id: 10, name: 'Duplicate' },
-        { id: 10, name: 'Duplicate' },
-      ]),
+    fetchCanvasApi('synthetic-api-token', async (input) =>
+      new URL(String(input)).pathname === '/api/v1/users/self'
+        ? response({ id: 30 })
+        : response([
+            { id: 10, name: 'Duplicate' },
+            { id: 10, name: 'Duplicate' },
+          ]),
     ),
   ).rejects.toMatchObject({ code: 'INVALID_API_RESPONSE' });
   await expect(
@@ -199,6 +220,27 @@ it('bounds API reads and reports sanitized authentication, permission and rate e
     expect(() => readConfig({ CANVAS_API_TOKEN: bad })).toThrow(
       'Invalid environment configuration: CANVAS_API_TOKEN',
     );
+});
+it('checks account identity before fetching metadata and accepts a rotated token only for the bound account', async () => {
+  const wrongAccount = vi.fn<typeof fetch>(async () =>
+    response({ id: 31, name: 'Private wrong account' }),
+  );
+  await expect(
+    fetchCanvasApi('synthetic-rotated-token', wrongAccount, '30'),
+  ).rejects.toMatchObject({ code: 'API_ACCOUNT_MISMATCH' });
+  expect(wrongAccount).toHaveBeenCalledTimes(1);
+  expect(String(wrongAccount.mock.calls[0]![0])).toBe(
+    'https://canvas.colorado.edu/api/v1/users/self',
+  );
+  const sameAccount = vi.fn<typeof fetch>(async (input) =>
+    new URL(String(input)).pathname === '/api/v1/users/self'
+      ? response({ id: '30' })
+      : response([]),
+  );
+  await expect(
+    fetchCanvasApi('synthetic-rotated-token', sameAccount, '30'),
+  ).resolves.toEqual({ accountProviderId: '30', courses: [], assignments: [] });
+  expect(sameAccount).toHaveBeenCalledTimes(2);
 });
 let app: Awaited<ReturnType<typeof buildApp>>;
 let db: Awaited<ReturnType<typeof openDatabase>>;
@@ -410,6 +452,7 @@ it('creates assignment-linked planner records with version guards, immutable sna
   });
   await sync();
   await runCanvasLmsSync(db, config, async () => ({
+    accountProviderId: '30',
     courses: [],
     assignments: [],
   }));
@@ -585,6 +628,7 @@ it('deduplicates imports, preserves explicit class links and notes, inherits lab
   ).toHaveLength(1);
   await sync();
   await runCanvasLmsSync(db, config, async () => ({
+    accountProviderId: '30',
     courses: [],
     assignments: [],
   }));
@@ -706,4 +750,28 @@ it('keeps the previous snapshot on partial failure, recovers leases and discards
       )
     ).length,
   ).toBe(1);
+});
+it('keeps imported facts and owner annotations when a replacement token belongs to another account', async () => {
+  await sync();
+  await runCanvasLmsSync(db, config, async () => snapshot());
+  const previous = await get();
+  expect(previous.accountProviderId).toBe('30');
+  await sync();
+  const wrong = vi.fn(async (_token: string, expected?: string | null) => {
+    expect(expected).toBe('30');
+    return { ...snapshot('Must not overwrite'), accountProviderId: '31' };
+  });
+  await runCanvasLmsSync(db, config, wrong);
+  const state = await get();
+  expect(state.accountProviderId).toBe('30');
+  expect(state.courses).toEqual(previous.courses);
+  expect(state.assignments).toEqual(previous.assignments);
+  expect(state.lastImportedAt).toBe(previous.lastImportedAt);
+  expect(state.jobs[0]?.errorCode).toBe('API_ACCOUNT_MISMATCH');
+  const exported = plannerExportSchema.parse(
+    (
+      await app.inject({ url: '/api/v1/planner/export', headers: headers() })
+    ).json(),
+  );
+  expect(exported.records.canvasLmsSource?.accountProviderId).toBe('30');
 });

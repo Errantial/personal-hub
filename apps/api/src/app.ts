@@ -20,6 +20,9 @@ import {
   startCanvasLmsWorker,
 } from './connections/canvas-lms.js';
 import type { CanvasApiFetcher } from './connections/canvas-api.js';
+import { registerCanvasReconciliation } from './connections/canvas-reconciliation.js';
+import { registerCanvasPlannerWork } from './connections/canvas-planner-work.js';
+import { registerAIRouting } from './features/ai-routing.js';
 import { registerPlanner } from './planner/routes.js';
 import { ApiError } from './errors.js';
 import { registerAcademics } from './features/academics.js';
@@ -85,6 +88,9 @@ export async function buildApp(
   registerExport(app, database, auth);
   registerCanvas(app, database, auth, config);
   registerCanvasLms(app, database, auth, config);
+  registerCanvasReconciliation(app, database, auth);
+  registerCanvasPlannerWork(app, database, auth);
+  registerAIRouting(app, database, auth);
   registerPlanner(app, database, auth);
   registerAcademics(app, database, auth);
   registerCalendar(app, database, auth);

@@ -36,6 +36,7 @@ export const canvasLmsAssignmentSchema = z.object({
   ...metadata,
   canvasCourseId: z.string().uuid(),
   providerData: canvasLmsAssignmentDataSchema,
+  attachmentDerived: z.boolean().default(false),
 });
 export const canvasLmsRecordsSchema = z.object({
   courses: z.array(canvasLmsCourseSchema),
@@ -43,6 +44,11 @@ export const canvasLmsRecordsSchema = z.object({
   lastImportedAt: z.string().datetime().nullable(),
 });
 export const canvasLmsConnectionSchema = canvasLmsRecordsSchema.extend({
+  accountProviderId: z
+    .string()
+    .regex(/^[1-9]\d{0,19}$/)
+    .nullable()
+    .default(null),
   configured: z.boolean(),
   enabled: z.boolean(),
   version: z.number().int().positive(),

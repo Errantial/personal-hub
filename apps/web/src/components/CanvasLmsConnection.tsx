@@ -227,7 +227,8 @@ export function CanvasLmsConnection() {
         classes; refreshes preserve notes, links and manual progress. Possible
         points are not earned grades. Descriptions, submissions and attachments
         are not imported. Reloading settings or a record version retains your
-        edited fields.
+        edited fields. The first successful refresh binds the Canvas account ID;
+        tokens for a different account cannot replace that import.
       </Help>
       {error && <p role="alert">{error}</p>}
       {status && <p role="status">{status}</p>}
@@ -310,6 +311,9 @@ export function CanvasLmsConnection() {
             </button>
           </div>
           <p className="meta">
+            Canvas account: {data.accountProviderId ?? 'Unverified'}
+          </p>
+          <p className="meta">
             Last API import:{' '}
             {data.lastImportedAt
               ? new Date(data.lastImportedAt).toLocaleString()
@@ -319,6 +323,8 @@ export function CanvasLmsConnection() {
             <p>
               Latest API refresh: {data.jobs[0].status}
               {data.jobs[0].errorCode ? ` · ${data.jobs[0].errorCode}` : ''}
+              {data.jobs[0].errorCode === 'API_ACCOUNT_MISMATCH' &&
+                ' · Configure a token for the bound Canvas account.'}
             </p>
           )}
           {data.courses.map((course) => (

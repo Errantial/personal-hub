@@ -4,6 +4,7 @@ import type { CanvasLmsCourse, CanvasLmsAssignment } from '@hub/contracts';
 import { getJson } from '../lib/api';
 import { CanvasAssignment } from './CanvasAssignment';
 import { Help } from './Help';
+import { CanvasPlannerWork } from './CanvasPlannerWork';
 export function ClassCanvasAssignments({ courseId }: { courseId: string }) {
   const [data, setData] = useState<{
     courses: CanvasLmsCourse[];
@@ -66,7 +67,10 @@ export function ClassCanvasAssignments({ courseId }: { courseId: string }) {
               {data.assignments
                 .filter((item) => item.canvasCourseId === course.id)
                 .map((item) => (
-                  <CanvasAssignment key={item.id} item={item} course={course} />
+                  <div key={item.id}>
+                    <CanvasAssignment item={item} course={course} />
+                    <CanvasPlannerWork kind="assignment-api" itemId={item.id} />
+                  </div>
                 ))}
             </div>
           ))}

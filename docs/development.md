@@ -12,6 +12,12 @@ Connections can create owned tasks and one-time study blocks with `canvasSourceR
 
 Canvas API separately syncs read-only course/assignment metadata with durable jobs and a server-held personal-test token, explicit class links, owner notes/labels, cached portfolio viewing and export. It neither merges feed entries nor imports grades/submissions/descriptions. See [Canvas API setup and boundaries](canvas-api.md). Live school access/completeness and expansion through OAuth remain unverified.
 
+Connections also supports explicit [feed/API reconciliation](canvas-reconciliation.md) based on matching assignment URLs, retaining separate facts and notes. Confirmed associations share effective labels and file-derived provenance, with version checks, stable rows and tombstones. No provider/planner facts are merged automatically.
+
+Preferences includes [AI routing permissions and preview](ai-permissions.md): versioned allowed/preferred aliases, deny-by-default settings, complete inherited-label intersection, and text-only simulation with owner-resolved source versions. File-derived or incomplete historical provenance blocks. No provider dispatch, actual availability probe, model credentials, budget, conversation or AI action is configured. Canvas API refreshes bind the upstream account ID after a successful import and reject tokens for another account.
+
+On restart, the API applies migrations 010-015 before readiness. They preserve existing planner fields, notes, versions, source snapshots, receipts and tombstones. Legacy Canvas account identity remains unverified until a complete successful refresh. Legacy calendar/topic history and old source snapshots without complete label arrays cannot be retroactively reconstructed; ordinary planner editing remains available, while the routing preview blocks that uncertain context. No automatic backfill or owner-history review/reset is implemented.
+
 A provisional Capacitor APK bundles this UI and its IndexedDB task outbox. Native login, offline task edits and process-restart/replay are tested on an AOSP emulator. Actual Kompakt hardware, native alarms/background delivery, offline calendar/class/reminder edits, email/Proton connections, richer Canvas access, imported grades, automatic study suggestions, hosted AI/routing enforcement, memory, MCP and autonomous agent execution remain pending. Stored labels do not imply AI is configured. Development checks have not accessed real account content. See [implementation backlog](backlog.md).
 
 ## First run
@@ -105,6 +111,11 @@ For local backups, stop the API before copying the entire embedded data director
 | `POST /api/v1/connections/canvas/lms/sync` | Queue an enrolled-owner API refresh; server token required |
 | `PUT /api/v1/connections/canvas/lms/courses/:id`, `.../assignments/:id` | Versioned notes/labels; courses also accept an explicit owned class link |
 | `GET /api/v1/connections/canvas/lms/records?courseId=...` | Owned class's linked API courses/assignments and freshness |
+| `GET /api/v1/connections/canvas/reconciliation` | Consistent owned comparisons and association tombstones |
+| `PUT /api/v1/connections/canvas/reconciliation/:itemId` | Confirm/remove matching assignment association with source/link versions and operation ID |
+| `GET /api/v1/connections/canvas/planner-work?kind=calendar\|assignment-api&itemId=...` | Active owned tasks/study blocks grouped through confirmed source links |
+| `GET/PUT /api/v1/ai/routing` | Owner routing policy, deny-by-default, versioned/idempotent writes |
+| `POST /api/v1/ai/routing/preview` | Read-only text policy simulation; no provider dispatch or preview-text persistence |
 
 Request/response types and runtime schemas live in `packages/contracts/src/index.ts`. Session tokens are random, hashed in storage, sent in HttpOnly/SameSite=Strict cookies, Secure in production, and expire after seven days. Passwords use salted scrypt. All responses disable caching. Routes validate ownership before planner access; unknown endpoints and internal errors return sanitized structured errors. Logs omit query strings, cookies, authorization, and private error content. Unexpected database startup errors also omit raw exception details.
 

@@ -103,7 +103,17 @@ test('tasks survive reload, support edits/completion/deletion, and carry owner l
   await expect(
     panel.getByRole('checkbox', { name: 'Complete Edited browser task' }),
   ).toBeChecked();
-  await expect(panel.getByText('personal', { exact: true })).toBeVisible();
+  await expect(
+    panel
+      .getByRole('listitem')
+      .filter({
+        has: page.getByRole('checkbox', {
+          name: 'Complete Edited browser task',
+          exact: true,
+        }),
+      })
+      .getByText('personal', { exact: true }),
+  ).toBeVisible();
   await panel
     .getByRole('button', { name: 'Delete Edited browser task' })
     .click();

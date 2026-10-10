@@ -47,7 +47,20 @@ test('calendar navigation preserves a stale draft until explicit reload', async 
   await expect(view.getByLabel('Calendar event title')).toHaveValue(
     'Calendar preserved draft',
   );
+  let releaseReload!: () => void;
+  const heldReload = new Promise<void>((resolve) => {
+    releaseReload = resolve;
+  });
+  await page.route('**/api/v1/calendar', async (route) => {
+    if (route.request().method() === 'GET') await heldReload;
+    await route.continue();
+  });
   await view.getByRole('button', { name: 'Reload calendar' }).click();
+  await expect(
+    view.getByRole('button', { name: 'Save calendar changes' }),
+  ).toBeDisabled();
+  await expect(view.getByRole('alert')).toContainText('changed elsewhere');
+  releaseReload();
   await expect(view.getByRole('alert')).toHaveCount(0);
   await view.getByRole('button', { name: 'Save calendar changes' }).click();
   await expect(

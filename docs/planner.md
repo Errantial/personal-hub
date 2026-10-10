@@ -18,7 +18,9 @@ Each recurring occurrence is identified by the series ID and its original date. 
 
 Classes store term, instructor, notes and an explicit content label. Topics store manual progress (0–100%) and confidence (unknown/low/medium/high). An unassessed class does not claim a grade or a measured zero. Study blocks link to a class and optional topic, with planned/completed/cancelled status. Completing a block does not invent learning progress or change confidence.
 
-Topic links must belong to the selected owned class. Class/topic labels are inherited by derived study blocks, including occurrence replacements. Source label upgrades propagate; inherited labels are conservatively retained until explicitly reviewed. Class deletion tombstones its topics while retaining existing calendar history. Grades, Canvas imports and AI study recommendations remain future work.
+Topic links must belong to the selected owned class. Class/topic labels are inherited by derived study blocks, including occurrence replacements. Source label upgrades propagate; inherited labels are conservatively retained until explicitly reviewed. Class deletion tombstones its topics while retaining existing calendar history. Canvas deadlines and assignment metadata are implemented; grades and AI study recommendations remain future work.
+
+Topics and full calendar records now export `academicLabels`: all captured Personal/Restricted labels, or null when historical provenance is incomplete. Label changes can add a second permission boundary even when the strongest display label is unchanged; affected record versions increase. Study detachment and occurrence cancellation retain captured labels. Planner edits remain available for legacy records, but the AI routing preview blocks unknown history. Review/reset of captured history and actual AI execution remain pending. See [AI permissions](ai-permissions.md).
 
 ## Reminders
 

@@ -4,7 +4,7 @@ import { plannerSourceColumns } from '../connections/canvas-provenance.js';
 export const stamp = (column: string, alias: string) =>
   `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "${alias}"`;
 export const metadataColumns = `id, version, ${stamp('created_at', 'createdAt')}, ${stamp('updated_at', 'updatedAt')}, ${stamp('deleted_at', 'deletedAt')}`;
-export const eventColumns = `${plannerSourceColumns('events')}, ${metadataColumns}, title, notes, ${stamp('starts_at', 'startsAt')}, ${stamp('ends_at', 'endsAt')}, time_zone AS "timeZone", sensitivity, all_day AS "allDay", to_char(start_date,'YYYY-MM-DD') AS "startDate", to_char(end_date,'YYYY-MM-DD') AS "endDate", recurrence, course_id AS "courseId", topic_id AS "topicId", study_status AS "studyStatus"`;
+export const eventColumns = `${plannerSourceColumns('events')}, ${metadataColumns}, title, notes, ${stamp('starts_at', 'startsAt')}, ${stamp('ends_at', 'endsAt')}, time_zone AS "timeZone", sensitivity, academic_labels AS "academicLabels", all_day AS "allDay", to_char(start_date,'YYYY-MM-DD') AS "startDate", to_char(end_date,'YYYY-MM-DD') AS "endDate", recurrence, course_id AS "courseId", topic_id AS "topicId", study_status AS "studyStatus"`;
 export const rank = (value: string) =>
   ['unlabeled', 'personal', 'restricted'].indexOf(value);
 export const strongest = (...values: string[]) =>
@@ -33,7 +33,7 @@ export function version(row: Record<string, unknown>, expected?: number) {
       'Reload before editing this item.',
     );
 }
-export async function academicAccess(
+export async function academicLabels(
   tx: QueryExecutor,
   owner: string,
   courseId: string | null,
@@ -47,8 +47,36 @@ export async function academicAccess(
       'INVALID_INPUT',
       'The topic must belong to the selected course.',
     );
-  return strongest(
-    String(course?.sensitivity ?? 'unlabeled'),
-    String(topic?.sensitivity ?? 'unlabeled'),
+  const history = Array.isArray(topic?.academic_labels)
+    ? topic.academic_labels
+    : [];
+  return {
+    labels: (['personal', 'restricted'] as const).filter((label) =>
+      [course?.sensitivity, topic?.sensitivity, ...history].includes(label),
+    ),
+    complete: topic?.academic_labels !== null,
+  };
+}
+export function mergeAcademicLabels(
+  previous: unknown,
+  labels: readonly string[] | null,
+) {
+  if (previous === null || labels === null) return null;
+  if (
+    previous !== undefined &&
+    (!Array.isArray(previous) ||
+      previous.some(
+        (value) => !['personal', 'restricted'].includes(String(value)),
+      ))
+  )
+    throw new ApiError(
+      409,
+      'PROVENANCE_UNAVAILABLE',
+      'Academic label history is unavailable.',
+    );
+  return (['personal', 'restricted'] as const).filter(
+    (label) =>
+      labels.includes(label) ||
+      (Array.isArray(previous) && previous.includes(label)),
   );
 }

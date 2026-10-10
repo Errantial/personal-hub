@@ -16,6 +16,8 @@ Session lists expose random public IDs, versions, creation/expiration times and 
 - Linked tasks/calendar records include captured Canvas facts and current source metadata; absent links in older exports default to null.
 - Separate Canvas API courses/assignments include personal notes, links, labels and safe source settings; API credentials and jobs remain excluded. Older exports default these additive collections to empty/null.
 - Recurrence exceptions, including cancelled or replaced occurrences.
+- Explicit Canvas feed/API reconciliation rows, including removal tombstones; captured/current planner provenance retains associated labels and file-derived flags.
+- AI routing permissions with safe provider aliases and policy version; no preview text, provider credentials or dispatch history. Older exports default this field to null.
 - Reminder schedules and notification inbox history.
 - Imported Canvas entries, file/network provenance, personal notes, labels, class links, archived-class metadata and source settings; private feed URLs and sync lease tokens remain excluded. These are additive format-v1 fields; older exports default to empty Canvas data and absent class links.
 

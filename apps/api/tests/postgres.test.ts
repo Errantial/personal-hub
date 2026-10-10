@@ -28,8 +28,36 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
           config: readConfig({
             NODE_ENV: 'test',
             DATABASE_URL: connection.toString(),
+            CANVAS_API_TOKEN: 'synthetic-postgres-only',
           }),
           runWorker: true,
+          canvasApiFetcher: async () => ({
+            accountProviderId: '30',
+            courses: [
+              {
+                providerId: '10',
+                data: {
+                  name: 'Postgres API course',
+                  code: 'PG',
+                  term: 'Test',
+                  timeZone: 'UTC',
+                },
+              },
+            ],
+            assignments: [
+              {
+                providerId: '20',
+                courseProviderId: '10',
+                data: {
+                  title: 'Postgres API assignment',
+                  dueAt: '2027-03-01T17:00:00.000Z',
+                  pointsPossible: 25,
+                  published: true,
+                  locked: false,
+                },
+              },
+            ],
+          }),
         },
       );
       const setup = await app.inject({
@@ -168,7 +196,7 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
         headers,
         payload: {
           operationId: randomUUID(),
-          feed: 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:postgres-synthetic\r\nDTSTART:20270301T170000Z\r\nSUMMARY:Postgres source entry\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
+          feed: 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:postgres-synthetic\r\nDTSTART:20270301T170000Z\r\nSUMMARY:Postgres source entry\r\nURL:https://canvas.colorado.edu/courses/10/assignments/20\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
         },
       });
       expect(imported.statusCode).toBe(200);
@@ -237,6 +265,163 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
       });
       expect(sourceStudy.statusCode).toBe(200);
       expect(sourceStudy.json().event.canvasSource.itemId).toBe(canvasItem.id);
+      const concurrentTopic = (
+        await app.inject({
+          method: 'POST',
+          url: '/api/v1/topics',
+          headers,
+          payload: {
+            operationId: randomUUID(),
+            courseId: course.json().course.id,
+            name: 'Concurrent PostgreSQL topic',
+            sensitivity: 'restricted',
+          },
+        })
+      ).json().topic;
+      const concurrentWrites = await Promise.all([
+        app.inject({
+          method: 'PUT',
+          url: `/api/v1/courses/${course.json().course.id}`,
+          headers,
+          payload: {
+            operationId: randomUUID(),
+            expectedVersion: course.json().course.version,
+            name: 'PostgreSQL class',
+            sensitivity: 'personal',
+          },
+        }),
+        app.inject({
+          method: 'PUT',
+          url: `/api/v1/topics/${concurrentTopic.id}`,
+          headers,
+          payload: {
+            operationId: randomUUID(),
+            expectedVersion: concurrentTopic.version,
+            courseId: course.json().course.id,
+            name: concurrentTopic.name,
+            notes: 'Concurrent topic edit',
+            sensitivity: 'restricted',
+          },
+        }),
+        app.inject({
+          method: 'PUT',
+          url: `/api/v1/calendar/${sourceStudy.json().event.id}`,
+          headers,
+          payload: {
+            operationId: randomUUID(),
+            expectedVersion: sourceStudy.json().event.version,
+            title: 'Concurrent study edit',
+            startsAt: '2027-02-28T17:00:00Z',
+            endsAt: '2027-02-28T18:00:00Z',
+            timeZone: 'UTC',
+            courseId: course.json().course.id,
+          },
+        }),
+      ]);
+      expect(concurrentWrites[0]!.statusCode).toBe(200);
+      expect(
+        concurrentWrites.every((response) =>
+          [200, 409].includes(response.statusCode),
+        ),
+      ).toBe(true);
+      const lmsBase = '/api/v1/connections/canvas/lms';
+      await app.inject({
+        method: 'POST',
+        url: `${lmsBase}/sync`,
+        headers,
+        payload: { operationId: randomUUID() },
+      });
+      await expect
+        .poll(
+          async () =>
+            (await app!.inject({ url: lmsBase, headers })).json().assignments
+              .length,
+          { timeout: 10000 },
+        )
+        .toBe(1);
+      const lms = (await app.inject({ url: lmsBase, headers })).json();
+      expect(lms.accountProviderId).toBe('30');
+      const annotation = await app.inject({
+        method: 'PUT',
+        url: `${lmsBase}/assignments/${lms.assignments[0].id}`,
+        headers,
+        payload: {
+          operationId: randomUUID(),
+          expectedVersion: lms.assignments[0].version,
+          notes: 'Postgres API notes',
+          sensitivity: 'restricted',
+        },
+      });
+      expect(annotation.statusCode).toBe(200);
+      const reconciled = await app.inject({
+        method: 'PUT',
+        url: `/api/v1/connections/canvas/reconciliation/${canvasItem.id}`,
+        headers,
+        payload: {
+          operationId: randomUUID(),
+          expectedVersion: null,
+          expectedItemVersion: linked.json().item.version,
+          assignmentId: lms.assignments[0].id,
+          expectedAssignmentVersion: annotation.json().assignment.version,
+          expectedCourseVersion: lms.courses[0].version,
+        },
+      });
+      expect(reconciled.statusCode).toBe(200);
+      const refreshedLms = (await app.inject({ url: lmsBase, headers })).json();
+      expect(refreshedLms.assignments[0]).toMatchObject({
+        attachmentDerived: true,
+        effectiveSensitivity: 'restricted',
+      });
+      const work = await app.inject({
+        url: `/api/v1/connections/canvas/planner-work?kind=assignment-api&itemId=${lms.assignments[0].id}`,
+        headers,
+      });
+      expect(work.statusCode).toBe(200);
+      expect(work.json().tasks[0].id).toBe(sourceTask.json().task.id);
+      expect(work.json().studies[0].id).toBe(sourceStudy.json().event.id);
+      const rule = { allowed: ['synthetic'], preferred: 'synthetic' };
+      const policy = await app.inject({
+        method: 'PUT',
+        url: '/api/v1/ai/routing',
+        headers,
+        payload: {
+          operationId: randomUUID(),
+          expectedVersion: 1,
+          policy: { unlabeled: rule, personal: rule, restricted: rule },
+        },
+      });
+      expect(policy.statusCode).toBe(200);
+      const preview = await app.inject({
+        method: 'POST',
+        url: '/api/v1/ai/routing/preview',
+        headers,
+        payload: {
+          expectedPolicyVersion: policy.json().version,
+          text: 'Postgres synthetic routing',
+          sensitivity: 'unlabeled',
+          sources: [
+            {
+              kind: 'canvas-assignment',
+              id: lms.assignments[0].id,
+              expectedVersion: refreshedLms.assignments[0].version,
+            },
+          ],
+          simulatedAvailableProviders: ['synthetic'],
+        },
+      });
+      expect(preview.statusCode).toBe(200);
+      expect(preview.json()).toMatchObject({
+        status: 'blocked',
+        reason: 'ATTACHMENT_DERIVED',
+        labels: ['unlabeled', 'personal', 'restricted'],
+        dispatchEnabled: false,
+      });
+      const finalExport = (
+        await app.inject({ url: '/api/v1/planner/export', headers })
+      ).json();
+      expect(finalExport.records.canvasReconciliations).toHaveLength(1);
+      expect(finalExport.records.aiRouting.version).toBe(policy.json().version);
+      expect(finalExport.records.canvasLmsSource.accountProviderId).toBe('30');
     } finally {
       await app?.close();
       await administrator.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

@@ -24,6 +24,9 @@ export function CanvasAssignment({
       </p>
       <details>
         <summary>Assignment details</summary>
+        {item.attachmentDerived && (
+          <p>Linked file-derived source · Excluded from AI</p>
+        )}
         <p>Possible points: {item.providerData.pointsPossible ?? 'Unknown'}</p>
         <p>
           Published:{' '}

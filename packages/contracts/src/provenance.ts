@@ -29,6 +29,10 @@ export const plannerSourceSchema = z.object({
   inputKind: z.enum(['calendar-feed', 'calendar-file', 'assignment-api']),
   courseVersion: z.number().int().positive().optional(),
   currentCourseVersion: z.number().int().positive().optional(),
+  attachmentDerived: z.boolean().optional(),
+  currentAttachmentDerived: z.boolean().optional(),
+  labels: z.array(label).min(1).max(3).optional(),
+  currentLabels: z.array(label).min(1).max(3).optional(),
   sensitivity: label,
   timing,
   currentVersion: z.number().int().positive(),
@@ -47,6 +51,8 @@ export function plannerTextIsAttachmentDerived(record: {
   canvasSource?: PlannerSource | null;
 }) {
   return (
+    record.canvasSource?.attachmentDerived === true ||
+    record.canvasSource?.currentAttachmentDerived === true ||
     record.canvasSource?.inputKind === 'calendar-file' ||
     record.canvasSource?.currentInputKind === 'calendar-file'
   );

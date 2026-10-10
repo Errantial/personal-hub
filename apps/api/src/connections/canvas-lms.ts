@@ -55,7 +55,7 @@ export async function readCanvasLms(
     courseId ? [owner, courseId] : [owner],
   );
   const assignments = await tx.query(
-    `SELECT ${rowColumns('a')},a.canvas_course_id AS "canvasCourseId",lc.sensitivity AS "courseLabel",c.sensitivity AS "classLabel" FROM canvas_lms_assignments a JOIN canvas_lms_courses lc ON lc.id=a.canvas_course_id AND lc.owner_id=a.owner_id LEFT JOIN courses c ON c.id=lc.course_id AND c.owner_id=lc.owner_id WHERE a.owner_id=$1${courseId ? ' AND lc.course_id=$2' : ''} ORDER BY (a.provider_data->>'dueAt') NULLS LAST,a.id LIMIT ${limit + 1}`,
+    `SELECT ${rowColumns('a')},a.canvas_course_id AS "canvasCourseId",lc.sensitivity AS "courseLabel",c.sensitivity AS "classLabel",x.sensitivity AS "reconciledSensitivity",x.attachment_derived AS "attachmentDerived" FROM canvas_lms_assignments a JOIN canvas_lms_courses lc ON lc.id=a.canvas_course_id AND lc.owner_id=a.owner_id JOIN canvas_assignment_context x ON x.id=a.id AND x.owner_id=a.owner_id LEFT JOIN courses c ON c.id=lc.course_id AND c.owner_id=lc.owner_id WHERE a.owner_id=$1${courseId ? ' AND lc.course_id=$2' : ''} ORDER BY (a.provider_data->>'dueAt') NULLS LAST,a.id LIMIT ${limit + 1}`,
     courseId ? [owner, courseId] : [owner],
   );
   if (courses.length > limit || assignments.length > limit)
@@ -70,6 +70,7 @@ export async function readCanvasLms(
       String(row.sensitivity),
       String(row.courseLabel ?? 'unlabeled'),
       String(row.classLabel ?? 'unlabeled'),
+      String(row.reconciledSensitivity ?? 'unlabeled'),
     );
   return canvasLmsRecordsSchema.parse({
     lastImportedAt: source?.lastImportedAt ?? null,
@@ -89,6 +90,16 @@ export async function applyCanvasLmsSnapshot(
   input: CanvasApiSnapshot,
 ) {
   const snapshot = validateCanvasSnapshot(input);
+  const [source] = await tx.query(
+    'SELECT account_provider_id FROM canvas_lms_sources WHERE owner_id=$1 FOR UPDATE',
+    [owner],
+  );
+  if (!source) throw new CanvasApiError('API_SYNC_FAILED');
+  if (
+    source.account_provider_id &&
+    source.account_provider_id !== snapshot.accountProviderId
+  )
+    throw new CanvasApiError('API_ACCOUNT_MISMATCH');
   const counts = { added: 0, updated: 0, missing: 0 };
   const assignmentIds: string[] = [];
   for (const course of snapshot.courses) {
@@ -149,20 +160,25 @@ export async function applyCanvasLmsSnapshot(
     )
   ).length;
   await tx.query(
-    'UPDATE canvas_lms_sources SET last_imported_at=CURRENT_TIMESTAMP WHERE owner_id=$1',
-    [owner],
+    'UPDATE canvas_lms_sources SET last_imported_at=CURRENT_TIMESTAMP,account_provider_id=COALESCE(account_provider_id,$2) WHERE owner_id=$1',
+    [owner, snapshot.accountProviderId],
   );
   return counts;
 }
 export async function runCanvasLmsSync(
   database: Database,
   config: Config,
-  fetcher: CanvasApiFetcher = fetchCanvasApi,
+  fetcher: CanvasApiFetcher = (token, account) =>
+    fetchCanvasApi(token, fetch, account),
 ) {
   if (!config.CANVAS_API_TOKEN) return;
   const claim = await database.transaction(async (tx) => {
-    const [source] = await tx.query<{ owner_id: string; due: boolean }>(
-      "SELECT owner_id,(enabled AND next_sync_at<=CURRENT_TIMESTAMP) AS due FROM canvas_lms_sources s WHERE s.owner_id=(SELECT owner_id FROM owner_setup WHERE singleton=1) AND ((enabled AND next_sync_at<=CURRENT_TIMESTAMP) OR EXISTS(SELECT 1 FROM canvas_lms_jobs j WHERE j.owner_id=s.owner_id AND (j.status='queued' OR (j.status='running' AND j.lease_until<=CURRENT_TIMESTAMP)))) ORDER BY next_sync_at FOR UPDATE SKIP LOCKED LIMIT 1",
+    const [source] = await tx.query<{
+      owner_id: string;
+      due: boolean;
+      account_provider_id: string | null;
+    }>(
+      "SELECT owner_id,account_provider_id,(enabled AND next_sync_at<=CURRENT_TIMESTAMP) AS due FROM canvas_lms_sources s WHERE s.owner_id=(SELECT owner_id FROM owner_setup WHERE singleton=1) AND ((enabled AND next_sync_at<=CURRENT_TIMESTAMP) OR EXISTS(SELECT 1 FROM canvas_lms_jobs j WHERE j.owner_id=s.owner_id AND (j.status='queued' OR (j.status='running' AND j.lease_until<=CURRENT_TIMESTAMP)))) ORDER BY next_sync_at FOR UPDATE SKIP LOCKED LIMIT 1",
     );
     if (!source) return null;
     await tx.query(
@@ -189,12 +205,12 @@ export async function runCanvasLmsSync(
       "UPDATE canvas_lms_jobs SET status='running',attempts=attempts+1,lease_token=$2,lease_until=CURRENT_TIMESTAMP+INTERVAL '120 seconds',updated_at=CURRENT_TIMESTAMP WHERE id=$1",
       [job.id, token],
     );
-    return { ...job, token };
+    return { ...job, token, accountProviderId: source.account_provider_id };
   });
   if (!claim) return;
   try {
     const snapshot = validateCanvasSnapshot(
-      await fetcher(config.CANVAS_API_TOKEN),
+      await fetcher(config.CANVAS_API_TOKEN, claim.accountProviderId),
     );
     await database.transaction(async (tx) => {
       await tx.query(
@@ -263,7 +279,7 @@ export function registerCanvasLms(
         [user.id],
       );
       const [source] = await tx.query(
-        'SELECT enabled,version,sensitivity FROM canvas_lms_sources WHERE owner_id=$1',
+        'SELECT enabled,version,sensitivity,account_provider_id AS "accountProviderId" FROM canvas_lms_sources WHERE owner_id=$1',
         [user.id],
       );
       return canvasLmsConnectionSchema.parse({

@@ -64,6 +64,8 @@ export async function liveRequestJson<T>(
       .safeParse(payload);
     const code = result.success ? result.data.error.code : 'REQUEST_FAILED';
     const messages: Record<string, string> = {
+      PROVENANCE_UNAVAILABLE:
+        'Source label history is incomplete. This context cannot be routed.',
       CANVAS_NOT_CONFIGURED: 'Configure the Canvas feed on the server first.',
       CANVAS_API_NOT_CONFIGURED:
         'Configure the Canvas API token on the server first.',
@@ -112,6 +114,7 @@ export async function liveRequestJson<T>(
 }
 
 const cachedPath = (path: string) =>
+  /^\/api\/v1\/connections\/canvas\/planner-work\?.+$/.test(path) ||
   /^\/api\/v1\/connections\/canvas\/lms\/records\?.+$/.test(path) ||
   /^\/api\/v1\/connections\/canvas\/(calendar|items)\?.+$/.test(path) ||
   /^\/api\/v1\/(tasks|events|calendar|courses|topics|reminders|notifications)(\/occurrences\?.*)?$/.test(

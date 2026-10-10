@@ -14,7 +14,13 @@ import type { Database } from '../db/database.js';
 import type { authService } from '../auth/routes.js';
 import { mutate } from '../planner/mutations.js';
 import { ApiError } from '../errors.js';
-import { active, metadataColumns, strongest, version } from './common.js';
+import {
+  active,
+  metadataColumns,
+  strongest,
+  version,
+  mergeAcademicLabels,
+} from './common.js';
 
 export function registerAcademics(
   app: FastifyInstance,
@@ -39,7 +45,7 @@ export function registerAcademics(
             ['progress', 'progress'],
             ['sensitivity', 'sensitivity'],
           ];
-    const columns = `${metadataColumns}, ${fields.map(([key, col]) => `${col} AS "${key}"`).join(',')}`;
+    const columns = `${metadataColumns}, ${fields.map(([key, col]) => `${col} AS "${key}"`).join(',')}${table === 'topics' ? ',academic_labels AS "academicLabels"' : ''}`;
     const key = table === 'courses' ? 'course' : 'topic';
     const writeSchema =
       table === 'courses' ? courseWriteSchema : topicWriteSchema;
@@ -75,6 +81,11 @@ export function registerAcademics(
             input.operationId,
             { table, method, id: method === 'PUT' ? id : null, input },
             async (tx) => {
+              // Class -> topic -> event matches label propagation and calendar edits.
+              const parent =
+                table === 'topics'
+                  ? await active(tx, 'courses', user.id, String(input.courseId))
+                  : null;
               const previous =
                 method === 'PUT' ? await active(tx, table, user.id, id) : null;
               if (previous) version(previous, input.expectedVersion);
@@ -88,45 +99,60 @@ export function registerAcademics(
                   'INVALID_INPUT',
                   'A topic must remain in its original class.',
                 );
-              const parent =
-                table === 'topics'
-                  ? await active(tx, 'courses', user.id, String(input.courseId))
-                  : null;
               const explicit =
                 request.body &&
                 typeof request.body === 'object' &&
                 'sensitivity' in request.body;
+              const ownLabel = String(
+                explicit
+                  ? input.sensitivity
+                  : (previous?.sensitivity ?? input.sensitivity),
+              );
               input.sensitivity = strongest(
-                String(
-                  explicit
-                    ? input.sensitivity
-                    : (previous?.sensitivity ?? input.sensitivity),
-                ),
+                ownLabel,
                 String(parent?.sensitivity ?? 'unlabeled'),
               );
               const values = fields.map(([name]) => input[name!]);
+              if (table === 'topics')
+                values.push(
+                  mergeAcademicLabels(
+                    previous?.academic_labels,
+                    [
+                      ownLabel,
+                      String(parent?.sensitivity ?? 'unlabeled'),
+                    ].filter((label) => label !== 'unlabeled'),
+                  ),
+                );
               const [row] =
                 method === 'POST'
                   ? await tx.query(
-                      `INSERT INTO ${table} (id,owner_id,${fields.map(([, col]) => col).join(',')}) VALUES ($1,$2,${fields.map((_, i) => `$${i + 3}`).join(',')}) RETURNING ${columns}`,
+                      `INSERT INTO ${table} (id,owner_id,${fields.map(([, col]) => col).join(',')}${table === 'topics' ? ',academic_labels' : ''}) VALUES ($1,$2,${values.map((_, i) => `$${i + 3}`).join(',')}) RETURNING ${columns}`,
                       [id, user.id, ...values],
                     )
                   : await tx.query(
-                      `UPDATE ${table} SET ${fields.map(([, col], i) => `${col}=$${i + 3}`).join(',')},version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${columns}`,
+                      `UPDATE ${table} SET ${fields.map(([, col], i) => `${col}=$${i + 3}`).join(',')}${table === 'topics' ? `,academic_labels=$${fields.length + 3}::text[]` : ''},version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${columns}`,
                       [id, user.id, ...values],
                     );
               // An upgraded source label also upgrades existing derived records.
               if (table === 'courses' && input.sensitivity !== 'unlabeled')
                 for (const child of ['topics', 'events'])
                   await tx.query(
-                    `UPDATE ${child} SET sensitivity=$3,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND course_id=$2 AND deleted_at IS NULL AND (sensitivity='unlabeled' OR (sensitivity='personal' AND $3='restricted'))`,
+                    `UPDATE ${child} SET sensitivity=CASE WHEN sensitivity='restricted' OR $3='restricted' THEN 'restricted' ELSE 'personal' END,academic_labels=CASE WHEN academic_labels IS NULL THEN NULL ELSE ARRAY(SELECT DISTINCT label FROM unnest(academic_labels || ARRAY[$3]::text[]) AS inherited(label) ORDER BY label) END,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND (course_id=$2${child === 'events' ? " OR EXISTS(SELECT 1 FROM event_exceptions x WHERE x.event_id=events.id AND x.replacement->>'courseId'=$2::text)" : ''}) AND deleted_at IS NULL AND (sensitivity='unlabeled' OR (sensitivity='personal' AND $3='restricted') OR (academic_labels IS NOT NULL AND NOT($3=ANY(academic_labels))))`,
                     [user.id, id, input.sensitivity],
                   );
-              if (table === 'topics' && input.sensitivity !== 'unlabeled')
-                await tx.query(
-                  `UPDATE events SET sensitivity=$3,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND topic_id=$2 AND deleted_at IS NULL AND (sensitivity='unlabeled' OR (sensitivity='personal' AND $3='restricted'))`,
-                  [user.id, id, input.sensitivity],
-                );
+              if (table === 'topics')
+                for (const label of new Set(
+                  [
+                    String(input.sensitivity),
+                    ...(Array.isArray(row?.academicLabels)
+                      ? row.academicLabels.map(String)
+                      : []),
+                  ].filter((label) => label !== 'unlabeled'),
+                ))
+                  await tx.query(
+                    `UPDATE events SET sensitivity=CASE WHEN sensitivity='restricted' OR $3='restricted' THEN 'restricted' ELSE 'personal' END,academic_labels=CASE WHEN academic_labels IS NULL THEN NULL ELSE ARRAY(SELECT DISTINCT label FROM unnest(academic_labels || ARRAY[$3]::text[]) AS inherited(label) ORDER BY label) END,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND (topic_id=$2 OR EXISTS(SELECT 1 FROM event_exceptions x WHERE x.event_id=events.id AND x.replacement->>'topicId'=$2::text)) AND deleted_at IS NULL AND (sensitivity='unlabeled' OR (sensitivity='personal' AND $3='restricted') OR (academic_labels IS NOT NULL AND NOT($3=ANY(academic_labels))))`,
+                    [user.id, id, label],
+                  );
               return response.parse({ [key]: row });
             },
           );

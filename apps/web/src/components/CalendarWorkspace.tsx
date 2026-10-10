@@ -263,10 +263,11 @@ export function CalendarWorkspace({
             className="text-button"
             disabled={busy}
             onClick={() => {
-              setError('');
-              void load(undefined, true).catch(() =>
-                setError('Could not reload.'),
-              );
+              setBusy(true);
+              void load(undefined, true)
+                .then(() => setError(''))
+                .catch(() => setError('Could not reload.'))
+                .finally(() => setBusy(false));
             }}
           >
             Reload calendar
@@ -304,6 +305,7 @@ export function CalendarWorkspace({
           {error}
         </p>
       )}
+      {busy && <p role="status">Updating calendar…</p>}
       <Help label="Calendar">
         {from} through{' '}
         {Temporal.PlainDate.from(to).subtract({ days: 1 }).toString()} ·{' '}
@@ -817,12 +819,8 @@ function CalendarEditor({
         automatically change topic confidence.
       </Help>
       <div className="form-actions">
-        <button className="primary-button" disabled={busy}>
-          {busy
-            ? 'Saving…'
-            : editing
-              ? 'Save calendar changes'
-              : 'Save calendar event'}
+        <button className="primary-button" disabled={busy} aria-busy={busy}>
+          {editing ? 'Save calendar changes' : 'Save calendar event'}
         </button>
         {editing && (
           <button

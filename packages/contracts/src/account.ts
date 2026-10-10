@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { canvasReconciliationSchema } from './canvas-reconciliation.js';
+import { aiRoutingSettingsSchema } from './ai-routing.js';
 import {
   calendarRecordSchema,
   calendarInputSchema,
@@ -59,10 +61,17 @@ export const plannerExportSchema = z.object({
     reminders: z.array(reminderSchema),
     notifications: z.array(notificationSchema),
     canvasItems: z.array(canvasItemSchema).default([]),
+    aiRouting: aiRoutingSettingsSchema.nullable().default(null),
+    canvasReconciliations: z.array(canvasReconciliationSchema).default([]),
     canvasLmsCourses: z.array(canvasLmsCourseSchema).default([]),
     canvasLmsAssignments: z.array(canvasLmsAssignmentSchema).default([]),
     canvasLmsSource: z
       .object({
+        accountProviderId: z
+          .string()
+          .regex(/^[1-9]\d{0,19}$/)
+          .nullable()
+          .default(null),
         enabled: z.boolean(),
         sensitivity: z.enum(['unlabeled', 'personal', 'restricted']),
         version: z.number().int().positive(),

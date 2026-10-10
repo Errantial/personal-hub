@@ -9,6 +9,7 @@ import {
 import type { CanvasItem, Course } from '@hub/contracts';
 import { requestJson, RequestError } from '../lib/api';
 import { Help } from './Help';
+import { CanvasPlannerWork } from './CanvasPlannerWork';
 
 export type CanvasPlanningItem = Pick<
   CanvasItem,
@@ -95,6 +96,7 @@ export function CanvasPlanning({
       if (kind === 'task') await requestJson(path, taskResponseSchema, options);
       else await requestJson(path, calendarResponseSchema, options);
       pending.current = null;
+      window.dispatchEvent(new Event('hub-planner-changed'));
       setMessage(kind === 'task' ? 'Task created.' : 'Study block created.');
       setKind(null);
     } catch (failure) {
@@ -118,6 +120,10 @@ export function CanvasPlanning({
   }
   return (
     <div>
+      <CanvasPlannerWork
+        kind={apiCourseVersion ? 'assignment-api' : 'calendar'}
+        itemId={item.id}
+      />
       {!kind && (
         <div className="item-actions">
           <button

@@ -168,6 +168,18 @@ test('Canvas API views preserve note conflicts and show linked assignments offli
     'Canvas API notes saved.',
   );
   const plannerRequests: Record<string, unknown>[] = [];
+  const plannerTasks: Record<string, unknown>[] = [];
+  const plannerStudies: Record<string, unknown>[] = [];
+  await page.route(
+    '**/api/v1/connections/canvas/planner-work**',
+    async (route) => {
+      if (!(await page.evaluate(() => navigator.onLine)))
+        return route.abort('internetdisconnected');
+      return route.fulfill({
+        json: { tasks: plannerTasks, studies: plannerStudies },
+      });
+    },
+  );
   await page.route('**/api/v1/tasks', async (route) => {
     if (route.request().method() !== 'POST') return route.fallback();
     if (!(await page.evaluate(() => navigator.onLine)))
@@ -179,24 +191,24 @@ test('Canvas API views preserve note conflicts and show linked assignments offli
         status: 409,
         json: { error: { code: 'VERSION_CONFLICT' } },
       });
-    return route.fulfill({
-      json: {
-        task: {
-          id: crypto.randomUUID(),
-          title: body.title,
-          notes: body.notes,
-          dueDate: body.dueDate,
-          priority: 'normal',
-          completed: false,
-          sensitivity: 'unlabeled',
-          version: 1,
-          createdAt: stamp,
-          updatedAt: stamp,
-          deletedAt: null,
-        },
-      },
-    });
+    const task = {
+      id: crypto.randomUUID(),
+      title: body.title,
+      notes: body.notes,
+      dueDate: body.dueDate,
+      priority: 'normal',
+      completed: false,
+      sensitivity: 'unlabeled',
+      version: 1,
+      createdAt: stamp,
+      updatedAt: stamp,
+      deletedAt: null,
+    };
+    plannerTasks.push(task);
+    return route.fulfill({ json: { task } });
   });
+  await apiAssignment.getByText('Planner work', { exact: true }).click();
+  await expect(apiAssignment).toContainText('0 tasks · 0 study blocks');
   await apiAssignment
     .getByRole('button', { name: 'Create task', exact: true })
     .click();
@@ -231,6 +243,7 @@ test('Canvas API views preserve note conflicts and show linked assignments offli
     .getByRole('button', { name: 'Save task', exact: true })
     .click();
   await expect(apiAssignment.getByRole('status')).toHaveText('Task created.');
+  await expect(apiAssignment).toContainText('1 tasks · 0 study blocks');
   expect(plannerRequests.at(-1)?.canvasSourceRef).toEqual({
     kind: 'assignment-api',
     itemId: assignment.id,
@@ -241,19 +254,17 @@ test('Canvas API views preserve note conflicts and show linked assignments offli
   await page.route('**/api/v1/calendar', async (route) => {
     if (route.request().method() !== 'POST') return route.fallback();
     studyRequest = route.request().postDataJSON();
-    return route.fulfill({
-      json: {
-        event: {
-          ...studyRequest,
-          id: crypto.randomUUID(),
-          sensitivity: 'unlabeled',
-          version: 1,
-          createdAt: stamp,
-          updatedAt: stamp,
-          deletedAt: null,
-        },
-      },
-    });
+    const event = {
+      ...studyRequest,
+      id: crypto.randomUUID(),
+      sensitivity: 'unlabeled',
+      version: 1,
+      createdAt: stamp,
+      updatedAt: stamp,
+      deletedAt: null,
+    };
+    plannerStudies.push(event);
+    return route.fulfill({ json: { event } });
   });
   await apiAssignment
     .getByRole('button', { name: 'Plan study', exact: true })
@@ -268,6 +279,7 @@ test('Canvas API views preserve note conflicts and show linked assignments offli
   await expect(apiAssignment.getByRole('status')).toHaveText(
     'Study block created.',
   );
+  await expect(apiAssignment).toContainText('1 tasks · 1 study blocks');
   expect(studyRequest).toMatchObject({
     courseId: local.id,
     startsAt: '2027-04-30T15:00:00.000Z',
@@ -290,12 +302,19 @@ test('Canvas API views preserve note conflicts and show linked assignments offli
   await expect(portfolio).toContainText('Possible points: 20');
   await portfolio.getByText('Personal notes', { exact: true }).click();
   await expect(portfolio).toContainText('Retained API note draft');
+  await portfolio.getByText('Planner work', { exact: true }).click();
+  await expect(portfolio).toContainText('API planner retained draft');
   await page.unroute('**/api/v1/connections/canvas/lms**');
   await context.setOffline(true);
   await portfolio
     .getByRole('button', { name: 'Reload assignments', exact: true })
     .click();
   await expect(portfolio).toContainText('API browser assignment');
+  await expect(portfolio.getByRole('alert')).toHaveCount(0);
+  await portfolio
+    .getByRole('button', { name: 'Reload planner work', exact: true })
+    .click();
+  await expect(portfolio).toContainText('API planner retained draft');
   await expect(portfolio.getByRole('alert')).toHaveCount(0);
   await context.setOffline(false);
 });

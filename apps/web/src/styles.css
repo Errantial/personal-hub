@@ -754,6 +754,12 @@ main {
 .editor-form h3 {
   margin: 0;
 }
+.editor-form fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+}
 .editor-form label {
   display: grid;
   gap: 6px;

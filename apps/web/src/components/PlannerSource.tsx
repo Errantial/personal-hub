@@ -25,6 +25,9 @@ export function PlannerSource({
         Current: {source.currentTitle} · Version {source.currentVersion} ·{' '}
         {source.currentAvailability} · {source.currentSensitivity}
       </p>
+      {(source.attachmentDerived || source.currentAttachmentDerived) && (
+        <p>File-derived source · Excluded from AI</p>
+      )}
       <p>
         Captured time:{' '}
         {source.timing.startDate ?? source.timing.startsAt ?? 'No date'}

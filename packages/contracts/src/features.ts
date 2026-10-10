@@ -109,6 +109,11 @@ export const calendarWriteSchema = calendarInputSchema.safeExtend({
 });
 export const calendarRecordSchema = z.object({
   ...calendarFields,
+  academicLabels: z
+    .array(z.enum(['personal', 'restricted']))
+    .max(2)
+    .nullable()
+    .default(null),
   canvasSource: plannerSourceSchema.nullable().default(null),
   id: z.string().uuid(),
   version: z.number().int().positive(),
@@ -181,7 +186,15 @@ export const topicWriteSchema = z.strictObject({
   expectedVersion: z.number().int().positive().optional(),
 });
 export const courseSchema = z.object({ ...courseFields, ...record });
-export const topicSchema = z.object({ ...topicFields, ...record });
+export const topicSchema = z.object({
+  ...topicFields,
+  ...record,
+  academicLabels: z
+    .array(z.enum(['personal', 'restricted']))
+    .max(2)
+    .nullable()
+    .default(null),
+});
 export const coursesSchema = z.object({ courses: z.array(courseSchema) });
 export const topicsSchema = z.object({ topics: z.array(topicSchema) });
 export const courseResponseSchema = z.object({ course: courseSchema });
