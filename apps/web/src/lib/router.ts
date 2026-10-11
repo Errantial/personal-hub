@@ -6,23 +6,44 @@ import { useCallback, useEffect, useState } from 'react';
 export const views = [
   'today',
   'calendar',
+  'tasks',
   'classes',
-  'reminders',
-  'connections',
-  'preferences',
+  'inbox',
+  'settings',
 ] as const;
 export type View = (typeof views)[number];
+export const settingsSections = [
+  'account',
+  'appearance',
+  'connections',
+  'ai',
+] as const;
+export type SettingsSection = (typeof settingsSections)[number];
 export type Route =
-  | { name: Exclude<View, 'calendar'> }
-  | { name: 'calendar'; date?: string; view?: 'day' | 'week' };
+  | { name: Exclude<View, 'calendar' | 'settings'> }
+  | { name: 'calendar'; date?: string; view?: 'day' | 'week' }
+  | { name: 'settings'; section: SettingsSection };
 
 export const viewLabels: Record<View, string> = {
   today: 'Today',
   calendar: 'Calendar',
+  tasks: 'Tasks',
   classes: 'Classes',
-  reminders: 'Reminders',
+  inbox: 'Inbox',
+  settings: 'Settings',
+};
+export const sectionLabels: Record<SettingsSection, string> = {
+  account: 'Account',
+  appearance: 'Appearance',
   connections: 'Connections',
-  preferences: 'Preferences',
+  ai: 'AI',
+};
+
+/** Addresses used before the confirmed navigation (D46) keep working. */
+const aliases: Record<string, Route> = {
+  preferences: { name: 'settings', section: 'account' },
+  connections: { name: 'settings', section: 'connections' },
+  reminders: { name: 'inbox' },
 };
 
 function isDate(value: string | null): value is string {
@@ -37,10 +58,21 @@ function isDate(value: string | null): value is string {
 }
 
 export function parseRoute(pathname: string, search: string): Route {
-  const segment = pathname.replace(/^\/+|\/+$/g, '');
+  const [segment = '', detail = ''] = pathname
+    .replace(/^\/+|\/+$/g, '')
+    .split('/');
+  const alias = aliases[segment];
+  if (alias) return alias;
   const name = (views as readonly string[]).includes(segment)
     ? (segment as View)
     : 'today';
+  if (name === 'settings')
+    return {
+      name,
+      section: (settingsSections as readonly string[]).includes(detail)
+        ? (detail as SettingsSection)
+        : 'account',
+    };
   if (name !== 'calendar') return { name };
   const query = new URLSearchParams(search);
   const date = query.get('date');
@@ -53,6 +85,7 @@ export function parseRoute(pathname: string, search: string): Route {
 }
 
 export function routePath(route: Route): string {
+  if (route.name === 'settings') return `/settings/${route.section}`;
   if (route.name !== 'calendar') return `/${route.name}`;
   const query = new URLSearchParams();
   if (route.date) query.set('date', route.date);
@@ -62,7 +95,9 @@ export function routePath(route: Route): string {
 }
 
 export const routeTitle = (route: Route) =>
-  `${viewLabels[route.name]} · Personal Hub`;
+  route.name === 'settings'
+    ? `${sectionLabels[route.section]} · Settings · Personal Hub`
+    : `${viewLabels[route.name]} · Personal Hub`;
 
 const current = () =>
   parseRoute(window.location.pathname, window.location.search);
@@ -71,7 +106,13 @@ const current = () =>
 export function useRoute() {
   const [route, setRoute] = useState<Route>(current);
   useEffect(() => {
-    const sync = () => setRoute(current());
+    // Keep the same object when nothing changed, so effects keyed on the
+    // route (focus, title) do not re-run.
+    const sync = () =>
+      setRoute((previous) => {
+        const next = current();
+        return routePath(next) === routePath(previous) ? previous : next;
+      });
     window.addEventListener('popstate', sync);
     // A Back/Forward between first render and this effect fires popstate
     // before the listener exists; re-read the address bar to catch it.
@@ -89,7 +130,7 @@ export function useRoute() {
     const path = routePath(next);
     if (window.location.pathname + window.location.search !== path)
       window.history[replace ? 'replaceState' : 'pushState'](null, '', path);
-    setRoute(next);
+    setRoute((previous) => (routePath(previous) === path ? previous : next));
   }, []);
   return [route, navigate] as const;
 }

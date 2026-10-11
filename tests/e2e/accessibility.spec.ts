@@ -8,10 +8,13 @@ import { authenticate } from './auth';
 const views = [
   'today',
   'calendar',
+  'tasks',
   'classes',
-  'reminders',
-  'connections',
-  'preferences',
+  'inbox',
+  'settings/account',
+  'settings/appearance',
+  'settings/connections',
+  'settings/ai',
 ];
 const configurations = [
   { theme: 'standard', width: 1280, target: 44 },
@@ -77,3 +80,24 @@ for (const { theme, width, target } of configurations) {
     }
   });
 }
+
+test('keyboard focus is never hidden behind the fixed bottom bar (320px)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto('/settings/ai');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Settings');
+  const bar = page.getByRole('navigation', { name: 'Main navigation' });
+  const barTop = (await bar.boundingBox())!.y;
+  // Tab through the page; every focused control must end above the bar.
+  for (let step = 0; step < 40; step++) {
+    await page.keyboard.press('Tab');
+    const box = await page.evaluate(() => {
+      const element = document.activeElement as HTMLElement | null;
+      if (!element || element.closest('nav')) return null;
+      const rect = element.getBoundingClientRect();
+      return { top: rect.top, bottom: rect.bottom };
+    });
+    if (box) expect(box.top).toBeLessThan(barTop);
+  }
+});

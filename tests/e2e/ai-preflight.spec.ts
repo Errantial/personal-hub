@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openSettings } from './shell';
 import { authenticate } from './auth';
 const headers = { Origin: 'http://127.0.0.1:5180' };
 test('server preflights retain input through retry/conflict and hide metadata with stable receipts', async ({
@@ -44,7 +45,7 @@ test('server preflights retain input through retry/conflict and hide metadata wi
     return route.fulfill({ response });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Preferences', exact: true }).click();
+  await openSettings(page, 'AI');
   await page.setViewportSize({ width: 320, height: 900 });
   const panel = page.getByRole('region', {
     name: 'AI preflights',
@@ -140,7 +141,7 @@ test('spending limits preserve exact amounts, retry identities and conflict draf
 }) => {
   await authenticate(page);
   await page.goto('/');
-  await page.getByRole('button', { name: 'Preferences', exact: true }).click();
+  await openSettings(page, 'AI');
   const panel = page.getByRole('region', {
     name: 'AI spending limits',
     exact: true,
@@ -268,7 +269,7 @@ test('a late preflight load cannot clear a newer settings-change warning', async
     return route.fulfill({ response });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Preferences', exact: true }).click();
+  await openSettings(page, 'AI');
   await ready;
   const preflights = page.getByRole('region', {
     name: 'AI preflights',

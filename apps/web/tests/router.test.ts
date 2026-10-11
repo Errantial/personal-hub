@@ -1,19 +1,55 @@
 import { expect, it } from 'vitest';
 import { parseRoute, routePath, routeTitle } from '../src/lib/router';
 
-it('maps every view to a stable path and back', () => {
+it('maps every primary view to a stable path and back', () => {
   for (const name of [
     'today',
     'calendar',
+    'tasks',
     'classes',
-    'reminders',
-    'connections',
-    'preferences',
+    'inbox',
   ] as const) {
     const path = routePath({ name });
     expect(path).toBe(`/${name}`);
     expect(parseRoute(path, '')).toEqual({ name });
   }
+});
+
+it('addresses each settings section and defaults to Account', () => {
+  for (const section of [
+    'account',
+    'appearance',
+    'connections',
+    'ai',
+  ] as const) {
+    expect(routePath({ name: 'settings', section })).toBe(
+      `/settings/${section}`,
+    );
+    expect(parseRoute(`/settings/${section}`, '')).toEqual({
+      name: 'settings',
+      section,
+    });
+  }
+  expect(parseRoute('/settings', '')).toEqual({
+    name: 'settings',
+    section: 'account',
+  });
+  expect(parseRoute('/settings/unknown', '')).toEqual({
+    name: 'settings',
+    section: 'account',
+  });
+});
+
+it('redirects addresses from before the navigation change', () => {
+  expect(parseRoute('/preferences', '')).toEqual({
+    name: 'settings',
+    section: 'account',
+  });
+  expect(parseRoute('/connections', '')).toEqual({
+    name: 'settings',
+    section: 'connections',
+  });
+  expect(parseRoute('/reminders', '')).toEqual({ name: 'inbox' });
 });
 
 it('treats the root, unknown paths and trailing slashes predictably', () => {
@@ -40,5 +76,8 @@ it('keeps only valid calendar date and view parameters', () => {
 });
 
 it('provides a document title per route', () => {
-  expect(routeTitle({ name: 'reminders' })).toBe('Reminders · Personal Hub');
+  expect(routeTitle({ name: 'inbox' })).toBe('Inbox · Personal Hub');
+  expect(routeTitle({ name: 'settings', section: 'ai' })).toBe(
+    'AI · Settings · Personal Hub',
+  );
 });

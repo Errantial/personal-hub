@@ -1,29 +1,43 @@
-import { Suspense, useEffect, useRef, useState } from 'react';
-import { loadWorkspace } from './lib/api';
-import { SyncStatus } from './components/SyncStatus';
-import { AuthGate } from './components/AuthGate';
-import { PlannerBoard } from './components/PlannerBoard';
-import type { StudyDraft } from './components/CalendarWorkspace';
+import { Suspense, useEffect, useId, useRef, useState } from 'react';
+import { notificationsSchema } from '@hub/contracts';
 import type { User } from '@hub/contracts';
-import { useRoute, viewLabels } from './lib/router';
-import type { View } from './lib/router';
+import { getJson, loadWorkspace } from './lib/api';
+import { useResource } from './lib/hooks';
+import { routePath, useRoute, viewLabels } from './lib/router';
+import type { Route, View } from './lib/router';
+import { AuthGate } from './components/AuthGate';
+import { Banner } from './components/Banner';
+import { Icon } from './components/Icon';
+import type { IconName } from './components/Icon';
+import { Link } from './components/Link';
+import { PlannerBoard, PlannerPanel } from './components/PlannerBoard';
+import {
+  SyncConflicts,
+  SyncDetails,
+  SyncIndicator,
+  useTaskSync,
+} from './components/SyncStatus';
+import type { StudyDraft } from './components/CalendarWorkspace';
 import type { WorkspaceState } from './views/ConnectionsView';
 import {
   AcademicWorkspace,
   CalendarWorkspace,
-  ConnectionsView,
-  PreferencesView,
   ReminderWorkspace,
+  SettingsView,
   preloadViews,
 } from './views/lazy';
 
-const navigation: { id: View; label: string; icon: string }[] = [
-  { id: 'today', label: 'Today', icon: '◷' },
-  { id: 'calendar', label: 'Calendar', icon: '\u25a6' },
-  { id: 'classes', label: 'Classes', icon: '\u25a4' },
-  { id: 'reminders', label: 'Reminders', icon: '\u25f4' },
-  { id: 'connections', label: 'Connections', icon: '⌘' },
-  { id: 'preferences', label: 'Preferences', icon: '☷' },
+/** Primary destinations stay visible on every screen size; the secondary
+ *  ones move into More below 1024 px (docs/ui-guidelines.md §3). */
+const primary: { id: View; icon: IconName }[] = [
+  { id: 'today', icon: 'today' },
+  { id: 'calendar', icon: 'calendar' },
+  { id: 'tasks', icon: 'tasks' },
+  { id: 'classes', icon: 'classes' },
+];
+const secondary: { id: View; icon: IconName }[] = [
+  { id: 'inbox', icon: 'inbox' },
+  { id: 'settings', icon: 'settings' },
 ];
 
 function readEinkPreference() {
@@ -52,21 +66,34 @@ function Workspace({
   const [route, navigate] = useRoute();
   const view = route.name;
   const heading = useRef<HTMLHeadingElement>(null);
-  const navigated = useRef(false);
-  const setView = (next: View) => navigate({ name: next });
-  useEffect(() => {
-    // Move focus to the new view's heading after in-app or Back navigation,
-    // but not on first load.
-    if (navigated.current) heading.current?.focus();
-    navigated.current = true;
-  }, [view]);
-  useEffect(preloadViews, []);
+  const shownPath = useRef(routePath(route));
   const [studyDraft, setStudyDraft] = useState<StudyDraft | null>(null);
   const [eink, setEink] = useState(readEinkPreference);
   const [workspace, setWorkspace] = useState<WorkspaceState>({
     status: 'loading',
   });
   const [attempt, setAttempt] = useState(0);
+  const sync = useTaskSync();
+  const inbox = useResource(
+    (signal) => getJson('/api/v1/notifications', notificationsSchema, signal),
+    { failure: '' },
+  );
+  const unread =
+    inbox.data?.notifications.filter((item) => !item.readAt).length ?? 0;
+
+  useEffect(() => {
+    // Move focus to the new view's heading after in-app or Back navigation,
+    // but not on first load (compared by path, so re-runs are harmless).
+    const path = routePath(route);
+    if (path === shownPath.current) return;
+    shownPath.current = path;
+    heading.current?.focus();
+  }, [route]);
+  useEffect(preloadViews, []);
+  const reloadInbox = inbox.reload;
+  useEffect(() => {
+    void reloadInbox();
+  }, [view, reloadInbox]);
 
   useEffect(() => {
     let current = true;
@@ -92,12 +119,7 @@ function Workspace({
     }
   }, [eink]);
 
-  function retryConnection() {
-    setWorkspace({ status: 'loading' });
-    setAttempt((value) => value + 1);
-  }
-
-  const date = new Intl.DateTimeFormat(undefined, {
+  const today = new Intl.DateTimeFormat(undefined, {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
@@ -108,98 +130,47 @@ function Workspace({
       <a className="skip-link" href="#main">
         Skip to content
       </a>
-      <aside className="sidebar">
-        <a
-          className="brand"
-          href="#"
-          onClick={(event) => {
-            event.preventDefault();
-            setView('today');
-          }}
-          aria-label="Personal Hub home"
-        >
-          <span className="brand-mark" aria-hidden="true">
-            h
-          </span>
-          <span>Personal Hub</span>
-        </a>
-        <nav aria-label="Main navigation">
-          <span className="nav-caption">YOUR WORKSPACE</span>
-          {navigation.map((item) => (
-            <button
-              key={item.id}
-              className={`nav-item ${view === item.id ? 'active' : ''}`}
-              aria-current={view === item.id ? 'page' : undefined}
-              onClick={() => setView(item.id)}
-            >
-              <span className="nav-icon" aria-hidden="true">
-                {item.icon}
-              </span>
-              {item.label}
-            </button>
-          ))}
-        </nav>
-        <div className="profile">
-          <span className="avatar" aria-hidden="true">
-            Y
-          </span>
-          <span>
-            {user.email}
-            <small>Personal workspace</small>
-          </span>
-        </div>
-      </aside>
-
+      <Navigation
+        view={view}
+        navigate={navigate}
+        unread={unread}
+        eink={eink}
+        onEinkChange={setEink}
+      />
       <div className="main-shell">
-        <header className="topbar">
-          <span>{viewLabels[view]}</span>
-          <div className="topbar-actions">
-            <button
-              className="text-button"
-              onClick={() => {
-                void signOut();
-              }}
-            >
-              Sign out
-            </button>
-            <button
-              className="theme-button"
-              aria-pressed={eink}
-              onClick={() => setEink((value) => !value)}
-            >
-              E-ink mode <span aria-hidden="true">{eink ? 'On' : 'Off'}</span>
-            </button>
-          </div>
-        </header>
-
-        <main id="main" tabIndex={-1}>
-          <div className="page-heading">
-            <span className="eyebrow">
-              {view === 'today' ? date : 'YOUR PERSONAL HUB'}
-            </span>
+        <header className="header">
+          <div className="header__title">
             <h1 ref={heading} tabIndex={-1}>
               {viewLabels[view]}
             </h1>
+            {view === 'today' && <p className="header__date">{today}</p>}
           </div>
-
+          <SyncIndicator state={sync} />
+        </header>
+        <SyncDetails state={sync} />
+        <main id="main" tabIndex={-1}>
           {workspace.status === 'unavailable' && (
-            <div className="connection-error" role="alert">
-              <div>
-                <strong>The hub server is unavailable.</strong>
-              </div>
-              <button className="secondary-button" onClick={retryConnection}>
-                Retry connection
-              </button>
-            </div>
+            <Banner
+              title="The hub server is unavailable."
+              actions={
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => {
+                    setWorkspace({ status: 'loading' });
+                    setAttempt((value) => value + 1);
+                  }}
+                >
+                  Retry connection
+                </button>
+              }
+            >
+              <p>Cached views remain available; changes to tasks are queued.</p>
+            </Banner>
           )}
-
-          <SyncStatus />
-          {view === 'today' && (
-            <>
-              <PlannerBoard />
-            </>
-          )}
-
+          <SyncConflicts state={sync} />
+          {view === 'today' && <PlannerBoard />}
+          {view === 'tasks' && <PlannerPanel kind="tasks" />}
           <Suspense fallback={<p role="status">Loading…</p>}>
             {view === 'calendar' && (
               <CalendarWorkspace studyDraft={studyDraft} />
@@ -208,31 +179,143 @@ function Workspace({
               <AcademicWorkspace
                 onSchedule={(draft) => {
                   setStudyDraft(draft);
-                  setView('calendar');
+                  navigate({ name: 'calendar' });
                 }}
               />
             )}
-            {view === 'reminders' && <ReminderWorkspace />}
-            {view === 'connections' && (
-              <ConnectionsView workspace={workspace} />
-            )}
-            {view === 'preferences' && (
-              <PreferencesView eink={eink} onEinkChange={setEink} />
+            {view === 'inbox' && <ReminderWorkspace />}
+            {route.name === 'settings' && (
+              <SettingsView
+                section={route.section}
+                navigate={navigate}
+                workspace={workspace}
+                eink={eink}
+                onEinkChange={setEink}
+                user={user}
+                signOut={signOut}
+              />
             )}
           </Suspense>
-
-          <footer className="workspace-footer">
-            <span className={`api-indicator ${workspace.status}`} role="status">
-              <span className="status-dot" aria-hidden="true" />
-              {workspace.status === 'ready'
-                ? 'Hub API connected'
-                : workspace.status === 'loading'
-                  ? 'Connecting to hub API…'
-                  : 'Hub API unavailable'}
-            </span>
-          </footer>
         </main>
       </div>
     </div>
+  );
+}
+
+function Navigation({
+  view,
+  navigate,
+  unread,
+  eink,
+  onEinkChange,
+}: {
+  view: View;
+  navigate: (route: Route) => void;
+  unread: number;
+  eink: boolean;
+  onEinkChange: (value: boolean) => void;
+}) {
+  const [more, setMore] = useState(false);
+  const panel = useId();
+  const container = useRef<HTMLElement>(null);
+  const moreButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => setMore(false), [view]);
+  useEffect(() => {
+    if (!more) return;
+    const outside = (event: PointerEvent) => {
+      if (!container.current?.contains(event.target as Node)) setMore(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setMore(false);
+      moreButton.current?.focus();
+    };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [more]);
+
+  const item = ({ id, icon }: { id: View; icon: IconName }) => (
+    <li key={id}>
+      <Link
+        className="nav__link"
+        route={
+          id === 'settings' ? { name: id, section: 'account' } : { name: id }
+        }
+        navigate={navigate}
+        current={view === id}
+      >
+        <Icon name={icon} />
+        <span className="nav__label">{viewLabels[id]}</span>
+        {id === 'inbox' && unread > 0 && (
+          <span className="nav__count">
+            {unread}
+            <span className="visually-hidden"> unread</span>
+          </span>
+        )}
+      </Link>
+    </li>
+  );
+  const einkToggle = (
+    <button
+      type="button"
+      className="nav__link nav__toggle"
+      aria-pressed={eink}
+      onClick={() => onEinkChange(!eink)}
+    >
+      <Icon name="eink" />
+      <span className="nav__label">E-ink mode</span>
+      <span className="nav__state" aria-hidden="true">
+        {eink ? 'On' : 'Off'}
+      </span>
+    </button>
+  );
+  const secondaryActive = secondary.some((value) => value.id === view);
+
+  return (
+    <nav className="nav" aria-label="Main navigation" ref={container}>
+      <Link
+        className="nav__brand"
+        route={{ name: 'today' }}
+        navigate={navigate}
+      >
+        Personal Hub
+      </Link>
+      <ul className="nav__list">
+        {primary.map(item)}
+        <li className="nav__more-item">
+          <button
+            ref={moreButton}
+            type="button"
+            className={`nav__link ${secondaryActive ? 'nav__link--active' : ''}`}
+            aria-expanded={more}
+            aria-controls={panel}
+            onClick={() => setMore((value) => !value)}
+          >
+            <Icon name="more" />
+            <span className="nav__label">More</span>
+            {unread > 0 && (
+              <span className="nav__count">
+                {unread}
+                <span className="visually-hidden"> unread</span>
+              </span>
+            )}
+          </button>
+        </li>
+      </ul>
+      <ul className="nav__list nav__secondary">
+        {secondary.map(item)}
+        <li>{einkToggle}</li>
+      </ul>
+      <div id={panel} className="nav__more" hidden={!more}>
+        <ul className="nav__list">
+          {secondary.map(item)}
+          <li>{einkToggle}</li>
+        </ul>
+      </div>
+    </nav>
   );
 }

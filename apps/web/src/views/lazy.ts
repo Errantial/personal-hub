@@ -6,9 +6,8 @@ import { lazy } from 'react';
 const loaders = {
   calendar: () => import('../components/CalendarWorkspace'),
   classes: () => import('../components/AcademicWorkspace'),
-  reminders: () => import('../components/ReminderWorkspace'),
-  connections: () => import('./ConnectionsView'),
-  preferences: () => import('./PreferencesView'),
+  inbox: () => import('../components/ReminderWorkspace'),
+  settings: () => import('./SettingsView'),
 };
 
 export const CalendarWorkspace = lazy(() =>
@@ -18,13 +17,10 @@ export const AcademicWorkspace = lazy(() =>
   loaders.classes().then((module) => ({ default: module.AcademicWorkspace })),
 );
 export const ReminderWorkspace = lazy(() =>
-  loaders.reminders().then((module) => ({ default: module.ReminderWorkspace })),
+  loaders.inbox().then((module) => ({ default: module.ReminderWorkspace })),
 );
-export const ConnectionsView = lazy(() =>
-  loaders.connections().then((module) => ({ default: module.ConnectionsView })),
-);
-export const PreferencesView = lazy(() =>
-  loaders.preferences().then((module) => ({ default: module.PreferencesView })),
+export const SettingsView = lazy(() =>
+  loaders.settings().then((module) => ({ default: module.SettingsView })),
 );
 
 export function preloadViews() {

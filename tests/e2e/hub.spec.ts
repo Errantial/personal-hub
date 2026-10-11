@@ -1,4 +1,12 @@
 import { expect, test } from '@playwright/test';
+import {
+  open,
+  openSettings,
+  toggleEink,
+  syncState,
+  signOut,
+  expectConnected,
+} from './shell';
 import { authenticate } from './auth';
 
 const credentials = {
@@ -15,9 +23,9 @@ test('web and API connect and show the actual scaffold account state', async ({
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
-  await expect(page.locator('.api-indicator')).toHaveText('Hub API connected');
+  await expectConnected(page);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Today');
-  await page.getByRole('button', { name: 'Connections', exact: true }).click();
+  await openSettings(page, 'Connections');
   await expect(
     page.getByRole('heading', { name: 'School Outlook' }),
   ).toBeVisible();
@@ -34,14 +42,16 @@ test('e-ink appearance persists across reload and can be switched off', async ({
   page,
 }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Preferences', exact: true }).click();
+  await openSettings(page, 'Appearance');
   await page.getByRole('checkbox', { name: 'Use e-ink mode' }).check();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'eink');
   await page.reload();
   await expect(
-    page.getByRole('button', { name: /E-ink mode/ }),
+    page
+      .getByRole('navigation', { name: 'Main navigation' })
+      .getByRole('button', { name: /E-ink mode/ }),
   ).toHaveAttribute('aria-pressed', 'true');
-  await page.getByRole('button', { name: /E-ink mode/ }).click();
+  await toggleEink(page);
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'standard');
 });
 
@@ -56,7 +66,7 @@ test('the workspace stays usable during API failure and retry recovers', async (
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   await page.unroute('**/api/**');
   await page.getByRole('button', { name: 'Retry connection' }).click();
-  await expect(page.locator('.api-indicator')).toHaveText('Hub API connected');
+  await expectConnected(page);
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
@@ -65,15 +75,26 @@ test('small-screen navigation and content fit without horizontal overflow', asyn
 }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto('/');
-  await expect(page.locator('.api-indicator')).toHaveText('Hub API connected');
-  for (const name of ['Today', 'Connections', 'Preferences']) {
-    await page.getByRole('button', { name, exact: true }).click();
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth <= window.innerWidth,
-      ),
-    ).toBe(true);
+  await expectConnected(page);
+  const fits = () =>
+    page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    );
+  for (const name of ['Today', 'Tasks', 'Inbox'] as const) {
+    await open(page, name);
+    expect(await fits()).toBe(true);
   }
+  for (const section of ['Account', 'Connections', 'AI'] as const) {
+    await openSettings(page, section);
+    expect(await fits()).toBe(true);
+  }
+  // More closes on Escape and returns focus to its button.
+  const more = page.getByRole('button', { name: /^More/ });
+  await more.click();
+  await expect(more).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('Escape');
+  await expect(more).toHaveAttribute('aria-expanded', 'false');
+  await expect(more).toBeFocused();
 });
 
 test('tasks survive reload, support edits/completion/deletion, and carry owner labels', async ({
@@ -142,9 +163,7 @@ test('a lost save response can be retried without creating a duplicate', async (
   await expect(
     panel.getByText('Lost response task', { exact: true }),
   ).toHaveCount(1);
-  await expect(page.getByRole('region', { name: 'Task sync' })).toContainText(
-    '0 pending changes',
-  );
+  await expect(syncState(page)).toContainText('All saved');
   const response = await page.request.get('/api/v1/tasks');
   const data = (await response.json()) as { tasks: { title: string }[] };
   expect(
@@ -189,7 +208,7 @@ test('sign-out removes access and login restores the workspace', async ({
   page,
 }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await signOut(page);
   await expect(
     page.getByRole('button', { name: 'Sign in', exact: true }),
   ).toBeVisible();
@@ -197,7 +216,7 @@ test('sign-out removes access and login restores the workspace', async ({
   await page.getByLabel('Email', { exact: true }).fill(credentials.email);
   await page.getByLabel('Password', { exact: true }).fill(credentials.password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.locator('.api-indicator')).toHaveText('Hub API connected');
+  await expectConnected(page);
 });
 
 test('a conflict preserves the draft and reload enables a deliberate retry', async ({
@@ -246,20 +265,43 @@ test('views have URLs that survive reload and browser Back/Forward', async ({
 }) => {
   await page.goto('/');
   await expect(page).toHaveURL(/\/today$/);
-  await page.getByRole('button', { name: 'Calendar', exact: true }).click();
+  await open(page, 'Calendar');
   await expect(page).toHaveURL(/\/calendar$/);
   await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
   await expect(page).toHaveTitle('Calendar · Personal Hub');
-  await page.getByRole('button', { name: 'Preferences', exact: true }).click();
+  await open(page, 'Settings');
+  await expect(page).toHaveURL(/\/settings\/account$/);
   await page.reload();
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText(
-    'Preferences',
-  );
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Settings');
   await page.goBack();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Calendar');
   await page.goForward();
-  await expect(page).toHaveURL(/\/preferences$/);
+  await expect(page).toHaveURL(/\/settings\/account$/);
+  await page
+    .getByRole('navigation', { name: 'Settings sections' })
+    .getByRole('link', { name: 'AI', exact: true })
+    .click();
+  await expect(page).toHaveTitle('AI · Settings · Personal Hub');
+  // Addresses from before the navigation change redirect.
+  await page.goto('/reminders');
+  await expect(page).toHaveURL(/\/inbox$/);
+  await page.goto('/preferences');
+  await expect(page).toHaveURL(/\/settings\/account$/);
   await page.goto('/not-a-view');
   await expect(page).toHaveURL(/\/today$/);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Today');
+});
+
+test('the sign-in screen uses the stored e-ink appearance', async ({
+  browser,
+}) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.addInitScript(() => localStorage.setItem('hub:eink', 'true'));
+  await page.goto('/');
+  await expect(
+    page.getByRole('button', { name: 'Sign in', exact: true }),
+  ).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'eink');
+  await context.close();
 });
