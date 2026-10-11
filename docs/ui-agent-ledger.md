@@ -143,3 +143,17 @@ Implemented; see [frontend-plan.md](frontend-plan.md) Phase 0.
 - **Known issue for Phase 1.** `AuthGate` shows the sign-in form while the session check is pending, so every load briefly shows Sign in.
 - **Verification.** `npm run check` passed (110 tests; 1 PostgreSQL test skipped); `npm run test:e2e` passed 37 browser tests. Synthetic databases only.
 
+### 2026-10-10 — Phase 1 shell (branch `ui/phase-0`)
+
+Implemented; see [frontend-plan.md](frontend-plan.md) Phase 1.
+
+- **Navigation and URLs.** `/today`, `/calendar`, `/tasks`, `/classes`, `/inbox`, `/settings/{account,appearance,connections,ai}`. `/preferences`, `/connections` and `/reminders` redirect. Wide screens (≥ 1024 px) use a left rail; narrower screens use a fixed bottom bar with More (Inbox, Settings, E-ink mode). Items are links with `aria-current`. Inbox shows the unread notification count as text (refreshed on navigation). `/tasks` temporarily shows the existing task panel; Today is unchanged until Phase 2.
+- **Header.** View `<h1>` (focused after navigation, not on first load), the date on Today, and the task sync summary `<Connectivity> · <Queue>` with role `status`: Online/Offline/Server unavailable · All saved / N queued / Conflict · N / Locked · N queued. "Sync" toggles the details region "Task sync" (Sync now, cached time, Help) below the header, in the page flow. Escape closes it and returns focus to the toggle.
+- **Banners.** "The hub server is unavailable." with Retry connection, and the "Task conflicts" alert banner listing conflicts with their local drafts. Discard now uses an in-page `<dialog>` that focuses Cancel; queued drafts remain until confirmed.
+- **Help.** A "Help" button (`Help: <topic>`, `aria-expanded`) reveals text in a polite live region. Escape and outside clicks close it. Escape is handled by the innermost disclosure only.
+- **Settings.** Account (password, sessions, export, Sign out with signed-in email), Appearance (e-ink), Connections (Canvas feed/API/matching and planned accounts), AI (permissions, limits, request checks). Sign-out still refuses while task changes are queued.
+- **Startup.** "Checking sign-in…" replaces the sign-in flash; the stored e-ink theme applies before first paint, including the sign-in screen.
+- **Tests.** `tests/e2e/shell.ts` helpers (`open`, `openSettings`, `toggleEink`, `syncState`, `syncNow`, `signOut`) navigate through More at narrow widths. The accessibility suite covers every route and Settings section, checks e-ink computed styles (black/white fills only, no shadows or transitions) and that keyboard focus is never fully hidden behind the bottom bar.
+- **Known limits.** The More panel overlays the content above the bar while open (closes on Escape, outside tap or navigation). Legacy panels inside screens keep their old structure until their phase. Kompakt hardware, Android Back with History routing, and TalkBack remain unverified.
+- **Verification.** `npm run check` passed (112 tests; 1 PostgreSQL test skipped); `npm run test:e2e` passed 39 browser tests. Synthetic databases only.
+
