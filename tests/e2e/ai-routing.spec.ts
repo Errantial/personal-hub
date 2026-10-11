@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openSettings } from './shell';
 import { authenticate } from './auth';
 test('routing permissions retry once, keep drafts on conflict and preview inherited labels without fallback or provider calls', async ({
   page,
@@ -29,7 +30,7 @@ test('routing permissions retry once, keep drafts on conflict and preview inheri
     return route.fulfill({ response });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Preferences', exact: true }).click();
+  await openSettings(page, 'AI');
   await page.setViewportSize({ width: 320, height: 900 });
   const panel = page.getByRole('region', {
     name: 'AI routing permissions',

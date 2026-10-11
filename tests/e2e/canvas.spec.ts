@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { open, openSettings, toggleEink, syncState, syncNow } from './shell';
 import { authenticate } from './auth';
 const headers = { Origin: 'http://127.0.0.1:5180' };
 const feed = (title: string, date = '20270301T170000Z') =>
@@ -32,7 +33,7 @@ test('Canvas planning creates editable tasks and study blocks, retaining provena
   expect(courseReply.status()).toBe(200);
   const course = (await courseReply.json()).course;
   await page.goto('/');
-  await page.getByRole('button', { name: 'Connections', exact: true }).click();
+  await openSettings(page, 'Connections');
   const connection = page.getByRole('region', { name: 'Canvas connection' });
   const entry = connection.locator('article').filter({
     has: page.getByRole('heading', {
@@ -79,9 +80,7 @@ test('Canvas planning creates editable tasks and study blocks, retaining provena
   await expect(form.getByLabel('Planner title')).toHaveValue(
     'Unqueued Canvas task',
   );
-  await expect(
-    page.getByRole('region', { name: 'Task sync' }).getByRole('status'),
-  ).toContainText('0 pending changes');
+  await expect(syncState(page)).toContainText('All saved');
   await context.setOffline(false);
   await form.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(
@@ -89,7 +88,7 @@ test('Canvas planning creates editable tasks and study blocks, retaining provena
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
-  await page.getByRole('button', { name: 'Today', exact: true }).click();
+  await open(page, 'Today');
   const tasks = page.getByRole('region', { name: 'Tasks', exact: true });
   const task = tasks.locator('li').filter({
     has: page.getByText('Canvas planned browser task', { exact: true }),
@@ -104,7 +103,7 @@ test('Canvas planning creates editable tasks and study blocks, retaining provena
   await expect(task.getByRole('checkbox')).toBeChecked();
   await expect(task).toContainText('calendar-file');
   await context.setOffline(false);
-  await page.getByRole('button', { name: 'Sync now', exact: true }).click();
+  await syncNow(page);
   await expect
     .poll(async () => {
       const reply = await page.request.get('/api/v1/tasks');
@@ -119,7 +118,7 @@ test('Canvas planning creates editable tasks and study blocks, retaining provena
   await expect(task.getByRole('checkbox')).toBeChecked();
   await expect(task).toContainText('Due 2027-04-16');
   await expect(task).toContainText('Canvas source · Changed');
-  await page.getByRole('button', { name: 'Calendar', exact: true }).click();
+  await open(page, 'Calendar');
   await page.getByLabel('Viewing timezone', { exact: true }).fill('UTC');
   await page
     .getByRole('button', { name: 'Apply timezone', exact: true })
@@ -176,7 +175,7 @@ test('Canvas class links survive refreshes and appear as read-only entries in po
     ).status(),
   ).toBe(200);
   await page.goto('/');
-  await page.getByRole('button', { name: 'Connections', exact: true }).click();
+  await openSettings(page, 'Connections');
   const connection = page.getByRole('region', { name: 'Canvas connection' });
   const entry = connection
     .locator('article')
@@ -203,7 +202,7 @@ test('Canvas class links survive refreshes and appear as read-only entries in po
       })
     ).status(),
   ).toBe(200);
-  await page.getByRole('button', { name: 'Classes', exact: true }).click();
+  await open(page, 'Classes');
   await page
     .getByRole('button', { name: 'Canvas linked browser class', exact: true })
     .click();
@@ -216,7 +215,7 @@ test('Canvas class links survive refreshes and appear as read-only entries in po
     portfolio.getByText('Linked personal browser note', { exact: true }),
   ).toBeVisible();
   await page.setViewportSize({ width: 320, height: 900 });
-  await page.getByRole('button', { name: 'Calendar', exact: true }).click();
+  await open(page, 'Calendar');
   const calendarView = page.getByRole('region', { name: 'Calendar workspace' });
   await calendarView
     .getByLabel('Viewing timezone', { exact: true })
@@ -251,14 +250,14 @@ test('Canvas class links survive refreshes and appear as read-only entries in po
     ),
   ).toBe(true);
   await context.setOffline(true);
-  await page.getByRole('button', { name: 'Classes', exact: true }).click();
+  await open(page, 'Classes');
   await page
     .getByRole('button', { name: 'Canvas linked browser class', exact: true })
     .click();
   await expect(
     portfolio.getByText('Canvas refreshed deadline', { exact: true }),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'Calendar', exact: true }).click();
+  await open(page, 'Calendar');
   await calendarView
     .getByLabel('Viewing timezone', { exact: true })
     .fill('America/Denver');
@@ -280,8 +279,8 @@ test('Canvas imports deduplicate, retain notes, show source changes and fit a na
 }) => {
   await page.setViewportSize({ width: 320, height: 900 });
   await page.goto('/');
-  await page.getByRole('button', { name: 'E-ink mode' }).click();
-  await page.getByRole('button', { name: 'Connections', exact: true }).click();
+  await toggleEink(page);
+  await openSettings(page, 'Connections');
   const panel = page.getByRole('region', { name: 'Canvas connection' });
   await expect(
     panel.getByRole('button', { name: 'Sync Canvas', exact: true }),
@@ -366,7 +365,7 @@ test('Canvas conflict retains a note draft and malformed input leaves imported e
     ).status(),
   ).toBe(200);
   await page.goto('/');
-  await page.getByRole('button', { name: 'Connections', exact: true }).click();
+  await openSettings(page, 'Connections');
   const panel = page.getByRole('region', { name: 'Canvas connection' });
   const card = panel
     .locator('article')

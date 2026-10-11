@@ -1,5 +1,5 @@
 import { Help } from './Help';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
   remindersSchema,
@@ -11,55 +11,60 @@ import {
   wallTimeToInstant,
   instantToWall,
 } from '@hub/contracts';
-import type {
-  Reminder,
-  HubNotification,
-  Task,
-  CalendarRecord,
-} from '@hub/contracts';
-import { getJson, requestJson } from '../lib/api';
+import type { Reminder, HubNotification } from '@hub/contracts';
+import { getJson } from '../lib/api';
+import { useMutation, useResource } from '../lib/hooks';
 
 export function ReminderWorkspace() {
-  const [reminders, setReminders] = useState<Reminder[]>([]);
-  const [notifications, setNotifications] = useState<HubNotification[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [events, setEvents] = useState<CalendarRecord[]>([]);
-  const [worker, setWorker] = useState({
-    healthy: false,
-    lastTick: null as string | null,
-    errorCode: null as string | null,
-  });
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<Reminder | null>(null);
   const [revision, setRevision] = useState(0);
+  const [permissionError, setPermissionError] = useState('');
   const [permission, setPermission] = useState(
     typeof Notification === 'undefined'
       ? 'unsupported'
       : Notification.permission,
   );
-  const pending = useRef<{ key: string; id: string } | null>(null);
   const observed = useRef(new Set<string>());
   const initialized = useRef(false);
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  async function load(signal?: AbortSignal, refreshEditor = false) {
-    const [jobs, inbox, steps, calendar] = await Promise.all([
-      getJson('/api/v1/reminders', remindersSchema, signal),
-      getJson('/api/v1/notifications', notificationsSchema, signal),
-      getJson('/api/v1/tasks', tasksResponseSchema, signal),
-      getJson('/api/v1/calendar', calendarListSchema, signal),
-    ]);
-    setReminders(jobs.reminders);
-    setWorker(jobs.worker);
-    setNotifications(inbox.notifications);
-    setTasks(steps.tasks);
-    setEvents(calendar.events);
-    if (refreshEditor)
-      setEditing((old) => {
-        const latest = jobs.reminders.find((value) => value.id === old?.id);
-        return old && latest ? { ...old, version: latest.version } : old;
-      });
-    for (const item of inbox.notifications) {
+  const save = useMutation();
+  const control = useMutation();
+  const read = useMutation();
+  const resource = useResource(
+    async (signal) => {
+      const [jobs, inbox, steps, calendar] = await Promise.all([
+        getJson('/api/v1/reminders', remindersSchema, signal),
+        getJson('/api/v1/notifications', notificationsSchema, signal),
+        getJson('/api/v1/tasks', tasksResponseSchema, signal),
+        getJson('/api/v1/calendar', calendarListSchema, signal),
+      ]);
+      alertNew(inbox.notifications);
+      return { jobs, inbox, tasks: steps.tasks, events: calendar.events };
+    },
+    {
+      failure: 'Could not refresh reminders. Reload to try again.',
+      refreshMs: 10000,
+    },
+  );
+  const reminders = resource.data?.jobs.reminders ?? [];
+  const worker = resource.data?.jobs.worker ?? {
+    healthy: false,
+    lastTick: null,
+    errorCode: null,
+  };
+  const notifications = resource.data?.inbox.notifications ?? [];
+  const tasks = resource.data?.tasks ?? [];
+  const events = resource.data?.events ?? [];
+  const busy = save.pending || control.pending || read.pending;
+  const error =
+    save.error ||
+    control.error ||
+    read.error ||
+    permissionError ||
+    resource.error;
+
+  function alertNew(items: HubNotification[]) {
+    for (const item of items) {
       if (
         initialized.current &&
         !observed.current.has(item.id) &&
@@ -80,106 +85,77 @@ export function ReminderWorkspace() {
     }
     initialized.current = true;
   }
-  useEffect(() => {
-    const controller = new AbortController();
-    const refresh = () => {
-      void load(controller.signal).catch(() => {
-        if (!controller.signal.aborted)
-          setError('Could not refresh reminders. Reload to try again.');
-      });
-    };
-    refresh();
-    const timer = setInterval(refresh, 10000);
-    return () => {
-      clearInterval(timer);
-      controller.abort();
-    };
-  }, []);
-  async function change(
-    path: string,
-    body: Record<string, unknown>,
-    method = 'POST',
-  ) {
-    const key = JSON.stringify({ path, body, method });
-    if (pending.current?.key !== key)
-      pending.current = { key, id: crypto.randomUUID() };
-    await requestJson(path, reminderResponseSchema, {
-      method,
-      body: { ...body, operationId: pending.current.id },
+  async function reloadEditor() {
+    const latest = await resource.reload();
+    if (!latest) {
+      resource.setError('Could not reload reminders.');
+      return;
+    }
+    setEditing((old) => {
+      const current = latest.jobs.reminders.find(
+        (value) => value.id === old?.id,
+      );
+      return old && current ? { ...old, version: current.version } : old;
     });
-    pending.current = null;
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    setBusy(true);
-    setError('');
+    let scheduledAt: string;
     try {
-      const target = String(form.get('target'));
-      const [targetKind, targetId] = target ? target.split(':') : [];
-      await change(
-        editing ? `/api/v1/reminders/${editing.id}` : '/api/v1/reminders',
-        {
-          title: String(form.get('title')),
-          scheduledAt: wallTimeToInstant(
-            String(form.get('scheduledAt')),
-            timeZone,
-            String(form.get('offset')) as 'reject' | 'earlier' | 'later',
-          ),
-          targetKind: targetKind ?? null,
-          targetId: targetId ?? null,
-          occurrenceDate: form.get('occurrenceDate')
-            ? String(form.get('occurrenceDate'))
-            : null,
-          ...(editing ? { expectedVersion: editing.version } : {}),
-        },
-        editing ? 'PUT' : 'POST',
+      scheduledAt = wallTimeToInstant(
+        String(form.get('scheduledAt')),
+        timeZone,
+        String(form.get('offset')) as 'reject' | 'earlier' | 'later',
       );
-      setEditing(null);
-      setRevision((value) => value + 1);
-      await load();
     } catch (failure) {
-      setError(
+      save.setError(
         failure instanceof Error ? failure.message : 'Could not save reminder.',
       );
-    } finally {
-      setBusy(false);
+      return;
     }
+    const target = String(form.get('target'));
+    const [targetKind, targetId] = target ? target.split(':') : [];
+    const saved = await save.run(
+      reminderResponseSchema,
+      editing ? 'PUT' : 'POST',
+      editing ? `/api/v1/reminders/${editing.id}` : '/api/v1/reminders',
+      {
+        title: String(form.get('title')),
+        scheduledAt,
+        targetKind: targetKind ?? null,
+        targetId: targetId ?? null,
+        occurrenceDate: form.get('occurrenceDate')
+          ? String(form.get('occurrenceDate'))
+          : null,
+        ...(editing ? { expectedVersion: editing.version } : {}),
+      },
+      'Could not save reminder.',
+    );
+    if (!saved) return;
+    setEditing(null);
+    setRevision((value) => value + 1);
+    await resource.reload();
   }
-  async function control(item: Reminder, action: string) {
-    setBusy(true);
-    setError('');
-    try {
-      await change(`/api/v1/reminders/${item.id}/control`, {
-        action,
-        expectedVersion: item.version,
-      });
-      await load();
-    } catch (failure) {
-      setError(
-        failure instanceof Error
-          ? failure.message
-          : 'Could not change reminder.',
-      );
-    } finally {
-      setBusy(false);
-    }
+  async function change(item: Reminder, action: string) {
+    const changed = await control.run(
+      reminderResponseSchema,
+      'POST',
+      `/api/v1/reminders/${item.id}/control`,
+      { action, expectedVersion: item.version },
+      'Could not change reminder.',
+    );
+    if (changed) await resource.reload();
   }
-  async function read(item: HubNotification) {
-    setBusy(true);
-    setError('');
-    try {
-      await requestJson(
-        `/api/v1/notifications/${item.id}/read`,
-        notificationResponseSchema,
-        { method: 'POST', body: { operationId: crypto.randomUUID() } },
-      );
-      await load();
-    } catch {
-      setError('Could not mark the reminder as read.');
-    } finally {
-      setBusy(false);
-    }
+  async function markRead(item: HubNotification) {
+    const done = await read.run(
+      notificationResponseSchema,
+      'POST',
+      `/api/v1/notifications/${item.id}/read`,
+      {},
+      'Could not mark the reminder as read.',
+    );
+    if (done) await resource.reload();
   }
   return (
     <section aria-label="Reminders workspace">
@@ -203,10 +179,7 @@ export function ReminderWorkspace() {
             className="secondary-button"
             disabled={busy}
             onClick={() => {
-              setError('');
-              void load(undefined, true).catch(() =>
-                setError('Could not reload reminders.'),
-              );
+              void reloadEditor();
             }}
           >
             Reload reminders
@@ -218,7 +191,7 @@ export function ReminderWorkspace() {
               void Notification.requestPermission().then(
                 (value) => setPermission(value),
                 () =>
-                  setError(
+                  setPermissionError(
                     'Browser notification permission could not be requested.',
                   ),
               );
@@ -256,7 +229,7 @@ export function ReminderWorkspace() {
                     className="text-button"
                     disabled={busy}
                     onClick={() => {
-                      void read(item);
+                      void markRead(item);
                     }}
                   >
                     Mark read
@@ -295,7 +268,7 @@ export function ReminderWorkspace() {
                       className="text-button"
                       disabled={busy}
                       onClick={() => {
-                        void control(item, 'pause');
+                        void change(item, 'pause');
                       }}
                     >
                       Pause
@@ -306,7 +279,7 @@ export function ReminderWorkspace() {
                       className="text-button"
                       disabled={busy}
                       onClick={() => {
-                        void control(item, 'resume');
+                        void change(item, 'resume');
                       }}
                     >
                       Resume
@@ -317,7 +290,7 @@ export function ReminderWorkspace() {
                       className="text-button"
                       disabled={busy}
                       onClick={() => {
-                        void control(item, 'retry');
+                        void change(item, 'retry');
                       }}
                     >
                       Retry
@@ -328,7 +301,7 @@ export function ReminderWorkspace() {
                       className="text-button"
                       disabled={busy}
                       onClick={() => {
-                        void control(item, 'cancel');
+                        void change(item, 'cancel');
                       }}
                     >
                       Cancel reminder

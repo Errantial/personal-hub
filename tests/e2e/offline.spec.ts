@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { open, syncNow, syncState, signOut } from './shell';
 import { authenticate } from './auth';
 test.beforeEach(async ({ page }) => {
   await authenticate(page);
@@ -21,14 +22,7 @@ test('two tabs share the durable queue and synchronize each creation once', asyn
     await expect(panel.getByText(title, { exact: true })).toBeVisible();
   }
   await context.setOffline(false);
-  await Promise.all(
-    [page, other].map((tab) =>
-      tab
-        .getByRole('region', { name: 'Task sync' })
-        .getByRole('button', { name: 'Sync now' })
-        .click(),
-    ),
-  );
+  await Promise.all([page, other].map((tab) => syncNow(tab)));
   await expect
     .poll(async () => {
       const tasks = (await (await page.request.get('/api/v1/tasks')).json())
@@ -40,9 +34,7 @@ test('two tabs share the durable queue and synchronize each creation once', asyn
     })
     .toBe(2);
   await page.reload();
-  await expect(page.getByRole('region', { name: 'Task sync' })).toContainText(
-    '0 pending changes',
-  );
+  await expect(syncState(page)).toContainText('All saved');
   await other.close();
 });
 test('a revoked session locks queued drafts until the same owner signs in again', async ({
@@ -54,9 +46,7 @@ test('a revoked session locks queued drafts until the same owner signs in again'
   const panel = page.getByRole('region', { name: 'Tasks' });
   await panel.getByLabel('Task title').fill('Revoked session draft');
   await panel.getByRole('button', { name: 'Add task', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Task sync' })).toContainText(
-    '1 pending changes',
-  );
+  await expect(syncState(page)).toContainText('1 queued');
   // The server-side request bypasses the page client, simulating revocation.
   await page.request.post('/api/v1/auth/logout', {
     headers: { Origin: 'http://127.0.0.1:5180' },
@@ -72,9 +62,7 @@ test('a revoked session locks queued drafts until the same owner signs in again'
     .getByLabel('Password', { exact: true })
     .fill('synthetic-browser-password');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Task sync' })).toContainText(
-    '0 pending changes',
-  );
+  await expect(syncState(page)).toContainText('All saved');
   await expect(
     panel.getByText('Revoked session draft', { exact: true }),
   ).toBeVisible();
@@ -134,7 +122,7 @@ test('offline create, edit, completion and delete survive reload and reconcile o
 }) => {
   await warm(page);
   const panel = page.getByRole('region', { name: 'Tasks' });
-  const sync = page.getByRole('region', { name: 'Task sync' });
+  const sync = syncState(page);
   await context.setOffline(true);
   await panel.getByLabel('Task title').fill('Offline task');
   await panel.getByRole('button', { name: 'Add task', exact: true }).click();
@@ -147,7 +135,7 @@ test('offline create, edit, completion and delete survive reload and reconcile o
   await panel
     .getByRole('checkbox', { name: 'Complete Offline revised', exact: true })
     .check();
-  await expect(sync).toContainText('3 pending changes');
+  await expect(sync).toContainText('Offline · 3 queued');
   await page.reload();
   await expect(
     panel.getByRole('checkbox', {
@@ -155,22 +143,22 @@ test('offline create, edit, completion and delete survive reload and reconcile o
       exact: true,
     }),
   ).toBeChecked();
-  await expect(sync).toContainText('3 pending changes');
+  await expect(sync).toContainText('Offline · 3 queued');
   await panel.getByLabel('Task title').fill('Offline deleted');
   await panel.getByRole('button', { name: 'Add task', exact: true }).click();
   await panel
     .getByRole('button', { name: 'Delete Offline deleted', exact: true })
     .click();
-  await expect(sync).toContainText('5 pending changes');
-  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await expect(sync).toContainText('Offline · 5 queued');
+  await signOut(page);
   await expect(
     page
       .getByRole('alert')
       .filter({ hasText: 'Sync or discard pending tasks' }),
   ).toBeVisible();
   await context.setOffline(false);
-  await sync.getByRole('button', { name: 'Sync now' }).click();
-  await expect(sync).toContainText('0 pending changes', { timeout: 15000 });
+  await syncNow(page);
+  await expect(sync).toContainText('Online · All saved', { timeout: 15000 });
   const response = await page.request.get('/api/v1/tasks');
   const tasks = (await response.json()).tasks as {
     title: string;
@@ -182,6 +170,7 @@ test('offline create, edit, completion and delete survive reload and reconcile o
   ]);
   expect(tasks.some((item) => item.title === 'Offline deleted')).toBe(false);
   await page.reload();
+  await open(page, 'Today');
   await expect(
     panel.getByRole('checkbox', {
       name: 'Complete Offline revised',
@@ -225,22 +214,36 @@ test('offline conflicts retain local drafts until explicitly discarded', async (
   });
   expect(remote.status()).toBe(200);
   await page.unroute('**/api/v1/tasks/*');
-  const sync = page.getByRole('region', { name: 'Task sync' });
-  await sync.getByRole('button', { name: 'Sync now' }).click();
-  await expect(sync.getByRole('alert')).toContainText(
+  await syncNow(page);
+  const conflicts = page.getByRole('alert', { name: 'Task conflicts' });
+  await expect(conflicts).toContainText(
     'Task conflict: Retained offline draft',
   );
+  await expect(syncState(page)).toContainText('Conflict · 1');
   await page.reload();
-  await expect(sync.getByRole('alert')).toContainText(
+  await expect(conflicts).toContainText(
     'Task conflict: Retained offline draft',
   );
-  await sync.getByText('Local draft', { exact: true }).click();
+  await conflicts.getByText('Local draft', { exact: true }).click();
   await expect(
-    sync.getByText('Local conflict notes', { exact: true }),
+    conflicts.getByText('Local conflict notes', { exact: true }),
   ).toBeVisible();
-  page.once('dialog', (dialog) => dialog.accept());
-  await sync.getByRole('button', { name: 'Discard local changes' }).click();
-  await expect(sync).toContainText('0 pending changes');
+  await conflicts
+    .getByRole('button', { name: 'Discard local changes' })
+    .click();
+  // Discarding needs explicit confirmation; Cancel keeps the draft.
+  const dialog = page.getByRole('dialog', {
+    name: 'Discard queued changes to “Retained offline draft”?',
+  });
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(conflicts).toBeVisible();
+  await conflicts
+    .getByRole('button', { name: 'Discard local changes' })
+    .click();
+  await dialog.getByRole('button', { name: 'Discard changes' }).click();
+  await expect(syncState(page)).toContainText('All saved');
+  await expect(conflicts).toHaveCount(0);
   await expect(
     panel.getByText('Remote newer task', { exact: true }),
   ).toBeVisible();
@@ -253,11 +256,15 @@ test('sign-out clears private cached data and Help is available by keyboard', as
   await expect(
     page.getByText('A little more breathing room.', { exact: true }),
   ).toHaveCount(0);
-  const help = page.getByLabel('Offline tasks help', { exact: true });
+  await page.getByRole('button', { name: 'Sync', exact: true }).click();
+  const help = page.getByRole('button', { name: 'Help: Offline tasks' });
   await help.focus();
   await page.keyboard.press('Enter');
   await expect(page.getByText(/Tasks can be created, edited/)).toBeVisible();
-  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByText(/Tasks can be created, edited/)).toHaveCount(0);
+  await expect(help).toBeFocused();
+  await signOut(page);
   await expect(
     page.getByRole('button', { name: 'Sign in', exact: true }),
   ).toBeVisible();
@@ -288,4 +295,39 @@ test('sign-out clears private cached data and Help is available by keyboard', as
   await context.setOffline(true);
   await page.reload();
   await expect(page.getByRole('region', { name: 'Tasks' })).toHaveCount(0);
+});
+
+test('views not yet opened load offline at their own URLs after one online visit', async ({
+  page,
+  context,
+}) => {
+  await warm(page);
+  // Views are prefetched after sign-in; wait until the service worker has them.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async () =>
+          (
+            await Promise.all(
+              (await caches.keys()).map(async (name) =>
+                (await caches.open(name)).keys(),
+              ),
+            )
+          )
+            .flat()
+            .filter((request) => /(Settings|Connections)View/.test(request.url))
+            .length,
+      ),
+    )
+    .toBe(2);
+  await context.setOffline(true);
+  await page.goto('/settings/appearance');
+  await expect(
+    page.getByRole('checkbox', { name: 'Use e-ink mode' }),
+  ).toBeVisible();
+  await page.goto('/settings/connections');
+  await expect(
+    page.getByRole('heading', { name: 'Your accounts' }),
+  ).toBeVisible();
+  await context.setOffline(false);
 });

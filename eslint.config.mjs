@@ -20,7 +20,7 @@ export default tseslint.config(
     languageOptions: { globals: globals.browser },
   },
   {
-    files: ['apps/web/public/sw.js'],
+    files: ['apps/web/src/sw.js'],
     languageOptions: { globals: globals.serviceworker },
   },
 );

@@ -29,7 +29,7 @@ export function PlannerBoard() {
     </div>
   );
 }
-function PlannerPanel({ kind }: { kind: Kind }) {
+export function PlannerPanel({ kind }: { kind: Kind }) {
   const [items, setItems] = useState<Item[]>([]);
   const [editing, setEditing] = useState<Item | null>(null);
   const [error, setError] = useState('');

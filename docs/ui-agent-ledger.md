@@ -124,3 +124,36 @@ The server now has reservation, uncertain, settled, and released accounting stat
 `npm run check` passed lint, strict types, formatting, production builds and 102 API/client tests; one standard PostgreSQL test was skipped because the isolated test URL is unset. `npm run test:e2e` passed all 32 browser tests, including lost-response/conflict recovery and the settings-change/load race. Two compiled API smoke checks applied all 18 migrations to isolated in-memory databases and exercised planner/Canvas/routing/export plus preflight/accounting with zero provider calls. The owner database was not used or reset.
 
 The web build remains about 603 kB minified with a size advisory. No new dependency or hardware verification was added. Standard PostgreSQL concurrency, remote CI, live provider health/pricing/dispatch and actual Kompakt behavior remain unverified. Later UI work should preserve these assertions and repeat the UI/authentication suite after its changes.
+
+### 2026-10-10 — UI guidelines and rewrite plan (adopted)
+
+Added [ui-guidelines.md](ui-guidelines.md) and [frontend-plan.md](frontend-plan.md). Owner decisions are recorded in plan §6 and D46; Phase 0 starts on branch `ui/phase-0`. Audit findings recorded in the plan: no URL routing (reload/Back lose the view), always-open editors, a full sync panel on every screen, 600 kB single bundle, and a service worker that caches only fetched files keyed by URL. Lazy-loaded routes must not ship before navigation fallback and asset precaching exist, or offline navigation breaks. Platform floor for the rewrite is Chromium 113 (verified emulator WebView) until Kompakt is measured.
+
+### 2026-10-10 — Phase 0 foundations (branch `ui/phase-0`)
+
+Implemented; see [frontend-plan.md](frontend-plan.md) Phase 0.
+
+- **URLs.** Views live at `/today`, `/calendar`, `/classes`, `/reminders`, `/connections` and `/preferences` (renamed in Phase 1). `/` and unknown paths become `/today` without a history entry. Reload, Back/Forward and bookmarks restore the view; focus moves to the view `<h1>` after navigation and `document.title` follows. `lib/router.ts` re-reads the address bar when it subscribes, because a Back pressed before the listener attached was otherwise lost (found by e2e). Static hosts must serve `index.html` for unknown non-asset paths.
+- **Offline shell.** The build writes a versioned precache list into `sw.js` (now `src/sw.js`, served by a Vite plugin in development). Install caches every built asset, so views outside Today, which load lazily and are prefetched after sign-in, work offline after one online load. All navigations share the cached app shell. Lookups ignore `Vary` because servers answer module requests with `Vary: Origin`. Fonts are cached. Native Android still does not register the service worker.
+- **Bundle.** Initial chunk 525 kB (was 604 kB), dominated by react-dom, Zod and the Temporal polyfill via the contracts barrel. Reaching ≤ 250 kB needs a contracts entry-point split (Phase 8).
+- **Styles.** Tokens/base/legacy layers; self-hosted Atkinson Hyperlegible Next (~53 kB woff2, Latin and Latin-extended); no text below 13 px; control borders ≥ 3:1. E-ink targets are 48 px and disabled controls use dashed borders instead of opacity.
+- **Data hooks.** `useResource` (abort, stale-response guard, optional polling) and `useMutation` (per-action operation identity, conflict flag, per-action pending) in `lib/hooks.ts`. Reminders uses them with unchanged markup; mark-read now reuses its operation ID on retry. Other screens still use their own copies until replaced.
+- **Offline status.** `offlineStatus()` adds `queued` task IDs and `locked`; not yet shown in the UI.
+- **Checks.** `tests/e2e/accessibility.spec.ts` runs axe (WCAG 2.0–2.2 A/AA tags), overflow and target-size checks on every view for standard 1280 px and e-ink 320 px. These automated checks do not replace keyboard or screen-reader passes.
+- **Known issue for Phase 1.** `AuthGate` shows the sign-in form while the session check is pending, so every load briefly shows Sign in.
+- **Verification.** `npm run check` passed (110 tests; 1 PostgreSQL test skipped); `npm run test:e2e` passed 37 browser tests. Synthetic databases only.
+
+### 2026-10-10 — Phase 1 shell (branch `ui/phase-0`)
+
+Implemented; see [frontend-plan.md](frontend-plan.md) Phase 1.
+
+- **Navigation and URLs.** `/today`, `/calendar`, `/tasks`, `/classes`, `/inbox`, `/settings/{account,appearance,connections,ai}`. `/preferences`, `/connections` and `/reminders` redirect. Wide screens (≥ 1024 px) use a left rail; narrower screens use a fixed bottom bar with More (Inbox, Settings, E-ink mode). Items are links with `aria-current`. Inbox shows the unread notification count as text (refreshed on navigation). `/tasks` temporarily shows the existing task panel; Today is unchanged until Phase 2.
+- **Header.** View `<h1>` (focused after navigation, not on first load), the date on Today, and the task sync summary `<Connectivity> · <Queue>` with role `status`: Online/Offline/Server unavailable · All saved / N queued / Conflict · N / Locked · N queued. "Sync" toggles the details region "Task sync" (Sync now, cached time, Help) below the header, in the page flow. Escape closes it and returns focus to the toggle.
+- **Banners.** "The hub server is unavailable." with Retry connection, and the "Task conflicts" alert banner listing conflicts with their local drafts. Discard now uses an in-page `<dialog>` that focuses Cancel; queued drafts remain until confirmed.
+- **Help.** A "Help" button (`Help: <topic>`, `aria-expanded`) reveals text in a polite live region. Escape and outside clicks close it. Escape is handled by the innermost disclosure only.
+- **Settings.** Account (password, sessions, export, Sign out with signed-in email), Appearance (e-ink), Connections (Canvas feed/API/matching and planned accounts), AI (permissions, limits, request checks). Sign-out still refuses while task changes are queued.
+- **Startup.** "Checking sign-in…" replaces the sign-in flash; the stored e-ink theme applies before first paint, including the sign-in screen.
+- **Tests.** `tests/e2e/shell.ts` helpers (`open`, `openSettings`, `toggleEink`, `syncState`, `syncNow`, `signOut`) navigate through More at narrow widths. The accessibility suite covers every route and Settings section, checks e-ink computed styles (black/white fills only, no shadows or transitions) and that keyboard focus is never fully hidden behind the bottom bar.
+- **Known limits.** The More panel overlays the content above the bar while open (closes on Escape, outside tap or navigation). Legacy panels inside screens keep their old structure until their phase. Kompakt hardware, Android Back with History routing, and TalkBack remain unverified.
+- **Verification.** `npm run check` passed (112 tests; 1 PostgreSQL test skipped); `npm run test:e2e` passed 39 browser tests. Synthetic databases only.
+

@@ -44,6 +44,7 @@ AI permissions include provider-routing rules based only on sources/content expl
 14. [Canvas reconciliation](docs/canvas-reconciliation.md): confirmed source associations, label provenance and linked planner work.
 15. [AI gateway foundation](docs/ai-gateway.md): server profiles, spending limits, bounded preflight and metadata history; execution disabled.
 16. [UI agent ledger](docs/ui-agent-ledger.md): behavior and state requirements for the later UI rewrite.
+17. [UI/UX guidelines](docs/ui-guidelines.md) and [frontend plan](docs/frontend-plan.md): adopted design rules and the phased UI rewrite; implementation in progress.
 
 ## Working direction
 

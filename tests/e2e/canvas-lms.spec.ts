@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { open, openSettings } from './shell';
 import { authenticate } from './auth';
 test('Canvas API views preserve note conflicts and show linked assignments offline on a narrow screen', async ({
   page,
@@ -110,7 +111,7 @@ test('Canvas API views preserve note conflicts and show linked assignments offli
     return route.fulfill({ json: { ok: true } });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Connections', exact: true }).click();
+  await openSettings(page, 'Connections');
   await page.setViewportSize({ width: 320, height: 900 });
   const connection = page.getByRole('region', {
     name: 'Canvas API connection',
@@ -290,7 +291,7 @@ test('Canvas API views preserve note conflicts and show linked assignments offli
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
-  await page.getByRole('button', { name: 'Classes', exact: true }).click();
+  await open(page, 'Classes');
   await page.getByRole('button', { name: local.name, exact: true }).click();
   const portfolio = page.getByRole('region', {
     name: 'Class Canvas assignments',

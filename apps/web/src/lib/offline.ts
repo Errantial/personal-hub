@@ -319,6 +319,10 @@ export async function offlineStatus() {
   return state(false, (value) => ({
     unavailable,
     pending: value.jobs.length,
+    /** Task IDs with queued, unacknowledged changes (for inline row state). */
+    queued: [...new Set(value.jobs.map((job) => job.task.id))],
+    /** Queued changes wait for the same owner to sign in again. */
+    locked: value.locked && value.jobs.length > 0,
     lastSaved: value.cache['/api/v1/tasks']?.savedAt ?? null,
     conflicts: value.jobs
       .filter((job) => job.error)

@@ -148,6 +148,6 @@ npm run start:api
 npm run preview --workspace @hub/web
 ```
 
-Vite preview is `http://127.0.0.1:4173` and proxies `/api`; it is for local build inspection. Built API loads root `.env` and resolves migrations alongside `apps/api/migrations`. A deployment must include that directory, compiled apps, shared contracts and runtime dependencies.
+Vite preview is `http://127.0.0.1:4173` and proxies `/api`; it is for local build inspection. Views have their own paths (`/today`, `/calendar`, …): a static host must serve `index.html` for unknown non-asset paths and serve `/sw.js` with `Cache-Control: no-cache`. The build writes a precache list and version into `sw.js`, so every built asset, including lazily loaded views, is available offline after the first online load. Built API loads root `.env` and resolves migrations alongside `apps/api/migrations`. A deployment must include that directory, compiled apps, shared contracts and runtime dependencies.
 
 Production requires NODE_ENV=production, a standard PostgreSQL DATABASE_URL, HTTPS WEB_ORIGINS, a trusted HTTPS reverse proxy/static host routing `/api` to Fastify, and a setup token for first enrollment. Keep API/DB ports private. Authentication and planner export are implemented; deployment, password recovery, backup restoration, permanent deletion, and actual Oracle-host/PostgreSQL verification remain release work. Never imply this local scaffold is already deployed.

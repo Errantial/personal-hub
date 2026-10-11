@@ -90,10 +90,18 @@ export function AuthGate({
         {children(session.user, signOut)}
       </>
     );
+  // Avoid flashing the sign-in form (an extra e-ink refresh) while the stored
+  // or online session is still being checked.
+  if (!session && !error)
+    return (
+      <main className="auth-page" aria-busy="true">
+        <p role="status">Checking sign-in…</p>
+      </main>
+    );
   return (
     <main className="auth-page">
       <section className="panel auth-panel">
-        <span className="small-label">PERSONAL HUB</span>
+        <p className="auth-product">Personal Hub</p>
         <h1>{session?.setupRequired ? 'Create owner account' : 'Sign in'}</h1>
         {error && (
           <p role="alert" className="form-error">

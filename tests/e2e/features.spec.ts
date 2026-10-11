@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { open, toggleEink } from './shell';
 import { authenticate } from './auth';
 test.beforeEach(async ({ page }) => {
   await authenticate(page);
@@ -20,7 +21,7 @@ test('calendar navigation preserves a stale draft until explicit reload', async 
   expect(response.status()).toBe(200);
   const item = (await response.json()).event as { id: string; version: number };
   await page.goto('/');
-  await page.getByRole('button', { name: 'Calendar', exact: true }).click();
+  await open(page, 'Calendar');
   const view = page.getByRole('region', { name: 'Calendar workspace' });
   await view.getByLabel('Calendar date', { exact: true }).fill('2027-03-08');
   const card = view.locator('article').filter({ hasText: original.title });
@@ -73,7 +74,7 @@ test('calendar shows day/week navigation and edits an all-day recurring occurren
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
-  await page.getByRole('button', { name: 'Calendar', exact: true }).click();
+  await open(page, 'Calendar');
   const view = page.getByRole('region', { name: 'Calendar workspace' });
   await view.getByLabel('Calendar date', { exact: true }).fill('2027-03-08');
   await view
@@ -115,7 +116,7 @@ test('calendar shows day/week navigation and edits an all-day recurring occurren
     view.getByRole('region', { name: 'Agenda 2027-03-09', exact: true }),
   ).toBeVisible();
   await page.reload();
-  await page.getByRole('button', { name: 'Calendar', exact: true }).click();
+  await open(page, 'Calendar');
   await view.getByLabel('Calendar date', { exact: true }).fill('2027-03-08');
   await expect(
     view.getByText('Edited one occurrence', { exact: true }),
@@ -126,7 +127,7 @@ test('a class portfolio stores progress and schedules a linked study block', asy
   page,
 }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Classes', exact: true }).click();
+  await open(page, 'Classes');
   const portfolio = page.getByRole('region', { name: 'Class portfolios' });
   await portfolio.getByLabel('Class name').fill('Browser chemistry');
   await portfolio.getByLabel('Term', { exact: true }).fill('Spring 2027');
@@ -167,7 +168,7 @@ test('a class portfolio stores progress and schedules a linked study block', asy
     calendar.getByText('Study · Browser chemistry · planned'),
   ).toBeVisible();
   await page.reload();
-  await page.getByRole('button', { name: 'Classes', exact: true }).click();
+  await open(page, 'Classes');
   await portfolio
     .getByRole('button', { name: 'Browser chemistry', exact: true })
     .click();
@@ -179,7 +180,7 @@ test('server reminders deliver to the inbox after navigating away and support pa
   page,
 }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Reminders', exact: true }).click();
+  await open(page, 'Inbox');
   const view = page.getByRole('region', { name: 'Reminders workspace' });
   await expect(view.getByRole('status')).toHaveText(
     'Reminder worker is running.',
@@ -187,7 +188,7 @@ test('server reminders deliver to the inbox after navigating away and support pa
   await view.getByLabel('Reminder title').fill('Browser durable reminder');
   await view.getByLabel('Remind at', { exact: true }).fill('2020-01-01T10:00');
   await view.getByRole('button', { name: 'Add reminder', exact: true }).click();
-  await page.getByRole('button', { name: 'Today', exact: true }).click();
+  await open(page, 'Today');
   await expect
     .poll(
       async () => {
@@ -202,7 +203,7 @@ test('server reminders deliver to the inbox after navigating away and support pa
       { timeout: 15000 },
     )
     .toBe(true);
-  await page.getByRole('button', { name: 'Reminders', exact: true }).click();
+  await open(page, 'Inbox');
   const inbox = view.getByRole('region', { name: 'Reminder inbox' });
   await expect(
     inbox.getByText('Browser durable reminder', { exact: true }),
@@ -235,9 +236,9 @@ test('new screens fit monochrome on a narrow viewport and explain denied alert p
   });
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto('/');
-  await page.getByRole('button', { name: /E-ink mode/ }).click();
-  for (const name of ['Calendar', 'Classes', 'Reminders']) {
-    await page.getByRole('button', { name, exact: true }).click();
+  await toggleEink(page);
+  for (const name of ['Calendar', 'Classes', 'Inbox'] as const) {
+    await open(page, name);
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'eink');
     expect(
       await page.evaluate(
@@ -248,4 +249,46 @@ test('new screens fit monochrome on a narrow viewport and explain denied alert p
   await expect(
     page.getByText(/Change this site’s notification setting/),
   ).toBeVisible();
+});
+
+test('a reminder whose save response is lost retries with the same operation and saves once', async ({
+  page,
+}) => {
+  await page.goto('/reminders');
+  const view = page.getByRole('region', { name: 'Reminders workspace' });
+  await view.getByLabel('Reminder title').fill('Lost response reminder');
+  await view.getByLabel('Remind at', { exact: true }).fill('2036-01-01T10:00');
+  const operations: string[] = [];
+  let interrupted = false;
+  await page.route('**/api/v1/reminders', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    operations.push(
+      (route.request().postDataJSON() as { operationId: string }).operationId,
+    );
+    if (!interrupted) {
+      interrupted = true;
+      const response = await route.fetch();
+      expect(response.ok()).toBe(true);
+      return route.abort();
+    }
+    return route.continue();
+  });
+  const add = view.getByRole('button', { name: 'Add reminder', exact: true });
+  await add.click();
+  await expect(view.getByRole('alert')).toBeVisible();
+  // The form keeps the draft; an unchanged retry reuses the operation ID.
+  await expect(view.getByLabel('Reminder title')).toHaveValue(
+    'Lost response reminder',
+  );
+  await add.click();
+  await expect(
+    view.locator('li').filter({ hasText: 'Lost response reminder' }),
+  ).toHaveCount(1);
+  expect(operations).toHaveLength(2);
+  expect(operations[1]).toBe(operations[0]);
+  const response = await page.request.get('/api/v1/reminders');
+  const data = (await response.json()) as { reminders: { title: string }[] };
+  expect(
+    data.reminders.filter((item) => item.title === 'Lost response reminder'),
+  ).toHaveLength(1);
 });

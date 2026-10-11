@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
+import { openSettings } from './shell';
 import { plannerExportSchema } from '@hub/contracts';
 import { authenticate } from './auth';
 
@@ -22,9 +23,7 @@ test('Preferences changes password, rotates sign-ins, and retains planner access
   let changed = false;
   try {
     await page.goto('/');
-    await page
-      .getByRole('button', { name: 'Preferences', exact: true })
-      .click();
+    await openSettings(page, 'Account');
     await page.getByLabel('Current password', { exact: true }).fill(original);
     await page.getByLabel('New password', { exact: true }).fill(replacement);
     await page
@@ -50,7 +49,9 @@ test('Preferences changes password, rotates sign-ins, and retains planner access
     expect((await page.request.get('/api/v1/tasks')).status()).toBe(200);
     await page.reload();
     await expect(
-      page.getByRole('button', { name: 'Preferences', exact: true }),
+      page
+        .getByRole('navigation', { name: 'Main navigation' })
+        .getByRole('link', { name: /^Settings/ }),
     ).toBeVisible();
   } finally {
     if (changed) {
@@ -87,9 +88,7 @@ test('Preferences revokes another session and downloads a planner export on a na
     ).toBe(200);
     await page.setViewportSize({ width: 320, height: 900 });
     await page.goto('/');
-    await page
-      .getByRole('button', { name: 'Preferences', exact: true })
-      .click();
+    await openSettings(page, 'Account');
     await page
       .getByRole('button', { name: 'Revoke', exact: true })
       .first()
