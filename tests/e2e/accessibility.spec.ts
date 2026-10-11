@@ -77,6 +77,38 @@ for (const { theme, width, target } of configurations) {
         target,
       );
       expect(undersized, `${view} controls below ${target}px`).toEqual([]);
+      if (theme === 'eink') {
+        // E-ink: only black/white fills, no shadows or transitions.
+        const violations = await page.evaluate(() =>
+          [...document.querySelectorAll<HTMLElement>('body *')]
+            .filter((element) => element.offsetParent !== null)
+            .flatMap((element) => {
+              const style = getComputedStyle(element);
+              const issues: string[] = [];
+              const fill = style.backgroundColor;
+              if (
+                ![
+                  'rgba(0, 0, 0, 0)',
+                  'rgb(255, 255, 255)',
+                  'rgb(0, 0, 0)',
+                ].includes(fill)
+              )
+                issues.push(`fill ${fill}`);
+              if (style.boxShadow !== 'none') issues.push('shadow');
+              if (
+                style.transitionDuration
+                  .split(',')
+                  .some((value) => parseFloat(value) > 0)
+              )
+                issues.push('transition');
+              return issues.map(
+                (issue) =>
+                  `${element.tagName.toLowerCase()}.${element.className} ${issue}`,
+              );
+            }),
+        );
+        expect(violations, `${view} e-ink styling`).toEqual([]);
+      }
     }
   });
 }

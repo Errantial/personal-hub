@@ -32,6 +32,11 @@ summary {
 button {
   cursor: pointer;
   min-height: var(--target);
+  /* Unstyled buttons follow the tokens instead of the browser's gray fill. */
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
 }
 /* Every control meets the touch target (docs/ui-guidelines.md §4).
    Checkboxes and radios get their target from the wrapping label. */
