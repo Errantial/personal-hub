@@ -294,10 +294,11 @@ Verification: `npm run check` passed with 123 API/client tests and one optional 
 | Area | Starting points | Behaviors to preserve |
 | --- | --- | --- |
 | App/navigation | `apps/web/src/App.tsx` | Owner authorization gates private views; preferences include e-ink mode. |
+| Appearance | `AppearanceSettings.tsx`, `lib/appearance.ts`, `styles/tokens.css` | Device-local theme, contrast-checked colors, named profiles, e-ink overrides. |
 | Authentication/account | `AuthGate.tsx`, `AccountSettings.tsx` | Enrollment, sign-in, password reauthentication, session rotation/revocation, planner export. |
 | Tasks/sync | `TasksView.tsx`, `DeletedItems.tsx`, `QuickCapture.tsx`, `SyncStatus.tsx`, `lib/tasks.ts`, `lib/offline.ts` | Durable task outbox, stable IDs, version conflicts, same-owner recovery. |
 | Calendar | `CalendarView.tsx`, `CalendarEditor.tsx`, `DeletedItems.tsx`, `TimeZoneInput.tsx`, `lib/calendar.ts`, shared `occurrences.ts` | Timezones, date-only events, recurring series/occurrences, separate study blocks and imported deadlines. |
-| Classes | `AcademicWorkspace.tsx`, `ClassCanvasEntries.tsx`, `ClassCanvasAssignments.tsx` | Manual class/topic assessments, explicit Canvas links, cached loaded portfolios. |
+| Classes | `ClassesView.tsx`, `ClassForms.tsx`, `lib/classes.ts`, `ClassCanvasEntries.tsx`, `ClassCanvasAssignments.tsx` | Manual class/topic assessments, explicit Canvas links, cached loaded portfolios. |
 | Reminders | `ReminderWorkspace.tsx` | Durable server inbox/worker state and explicit optional browser permission. |
 | Canvas | `CanvasConnection.tsx`, `CanvasLmsConnection.tsx`, `CanvasReconciliation.tsx` | Independent feed/API facts, explicit reconciliation, retained note/conflict drafts. |
 | Source planning | `CanvasPlanning.tsx`, `CanvasAssignmentPlanning.tsx`, `CanvasPlannerWork.tsx`, `PlannerSource.tsx` | Captured/current provenance, versioned explicit creation, grouped task/study visibility. |
@@ -398,6 +399,16 @@ Validation: full check passed with 132 API/client tests and one optional Postgre
 - States: blocked can be cancelled or hidden; cancelled/completed/failed can be hidden; uncertain cannot be cancelled, hidden or resent. Uncertain retains the full hold through timeout/restart. Failed with confirmed usage can still have a charge; an overrun remains visible. All attempts currently have `adapter: 'synthetic'`; label them as synthetic, never as real AI work.
 - Hiding is a retained tombstone, not permanent deletion. Historical operation receipts can precede later changes/hiding; refresh current state after retries. Preflight history and request history are independently hidden. Planner export includes `records.aiRequests` with safe attempts and tombstones; older files default it to an empty array.
 - No provider output, prompt/source text, private digest or input manifest is returned/exported. There are no live dispatch controls, AI actions, automatic retries, usage-confirmation controls, conversation/memory or email approval flows in this slice. Preserve visible blockers and uncertain funds when those features arrive.
+
+### 2026-10-12 — Frontend Phases 2b and 5: Appearance profiles and Classes
+
+- Appearance (Settings › Appearance, device-local): `localStorage` keys `hub:eink` (mode), `hub:appearance` (colors, text size, density, shape), `hub:appearance-profiles` (≤ 20, names ≤ 40 chars) and `hub:appearance-profile` (active). Applied before first paint in `main.tsx`. Four user colors (accent, background, surface, text) derive the other tokens; a set below 4.5:1 text or 3:1 border/accent contrast is rejected with the measured ratio and the previous theme stays. E-ink forces monochrome and square corners and hides color editing. Targets never fall below 44 px (48 px e-ink). Built-in profiles (Standard, E-ink) cannot be edited or deleted. Loading, replacing and deleting a profile ask for confirmation. Invalid stored data falls back to defaults. Nothing is synced or sent to the server; there is no export.
+- Classes routes: `/classes`, `/classes/new`, `/classes/:id` with `?section=study|canvas|details` (Topics is the default and omitted). Unknown id → "This class is not available." with Back. Below 1024 px the detail replaces the list.
+- Topics: progress (0–100) and confidence are the owner's own assessments. "Not assessed" shows until either is set; the progress bar appears only when assessed; the list average counts assessed topics only. Plan study / Plan class study hand `{courseId, topicId, title}` to the Calendar editor (not persisted). Delete asks for confirmation; the class delete also removes its topics, while study blocks and Canvas links stay.
+- Drafts: class and topic forms keep the `expectedVersion` they started from; a version conflict or newer version shows "Changed elsewhere", keeps the edits, disables Save and requires **Load latest version**. Writes are online-only and idempotent; reads are cached for offline viewing.
+- Study blocks: calendar events with the class's `courseId`, split Upcoming (recurring counts here) and Earlier; they link to the Calendar editor. Completing one does not change topic progress.
+- Tests: `apps/web/tests/appearance.test.ts`, `classes.test.ts`, router test; `tests/e2e/appearance.spec.ts`, `classes.spec.ts` (addresses, keyboard-only add/assess/delete, conflict draft, study blocks, axe/overflow/targets at 1280 px and 320 px e-ink); class helpers `classesRegion`/`openClass` in `shell.ts`; features/canvas/canvas-lms scenarios ported.
+- Known limits: no manual academic Work section (grades, status, workload source history) yet; no archived classes (not in the contract); appearance is per device and not synced; Kompakt rendering of custom colors is unverified.
 
 ### 2026-10-12 — Frontend Phase 4: Calendar
 

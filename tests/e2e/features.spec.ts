@@ -4,7 +4,9 @@ import {
   calendarRegion,
   eventEditor,
   newEvent,
+  classesRegion,
   open,
+  openClass,
   showCalendar,
   toggleEink,
 } from './shell';
@@ -224,17 +226,18 @@ test('a class portfolio stores progress and schedules a linked study block', asy
 }) => {
   await page.goto('/');
   await open(page, 'Classes');
-  const portfolio = page.getByRole('region', { name: 'Class portfolios' });
-  await portfolio.getByLabel('Class name').fill('Browser chemistry');
-  await portfolio.getByLabel('Term', { exact: true }).fill('Spring 2027');
-  await portfolio.getByLabel('Class content label').selectOption('personal');
-  await portfolio
-    .getByRole('button', { name: 'Add class', exact: true })
+  await classesRegion(page)
+    .getByRole('link', { name: 'Add class', exact: true })
     .click();
-  await portfolio
-    .getByRole('button', { name: 'Browser chemistry', exact: true })
-    .click();
-  const topics = portfolio.getByRole('region', { name: 'Class topics' });
+  const form = classesRegion(page).locator('form');
+  await form.getByLabel('Class name').fill('Browser chemistry');
+  await form.getByLabel('Term', { exact: true }).fill('Spring 2027');
+  await form.getByLabel('Class content label').selectOption('personal');
+  await form.getByRole('button', { name: 'Add class', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { level: 2, name: 'Browser chemistry' }),
+  ).toBeVisible();
+  const topics = classesRegion(page).getByRole('region', { name: 'Topics' });
   await topics.getByLabel('Topic name').fill('Atomic structure');
   await topics.getByLabel('Progress (%)').fill('40');
   await topics
@@ -245,7 +248,7 @@ test('a class portfolio stores progress and schedules a linked study block', asy
     topics.getByText('40% complete · confidence: low'),
   ).toBeVisible();
   await topics
-    .getByRole('button', { name: 'Schedule study', exact: true })
+    .getByRole('button', { name: 'Plan study for Atomic structure' })
     .click();
   const editor = eventEditor(page);
   await expect(
@@ -269,9 +272,7 @@ test('a class portfolio stores progress and schedules a linked study block', asy
   ).toBeVisible();
   await page.reload();
   await open(page, 'Classes');
-  await portfolio
-    .getByRole('button', { name: 'Browser chemistry', exact: true })
-    .click();
+  await openClass(page, 'Browser chemistry');
   await expect(
     topics.getByText('40% complete · confidence: low'),
   ).toBeVisible();

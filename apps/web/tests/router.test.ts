@@ -100,6 +100,30 @@ it('addresses a task and its list filter', () => {
   });
 });
 
+it('addresses a class, its section and the add-class form', () => {
+  const id = '3f2b8c1e-5a4d-4e6f-9a0b-1c2d3e4f5a6b';
+  expect(routePath({ name: 'classes', id })).toBe(`/classes/${id}`);
+  expect(routePath({ name: 'classes', id, section: 'study' })).toBe(
+    `/classes/${id}?section=study`,
+  );
+  expect(parseRoute(`/classes/${id}`, '?section=canvas')).toEqual({
+    name: 'classes',
+    id,
+    section: 'canvas',
+  });
+  expect(parseRoute('/classes/new', '')).toEqual({
+    name: 'classes',
+    id: 'new',
+  });
+  // The default section has no query; unknown ids and sections are ignored.
+  expect(routePath({ name: 'classes', id, section: 'topics' })).toBe(
+    `/classes/${id}`,
+  );
+  expect(parseRoute('/classes/nope', '?section=nope')).toEqual({
+    name: 'classes',
+  });
+});
+
 it('addresses the calendar editor and keeps the visible window', () => {
   const id = '3f2b8c1e-5a47-4d0e-9b3a-1c2d3e4f5a6b';
   const cases = [

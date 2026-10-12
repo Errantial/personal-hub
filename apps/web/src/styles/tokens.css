@@ -12,7 +12,7 @@
   --space-7: 3rem;
 
   /* Sizing */
-  --target: 2.75rem; /* 44 px minimum touch target */
+  --target: max(2.75rem, 44px); /* never below 44 px, even at small text */
   --radius-control: 6px;
   --radius-surface: 8px;
   --border-width: 1px;
@@ -52,7 +52,7 @@
 
 /* E-ink: pure black and white, square-ish corners, larger targets. */
 :root[data-theme='eink'] {
-  --target: 3rem;
+  --target: max(3rem, 48px);
   --radius-control: 2px;
   --radius-surface: 2px;
   --bg: #fff;
@@ -76,4 +76,43 @@
     --border: var(--text);
     --border-subtle: var(--text);
   }
+}
+
+/* Appearance settings (lib/appearance.ts). Density and shape change spacing
+   and corners only; --target keeps the touch-target floor. E-ink ignores
+   shape. */
+:root[data-text-size='small'] {
+  font-size: 93.75%;
+}
+:root[data-text-size='large'] {
+  font-size: 112.5%;
+}
+:root[data-text-size='larger'] {
+  font-size: 125%;
+}
+:root[data-density='compact'] {
+  --space-1: 0.1875rem;
+  --space-2: 0.375rem;
+  --space-3: 0.5625rem;
+  --space-4: 0.75rem;
+  --space-5: 1.125rem;
+  --space-6: 1.5rem;
+  --space-7: 2.25rem;
+}
+:root[data-density='spacious'] {
+  --space-1: 0.3125rem;
+  --space-2: 0.625rem;
+  --space-3: 0.9375rem;
+  --space-4: 1.25rem;
+  --space-5: 1.875rem;
+  --space-6: 2.5rem;
+  --space-7: 3.75rem;
+}
+:root[data-shape='square'] {
+  --radius-control: 0;
+  --radius-surface: 0;
+}
+:root[data-shape='round'] {
+  --radius-control: 12px;
+  --radius-surface: 16px;
 }

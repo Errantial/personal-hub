@@ -1,0 +1,115 @@
+.classes-view {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.classes-layout {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.classes-list-pane,
+.class-detail {
+  min-width: 0;
+  padding: var(--space-4);
+}
+.classes-add,
+.class-detail__back,
+.class-sections a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target);
+  padding: 0 var(--space-3);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+}
+.classes-add {
+  margin: var(--space-2) 0;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: var(--weight-strong);
+}
+.class-detail__back {
+  border: 0;
+  padding-left: 0;
+}
+.class-sections {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+  padding: 0;
+  list-style: none;
+}
+.class-sections a[aria-current='page'] {
+  background: var(--selected-bg);
+  color: var(--selected-text);
+  border-color: var(--accent);
+  font-weight: var(--weight-strong);
+  text-decoration: underline;
+}
+.class-list,
+.topic-list,
+.study-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.class-list > li,
+.topic-list > li,
+.study-list > li {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.class-list__title,
+.study-list__title {
+  display: flex;
+  align-items: center;
+  min-height: var(--target);
+  font-weight: var(--weight-strong);
+}
+.class-list__meta,
+.study-list__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.topic-list__body {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+}
+.topic-list__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.classes-view h4 {
+  margin: var(--space-4) 0 var(--space-1);
+}
+/* Narrow screens show the class alone, with a Back link; wide screens keep
+   the list beside it. */
+.classes-layout--detail .classes-list-pane {
+  display: none;
+}
+@media (min-width: 64rem) {
+  .classes-layout--detail {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    align-items: start;
+  }
+  .classes-layout--detail .classes-list-pane {
+    display: block;
+  }
+  .class-detail__back {
+    display: none;
+  }
+}

@@ -37,6 +37,27 @@ export async function openSettings(page: Page, section: Section) {
     .click();
 }
 
+/* Classes screen helpers. */
+export const classesRegion = (page: Page) =>
+  page.getByRole('region', { name: 'Classes', exact: true });
+
+/** Opens a class from the list, optionally on one of its sections. */
+export async function openClass(
+  page: Page,
+  name: string,
+  section?: 'Topics' | 'Study blocks' | 'Canvas' | 'Details',
+) {
+  await classesRegion(page).getByRole('link', { name, exact: true }).click();
+  await expect(
+    page.getByRole('heading', { level: 2, name, exact: true }),
+  ).toBeVisible();
+  if (section)
+    await page
+      .getByRole('navigation', { name: 'Class sections' })
+      .getByRole('link', { name: section, exact: true })
+      .click();
+}
+
 /* Tasks screen helpers. */
 export const tasksRegion = (page: Page) =>
   page.getByRole('region', { name: 'Tasks', exact: true });

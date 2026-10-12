@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { open, openSettings } from './shell';
+import { open, openClass, openSettings } from './shell';
 import { authenticate } from './auth';
 test('Canvas API views preserve note conflicts and show linked assignments offline on a narrow screen', async ({
   page,
@@ -292,7 +292,7 @@ test('Canvas API views preserve note conflicts and show linked assignments offli
     ),
   ).toBe(true);
   await open(page, 'Classes');
-  await page.getByRole('button', { name: local.name, exact: true }).click();
+  await openClass(page, local.name, 'Canvas');
   const portfolio = page.getByRole('region', {
     name: 'Class Canvas assignments',
     exact: true,

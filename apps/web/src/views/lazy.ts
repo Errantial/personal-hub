@@ -7,7 +7,7 @@ const loaders = {
   today: () => import('../components/TodayView'),
   tasks: () => import('../components/TasksView'),
   calendar: () => import('../components/CalendarView'),
-  classes: () => import('../components/AcademicWorkspace'),
+  classes: () => import('../components/ClassesView'),
   inbox: () => import('../components/ReminderWorkspace'),
   settings: () => import('./SettingsView'),
 };
@@ -23,8 +23,8 @@ export const TasksView = lazy(() =>
 export const CalendarView = lazy(() =>
   loaders.calendar().then((module) => ({ default: module.CalendarView })),
 );
-export const AcademicWorkspace = lazy(() =>
-  loaders.classes().then((module) => ({ default: module.AcademicWorkspace })),
+export const ClassesView = lazy(() =>
+  loaders.classes().then((module) => ({ default: module.ClassesView })),
 );
 export const ReminderWorkspace = lazy(() =>
   loaders.inbox().then((module) => ({ default: module.ReminderWorkspace })),

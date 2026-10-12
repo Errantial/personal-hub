@@ -8,6 +8,11 @@ import {
 } from 'react';
 import { notificationsSchema } from '@hub/contracts';
 import type { User } from '@hub/contracts';
+import {
+  applyAppearance,
+  readAppearance,
+  writeAppearance,
+} from './lib/appearance';
 import { getJson, loadWorkspace } from './lib/api';
 import { useResource } from './lib/hooks';
 import { routePath, useRoute, viewLabels } from './lib/router';
@@ -26,7 +31,7 @@ import {
 import type { StudyDraft } from './lib/calendar';
 import type { WorkspaceState } from './views/ConnectionsView';
 import {
-  AcademicWorkspace,
+  ClassesView,
   CalendarView,
   ReminderWorkspace,
   SettingsView,
@@ -47,14 +52,6 @@ const secondary: { id: View; icon: IconName }[] = [
   { id: 'inbox', icon: 'inbox' },
   { id: 'settings', icon: 'settings' },
 ];
-
-function readEinkPreference() {
-  try {
-    return localStorage.getItem('hub:eink') === 'true';
-  } catch {
-    return false;
-  }
-}
 
 export function App() {
   return (
@@ -77,7 +74,13 @@ function Workspace({
   const shownPath = useRef(routePath(route));
   const [studyDraft, setStudyDraft] = useState<StudyDraft | null>(null);
   const clearStudyDraft = useCallback(() => setStudyDraft(null), []);
-  const [eink, setEink] = useState(readEinkPreference);
+  const [appearance, setAppearance] = useState(readAppearance);
+  const eink = appearance.eink;
+  const setEink = useCallback(
+    (value: boolean) =>
+      setAppearance((current) => ({ ...current, eink: value })),
+    [],
+  );
   const [workspace, setWorkspace] = useState<WorkspaceState>({
     status: 'loading',
   });
@@ -120,13 +123,9 @@ function Workspace({
   }, [attempt]);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = eink ? 'eink' : 'standard';
-    try {
-      localStorage.setItem('hub:eink', String(eink));
-    } catch {
-      /* Appearance still works without storage. */
-    }
-  }, [eink]);
+    applyAppearance(appearance);
+    writeAppearance(appearance);
+  }, [appearance]);
 
   const today = new Intl.DateTimeFormat(undefined, {
     weekday: 'long',
@@ -191,8 +190,10 @@ function Workspace({
                 onStudyUsed={clearStudyDraft}
               />
             )}
-            {view === 'classes' && (
-              <AcademicWorkspace
+            {route.name === 'classes' && (
+              <ClassesView
+                route={route}
+                navigate={navigate}
                 onSchedule={(draft) => {
                   setStudyDraft(draft);
                   navigate({ name: 'calendar', editor: { kind: 'new' } });
@@ -205,8 +206,8 @@ function Workspace({
                 section={route.section}
                 navigate={navigate}
                 workspace={workspace}
-                eink={eink}
-                onEinkChange={setEink}
+                appearance={appearance}
+                onAppearanceChange={setAppearance}
                 user={user}
                 signOut={signOut}
               />

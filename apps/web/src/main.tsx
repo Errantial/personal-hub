@@ -6,6 +6,7 @@ import './styles/tokens.css';
 import './styles/base.css';
 import './styles/legacy.css';
 import './styles/shell.css';
+import { applyAppearance, readAppearance } from './lib/appearance';
 import { nativePlatform } from './lib/transport';
 
 if (!nativePlatform() && 'serviceWorker' in navigator) {
@@ -14,12 +15,7 @@ if (!nativePlatform() && 'serviceWorker' in navigator) {
 
 // Apply the stored appearance before the first paint, including sign-in, so
 // e-ink devices never render (and then refresh away from) the standard theme.
-try {
-  document.documentElement.dataset.theme =
-    localStorage.getItem('hub:eink') === 'true' ? 'eink' : 'standard';
-} catch {
-  /* Storage unavailable: standard theme. */
-}
+applyAppearance(readAppearance());
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

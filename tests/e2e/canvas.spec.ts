@@ -3,6 +3,7 @@ import {
   calendarDay,
   open,
   openSettings,
+  openClass,
   openTask,
   showCalendar,
   showTasks,
@@ -215,9 +216,7 @@ test('Canvas class links survive refreshes and appear as read-only entries in po
     ).status(),
   ).toBe(200);
   await open(page, 'Classes');
-  await page
-    .getByRole('button', { name: 'Canvas linked browser class', exact: true })
-    .click();
+  await openClass(page, 'Canvas linked browser class', 'Canvas');
   const portfolio = page.getByRole('region', { name: 'Class Canvas entries' });
   await expect(
     portfolio.getByText('Canvas refreshed deadline', { exact: true }),
@@ -252,9 +251,7 @@ test('Canvas class links survive refreshes and appear as read-only entries in po
   ).toBe(true);
   await context.setOffline(true);
   await open(page, 'Classes');
-  await page
-    .getByRole('button', { name: 'Canvas linked browser class', exact: true })
-    .click();
+  await openClass(page, 'Canvas linked browser class', 'Canvas');
   await expect(
     portfolio.getByText('Canvas refreshed deadline', { exact: true }),
   ).toBeVisible();

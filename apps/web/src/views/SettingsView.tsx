@@ -1,4 +1,5 @@
 import { Help } from '../components/Help';
+import { AppearanceSettings } from '../components/AppearanceSettings';
 import { AccountSettings } from '../components/AccountSettings';
 import { AIRoutingSettings } from '../components/AIRoutingSettings';
 import { AIPreflights } from '../components/AIPreflights';
@@ -7,6 +8,7 @@ import { ConnectionsView } from './ConnectionsView';
 import type { WorkspaceState } from './ConnectionsView';
 import { Link } from '../components/Link';
 import type { User } from '@hub/contracts';
+import type { Appearance } from '../lib/appearance';
 import { sectionLabels, settingsSections } from '../lib/router';
 import type { Route, SettingsSection } from '../lib/router';
 
@@ -14,16 +16,16 @@ export function SettingsView({
   section,
   navigate,
   workspace,
-  eink,
-  onEinkChange,
+  appearance,
+  onAppearanceChange,
   user,
   signOut,
 }: {
   section: SettingsSection;
   navigate: (route: Route) => void;
   workspace: WorkspaceState;
-  eink: boolean;
-  onEinkChange: (value: boolean) => void;
+  appearance: Appearance;
+  onAppearanceChange: (value: Appearance) => void;
   user: User;
   signOut: () => Promise<void>;
 }) {
@@ -65,21 +67,10 @@ export function SettingsView({
           </div>
         )}
         {section === 'appearance' && (
-          <section className="panel preference-panel">
-            <h2>E-ink mode</h2>
-            <Help label="E-ink">
-              Black and white, no animation, larger controls and a stable
-              layout. Use it on e-ink displays such as the Mudita Kompakt.
-            </Help>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={eink}
-                onChange={(event) => onEinkChange(event.target.checked)}
-              />
-              Use e-ink mode
-            </label>
-          </section>
+          <AppearanceSettings
+            appearance={appearance}
+            onChange={onAppearanceChange}
+          />
         )}
         {section === 'connections' && <ConnectionsView workspace={workspace} />}
         {section === 'ai' && (

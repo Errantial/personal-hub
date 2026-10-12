@@ -42,8 +42,22 @@ export type CalendarEditorRoute =
   | { kind: 'new' }
   | { kind: 'event'; id: string }
   | { kind: 'occurrence'; id: string; date: string };
+export const classSections = ['topics', 'study', 'canvas', 'details'] as const;
+export type ClassSection = (typeof classSections)[number];
+export const classSectionLabels: Record<ClassSection, string> = {
+  topics: 'Topics',
+  study: 'Study blocks',
+  canvas: 'Canvas',
+  details: 'Details',
+};
 export type Route =
-  | { name: Exclude<View, 'calendar' | 'settings' | 'tasks'> }
+  | { name: Exclude<View, 'calendar' | 'settings' | 'tasks' | 'classes'> }
+  | {
+      name: 'classes';
+      /** A class, or `'new'` for the add-class form. */
+      id?: string;
+      section?: ClassSection;
+    }
   | { name: 'tasks'; id?: string; filter?: TaskFilter }
   | {
       name: 'calendar';
@@ -88,6 +102,8 @@ function isDate(value: string | null): value is string {
 
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
+const isClassSection = (value: string | null): value is ClassSection =>
+  (classSections as readonly (string | null)[]).includes(value);
 const isTaskFilter = (value: string | null): value is TaskFilter =>
   (taskFilters as readonly (string | null)[]).includes(value);
 
@@ -116,6 +132,14 @@ export function parseRoute(pathname: string, search: string): Route {
       ...(isTaskFilter(filter) ? { filter } : {}),
     };
   }
+  if (name === 'classes') {
+    const section = query.get('section');
+    return {
+      name,
+      ...(detail === 'new' || isUuid(detail) ? { id: detail } : {}),
+      ...(isClassSection(section) && section !== 'topics' ? { section } : {}),
+    };
+  }
   if (name !== 'calendar') return { name };
   const date = query.get('date');
   const view = query.get('view');
@@ -142,6 +166,12 @@ export function routePath(route: Route): string {
   if (route.name === 'tasks')
     return `/tasks${route.id ? `/${route.id}` : ''}${
       route.filter && route.filter !== 'open' ? `?filter=${route.filter}` : ''
+    }`;
+  if (route.name === 'classes')
+    return `/classes${route.id ? `/${route.id}` : ''}${
+      route.section && route.section !== 'topics'
+        ? `?section=${route.section}`
+        : ''
     }`;
   if (route.name !== 'calendar') return `/${route.name}`;
   const query = new URLSearchParams();

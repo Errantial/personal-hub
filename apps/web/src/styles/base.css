@@ -44,6 +44,16 @@ input:not([type='checkbox'], [type='radio']),
 select {
   min-height: var(--target);
 }
+/* Text-like controls follow the tokens, so custom and dark themes stay
+   readable instead of showing the browser's white fill. */
+input:not([type='checkbox'], [type='radio'], [type='color']),
+select,
+textarea {
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+}
 summary {
   min-height: var(--target);
   padding-block: var(--space-2);

@@ -1,6 +1,6 @@
 # Frontend development plan
 
-Status: plan approved 2026-10-10 with the owner decisions in §6; Phases 0 and 1 merged into `main` at `2e8f922`. Phases 2, 3 and 4 are implemented and validated in the current checkout (uncommitted). Later phases are proposals until implemented. Rules come from [ui-guidelines.md](ui-guidelines.md); behavior to preserve comes from [ui-agent-ledger.md](ui-agent-ledger.md).
+Status: plan approved 2026-10-10 with the owner decisions in §6; Phases 0 and 1 merged into `main` at `2e8f922`. Phases 2, 2b, 3, 4 and 5 are implemented and validated on branch `ui/phase-4` (not merged). Later phases are proposals until implemented. Rules come from [ui-guidelines.md](ui-guidelines.md); behavior to preserve comes from [ui-agent-ledger.md](ui-agent-ledger.md).
 
 ## 1. Current state (audit, 2026-10-10)
 
@@ -84,7 +84,7 @@ Acceptance: e2e for overdue display, Canvas deadline vs reserved study time dist
 
 Result: met. `TodayView` loads tasks, occurrences, Canvas, reminder status and notifications independently. Quick capture sits directly below the header, expands on demand and explicitly distinguishes queued from saved tasks. Existing conflict banners remain above the view; full task editing stays in Tasks and event editing in Calendar. Date grouping updates at midnight/on focus using the device timezone. Cached reads expose their own timestamps; refresh remains manual or on remount rather than polling. `npm run check` passed 112 tests (1 optional PostgreSQL test skipped), and all 43 browser tests passed, including four new Today scenarios. Initial JS is 532.42 kB, with Today in a separate 7.82 kB precached chunk. Kompakt/Android Back/TalkBack remain unverified.
 
-### Phase 2b — Appearance customization and profiles (M) — planned
+### Phase 2b — Appearance customization and profiles (M) — completed 2026-10-12
 
 Owner-requested addition: extensive UI/UX customization in Settings, including colors, and appearance profiles that can be saved and loaded.
 
@@ -93,7 +93,9 @@ Owner-requested addition: extensive UI/UX customization in Settings, including c
 3. Persist locally for offline startup and the bundled APK. Clearly disclose the device-local scope; cross-device profile sync/export needs a separately agreed contract. Invalid or outdated saved values fall back to safe defaults.
 4. Keep e-ink monochrome and animation-free regardless of custom colors. Preserve keyboard/tap access and minimum targets; custom density cannot shrink controls below the accessibility floor.
 
-Acceptance: profile persistence/reload, modified-profile state, invalid-value recovery, reset without deleting saved profiles, contrast/focus checks, offline use, 320 px overflow and e-ink overrides. These controls are planned, not implemented by Phase 2.
+Acceptance: profile persistence/reload, modified-profile state, invalid-value recovery, reset without deleting saved profiles, contrast/focus checks, offline use, 320 px overflow and e-ink overrides. 
+
+Result: met. Settings › Appearance has Display (e-ink, text size, density, control shape), Colors (accent, background, surface, text) and Profiles (Standard and E-ink built in; save, load, rename, replace and delete up to 20, with confirmation for destructive steps). Everything is device-local (`hub:eink`, `hub:appearance`, `hub:appearance-profiles`, `hub:appearance-profile`), applied before first paint, and never sent to the server. Other colors are derived from the four chosen ones and checked for contrast (4.5:1 text, 3:1 borders/accent); a failing set is rejected with the ratio shown and the previous theme stays. E-ink forces monochrome and square corners and hides color editing; the 44/48 px target floor holds at every density. Invalid stored values fall back to defaults. 6 unit and 7 browser tests; the accessibility, e-ink styling and overflow suites pass with a custom dark theme. Cross-device sync/export is not built.
 
 ### Phase 3 — Tasks (M) — completed 2026-10-12
 
@@ -123,11 +125,15 @@ Acceptance: port `features.spec.ts` calendar scenarios (stale draft preserved th
 
 Result: met. `CalendarView` (Agenda/Week/Day by URL) and `CalendarEditor` replace `CalendarWorkspace`; Undo and Recently deleted are shared with Tasks (`DeletedItems`). Delete asks for the scope; the series-reset warning appears only when start, zone, all-day or repeat fields change; the DST choice appears only for an actually repeated time and gaps are rejected. The viewing timezone is a header disclosure and is not persisted. All 60 browser tests pass, including 9 new Calendar scenarios (DST gap/fold, scope dialog, series reset, Undo, keyboard-only create/edit, axe/overflow/target checks at 1280 px and 320 px e-ink) and the ported calendar scenarios. `npm run check` passed (419 tests, 1 optional PostgreSQL test skipped). Calendar is a separate 25.5 kB precached chunk; initial JS is 563.37 kB (561.99 kB after Phase 3). Kompakt/Android Back/TalkBack remain unverified.
 
-### Phase 5 — Classes (M)
+### Phase 5 — Classes (M) — completed 2026-10-12
 
 Class list → `/classes/:id` detail with tabs or sections: Topics (progress/confidence as manual assessments with explicit "Not assessed"), Study blocks, Canvas (feed entries, API assignments, linked planner work). "Plan study" opens the Calendar editor pre-filled (class/topic/title; WCAG 3.3.7). Clear wording that grades are not imported and completion ≠ mastery (Help).
 
 Acceptance: port class/Canvas portfolio e2e scenarios including cached offline portfolio viewing and archived-class labels.
+
+Result: met, with one deferral. `ClassesView` + `ClassForms` replace `AcademicWorkspace`: list at `/classes`, add at `/classes/new`, detail at `/classes/:id?section=topics|study|canvas|details`. Topics show "Not assessed" until progress or confidence is entered (no invented 0%), a progress bar only when assessed, Edit, Plan study (opens the Calendar editor with class/topic/title) and Delete with confirmation; the Help states that grades are not imported and finishing study time is not mastery. Study blocks lists the class's calendar events (Upcoming/Earlier), linking to the Calendar editor. Canvas mounts the unchanged entries and assignments (including planner work and cached offline viewing). Class and topic drafts keep their version; a conflict shows "Changed elsewhere", keeps the draft and requires **Load latest version**. Unknown classes explain themselves with a Back link. Below 1024 px the detail replaces the list. 6 new browser tests plus the ported features, canvas and canvas-lms scenarios; unit tests for `lib/classes.ts` and the router.
+
+Deferred: the manual academic Work section (grades, status, workload source history) has backend support but no UI yet. Classes have no archived state in the contract, so there are no archived-class labels.
 
 ### Phase 6 — Inbox (S)
 
@@ -158,7 +164,6 @@ Backend added AI request/attempt lifecycles, study planning, academic work, remi
 - **Phase 5 Classes:** manual academic work and the workload source history belong in the class detail (Work section).
 - **Phase 6 Inbox:** reminder snooze and inbox history are part of the reminder editor and list.
 - **Phase 7 Settings › AI:** request/attempt history, budget and consent surfaces are read-only status plus explicit controls; no live dispatch exists yet, so label everything synthetic.
-- **Phase 2b (appearance profiles)** is still next after Calendar unless the owner reprioritizes.
 
 ### Later (not scheduled)
 
