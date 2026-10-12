@@ -178,6 +178,11 @@ export async function cachedResponse(path: string) {
     return value.cache[path]?.data;
   });
 }
+export async function cachedAt(path: string) {
+  return state(false, (value) =>
+    authorized(value) ? (value.cache[path]?.savedAt ?? null) : null,
+  );
+}
 export async function hasTaskQueue() {
   return state(false, (value) => authorized(value) && value.jobs.length > 0);
 }

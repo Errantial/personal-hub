@@ -81,3 +81,57 @@ it('provides a document title per route', () => {
     'AI · Settings · Personal Hub',
   );
 });
+
+it('addresses a task and its list filter', () => {
+  const id = '3f2b8c1e-5a4d-4e6f-9a0b-1c2d3e4f5a6b';
+  expect(routePath({ name: 'tasks', id })).toBe(`/tasks/${id}`);
+  expect(parseRoute(`/tasks/${id}`, '')).toEqual({ name: 'tasks', id });
+  expect(routePath({ name: 'tasks', filter: 'overdue' })).toBe(
+    '/tasks?filter=overdue',
+  );
+  expect(parseRoute('/tasks', '?filter=no-date')).toEqual({
+    name: 'tasks',
+    filter: 'no-date',
+  });
+  // The default filter has no query; unknown filters and ids are ignored.
+  expect(routePath({ name: 'tasks', filter: 'open' })).toBe('/tasks');
+  expect(parseRoute('/tasks/not-an-id', '?filter=nope')).toEqual({
+    name: 'tasks',
+  });
+});
+
+it('addresses the calendar editor and keeps the visible window', () => {
+  const id = '3f2b8c1e-5a47-4d0e-9b3a-1c2d3e4f5a6b';
+  const cases = [
+    [{ kind: 'new' }, '/calendar/new'],
+    [{ kind: 'event', id }, `/calendar/${id}`],
+    [
+      { kind: 'occurrence', id, date: '2027-03-08' },
+      `/calendar/${id}/occurrence/2027-03-08`,
+    ],
+  ] as const;
+  for (const [editor, path] of cases) {
+    expect(routePath({ name: 'calendar', editor })).toBe(path);
+    expect(parseRoute(path, '')).toEqual({ name: 'calendar', editor });
+  }
+  expect(
+    routePath({
+      name: 'calendar',
+      date: '2027-03-08',
+      view: 'week',
+      editor: { kind: 'new' },
+    }),
+  ).toBe('/calendar/new?date=2027-03-08&view=week');
+  // Agenda is the default view and is not written to the address.
+  expect(routePath({ name: 'calendar', view: 'agenda' })).toBe('/calendar');
+  expect(parseRoute('/calendar', '?view=agenda')).toEqual({
+    name: 'calendar',
+    view: 'agenda',
+  });
+  // Unknown ids and malformed occurrence dates fall back to the list.
+  expect(parseRoute('/calendar/not-an-id', '')).toEqual({ name: 'calendar' });
+  expect(parseRoute(`/calendar/${id}/occurrence/2027-02-31`, '')).toEqual({
+    name: 'calendar',
+    editor: { kind: 'event', id },
+  });
+});

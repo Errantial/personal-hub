@@ -362,6 +362,11 @@ export function ReminderWorkspace() {
                 }
               >
                 <option value="">Standalone reminder</option>
+                {editing?.targetKind === 'academic-work' && (
+                  <option value={`academic-work:${editing.targetId}`}>
+                    Academic work
+                  </option>
+                )}
                 {tasks
                   .filter((item) => !item.completed)
                   .map((item) => (

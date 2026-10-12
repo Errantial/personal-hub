@@ -1,0 +1,188 @@
+.calendar-view {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.calendar-views {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.calendar-views a,
+.calendar-step,
+.calendar-add,
+.calendar-editor__back {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target);
+  padding: 0 var(--space-3);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+}
+.calendar-views a[aria-current='page'] {
+  background: var(--selected-bg);
+  color: var(--selected-text);
+  border-color: var(--accent);
+  font-weight: var(--weight-strong);
+  text-decoration: underline;
+}
+.calendar-add {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: var(--weight-strong);
+}
+.calendar-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target);
+}
+.calendar-editor__back {
+  border: 0;
+  padding-left: 0;
+}
+.calendar-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: end;
+}
+.calendar-date {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--text-small);
+}
+.calendar-date input {
+  min-height: var(--target);
+}
+.calendar-zone summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--target);
+  cursor: pointer;
+}
+.calendar-zone__form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: end;
+}
+.calendar-zone__form label {
+  display: grid;
+  gap: var(--space-1);
+}
+.calendar-zone__form input {
+  min-height: var(--target);
+}
+.calendar-notice p {
+  margin: 0 0 var(--space-2);
+}
+.calendar-layout {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.calendar-list-pane,
+.calendar-editor {
+  min-width: 0;
+  padding: var(--space-4);
+}
+.calendar-day h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-4) 0 var(--space-1);
+  font-size: var(--text-body);
+}
+.calendar-entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.calendar-entries > li {
+  padding: var(--space-2) 0;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+.calendar-row {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.calendar-row__title {
+  display: flex;
+  align-items: center;
+  min-height: var(--target);
+  overflow-wrap: anywhere;
+}
+.calendar-row--cancelled .calendar-row__title {
+  text-decoration: line-through;
+}
+.calendar-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.calendar-editor__danger {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: var(--border-width) solid var(--border-subtle);
+}
+.calendar-editor .editor-form {
+  margin-top: var(--space-4);
+}
+.calendar-section {
+  display: grid;
+  gap: var(--space-3);
+}
+.calendar-section legend {
+  font-weight: var(--weight-strong);
+}
+.calendar-editor .editor-form .checkbox-label {
+  display: flex;
+  min-height: var(--target);
+  align-items: center;
+  gap: var(--space-2);
+}
+.calendar-fold {
+  display: grid;
+  gap: var(--space-1);
+}
+.calendar-warning {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid var(--border);
+}
+.calendar-compare {
+  margin: 0;
+}
+.calendar-compare dt {
+  font-weight: var(--weight-strong);
+}
+.calendar-compare dd {
+  margin: 0 0 var(--space-2);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+/* Narrow screens show the editor alone, with a Back link; wide screens keep
+   the agenda beside it. */
+.calendar-layout--editing .calendar-list-pane {
+  display: none;
+}
+@media (min-width: 64rem) {
+  .calendar-layout--editing {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .calendar-layout--editing .calendar-list-pane {
+    display: block;
+  }
+  .calendar-editor__back:not(.calendar-editor__back--always) {
+    display: none;
+  }
+}

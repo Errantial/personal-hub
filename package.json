@@ -26,6 +26,7 @@
     "start:api": "npm run start --workspace @hub/api",
     "db:migrate": "npm run build --workspace @hub/contracts && npm run db:migrate --workspace @hub/api",
     "doctor": "node scripts/doctor.mjs",
+    "ai:runtime-doctor": "node --import tsx scripts/ai-runtime-doctor.mjs",
     "android:build": "node scripts/android-build.mjs",
     "android:server": "node --import tsx scripts/android-server.mjs"
   },

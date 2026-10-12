@@ -4,6 +4,8 @@ import { offlineChanged, offlineStatus, discardTask } from '../lib/offline';
 import { Banner } from './Banner';
 import { useConfirm } from './ConfirmDialog';
 import { Help } from './Help';
+import { Link } from './Link';
+import type { Route } from '../lib/router';
 
 type Status = Awaited<ReturnType<typeof offlineStatus>>;
 
@@ -152,7 +154,13 @@ export function SyncDetails({ state }: { state: TaskSync }) {
 }
 
 /** Persistent banner listing task conflicts with their retained local drafts. */
-export function SyncConflicts({ state }: { state: TaskSync }) {
+export function SyncConflicts({
+  state,
+  navigate,
+}: {
+  state: TaskSync;
+  navigate: (route: Route) => void;
+}) {
   const [dialog, confirm] = useConfirm();
   const [error, setError] = useState('');
   const { status, sync } = state;
@@ -194,6 +202,9 @@ export function SyncConflicts({ state }: { state: TaskSync }) {
               <dd>{item.task.sensitivity}</dd>
             </dl>
           </details>
+          <Link route={{ name: 'tasks', id: item.id }} navigate={navigate}>
+            Open task
+          </Link>{' '}
           <button
             type="button"
             className="secondary-button"

@@ -1,5 +1,9 @@
 # UI/UX guidelines
 
+## Owner-requested appearance customization
+
+Settings must support extensive appearance customization, including colors, and named profiles that can be saved and loaded (planned Phase 2b). Use semantic tokens for accent/background/surface/text, typography scale, density and shape. Show a preview and safe reset; validate contrast and focus visibility. Profiles contain appearance only and initially persist on this device, including offline. E-ink overrides custom colors with black/white and keeps animation disabled. Customization cannot hide essential errors/conflicts, remove keyboard access or reduce minimum touch targets. This is an agreed requirement; controls and profile persistence remain unimplemented.
+
 Status: adopted 2026-10-10; owner decisions are recorded in [frontend-plan.md §6](frontend-plan.md#6-owner-decisions-confirmed-2026-10-10) and decision D46. These rules guide the UI rewrite in [frontend-plan.md](frontend-plan.md). Behavior that must survive the rewrite is recorded in [ui-agent-ledger.md](ui-agent-ledger.md); product scope is in [product.md](product.md). Where this document conflicts with product.md or AGENTS.md, those win.
 
 ## 1. Principles
@@ -139,7 +143,7 @@ Follow [GOV.UK error message](https://design-system.service.gov.uk/components/er
 
 ### Destructive and conflicting actions
 
-- Prefer undo for reversible actions; confirm only irreversible or high-consequence ones, to avoid confirmation fatigue ([undo over confirmation](https://notes.andymatuschak.org/zXH4ASvHNz488hCNgrBjQJK)). Tombstoned deletes are server-reversible in principle, but no restore API exists yet — so deletes currently need confirmation. Replace `window.confirm` with an in-page `<dialog>` that restates the object ("Delete task 'Essay draft'?"), puts focus on Cancel, and names the action button "Delete task".
+- Prefer undo for reversible actions; confirm only irreversible or high-consequence ones, to avoid confirmation fatigue ([undo over confirmation](https://notes.andymatuschak.org/zXH4ASvHNz488hCNgrBjQJK)). Restore exists for tasks and calendar items: online deletes show an Undo notice plus a Recently deleted list (Tasks implements this; Calendar follows in Phase 4). Offline deletes cannot be undone until synced, so they keep a confirmation. Replace `window.confirm` with an in-page `<dialog>` that restates the object ("Delete task 'Essay draft'?"), puts focus on Cancel, and names the action button "Delete task".
 - Discarding queued offline changes and revoking sessions always require confirmation.
 - Conflicts (409 VERSION_CONFLICT): show "Changed elsewhere" banner on the editor with the draft intact, a "Load latest version" action, and Save disabled until the reload completes (existing ledger rule). Show a field-level comparison when the server version is available.
 

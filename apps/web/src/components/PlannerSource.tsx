@@ -1,4 +1,6 @@
-import type { PlannerSource as Source } from '@hub/contracts';
+import type { PlannerSource as Source, Task } from '@hub/contracts';
+
+type AcademicSummary = NonNullable<Task['academicSource']>;
 export function PlannerSource({
   source,
 }: {
@@ -49,6 +51,46 @@ export function PlannerSource({
           Open in Canvas
         </a>
       )}
+    </details>
+  );
+}
+
+const statusLabels = {
+  planned: 'Planned',
+  in_progress: 'In progress',
+  submitted: 'Submitted',
+  cancelled: 'Cancelled',
+} as const;
+
+/** Link from a task to the class work it was planned from. */
+export function AcademicSource({
+  source,
+}: {
+  source: AcademicSummary | null | undefined;
+}) {
+  if (!source) return null;
+  const changed =
+    source.currentWorkVersion !== source.capturedWorkVersion ||
+    source.currentCourseVersion !== source.capturedCourseVersion;
+  return (
+    <details>
+      <summary>
+        Class work
+        {changed ? ' · Changed' : ''}
+        {source.sourceDeleted ? ' · Deleted' : ''}
+        {source.courseArchived ? ' · Class archived' : ''}
+      </summary>
+      <p>
+        Work status: {statusLabels[source.currentStatus]} · Version{' '}
+        {source.capturedWorkVersion} when planned, {source.currentWorkVersion}{' '}
+        now
+      </p>
+      <p>
+        Class version {source.capturedCourseVersion} when planned,{' '}
+        {source.currentCourseVersion} now
+      </p>
+      {source.labels.length > 0 && <p>Labels: {source.labels.join(', ')}</p>}
+      <p>Completing this task does not submit the work.</p>
     </details>
   );
 }

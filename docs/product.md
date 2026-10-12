@@ -95,6 +95,7 @@ Interface copy uses concise titles and labels. Avoid unnecessary flavor text. Pu
 
 ### Options and e-ink mode
 
+- Provide extensive appearance customization in Settings, including colors, and named appearance profiles that can be saved and loaded. Keep accessible contrast, focus, essential state and e-ink behavior intact. Implementation is planned in frontend Phase 2b.
 - Provide sensible defaults and an advanced settings area; explain settings in terms of their effects.
 - Basic settings: week start, time zone, study hours, quiet hours, default reminders, and theme.
 - Advanced settings: per-account sync, automation policies, retention, and AI data access.

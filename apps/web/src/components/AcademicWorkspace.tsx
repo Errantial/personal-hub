@@ -11,7 +11,7 @@ import {
 } from '@hub/contracts';
 import type { Course, Topic } from '@hub/contracts';
 import { getJson, requestJson } from '../lib/api';
-import type { StudyDraft } from './CalendarWorkspace';
+import type { StudyDraft } from '../lib/calendar';
 export function AcademicWorkspace({
   onSchedule,
 }: {

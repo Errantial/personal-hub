@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { z } from 'zod';
+import { Temporal } from '@hub/contracts';
 import { RequestError, requestJson } from './api';
+import { offlineChanged, offlineStatus } from './offline';
 import { operationTracker } from './operations';
 
+/** Transport failures (offline, timeout) have no useful browser message. */
 const messageOf = (failure: unknown, fallback: string) =>
-  failure instanceof Error ? failure.message : fallback;
+  failure instanceof Error &&
+  !(failure instanceof TypeError || failure instanceof DOMException)
+    ? failure.message
+    : fallback;
 
 /**
  * Loads data with abort on unmount and a generation guard, so a slow older
@@ -14,7 +20,7 @@ const messageOf = (failure: unknown, fallback: string) =>
  */
 export function useResource<T>(
   load: (signal: AbortSignal) => Promise<T>,
-  options: { failure: string; refreshMs?: number },
+  options: { failure: string; refreshMs?: number; key?: string },
 ) {
   const [data, setData] = useState<T | undefined>(undefined);
   const [error, setError] = useState('');
@@ -43,7 +49,8 @@ export function useResource<T>(
     } finally {
       if (current === generation.current) setLoading(false);
     }
-  }, [options.failure]);
+    // key: reload when the inputs of `load` change (e.g. a date range).
+  }, [options.failure, options.key]);
 
   useEffect(() => {
     void reload();
@@ -102,5 +109,52 @@ export function useMutation() {
     [tracker],
   );
 
-  return { run, pending, error, conflict, setError };
+  /** Clears the last error and any version conflict (after a deliberate reload). */
+  const reset = useCallback(() => {
+    setError('');
+    setConflict(false);
+  }, []);
+
+  return { run, pending, error, conflict, setError, reset };
+}
+
+export type OfflineStatus = Awaited<ReturnType<typeof offlineStatus>>;
+
+/** Task outbox state (queued, conflicted, locked) for inline row status. */
+export function useOfflineStatus() {
+  const [status, setStatus] = useState<OfflineStatus | null>(null);
+  useEffect(() => {
+    const refresh = () => {
+      void offlineStatus().then(setStatus, () => undefined);
+    };
+    refresh();
+    window.addEventListener(offlineChanged, refresh);
+    return () => window.removeEventListener(offlineChanged, refresh);
+  }, []);
+  return status;
+}
+
+/** Today's local date (YYYY-MM-DD). Updates once at local midnight and when
+ *  the app regains focus, never on a timer that repaints the screen. */
+export function useToday(timeZone: string) {
+  const [today, setToday] = useState(() =>
+    Temporal.Now.plainDateISO(timeZone).toString(),
+  );
+  useEffect(() => {
+    const check = () =>
+      setToday(Temporal.Now.plainDateISO(timeZone).toString());
+    const next = Temporal.PlainDate.from(today)
+      .add({ days: 1 })
+      .toZonedDateTime(timeZone);
+    const timer = setTimeout(
+      check,
+      Math.max(1, next.epochMilliseconds - Date.now()),
+    );
+    window.addEventListener('focus', check);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('focus', check);
+    };
+  }, [today, timeZone]);
+  return today;
 }

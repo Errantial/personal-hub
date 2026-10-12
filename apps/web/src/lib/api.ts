@@ -11,6 +11,7 @@ import {
   pendingCount,
   cacheResponse,
   cachedResponse,
+  cachedAt,
   cacheTask,
   hasTaskQueue,
   enqueueTask,
@@ -25,6 +26,22 @@ export async function getJson<T>(
   signal?: AbortSignal,
 ): Promise<T> {
   return requestJson(path, schema, signal ? { signal } : {});
+}
+
+/** Cache provenance belongs to this read, rather than global network state. */
+export async function getSnapshot<T>(
+  path: string,
+  schema: z.ZodType<T>,
+  signal: AbortSignal,
+): Promise<{ data: T; cachedAt: string | null }> {
+  let savedAt: string | null = null;
+  const data = await requestJson(path, schema, {
+    signal,
+    onCached: (value) => {
+      savedAt = value;
+    },
+  });
+  return { data, cachedAt: savedAt };
 }
 
 export class RequestError extends Error {
@@ -93,6 +110,7 @@ export async function liveRequestJson<T>(
         'Edit this event in Calendar to preserve its schedule and class links.',
       REMINDER_STATE:
         'The reminder status changed. Reload the list before trying again.',
+      NOT_DELETED: 'This item is already active. Reload the list.',
       UNAUTHENTICATED: 'Your session ended. Sign out and sign in again.',
       INVALID_CREDENTIALS: 'Email or password is incorrect.',
       OWNER_EXISTS: 'This workspace already has an owner. Refresh to sign in.',
@@ -128,7 +146,12 @@ export const synchronize = () =>
 export async function requestJson<T>(
   path: string,
   schema: z.ZodType<T>,
-  options: { method?: string; body?: unknown; signal?: AbortSignal } = {},
+  options: {
+    method?: string;
+    body?: unknown;
+    signal?: AbortSignal;
+    onCached?: (savedAt: string | null) => void;
+  } = {},
 ): Promise<T> {
   const method = options.method ?? 'GET';
   const mutation =
@@ -205,7 +228,10 @@ export async function requestJson<T>(
     }
     if (method === 'GET' && cachedPath(path)) {
       const data = await cachedResponse(path).catch(() => undefined);
-      if (data !== undefined) return schema.parse(data);
+      if (data !== undefined) {
+        options.onCached?.(await cachedAt(path).catch(() => null));
+        return schema.parse(data);
+      }
     }
     if (mutation) {
       if (sourceCreation)

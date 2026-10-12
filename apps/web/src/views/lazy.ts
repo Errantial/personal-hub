@@ -1,17 +1,27 @@
 import { lazy } from 'react';
 
-/* Views outside Today load on demand. preloadViews fetches them once the
+/* Views load on demand. preloadViews fetches them once the
    workspace is ready, so the service worker has them for offline use even
    before the owner opens each view. */
 const loaders = {
-  calendar: () => import('../components/CalendarWorkspace'),
+  today: () => import('../components/TodayView'),
+  tasks: () => import('../components/TasksView'),
+  calendar: () => import('../components/CalendarView'),
   classes: () => import('../components/AcademicWorkspace'),
   inbox: () => import('../components/ReminderWorkspace'),
   settings: () => import('./SettingsView'),
 };
 
-export const CalendarWorkspace = lazy(() =>
-  loaders.calendar().then((module) => ({ default: module.CalendarWorkspace })),
+export const TodayView = lazy(() =>
+  loaders.today().then((module) => ({ default: module.TodayView })),
+);
+
+export const TasksView = lazy(() =>
+  loaders.tasks().then((module) => ({ default: module.TasksView })),
+);
+
+export const CalendarView = lazy(() =>
+  loaders.calendar().then((module) => ({ default: module.CalendarView })),
 );
 export const AcademicWorkspace = lazy(() =>
   loaders.classes().then((module) => ({ default: module.AcademicWorkspace })),

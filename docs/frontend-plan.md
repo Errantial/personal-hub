@@ -1,6 +1,6 @@
 # Frontend development plan
 
-Status: plan approved 2026-10-10 with the owner decisions in §6; Phases 0 and 1 complete on branch `ui/phase-0` (not yet merged). Later phases are proposals until implemented. Rules come from [ui-guidelines.md](ui-guidelines.md); behavior to preserve comes from [ui-agent-ledger.md](ui-agent-ledger.md).
+Status: plan approved 2026-10-10 with the owner decisions in §6; Phases 0 and 1 merged into `main` at `2e8f922`. Phases 2, 3 and 4 are implemented and validated in the current checkout (uncommitted). Later phases are proposals until implemented. Rules come from [ui-guidelines.md](ui-guidelines.md); behavior to preserve comes from [ui-agent-ledger.md](ui-agent-ledger.md).
 
 ## 1. Current state (audit, 2026-10-10)
 
@@ -70,7 +70,7 @@ Result: met. Implemented as specified, with these adjustments:
 - The initial chunk grew 7 kB (525 → 532 kB) for shell code every screen needs; 532 kB is the new baseline.
 - Also fixed: the sign-in screen ignored the stored e-ink preference; unstyled buttons used the browser's gray fill.
 
-### Phase 2 — Today (M)
+### Phase 2 — Today (M) — completed 2026-10-10
 
 Composition from existing cached endpoints: `/api/v1/tasks`, `/api/v1/calendar/occurrences` (today, viewing timezone), `/api/v1/connections/canvas/calendar` (today), `/api/v1/notifications`.
 
@@ -82,11 +82,34 @@ Decided (§6): the legacy one-time **Events** panel (`/api/v1/events`) is remove
 
 Acceptance: e2e for overdue display, Canvas deadline vs reserved study time distinction, offline cached Today with queued quick capture replaying once, section failure isolation, 320 px e-ink layout.
 
-### Phase 3 — Tasks (M)
+Result: met. `TodayView` loads tasks, occurrences, Canvas, reminder status and notifications independently. Quick capture sits directly below the header, expands on demand and explicitly distinguishes queued from saved tasks. Existing conflict banners remain above the view; full task editing stays in Tasks and event editing in Calendar. Date grouping updates at midnight/on focus using the device timezone. Cached reads expose their own timestamps; refresh remains manual or on remount rather than polling. `npm run check` passed 112 tests (1 optional PostgreSQL test skipped), and all 43 browser tests passed, including four new Today scenarios. Initial JS is 532.42 kB, with Today in a separate 7.82 kB precached chunk. Kompakt/Android Back/TalkBack remain unverified.
 
-List with filters (Open · Due soon · Overdue · No date · Done), grouping by due date, inline completion, row chips (priority high only, label, Canvas source, Queued/Conflict/Locked). Detail editor at `/tasks/:id` with all fields, source panel (captured vs current facts from `PlannerSource`), delete with confirm. Conflict flow: banner, draft retained, "Load latest version" then save (existing semantics). Discard-local-changes moves here from the sync panel and stays confirmed.
+### Phase 2b — Appearance customization and profiles (M) — planned
+
+Owner-requested addition: extensive UI/UX customization in Settings, including colors, and appearance profiles that can be saved and loaded.
+
+1. Settings › Appearance: adjustable accent, background, surface and text colors; text size, spacing/density and control shape. Provide useful defaults, a live preview, and reset controls. Theme changes must preserve readable contrast and visible focus, errors and sync/conflict state.
+2. Named profiles: save current appearance, load, rename, replace and delete with confirmation. Include standard and e-ink defaults. Loading a profile must not change account, routing, task or integration settings.
+3. Persist locally for offline startup and the bundled APK. Clearly disclose the device-local scope; cross-device profile sync/export needs a separately agreed contract. Invalid or outdated saved values fall back to safe defaults.
+4. Keep e-ink monochrome and animation-free regardless of custom colors. Preserve keyboard/tap access and minimum targets; custom density cannot shrink controls below the accessibility floor.
+
+Acceptance: profile persistence/reload, modified-profile state, invalid-value recovery, reset without deleting saved profiles, contrast/focus checks, offline use, 320 px overflow and e-ink overrides. These controls are planned, not implemented by Phase 2.
+
+### Phase 3 — Tasks (M) — completed 2026-10-12
+
+List with filters (Open · Due soon · Overdue · No date · Done), grouping by due date, inline completion, row chips (high priority, label, Canvas/Class work source, Queued/Conflict/Locked). Detail editor at `/tasks/:id` with all fields and the source panels. Conflict flow: draft retained, explicit "Load latest version", Save disabled until then.
+
+Reevaluated against the backend that landed while the UI was paused (2026-10-12):
+
+- **Delete** is now reversible: an online delete shows an **Undo** notice (restore with the tombstone version), and a **Recently deleted** section lists deleted tasks with Restore. Offline deletes keep a confirmation because they cannot be undone until synced.
+- **Conflict banner stays global.** Discard-local-changes stays in the shell banner (it must be reachable from every screen); each conflict gets an **Open task** link instead of moving the action.
+- **Deferred:** `/tasks/browse` (server search/paging) and `/tasks/batch` (selected changes) would break the offline list; they return with a select mode when the list needs paging. The agenda endpoint stays Today's concern.
 
 Acceptance: port all `hub.spec.ts` and `offline.spec.ts` task scenarios to the new screen without weakening assertions (lost response retry, conflict draft, two-tab replay, revoked-session lock, sign-out guard).
+
+Result: met. `TasksView` (lazy chunk) reads the cached `/api/v1/tasks` list, so offline, outbox and conflict behavior is unchanged; filters are URLs (`/tasks?filter=…`, `/tasks/:id`), keyboard- and link-accessible. Narrow screens show the editor alone with a Back link; ≥ 1024 px shows list and editor side by side. Quick capture and `ReadState` were extracted from Today and shared. The legacy `PlannerBoard` is removed. All 51 browser tests pass, including 6 new Tasks scenarios (grouping/filter URLs, Undo and Recently deleted, title validation, unknown-task address, axe/overflow/target checks at 1280 px standard and 320 px e-ink) and the ported task, offline, Canvas and conflict scenarios.
+
+`npm run check` passed (406 tests, 1 optional PostgreSQL test skipped). Tasks is a separate 14.1 kB precached chunk. Initial JS is 561.99 kB (532.42 kB after Phase 2): the shell changed by only a few hundred bytes, so the growth comes from the backend's new shared-contract schemas reaching the client barrel. Track it under Phase 8's contracts entry-point split.
 
 ### Phase 4 — Calendar (L)
 
@@ -97,6 +120,8 @@ Acceptance: port all `hub.spec.ts` and `offline.spec.ts` task scenarios to the n
 5. Viewing timezone as a header control using `TimeZoneSelect`.
 
 Acceptance: port `features.spec.ts` calendar scenarios (stale draft preserved through navigation, all-day recurring occurrence edit); add DST gap/fold UI checks; keyboard-only create/edit; agenda readable at 320 px e-ink.
+
+Result: met. `CalendarView` (Agenda/Week/Day by URL) and `CalendarEditor` replace `CalendarWorkspace`; Undo and Recently deleted are shared with Tasks (`DeletedItems`). Delete asks for the scope; the series-reset warning appears only when start, zone, all-day or repeat fields change; the DST choice appears only for an actually repeated time and gaps are rejected. The viewing timezone is a header disclosure and is not persisted. All 60 browser tests pass, including 9 new Calendar scenarios (DST gap/fold, scope dialog, series reset, Undo, keyboard-only create/edit, axe/overflow/target checks at 1280 px and 320 px e-ink) and the ported calendar scenarios. `npm run check` passed (419 tests, 1 optional PostgreSQL test skipped). Calendar is a separate 25.5 kB precached chunk; initial JS is 563.37 kB (561.99 kB after Phase 3). Kompakt/Android Back/TalkBack remain unverified.
 
 ### Phase 5 — Classes (M)
 
@@ -124,6 +149,16 @@ Acceptance: port `canvas*.spec.ts`, `ai-routing.spec.ts`, `ai-preflight.spec.ts`
 - Android: Back button behavior with History routing on the emulator (add `@capacitor/app` only if needed, §6); 130% text zoom; safe areas; offline navigation between lazy routes after process restart.
 - Performance: split Temporal-dependent contracts helpers into a separate entry point and evaluate lighter client-side schemas to approach a ≤ 250 kB initial chunk; bundle budget check in CI (fail over budget); emulator cold start and route switch timings recorded in the ledger.
 - Docs: update ledger, development.md (routes, test commands), README status.
+
+### Reevaluation 2026-10-12
+
+Backend added AI request/attempt lifecycles, study planning, academic work, reminder snooze, restore and task browse/batch while the UI was paused. None changes the phase order: Phases 4–7 below stay as planned, with these additions.
+
+- **Phase 4 Calendar:** deleted events are restorable (`/planner/deleted?kind=calendar`); add the same Undo/Recently deleted pattern as Tasks. Study planning previews and academic deadline agenda are inputs to the Agenda view.
+- **Phase 5 Classes:** manual academic work and the workload source history belong in the class detail (Work section).
+- **Phase 6 Inbox:** reminder snooze and inbox history are part of the reminder editor and list.
+- **Phase 7 Settings › AI:** request/attempt history, budget and consent surfaces are read-only status plus explicit controls; no live dispatch exists yet, so label everything synthetic.
+- **Phase 2b (appearance profiles)** is still next after Calendar unless the owner reprioritizes.
 
 ### Later (not scheduled)
 
@@ -156,7 +191,7 @@ Assistant screen (proposal cards, activity/receipt list, approvals), email Inbox
 4. **Font:** Atkinson Hyperlegible Next, self-hosted (bundled, never loaded from a third-party CDN) so it works offline and in the APK. Latin subset, variable woff2; record its byte cost against the bundle budget.
 5. **Dependencies:** hand-rolled router and primitives on native elements. `@capacitor/app` only if emulator testing shows Back exits the app. Any other runtime dependency needs a ledger justification.
 6. **Accent color:** keep the current dark green (`#284b40`) for the standard theme; e-ink stays black.
-7. **Backend additions accepted for later phases:** a task/event restore (undo delete) operation and a Today summary endpoint. Both follow the existing owner-authorization, version and operation-ID rules and need their own migrations/tests; until they exist, deletes use a confirmation dialog and Today composes existing endpoints.
+7. **Backend additions accepted for later phases:** task/event restore (undo delete) is now implemented with migration 019, owner authorization, optimistic versions, retry receipts and tests; see ui-agent-ledger.md for its online-only contract. UI Undo controls remain pending, so current deletes still use confirmation. The additive Today attention summary and task agenda are now implemented; see today-summary.md. UI integration remains pending, and Today continues composing existing cached endpoints with independent schedule/imported-source states.
 
 ## 7. Sources
 

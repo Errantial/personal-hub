@@ -31,25 +31,29 @@ export function useConfirm() {
   return [dialog, confirm] as const;
 }
 
+/** Opens the dialog modally, focuses Cancel and returns focus on close. */
+function useModal() {
+  const ref = useRef<HTMLDialogElement>(null);
+  const cancel = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const returnFocus = document.activeElement;
+    const element = ref.current;
+    if (element && !element.open) element.showModal();
+    cancel.current?.focus();
+    return () => {
+      if (returnFocus instanceof HTMLElement) returnFocus.focus();
+    };
+  }, []);
+  return { ref, cancel };
+}
+
 function ConfirmDialog({
   title,
   message,
   confirmLabel,
   onClose,
 }: Omit<Request, 'resolve'> & { onClose: (confirmed: boolean) => void }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  const cancel = useRef<HTMLButtonElement>(null);
-  const returnFocus = useRef<Element | null>(null);
-  useEffect(() => {
-    returnFocus.current = document.activeElement;
-    const element = ref.current;
-    if (element && !element.open) element.showModal();
-    cancel.current?.focus();
-    return () => {
-      if (returnFocus.current instanceof HTMLElement)
-        returnFocus.current.focus();
-    };
-  }, []);
+  const { ref, cancel } = useModal();
   return (
     <dialog
       ref={ref}
@@ -79,6 +83,82 @@ function ConfirmDialog({
         >
           {confirmLabel}
         </button>
+      </div>
+    </dialog>
+  );
+}
+
+type Choice<T extends string> = {
+  title: string;
+  message?: string;
+  choices: { value: T; label: string; danger?: boolean }[];
+};
+
+/**
+ * In-page choice between named actions (e.g. "This occurrence" or "Entire
+ * series"). Same focus and Escape behavior as useConfirm; resolves null when
+ * cancelled. Usage: const [dialog, choose] = useChoice<'one' | 'all'>();
+ */
+export function useChoice<T extends string>() {
+  const [request, setRequest] = useState<
+    (Choice<T> & { resolve: (value: T | null) => void }) | null
+  >(null);
+  const choose = useCallback(
+    (options: Choice<T>) =>
+      new Promise<T | null>((resolve) => setRequest({ ...options, resolve })),
+    [],
+  );
+  const dialog = request ? (
+    <ChoiceDialog
+      {...request}
+      onClose={(value) => {
+        request.resolve(value);
+        setRequest(null);
+      }}
+    />
+  ) : null;
+  return [dialog, choose] as const;
+}
+
+function ChoiceDialog<T extends string>({
+  title,
+  message,
+  choices,
+  onClose,
+}: Choice<T> & { onClose: (value: T | null) => void }) {
+  const { ref, cancel } = useModal();
+  return (
+    <dialog
+      ref={ref}
+      className="confirm-dialog"
+      aria-labelledby="confirm-title"
+      aria-describedby={message ? 'confirm-message' : undefined}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose(null);
+      }}
+    >
+      <h2 id="confirm-title">{title}</h2>
+      {message && <p id="confirm-message">{message}</p>}
+      <div className="form-actions">
+        <button
+          ref={cancel}
+          type="button"
+          className="secondary-button"
+          onClick={() => onClose(null)}
+        >
+          Cancel
+        </button>
+        {choices.map((choice) => (
+          <button
+            key={choice.value}
+            type="button"
+            className={choice.danger ? 'danger-button' : 'primary-button'}
+            onClick={() => onClose(choice.value)}
+          >
+            {choice.label}
+          </button>
+        ))}
       </div>
     </dialog>
   );

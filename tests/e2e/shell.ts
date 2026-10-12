@@ -37,6 +37,86 @@ export async function openSettings(page: Page, section: Section) {
     .click();
 }
 
+/* Tasks screen helpers. */
+export const tasksRegion = (page: Page) =>
+  page.getByRole('region', { name: 'Tasks', exact: true });
+export const taskEditor = (page: Page) =>
+  page.getByRole('region', { name: 'Edit task', exact: true });
+
+/** Adds a task through the quick-capture form and waits for it in the list. */
+export async function addTask(page: Page, title: string, dueDate?: string) {
+  const region = tasksRegion(page);
+  const toggle = region.getByRole('button', { name: 'Add task', exact: true });
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true')
+    await toggle.click();
+  const form = region.getByRole('region', { name: 'Quick task capture' });
+  await form.getByLabel('Task title').fill(title);
+  if (dueDate) await form.getByLabel('Due date').fill(dueDate);
+  await form.getByRole('button', { name: 'Save task', exact: true }).click();
+  await expect(
+    region.getByRole('link', { name: title, exact: true }),
+  ).toBeVisible();
+}
+
+/** Opens a task's editor from the list. */
+export async function openTask(page: Page, title: string) {
+  await tasksRegion(page)
+    .getByRole('link', { name: title, exact: true })
+    .click();
+  await expect(taskEditor(page)).toBeVisible();
+}
+
+/** Switches the Tasks list filter, e.g. 'Done'. */
+export async function showTasks(page: Page, filter: string) {
+  await page
+    .getByRole('navigation', { name: 'Task filters' })
+    .getByRole('link', { name: new RegExp(`^${filter}\\b`) })
+    .click();
+}
+
+/* Calendar screen helpers. */
+export const calendarRegion = (page: Page) =>
+  page.getByRole('region', { name: 'Calendar', exact: true });
+export const eventEditor = (page: Page) =>
+  page.getByRole('region', {
+    name: /^(New event|Edit event|Edit series|Edit occurrence|Schedule study time)$/,
+  });
+/** The agenda section for one calendar day (YYYY-MM-DD). */
+export const calendarDay = (page: Page, date: string) =>
+  calendarRegion(page).locator(`section[data-date="${date}"]`);
+
+/** Sets the viewing timezone (optional), the date and the view, as an owner would. */
+export async function showCalendar(
+  page: Page,
+  options: { date?: string; view?: 'Agenda' | 'Week' | 'Day'; zone?: string },
+) {
+  const region = calendarRegion(page);
+  if (options.zone) {
+    const zone = region.getByLabel('Viewing timezone', { exact: true });
+    if (!(await zone.isVisible()))
+      await region.getByText(/^Viewing timezone:/).click();
+    await zone.fill(options.zone);
+    await region
+      .getByRole('button', { name: 'Apply timezone', exact: true })
+      .click();
+  }
+  if (options.date)
+    await region.getByLabel('Date', { exact: true }).fill(options.date);
+  if (options.view)
+    await region
+      .getByRole('navigation', { name: 'Calendar views' })
+      .getByRole('link', { name: options.view, exact: true })
+      .click();
+}
+
+/** Opens the new-event form from the calendar. */
+export async function newEvent(page: Page) {
+  await calendarRegion(page)
+    .getByRole('link', { name: 'Add event', exact: true })
+    .click();
+  await expect(eventEditor(page)).toBeVisible();
+}
+
 export async function toggleEink(page: Page) {
   const button = nav(page).getByRole('button', { name: /E-ink mode/ });
   await revealSecondary(page, button);

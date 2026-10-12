@@ -1,0 +1,26 @@
+.chip {
+  display: inline-block;
+  padding: 0 var(--space-2);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-caption);
+  line-height: 1.5rem;
+  white-space: nowrap;
+}
+.chip--attention {
+  border-color: var(--accent);
+  font-weight: var(--weight-strong);
+}
+.chip--danger {
+  border-color: var(--danger);
+  border-width: 2px;
+  color: var(--danger);
+  font-weight: var(--weight-strong);
+}
+[data-theme='eink'] .chip {
+  border-color: #000;
+  color: #000;
+  background: #fff;
+}

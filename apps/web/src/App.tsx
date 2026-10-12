@@ -1,4 +1,11 @@
-import { Suspense, useEffect, useId, useRef, useState } from 'react';
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react';
 import { notificationsSchema } from '@hub/contracts';
 import type { User } from '@hub/contracts';
 import { getJson, loadWorkspace } from './lib/api';
@@ -10,20 +17,21 @@ import { Banner } from './components/Banner';
 import { Icon } from './components/Icon';
 import type { IconName } from './components/Icon';
 import { Link } from './components/Link';
-import { PlannerBoard, PlannerPanel } from './components/PlannerBoard';
 import {
   SyncConflicts,
   SyncDetails,
   SyncIndicator,
   useTaskSync,
 } from './components/SyncStatus';
-import type { StudyDraft } from './components/CalendarWorkspace';
+import type { StudyDraft } from './lib/calendar';
 import type { WorkspaceState } from './views/ConnectionsView';
 import {
   AcademicWorkspace,
-  CalendarWorkspace,
+  CalendarView,
   ReminderWorkspace,
   SettingsView,
+  TasksView,
+  TodayView,
   preloadViews,
 } from './views/lazy';
 
@@ -68,6 +76,7 @@ function Workspace({
   const heading = useRef<HTMLHeadingElement>(null);
   const shownPath = useRef(routePath(route));
   const [studyDraft, setStudyDraft] = useState<StudyDraft | null>(null);
+  const clearStudyDraft = useCallback(() => setStudyDraft(null), []);
   const [eink, setEink] = useState(readEinkPreference);
   const [workspace, setWorkspace] = useState<WorkspaceState>({
     status: 'loading',
@@ -168,18 +177,25 @@ function Workspace({
               <p>Cached views remain available; changes to tasks are queued.</p>
             </Banner>
           )}
-          <SyncConflicts state={sync} />
-          {view === 'today' && <PlannerBoard />}
-          {view === 'tasks' && <PlannerPanel kind="tasks" />}
+          <SyncConflicts state={sync} navigate={navigate} />
           <Suspense fallback={<p role="status">Loading…</p>}>
-            {view === 'calendar' && (
-              <CalendarWorkspace studyDraft={studyDraft} />
+            {view === 'today' && <TodayView navigate={navigate} />}
+            {route.name === 'tasks' && (
+              <TasksView route={route} navigate={navigate} />
+            )}
+            {route.name === 'calendar' && (
+              <CalendarView
+                route={route}
+                navigate={navigate}
+                studyDraft={studyDraft}
+                onStudyUsed={clearStudyDraft}
+              />
             )}
             {view === 'classes' && (
               <AcademicWorkspace
                 onSchedule={(draft) => {
                   setStudyDraft(draft);
-                  navigate({ name: 'calendar' });
+                  navigate({ name: 'calendar', editor: { kind: 'new' } });
                 }}
               />
             )}

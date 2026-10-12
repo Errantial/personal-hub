@@ -1,5 +1,17 @@
 import { expect, test } from '@playwright/test';
-import { open, openSettings, toggleEink, syncState, syncNow } from './shell';
+import {
+  calendarDay,
+  open,
+  openSettings,
+  openTask,
+  showCalendar,
+  showTasks,
+  taskEditor,
+  tasksRegion,
+  toggleEink,
+  syncState,
+  syncNow,
+} from './shell';
 import { authenticate } from './auth';
 const headers = { Origin: 'http://127.0.0.1:5180' };
 const feed = (title: string, date = '20270301T170000Z') =>
@@ -88,20 +100,25 @@ test('Canvas planning creates editable tasks and study blocks, retaining provena
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
-  await open(page, 'Today');
-  const tasks = page.getByRole('region', { name: 'Tasks', exact: true });
-  const task = tasks.locator('li').filter({
+  await open(page, 'Tasks');
+  const tasks = tasksRegion(page);
+  const task = tasks.getByRole('listitem').filter({
     has: page.getByText('Canvas planned browser task', { exact: true }),
   });
-  await expect(task).toContainText('Due 2027-04-16');
-  await task.getByText('Canvas source', { exact: true }).click();
-  await expect(task).toContainText('calendar-file');
+  await expect(task).toContainText('Due Fri, Apr 16, 2027');
+  await expect(task.getByText('Canvas', { exact: true })).toBeVisible();
+  await openTask(page, 'Canvas planned browser task');
+  const editor = taskEditor(page);
+  await editor.getByText('Canvas source', { exact: true }).click();
+  await expect(editor).toContainText('calendar-file');
+  await open(page, 'Tasks');
   await context.setOffline(true);
   await task
     .getByRole('checkbox', { name: 'Complete Canvas planned browser task' })
-    .check();
+    .click();
+  await expect(task).toHaveCount(0);
+  await showTasks(page, 'Done');
   await expect(task.getByRole('checkbox')).toBeChecked();
-  await expect(task).toContainText('calendar-file');
   await context.setOffline(false);
   await syncNow(page);
   await expect
@@ -114,21 +131,16 @@ test('Canvas planning creates editable tasks and study blocks, retaining provena
     })
     .toBe(true);
   await importFeed('Planning final browser deadline');
-  await tasks.getByRole('button', { name: 'Reload list', exact: true }).click();
-  await expect(task.getByRole('checkbox')).toBeChecked();
-  await expect(task).toContainText('Due 2027-04-16');
-  await expect(task).toContainText('Canvas source · Changed');
-  await open(page, 'Calendar');
-  await page.getByLabel('Viewing timezone', { exact: true }).fill('UTC');
-  await page
-    .getByRole('button', { name: 'Apply timezone', exact: true })
+  await tasks
+    .getByRole('button', { name: 'Reload tasks', exact: true })
     .click();
-  await page.getByLabel('Calendar date', { exact: true }).fill('2027-04-14');
-  await page.getByRole('button', { name: 'Day view', exact: true }).click();
-  const agenda = page.getByRole('region', {
-    name: 'Agenda 2027-04-14',
-    exact: true,
-  });
+  await expect(task.getByRole('checkbox')).toBeChecked();
+  await expect(task).toContainText('Due Fri, Apr 16, 2027');
+  await openTask(page, 'Canvas planned browser task');
+  await expect(taskEditor(page)).toContainText('Canvas source · Changed');
+  await open(page, 'Calendar');
+  await showCalendar(page, { zone: 'UTC', date: '2027-04-14', view: 'Day' });
+  const agenda = calendarDay(page, '2027-04-14');
   const study = agenda.locator('article').filter({
     has: page.getByText('Canvas planned browser study', { exact: true }),
   });
@@ -216,23 +228,12 @@ test('Canvas class links survive refreshes and appear as read-only entries in po
   ).toBeVisible();
   await page.setViewportSize({ width: 320, height: 900 });
   await open(page, 'Calendar');
-  const calendarView = page.getByRole('region', { name: 'Calendar workspace' });
-  await calendarView
-    .getByLabel('Viewing timezone', { exact: true })
-    .fill('America/Denver');
-  await calendarView
-    .getByRole('button', { name: 'Apply timezone', exact: true })
-    .click();
-  await calendarView
-    .getByLabel('Calendar date', { exact: true })
-    .fill('2027-03-20');
-  await calendarView
-    .getByRole('button', { name: 'Day view', exact: true })
-    .click();
-  const agenda = page.getByRole('region', {
-    name: 'Agenda 2027-03-20',
-    exact: true,
+  await showCalendar(page, {
+    zone: 'America/Denver',
+    date: '2027-03-20',
+    view: 'Day',
   });
+  const agenda = calendarDay(page, '2027-03-20');
   const point = agenda.getByRole('article', {
     name: 'Canvas entry Canvas refreshed deadline',
     exact: true,
@@ -258,18 +259,11 @@ test('Canvas class links survive refreshes and appear as read-only entries in po
     portfolio.getByText('Canvas refreshed deadline', { exact: true }),
   ).toBeVisible();
   await open(page, 'Calendar');
-  await calendarView
-    .getByLabel('Viewing timezone', { exact: true })
-    .fill('America/Denver');
-  await calendarView
-    .getByRole('button', { name: 'Apply timezone', exact: true })
-    .click();
-  await calendarView
-    .getByLabel('Calendar date', { exact: true })
-    .fill('2027-03-20');
-  await calendarView
-    .getByRole('button', { name: 'Day view', exact: true })
-    .click();
+  await showCalendar(page, {
+    zone: 'America/Denver',
+    date: '2027-03-20',
+    view: 'Day',
+  });
   await expect(point).toBeVisible();
   await context.setOffline(false);
 });

@@ -1,0 +1,34 @@
+.today-view {
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
+}
+.today-view .panel {
+  padding: var(--space-4);
+}
+.today-list {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-3) 0;
+}
+.today-list > li {
+  padding: var(--space-3) 0;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  overflow-wrap: anywhere;
+}
+.today-list strong,
+.today-list small {
+  display: block;
+}
+.today-list small {
+  color: var(--text-muted);
+}
+.today-view .panel > a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target);
+  margin-right: var(--space-4);
+}
+.today-view .canvas-agenda-entry {
+  margin: 0;
+}

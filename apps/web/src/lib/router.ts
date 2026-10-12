@@ -19,9 +19,38 @@ export const settingsSections = [
   'ai',
 ] as const;
 export type SettingsSection = (typeof settingsSections)[number];
+export const taskFilters = [
+  'open',
+  'due-soon',
+  'overdue',
+  'no-date',
+  'done',
+] as const;
+export type TaskFilter = (typeof taskFilters)[number];
+export const taskFilterLabels: Record<TaskFilter, string> = {
+  open: 'Open',
+  'due-soon': 'Due soon',
+  overdue: 'Overdue',
+  'no-date': 'No date',
+  done: 'Done',
+};
+export const calendarViews = ['agenda', 'week', 'day'] as const;
+export type CalendarView = (typeof calendarViews)[number];
+/** What the calendar editor is open on: a new event, a whole event/series,
+ *  or one occurrence of a repeating event (by its original date). */
+export type CalendarEditorRoute =
+  | { kind: 'new' }
+  | { kind: 'event'; id: string }
+  | { kind: 'occurrence'; id: string; date: string };
 export type Route =
-  | { name: Exclude<View, 'calendar' | 'settings'> }
-  | { name: 'calendar'; date?: string; view?: 'day' | 'week' }
+  | { name: Exclude<View, 'calendar' | 'settings' | 'tasks'> }
+  | { name: 'tasks'; id?: string; filter?: TaskFilter }
+  | {
+      name: 'calendar';
+      date?: string;
+      view?: CalendarView;
+      editor?: CalendarEditorRoute;
+    }
   | { name: 'settings'; section: SettingsSection };
 
 export const viewLabels: Record<View, string> = {
@@ -57,8 +86,13 @@ function isDate(value: string | null): value is string {
   return date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
+const isTaskFilter = (value: string | null): value is TaskFilter =>
+  (taskFilters as readonly (string | null)[]).includes(value);
+
 export function parseRoute(pathname: string, search: string): Route {
-  const [segment = '', detail = ''] = pathname
+  const [segment = '', detail = '', extra = '', occurrence = ''] = pathname
     .replace(/^\/+|\/+$/g, '')
     .split('/');
   const alias = aliases[segment];
@@ -73,25 +107,56 @@ export function parseRoute(pathname: string, search: string): Route {
         ? (detail as SettingsSection)
         : 'account',
     };
-  if (name !== 'calendar') return { name };
   const query = new URLSearchParams(search);
+  if (name === 'tasks') {
+    const filter = query.get('filter');
+    return {
+      name,
+      ...(isUuid(detail) ? { id: detail } : {}),
+      ...(isTaskFilter(filter) ? { filter } : {}),
+    };
+  }
+  if (name !== 'calendar') return { name };
   const date = query.get('date');
   const view = query.get('view');
+  const editor: CalendarEditorRoute | null =
+    detail === 'new'
+      ? { kind: 'new' }
+      : isUuid(detail)
+        ? extra === 'occurrence' && isDate(occurrence)
+          ? { kind: 'occurrence', id: detail, date: occurrence }
+          : { kind: 'event', id: detail }
+        : null;
   return {
     name,
     ...(isDate(date) ? { date } : {}),
-    ...(view === 'day' || view === 'week' ? { view } : {}),
+    ...((calendarViews as readonly (string | null)[]).includes(view)
+      ? { view: view as CalendarView }
+      : {}),
+    ...(editor ? { editor } : {}),
   };
 }
 
 export function routePath(route: Route): string {
   if (route.name === 'settings') return `/settings/${route.section}`;
+  if (route.name === 'tasks')
+    return `/tasks${route.id ? `/${route.id}` : ''}${
+      route.filter && route.filter !== 'open' ? `?filter=${route.filter}` : ''
+    }`;
   if (route.name !== 'calendar') return `/${route.name}`;
   const query = new URLSearchParams();
   if (route.date) query.set('date', route.date);
-  if (route.view) query.set('view', route.view);
+  if (route.view && route.view !== 'agenda') query.set('view', route.view);
   const search = query.toString();
-  return `/calendar${search ? `?${search}` : ''}`;
+  const editor = route.editor;
+  const detail = !editor
+    ? ''
+    : editor.kind === 'new'
+      ? '/new'
+      : editor.kind === 'event'
+        ? `/${editor.id}`
+        : `/${editor.id}/occurrence/${editor.date}`;
+  return `/calendar${detail}${search ? `?${search}` : ''}`;
 }
 
 export const routeTitle = (route: Route) =>

@@ -1,7 +1,16 @@
 import { expect, test } from '@playwright/test';
 import {
+  addTask,
+  calendarRegion,
+  eventEditor,
+  newEvent,
   open,
   openSettings,
+  openTask,
+  showCalendar,
+  showTasks,
+  taskEditor,
+  tasksRegion,
   toggleEink,
   syncState,
   signOut,
@@ -100,54 +109,50 @@ test('small-screen navigation and content fit without horizontal overflow', asyn
 test('tasks survive reload, support edits/completion/deletion, and carry owner labels', async ({
   page,
 }) => {
-  await page.goto('/');
-  const panel = page.getByRole('region', { name: 'Tasks' });
-  await panel.getByLabel('Task title').fill('Browser planner task');
-  await panel.getByLabel('Due date').fill('2026-11-05');
-  await panel.getByLabel('Content label').selectOption('personal');
-  await panel.getByRole('button', { name: 'Add task', exact: true }).click();
-  await expect(
-    panel.getByText('Browser planner task', { exact: true }),
-  ).toBeVisible();
+  await page.goto('/tasks');
+  const panel = tasksRegion(page);
+  await addTask(page, 'Browser planner task', '2026-11-05');
   await page.reload();
   await expect(
     panel.getByText('Browser planner task', { exact: true }),
   ).toBeVisible();
-  await panel
-    .getByRole('button', { name: 'Edit Browser planner task', exact: true })
-    .click();
-  await panel.getByLabel('Task title').fill('Edited browser task');
-  await panel.getByRole('button', { name: 'Save changes' }).click();
-  await panel
-    .getByRole('checkbox', { name: 'Complete Edited browser task' })
-    .check();
+  await openTask(page, 'Browser planner task');
+  const editor = taskEditor(page);
+  await editor.getByLabel('Title', { exact: true }).fill('Edited browser task');
+  await editor
+    .getByRole('combobox', { name: 'Content label' })
+    .selectOption('personal');
+  await editor.getByRole('button', { name: 'Save changes' }).click();
+  await expect(editor.getByRole('status')).toHaveText('Saved.');
+  const row = panel.getByRole('listitem').filter({
+    has: page.getByRole('checkbox', {
+      name: 'Complete Edited browser task',
+      exact: true,
+    }),
+  });
+  await expect(row.getByText('Personal', { exact: true })).toBeVisible();
+  await expect(row).toContainText('Due Thu, Nov 5, 2026');
+  // Completing moves the task from Open to Done.
+  await row.getByRole('checkbox').click();
+  await expect(row).toHaveCount(0);
+  await showTasks(page, 'Done');
+  await expect(row.getByRole('checkbox')).toBeChecked();
+  await openTask(page, 'Edited browser task');
+  await taskEditor(page).getByRole('button', { name: 'Delete task' }).click();
   await expect(
-    panel.getByRole('checkbox', { name: 'Complete Edited browser task' }),
-  ).toBeChecked();
-  await expect(
-    panel
-      .getByRole('listitem')
-      .filter({
-        has: page.getByRole('checkbox', {
-          name: 'Complete Edited browser task',
-          exact: true,
-        }),
-      })
-      .getByText('personal', { exact: true }),
+    panel.getByText('Deleted “Edited browser task”.', { exact: true }),
   ).toBeVisible();
-  await panel
-    .getByRole('button', { name: 'Delete Edited browser task' })
-    .click();
   await expect(
-    panel.getByText('Edited browser task', { exact: true }),
+    panel.getByRole('link', { name: 'Edited browser task' }),
   ).toHaveCount(0);
 });
 
 test('a lost save response can be retried without creating a duplicate', async ({
   page,
 }) => {
-  await page.goto('/');
-  const panel = page.getByRole('region', { name: 'Tasks' });
+  await page.goto('/tasks');
+  const panel = tasksRegion(page);
+  await panel.getByRole('button', { name: 'Add task', exact: true }).click();
   await panel.getByLabel('Task title').fill('Lost response task');
   let interrupted = false;
   await page.route('**/api/v1/tasks', async (route) => {
@@ -158,7 +163,7 @@ test('a lost save response can be retried without creating a duplicate', async (
       await route.abort();
     } else await route.continue();
   });
-  await panel.getByRole('button', { name: 'Add task', exact: true }).click();
+  await panel.getByRole('button', { name: 'Save task', exact: true }).click();
   // A lost response is saved to the durable queue and retried with the same ID.
   await expect(
     panel.getByText('Lost response task', { exact: true }),
@@ -174,34 +179,44 @@ test('a lost save response can be retried without creating a duplicate', async (
 test('events reject reversed times and persist valid times with their display timezone', async ({
   page,
 }) => {
-  await page.goto('/');
-  const panel = page.getByRole('region', { name: 'Events' });
-  await panel.getByLabel('Event title').fill('Browser study time');
-  await panel.getByLabel('Starts', { exact: true }).fill('2026-11-05T10:00');
-  await panel.getByLabel('Ends', { exact: true }).fill('2026-11-05T09:00');
-  await panel.getByLabel('Display timezone').fill('America/Denver');
-  await panel.getByRole('button', { name: 'Add event', exact: true }).click();
-  await expect(panel.getByRole('alert')).toContainText(
-    'Check the entered values',
-  );
-  await panel.getByLabel('Ends', { exact: true }).fill('2026-11-05T11:00');
-  await panel.getByRole('button', { name: 'Add event', exact: true }).click();
+  await page.goto('/calendar');
+  await showCalendar(page, { date: '2026-11-05' });
+  await newEvent(page);
+  const editor = eventEditor(page);
+  await editor.getByLabel('Title', { exact: true }).fill('Browser study time');
+  await editor.getByLabel('Starts', { exact: true }).fill('2026-11-05T10:00');
+  await editor.getByLabel('Ends', { exact: true }).fill('2026-11-05T09:00');
+  await editor
+    .getByLabel('Event timezone', { exact: true })
+    .fill('America/Denver');
+  await editor.getByRole('button', { name: 'Save event', exact: true }).click();
   await expect(
-    panel.getByText('Browser study time', { exact: true }),
+    editor.getByText('The end must be after the start.'),
+  ).toBeVisible();
+  await expect(editor.getByLabel('Ends', { exact: true })).toBeFocused();
+  await editor.getByLabel('Ends', { exact: true }).fill('2026-11-05T11:00');
+  await editor.getByRole('button', { name: 'Save event', exact: true }).click();
+  const panel = calendarRegion(page);
+  await expect(
+    panel.getByRole('link', { name: 'Browser study time', exact: true }),
   ).toBeVisible();
   await page.reload();
-  await expect(
-    panel.getByText('Browser study time', { exact: true }),
-  ).toBeVisible();
-  await expect(
-    panel.locator('li').filter({ hasText: 'Browser study time' }),
-  ).toContainText('America/Denver');
+  await showCalendar(page, { date: '2026-11-05' });
   await panel
-    .getByRole('button', { name: 'Delete Browser study time' })
+    .getByRole('link', { name: 'Browser study time', exact: true })
     .click();
   await expect(
-    panel.getByText('Browser study time', { exact: true }),
+    eventEditor(page).getByLabel('Event timezone', { exact: true }),
+  ).toHaveValue('America/Denver');
+  await eventEditor(page)
+    .getByRole('button', { name: 'Delete event', exact: true })
+    .click();
+  await expect(
+    panel.getByRole('link', { name: 'Browser study time', exact: true }),
   ).toHaveCount(0);
+  await expect(
+    panel.getByText('Deleted “Browser study time”.', { exact: true }),
+  ).toBeVisible();
 });
 
 test('sign-out removes access and login restores the workspace', async ({
@@ -219,7 +234,7 @@ test('sign-out removes access and login restores the workspace', async ({
   await expectConnected(page);
 });
 
-test('a conflict preserves the draft and reload enables a deliberate retry', async ({
+test('a conflict preserves the draft and loading the latest version enables a deliberate retry', async ({
   page,
 }) => {
   const origin = 'http://127.0.0.1:5180';
@@ -230,12 +245,11 @@ test('a conflict preserves the draft and reload enables a deliberate retry', asy
   const item = (
     (await created.json()) as { task: { id: string; version: number } }
   ).task;
-  await page.goto('/');
-  const panel = page.getByRole('region', { name: 'Tasks' });
-  await panel
-    .getByRole('button', { name: 'Edit Conflict original', exact: true })
-    .click();
-  await panel.getByLabel('Task title').fill('Preserved draft');
+  await page.goto('/tasks');
+  await openTask(page, 'Conflict original');
+  const panel = tasksRegion(page);
+  const editor = taskEditor(page);
+  await editor.getByLabel('Title', { exact: true }).fill('Preserved draft');
   const elsewhere = await page.request.put(`/api/v1/tasks/${item.id}`, {
     headers: { Origin: origin },
     data: {
@@ -245,19 +259,28 @@ test('a conflict preserves the draft and reload enables a deliberate retry', asy
     },
   });
   expect(elsewhere.status()).toBe(200);
-  await panel.getByRole('button', { name: 'Save changes' }).click();
-  await expect(panel.getByRole('alert')).toContainText('changed elsewhere');
-  await expect(panel.getByLabel('Task title')).toHaveValue('Preserved draft');
-  await panel.getByRole('button', { name: 'Reload list' }).click();
+  await editor.getByRole('button', { name: 'Save changes' }).click();
+  await expect(editor.getByRole('alert')).toContainText('Changed elsewhere');
+  await expect(editor.getByLabel('Title', { exact: true })).toHaveValue(
+    'Preserved draft',
+  );
+  // Save stays disabled until the owner deliberately loads the latest version.
   await expect(
-    panel.getByText('Changed elsewhere', { exact: true }),
-  ).toBeVisible();
-  await expect(panel.getByLabel('Task title')).toHaveValue('Preserved draft');
-  await panel.getByRole('button', { name: 'Save changes' }).click();
+    editor.getByRole('button', { name: 'Save changes' }),
+  ).toBeDisabled();
+  await editor.getByRole('button', { name: 'Load latest version' }).click();
   await expect(
-    panel.getByText('Preserved draft', { exact: true }),
+    panel.getByRole('link', { name: 'Changed elsewhere', exact: true }),
   ).toBeVisible();
-  await expect(panel.getByRole('alert')).toHaveCount(0);
+  await expect(editor.getByText('Latest: Changed elsewhere')).toBeVisible();
+  await expect(editor.getByLabel('Title', { exact: true })).toHaveValue(
+    'Preserved draft',
+  );
+  await editor.getByRole('button', { name: 'Save changes' }).click();
+  await expect(
+    panel.getByRole('link', { name: 'Preserved draft', exact: true }),
+  ).toBeVisible();
+  await expect(editor.getByRole('alert')).toHaveCount(0);
 });
 
 test('views have URLs that survive reload and browser Back/Forward', async ({

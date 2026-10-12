@@ -1,5 +1,15 @@
 import { expect, test } from '@playwright/test';
-import { open, syncNow, syncState, signOut } from './shell';
+import {
+  addTask,
+  open,
+  openTask,
+  showTasks,
+  syncNow,
+  syncState,
+  signOut,
+  taskEditor,
+  tasksRegion,
+} from './shell';
 import { authenticate } from './auth';
 test.beforeEach(async ({ page }) => {
   await authenticate(page);
@@ -16,10 +26,7 @@ test('two tabs share the durable queue and synchronize each creation once', asyn
     [page, 'Offline tab one'],
     [other, 'Offline tab two'],
   ] as const) {
-    const panel = tab.getByRole('region', { name: 'Tasks' });
-    await panel.getByLabel('Task title').fill(title);
-    await panel.getByRole('button', { name: 'Add task', exact: true }).click();
-    await expect(panel.getByText(title, { exact: true })).toBeVisible();
+    await addTask(tab, title);
   }
   await context.setOffline(false);
   await Promise.all([page, other].map((tab) => syncNow(tab)));
@@ -43,9 +50,8 @@ test('a revoked session locks queued drafts until the same owner signs in again'
 }) => {
   await warm(page);
   await context.setOffline(true);
-  const panel = page.getByRole('region', { name: 'Tasks' });
-  await panel.getByLabel('Task title').fill('Revoked session draft');
-  await panel.getByRole('button', { name: 'Add task', exact: true }).click();
+  const panel = tasksRegion(page);
+  await addTask(page, 'Revoked session draft');
   await expect(syncState(page)).toContainText('1 queued');
   // The server-side request bypasses the page client, simulating revocation.
   await page.request.post('/api/v1/auth/logout', {
@@ -100,43 +106,128 @@ test('expired cached sessions cannot reopen private views offline', async ({
   ).toBeVisible();
 });
 async function warm(page: import('@playwright/test').Page) {
-  await page.goto('/');
+  await page.goto('/tasks');
   await expect(
-    page
-      .getByRole('region', { name: 'Tasks' })
-      .getByRole('button', { name: 'Add task', exact: true }),
+    tasksRegion(page).getByRole('button', { name: 'Add task', exact: true }),
   ).toBeEnabled();
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
   });
   await page.reload();
   await expect(
-    page
-      .getByRole('region', { name: 'Tasks' })
-      .getByRole('button', { name: 'Add task', exact: true }),
+    tasksRegion(page).getByRole('button', { name: 'Add task', exact: true }),
+  ).toBeEnabled();
+  // The list must finish loading (and be cached) before going offline.
+  await expect(
+    tasksRegion(page).getByRole('button', { name: 'Reload tasks' }),
   ).toBeEnabled();
 }
+test('academic source relabeling retains an offline task draft and inherited labels', async ({
+  page,
+  context,
+}) => {
+  const headers = { Origin: 'http://127.0.0.1:5180' };
+  const courseReply = await page.request.post('/api/v1/courses', {
+    headers,
+    data: { name: 'Offline academic class', operationId: crypto.randomUUID() },
+  });
+  expect(courseReply.status()).toBe(200);
+  const course = (await courseReply.json()).course;
+  const workReply = await page.request.post('/api/v1/academic-work', {
+    headers,
+    data: {
+      courseId: course.id,
+      title: 'Offline academic source',
+      operationId: crypto.randomUUID(),
+    },
+  });
+  expect(workReply.status()).toBe(200);
+  const work = (await workReply.json()).work;
+  const planned = await page.request.post(
+    `/api/v1/academic-work/${work.id}/planner-work`,
+    {
+      headers,
+      data: {
+        kind: 'task',
+        expectedWorkVersion: work.version,
+        expectedCourseVersion: course.version,
+        operationId: crypto.randomUUID(),
+        task: { title: 'Academic offline task' },
+      },
+    },
+  );
+  expect(planned.status()).toBe(200);
+  const task = (await planned.json()).task;
+  await warm(page);
+  await context.setOffline(true);
+  await openTask(page, 'Academic offline task');
+  const editor = taskEditor(page);
+  await editor
+    .getByLabel('Title', { exact: true })
+    .fill('Academic retained draft');
+  await editor
+    .getByLabel('Notes (optional)', { exact: true })
+    .fill('Academic local notes');
+  await editor.getByRole('button', { name: 'Save changes' }).click();
+  await expect(syncState(page)).toContainText('1 queued');
+  await page.route('**/api/v1/tasks/*', (route) => route.abort());
+  await context.setOffline(false);
+  const relabeled = await page.request.put(`/api/v1/academic-work/${work.id}`, {
+    headers,
+    data: {
+      courseId: course.id,
+      title: work.title,
+      status: work.status,
+      grade: null,
+      sensitivity: 'restricted',
+      expectedVersion: work.version,
+      operationId: crypto.randomUUID(),
+    },
+  });
+  expect(relabeled.status()).toBe(200);
+  await page.unroute('**/api/v1/tasks/*');
+  await syncNow(page);
+  const conflicts = page.getByRole('alert', { name: 'Task conflicts' });
+  await expect(conflicts).toContainText('Academic retained draft');
+  await page.reload();
+  await expect(conflicts).toContainText('Academic retained draft');
+  await conflicts.getByText('Local draft', { exact: true }).click();
+  await expect(
+    conflicts.getByText('Academic local notes', { exact: true }),
+  ).toBeVisible();
+  const current = await page.request.get(`/api/v1/tasks/${task.id}`);
+  expect(current.status()).toBe(200);
+  expect((await current.json()).task).toMatchObject({
+    title: 'Academic offline task',
+    completed: false,
+    version: task.version + 1,
+    sensitivity: 'restricted',
+    academicSource: { workId: work.id, labels: ['restricted'] },
+  });
+});
 test('offline create, edit, completion and delete survive reload and reconcile once', async ({
   page,
   context,
 }) => {
   await warm(page);
-  const panel = page.getByRole('region', { name: 'Tasks' });
+  const panel = tasksRegion(page);
   const sync = syncState(page);
   await context.setOffline(true);
-  await panel.getByLabel('Task title').fill('Offline task');
-  await panel.getByRole('button', { name: 'Add task', exact: true }).click();
-  await expect(panel.getByText('Offline task', { exact: true })).toBeVisible();
-  await panel
-    .getByRole('button', { name: 'Edit Offline task', exact: true })
-    .click();
-  await panel.getByLabel('Task title').fill('Offline revised');
-  await panel.getByRole('button', { name: 'Save changes' }).click();
+  await addTask(page, 'Offline task');
+  await openTask(page, 'Offline task');
+  await taskEditor(page)
+    .getByLabel('Title', { exact: true })
+    .fill('Offline revised');
+  await taskEditor(page).getByRole('button', { name: 'Save changes' }).click();
+  await expect(taskEditor(page).getByRole('status')).toHaveText(
+    'Changes queued for sync.',
+  );
   await panel
     .getByRole('checkbox', { name: 'Complete Offline revised', exact: true })
-    .check();
+    .click();
   await expect(sync).toContainText('Offline · 3 queued');
   await page.reload();
+  await showTasks(page, 'Done');
   await expect(
     panel.getByRole('checkbox', {
       name: 'Complete Offline revised',
@@ -144,11 +235,19 @@ test('offline create, edit, completion and delete survive reload and reconcile o
     }),
   ).toBeChecked();
   await expect(sync).toContainText('Offline · 3 queued');
-  await panel.getByLabel('Task title').fill('Offline deleted');
-  await panel.getByRole('button', { name: 'Add task', exact: true }).click();
-  await panel
-    .getByRole('button', { name: 'Delete Offline deleted', exact: true })
-    .click();
+  await showTasks(page, 'Open');
+  await addTask(page, 'Offline deleted');
+  await openTask(page, 'Offline deleted');
+  await taskEditor(page).getByRole('button', { name: 'Delete task' }).click();
+  // Offline deletions cannot be undone until they sync, so they are confirmed.
+  const confirm = page.getByRole('dialog', {
+    name: 'Delete task “Offline deleted”?',
+  });
+  await confirm.getByRole('button', { name: 'Delete task' }).click();
+  await expect(
+    panel.getByText('Deletion of “Offline deleted” queued for sync.'),
+  ).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Undo' })).toHaveCount(0);
   await expect(sync).toContainText('Offline · 5 queued');
   await signOut(page);
   await expect(
@@ -170,7 +269,8 @@ test('offline create, edit, completion and delete survive reload and reconcile o
   ]);
   expect(tasks.some((item) => item.title === 'Offline deleted')).toBe(false);
   await page.reload();
-  await open(page, 'Today');
+  await open(page, 'Tasks');
+  await showTasks(page, 'Done');
   await expect(
     panel.getByRole('checkbox', {
       name: 'Complete Offline revised',
@@ -183,24 +283,22 @@ test('offline conflicts retain local drafts until explicitly discarded', async (
   context,
 }) => {
   await warm(page);
-  const panel = page.getByRole('region', { name: 'Tasks' });
-  await panel.getByLabel('Task title').fill('Offline conflict');
-  await panel.getByRole('button', { name: 'Add task', exact: true }).click();
-  await expect(
-    panel.getByText('Offline conflict', { exact: true }),
-  ).toBeVisible();
+  await addTask(page, 'Offline conflict');
   const task = (
     await (await page.request.get('/api/v1/tasks')).json()
   ).tasks.find(
     (item: { title: string }) => item.title === 'Offline conflict',
   ) as { id: string; version: number };
   await context.setOffline(true);
-  await panel
-    .getByRole('button', { name: 'Edit Offline conflict', exact: true })
-    .click();
-  await panel.getByLabel('Task title').fill('Retained offline draft');
-  await panel.getByLabel('Notes', { exact: true }).fill('Local conflict notes');
-  await panel.getByRole('button', { name: 'Save changes' }).click();
+  await openTask(page, 'Offline conflict');
+  const editor = taskEditor(page);
+  await editor
+    .getByLabel('Title', { exact: true })
+    .fill('Retained offline draft');
+  await editor
+    .getByLabel('Notes (optional)', { exact: true })
+    .fill('Local conflict notes');
+  await editor.getByRole('button', { name: 'Save changes' }).click();
   // Pause automatic replay while another device changes the server record.
   await page.route('**/api/v1/tasks/*', (route) => route.abort());
   await context.setOffline(false);
@@ -220,6 +318,13 @@ test('offline conflicts retain local drafts until explicitly discarded', async (
     'Task conflict: Retained offline draft',
   );
   await expect(syncState(page)).toContainText('Conflict · 1');
+  // The editor refuses edits while a queued change conflicts.
+  await expect(editor.getByRole('alert').first()).toContainText(
+    'sync conflict',
+  );
+  await expect(
+    editor.getByRole('button', { name: 'Save changes' }),
+  ).toBeDisabled();
   await page.reload();
   await expect(conflicts).toContainText(
     'Task conflict: Retained offline draft',
@@ -227,6 +332,9 @@ test('offline conflicts retain local drafts until explicitly discarded', async (
   await conflicts.getByText('Local draft', { exact: true }).click();
   await expect(
     conflicts.getByText('Local conflict notes', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    conflicts.getByRole('link', { name: 'Open task' }),
   ).toBeVisible();
   await conflicts
     .getByRole('button', { name: 'Discard local changes' })
@@ -245,7 +353,9 @@ test('offline conflicts retain local drafts until explicitly discarded', async (
   await expect(syncState(page)).toContainText('All saved');
   await expect(conflicts).toHaveCount(0);
   await expect(
-    panel.getByText('Remote newer task', { exact: true }),
+    page
+      .getByRole('region', { name: 'Tasks', exact: true })
+      .getByRole('link', { name: 'Remote newer task', exact: true }),
   ).toBeVisible();
 });
 test('sign-out clears private cached data and Help is available by keyboard', async ({
