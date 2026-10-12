@@ -11,19 +11,29 @@ import {
 import type { FastifyInstance } from 'fastify';
 import type { Database, QueryExecutor } from '../db/database.js';
 import type { authService } from '../auth/routes.js';
-import { mutate } from '../planner/mutations.js';
+import { mutateSchedule as mutate } from '../planner/mutations.js';
+import { lockSchedule } from '../planner/schedule-lock.js';
 import { active, stamp, version } from './common.js';
 import { readEvent, readExceptions, occurrenceExists } from './calendar.js';
 import { expandEvent, Temporal } from '@hub/contracts';
 import { ApiError } from '../errors.js';
 
-export const reminderColumns = `id,title,${stamp('scheduled_at', 'scheduledAt')},target_kind AS "targetKind",target_id AS "targetId",to_char(occurrence_date,'YYYY-MM-DD') AS "occurrenceDate",status,attempts,last_error AS "lastError",version,${stamp('created_at', 'createdAt')},${stamp('updated_at', 'updatedAt')}`;
+export const reminderColumns = `id,title,snoozed_from_id AS "snoozedFromId",${stamp('scheduled_at', 'scheduledAt')},target_kind AS "targetKind",target_id AS "targetId",to_char(occurrence_date,'YYYY-MM-DD') AS "occurrenceDate",status,attempts,last_error AS "lastError",version,${stamp('created_at', 'createdAt')},${stamp('updated_at', 'updatedAt')}`;
 export const notificationColumns = `id,reminder_id AS "reminderId",title,${stamp('created_at', 'createdAt')},${stamp('read_at', 'readAt')}`;
-async function targetAvailable(
+export async function targetAvailable(
   tx: QueryExecutor,
   job: Record<string, unknown>,
 ): Promise<boolean> {
   if (!job.target_kind) return true;
+  if (job.target_kind === 'academic-work') {
+    const [work] = await tx.query(
+      `SELECT w.id FROM academic_work w JOIN courses c ON c.id=w.course_id AND c.owner_id=w.owner_id
+       WHERE w.id=$1 AND w.owner_id=$2 AND w.deleted_at IS NULL AND c.deleted_at IS NULL AND w.status IN ('planned','in_progress')`,
+      [job.target_id, job.owner_id],
+    );
+    return Boolean(work);
+  }
+  if (!['task', 'event'].includes(String(job.target_kind))) return false;
   const table = job.target_kind === 'task' ? 'tasks' : 'events';
   const [target] = await tx.query(
     `SELECT * FROM ${table} WHERE id=$1 AND owner_id=$2 AND deleted_at IS NULL`,
@@ -109,6 +119,7 @@ export async function runReminderBatch(
     try {
       await beforeDelivery?.();
       await database.transaction(async (tx) => {
+        await lockSchedule(tx, job.owner_id);
         const [current] = await tx.query(
           "SELECT * FROM reminders WHERE id=$1 AND lease_token=$2 AND status='running' FOR UPDATE",
           [job.id, token],
@@ -233,12 +244,37 @@ export function registerReminders(
                 );
             }
             if (input.targetId && input.targetKind) {
-              await active(
-                tx,
-                input.targetKind === 'task' ? 'tasks' : 'events',
-                user.id,
-                input.targetId,
-              );
+              if (input.targetKind === 'academic-work') {
+                const [work] = await tx.query(
+                  'SELECT id FROM academic_work WHERE owner_id=$1 AND id=$2',
+                  [user.id, input.targetId],
+                );
+                if (!work)
+                  throw new ApiError(
+                    404,
+                    'NOT_FOUND',
+                    'Academic work not available.',
+                  );
+                if (
+                  !(await targetAvailable(tx, {
+                    owner_id: user.id,
+                    target_kind: input.targetKind,
+                    target_id: input.targetId,
+                  }))
+                )
+                  throw new ApiError(
+                    409,
+                    'TARGET_UNAVAILABLE',
+                    'The academic work is closed, deleted or its class is archived.',
+                  );
+              } else {
+                await active(
+                  tx,
+                  input.targetKind === 'task' ? 'tasks' : 'events',
+                  user.id,
+                  input.targetId,
+                );
+              }
               if (
                 input.occurrenceDate &&
                 !occurrenceExists(
@@ -301,6 +337,16 @@ export function registerReminders(
             409,
             'REMINDER_STATE',
             'This control is not available for the current status.',
+          );
+        if (
+          row.target_kind === 'academic-work' &&
+          ['resume', 'retry'].includes(input.action) &&
+          !(await targetAvailable(tx, row))
+        )
+          throw new ApiError(
+            409,
+            'TARGET_UNAVAILABLE',
+            'The academic work is closed, deleted or its class is archived.',
           );
         const status =
           input.action === 'pause'

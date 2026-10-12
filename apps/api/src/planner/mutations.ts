@@ -1,6 +1,28 @@
 import { createHash } from 'node:crypto';
 import type { Database, QueryExecutor } from '../db/database.js';
 import { ApiError } from '../errors.js';
+import { lockSchedule } from './schedule-lock.js';
+
+export function mutateSchedule<T>(
+  database: Database,
+  owner: string,
+  operationId: string,
+  payload: unknown,
+  work: (tx: QueryExecutor) => Promise<T>,
+  options: { isolation?: 'repeatable read' } = {},
+) {
+  return mutate(
+    database,
+    owner,
+    operationId,
+    payload,
+    async (tx) => {
+      await lockSchedule(tx, owner);
+      return work(tx);
+    },
+    options,
+  );
+}
 
 export async function mutate<T>(
   database: Database,
@@ -39,6 +61,14 @@ export async function mutate<T>(
           );
         return receipt.result;
       }
+      if (
+        payload &&
+        typeof payload === 'object' &&
+        'kind' in payload &&
+        typeof payload.kind === 'string' &&
+        (payload.kind.startsWith('event.') || payload.kind.startsWith('task.'))
+      )
+        await lockSchedule(transaction, ownerId);
       const result = await work(transaction);
       await transaction.query(
         'UPDATE mutation_receipts SET result = $3::jsonb WHERE owner_id = $1 AND operation_id = $2',

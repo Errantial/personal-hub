@@ -43,4 +43,6 @@ Using OpenDots as a feature reference does not select its runtime or replace the
 
 ## Delivery order
 
+Three local backend milestones are now implemented in [responsibility contracts](responsibilities.md): owned lifecycle, UTC and local daily/weekly review schedules/explicit selected due admission, and blocked run/activity history. This is not an agent executor or background scheduler. Active enables owner requests only; placeholders never call providers/tools. Verified context/routing/permissions/budgets, leases/stop rechecks, real results/actions and UI remain pending. Editable owner memory supports explicit versioned context selection through the verified gateway; automatic retrieval and live AI remain pending.
+
 Finish authenticated planner persistence first. Introduce durable worker/job state before autonomous ongoing responsibilities; implement provider-routing and tool policies before enabling paid agent execution. Add proactive study/inbox reviews incrementally after the relevant integrations work. Android, server resources, and cost limits constrain concurrency and notification guarantees.

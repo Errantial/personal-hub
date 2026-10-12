@@ -5,6 +5,7 @@ import {
   createTaskSchema,
   updateTaskSchema,
   deleteItemSchema,
+  restoreItemSchema,
   taskResponseSchema,
   tasksResponseSchema,
   createEventSchema,
@@ -12,10 +13,16 @@ import {
   eventResponseSchema,
   eventsResponseSchema,
 } from '@hub/contracts';
-import type { Database } from '../db/database.js';
+import type { Database, QueryExecutor } from '../db/database.js';
 import type { authService } from '../auth/routes.js';
 import { missingOrConflict, mutate } from './mutations.js';
 import { ApiError } from '../errors.js';
+import { restorePlannerItem } from './restore.js';
+import {
+  academicSourceColumns,
+  academicPlannerLabels,
+} from '../features/academic-provenance.js';
+import { strongest } from '../features/common.js';
 import {
   captureCanvasSource,
   plannerSourceColumns,
@@ -23,22 +30,103 @@ import {
 
 const idSchema = z.object({ id: z.string().uuid() });
 // SQL aliases and to_char preserve date-only deadlines and normalize timestamps on both drivers.
-export const taskColumns = `${plannerSourceColumns('tasks')}, id, title, notes, to_char(due_date, 'YYYY-MM-DD') AS "dueDate", priority, completed, sensitivity, version,
+export const taskColumns = `${academicSourceColumns('tasks')}, ${plannerSourceColumns('tasks')}, id, title, notes, to_char(due_date, 'YYYY-MM-DD') AS "dueDate", priority, completed, sensitivity, version,
   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
   to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
   to_char(deleted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "deletedAt"`;
-const eventColumns = `${plannerSourceColumns('events')}, id, title, notes, time_zone AS "timeZone", sensitivity, version, all_day AS "allDay", recurrence, course_id AS "courseId",
+const eventColumns = `${academicSourceColumns('events')}, ${plannerSourceColumns('events')}, id, title, notes, time_zone AS "timeZone", sensitivity, version, all_day AS "allDay", recurrence, course_id AS "courseId",
   to_char(starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startsAt",
   to_char(ends_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "endsAt",
   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
   to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
   to_char(deleted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "deletedAt"`;
 
+export async function createTaskRecord(
+  transaction: QueryExecutor,
+  owner: string,
+  input: z.infer<typeof createTaskSchema>,
+) {
+  const id = input.clientId ?? randomUUID();
+  const source = await captureCanvasSource(
+    transaction,
+    owner,
+    input.canvasSourceRef,
+  );
+  const [task] = await transaction.query(
+    `INSERT INTO tasks (id, owner_id, title, notes, due_date, priority, completed, sensitivity,canvas_source_id,canvas_source_snapshot,canvas_assignment_id,canvas_assignment_snapshot) VALUES ($1, $2, $3, $4, $5, $6, $7, $8,$9,$10::jsonb,$11,$12::jsonb) ON CONFLICT (id) DO NOTHING RETURNING ${taskColumns}`,
+    [
+      id,
+      owner,
+      input.title,
+      input.notes,
+      input.dueDate,
+      input.priority,
+      input.completed,
+      input.sensitivity,
+      source?.inputKind !== 'assignment-api' ? (source?.itemId ?? null) : null,
+      source && source.inputKind !== 'assignment-api'
+        ? JSON.stringify(source)
+        : null,
+      source?.inputKind === 'assignment-api' ? source.itemId : null,
+      source?.inputKind === 'assignment-api' ? JSON.stringify(source) : null,
+    ],
+  );
+  if (!task)
+    throw new ApiError(
+      409,
+      'OPERATION_CONFLICT',
+      'This task identifier is already in use.',
+    );
+  return taskResponseSchema.parse({ task });
+}
 export function registerPlanner(
   app: FastifyInstance,
   database: Database,
   auth: ReturnType<typeof authService>,
 ) {
+  for (const table of ['tasks', 'events'] as const)
+    app.get(`/api/v1/${table}/:id`, async (request) => {
+      const user = await auth.requireUser(request);
+      const { id } = idSchema.parse(request.params);
+      const [row] = await database.query(
+        `SELECT ${table === 'tasks' ? taskColumns : eventColumns} FROM ${table} WHERE owner_id=$1 AND id=$2`,
+        [user.id, id],
+      );
+      if (!row)
+        throw new ApiError(
+          404,
+          'NOT_FOUND',
+          'This item is no longer available.',
+        );
+      return table === 'tasks'
+        ? taskResponseSchema.parse({ task: row })
+        : eventResponseSchema.parse({ event: row });
+    });
+  for (const table of ['tasks', 'events'] as const)
+    app.post(`/api/v1/${table}/:id/restore`, async (request) => {
+      const user = await auth.requireUser(request);
+      const { id } = idSchema.parse(request.params);
+      const input = restoreItemSchema.parse(request.body);
+      return mutate(
+        database,
+        user.id,
+        input.operationId,
+        { kind: `${table === 'tasks' ? 'task' : 'event'}.restore`, id, input },
+        async (tx) => {
+          const row = await restorePlannerItem(
+            tx,
+            table,
+            table === 'tasks' ? taskColumns : eventColumns,
+            user.id,
+            id,
+            input.expectedVersion,
+          );
+          return table === 'tasks'
+            ? taskResponseSchema.parse({ task: row })
+            : eventResponseSchema.parse({ event: row });
+        },
+      );
+    });
   app.get('/api/v1/tasks', async (request) => {
     const user = await auth.requireUser(request);
     return tasksResponseSchema.parse({
@@ -56,44 +144,7 @@ export function registerPlanner(
       user.id,
       input.operationId,
       { kind: 'task.create', input },
-      async (transaction) => {
-        const id = input.clientId ?? randomUUID();
-        const source = await captureCanvasSource(
-          transaction,
-          user.id,
-          input.canvasSourceRef,
-        );
-        const [task] = await transaction.query(
-          `INSERT INTO tasks (id, owner_id, title, notes, due_date, priority, completed, sensitivity,canvas_source_id,canvas_source_snapshot,canvas_assignment_id,canvas_assignment_snapshot) VALUES ($1, $2, $3, $4, $5, $6, $7, $8,$9,$10::jsonb,$11,$12::jsonb) ON CONFLICT (id) DO NOTHING RETURNING ${taskColumns}`,
-          [
-            id,
-            user.id,
-            input.title,
-            input.notes,
-            input.dueDate,
-            input.priority,
-            input.completed,
-            input.sensitivity,
-            source?.inputKind !== 'assignment-api'
-              ? (source?.itemId ?? null)
-              : null,
-            source && source.inputKind !== 'assignment-api'
-              ? JSON.stringify(source)
-              : null,
-            source?.inputKind === 'assignment-api' ? source.itemId : null,
-            source?.inputKind === 'assignment-api'
-              ? JSON.stringify(source)
-              : null,
-          ],
-        );
-        if (!task)
-          throw new ApiError(
-            409,
-            'OPERATION_CONFLICT',
-            'This task identifier is already in use.',
-          );
-        return taskResponseSchema.parse({ task });
-      },
+      (transaction) => createTaskRecord(transaction, user.id, input),
     );
   });
   app.put('/api/v1/tasks/:id', async (request) => {
@@ -106,6 +157,12 @@ export function registerPlanner(
       input.operationId,
       { kind: 'task.update', id, input },
       async (transaction) => {
+        const labels = await academicPlannerLabels(
+          transaction,
+          user.id,
+          'task',
+          id,
+        );
         const [task] = await transaction.query(
           `UPDATE tasks SET title = $3, notes = $4, due_date = $5, priority = $6, completed = $7, sensitivity = COALESCE($8, sensitivity), version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE owner_id = $1 AND id = $2 AND version = $9 AND deleted_at IS NULL RETURNING ${taskColumns}`,
           [
@@ -116,7 +173,9 @@ export function registerPlanner(
             input.dueDate,
             input.priority,
             input.completed,
-            input.sensitivity ?? null,
+            input.sensitivity === undefined
+              ? null
+              : strongest(input.sensitivity, ...labels),
             input.expectedVersion,
           ],
         );
@@ -189,6 +248,12 @@ export function registerPlanner(
       input.operationId,
       { kind: 'event.update', id, input },
       async (transaction) => {
+        const labels = await academicPlannerLabels(
+          transaction,
+          user.id,
+          'event',
+          id,
+        );
         const [advanced] = await transaction.query(
           'SELECT all_day,recurrence,course_id FROM events WHERE owner_id=$1 AND id=$2 AND deleted_at IS NULL FOR UPDATE',
           [user.id, id],
@@ -212,7 +277,9 @@ export function registerPlanner(
             input.startsAt,
             input.endsAt,
             input.timeZone,
-            input.sensitivity ?? null,
+            input.sensitivity === undefined
+              ? null
+              : strongest(input.sensitivity, ...labels),
             input.expectedVersion,
           ],
         );

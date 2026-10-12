@@ -493,6 +493,25 @@ it('persists planner records and delivers a queued reminder once after restartin
       payload: { title: 'Survives restart', operationId: randomUUID() },
     });
     expect(created.statusCode).toBe(200);
+    const restorePath = `/api/v1/tasks/${created.json().task.id}/restore`;
+    const restorePayload = { expectedVersion: 2, operationId: randomUUID() };
+    expect(
+      (
+        await persistentApp.inject({
+          method: 'DELETE',
+          url: `/api/v1/tasks/${created.json().task.id}`,
+          headers: headers(persistentCookie),
+          payload: { expectedVersion: 1, operationId: randomUUID() },
+        })
+      ).statusCode,
+    ).toBe(200);
+    const restored = await persistentApp.inject({
+      method: 'POST',
+      url: restorePath,
+      headers: headers(persistentCookie),
+      payload: restorePayload,
+    });
+    expect(restored.statusCode).toBe(200);
     const scheduled = await persistentApp.inject({
       method: 'POST',
       url: '/api/v1/reminders',
@@ -515,6 +534,24 @@ it('persists planner records and delivers a queued reminder once after restartin
       headers: headers(persistentCookie),
     });
     expect(list.json().tasks[0].title).toBe('Survives restart');
+    expect(list.json().tasks[0]).toMatchObject({ version: 3, deletedAt: null });
+    expect(
+      (
+        await persistentApp.inject({
+          method: 'POST',
+          url: restorePath,
+          headers: headers(persistentCookie),
+          payload: restorePayload,
+        })
+      ).json(),
+    ).toEqual(restored.json());
+    const exportAfterRestart = await persistentApp.inject({
+      url: '/api/v1/planner/export',
+      headers: headers(persistentCookie),
+    });
+    expect(exportAfterRestart.json().records.plannerRestorations).toHaveLength(
+      1,
+    );
     await expect
       .poll(
         async () => {

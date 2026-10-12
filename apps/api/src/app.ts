@@ -25,6 +25,20 @@ import { registerCanvasPlannerWork } from './connections/canvas-planner-work.js'
 import { registerAIRouting } from './features/ai-routing.js';
 import { registerAIPreflight } from './features/ai-preflight.js';
 import { registerAIBudget } from './features/ai-budget.js';
+import { registerAIProviderPolicy } from './features/ai-provider-policy.js';
+import { registerAIRequests } from './features/ai-requests.js';
+import { registerStudy } from './features/study.js';
+import { registerDeletedPlanner } from './features/deleted-planner.js';
+import { registerReminderInbox } from './features/reminder-inbox.js';
+import { registerAcademicWork } from './features/academic-work.js';
+import { registerAcademicPlanning } from './features/academic-planning.js';
+import { registerToday } from './features/today.js';
+import { registerTaskManagement } from './features/task-management.js';
+import { registerAIActions } from './features/ai-actions.js';
+import { registerEmailDrafts } from './features/email-drafts.js';
+import { registerMemory } from './features/memory.js';
+import { registerResponsibilities } from './features/responsibilities.js';
+import { registerResponsibilityInbox } from './features/responsibility-inbox.js';
 import { registerPlanner } from './planner/routes.js';
 import { ApiError } from './errors.js';
 import { registerAcademics } from './features/academics.js';
@@ -95,10 +109,24 @@ export async function buildApp(
   registerAIRouting(app, database, auth);
   registerAIPreflight(app, database, auth, config);
   registerAIBudget(app, database, auth);
+  registerAIProviderPolicy(app, database, auth, config);
+  registerAIRequests(app, database, auth, config);
+  registerAIActions(app, database, auth);
+  registerEmailDrafts(app, database, auth);
+  registerMemory(app, database, auth);
+  registerResponsibilities(app, database, auth);
+  registerResponsibilityInbox(app, database, auth);
+  registerStudy(app, database, auth);
+  registerDeletedPlanner(app, database, auth);
   registerPlanner(app, database, auth);
   registerAcademics(app, database, auth);
+  registerAcademicWork(app, database, auth);
+  registerAcademicPlanning(app, database, auth);
+  registerToday(app, database, auth);
+  registerTaskManagement(app, database, auth);
   registerCalendar(app, database, auth);
   registerReminders(app, database, auth);
+  registerReminderInbox(app, database, auth);
   if (runtime.runWorker)
     app.addHook('onReady', async () => {
       worker = startReminderWorker(database);

@@ -37,18 +37,31 @@ export const aiRoutingWriteSchema = z.strictObject({
   policy: aiRoutingPolicySchema,
   operationId: z.string().uuid(),
 });
-export const aiContextRefSchema = z.strictObject({
-  kind: z.enum([
-    'task',
-    'event',
-    'course',
-    'topic',
-    'canvas-item',
-    'canvas-assignment',
-  ]),
-  id: z.string().uuid(),
-  expectedVersion: z.number().int().positive(),
-});
+export const aiContextRefSchema = z
+  .strictObject({
+    kind: z.enum([
+      'task',
+      'event',
+      'course',
+      'topic',
+      'canvas-item',
+      'canvas-assignment',
+      'memory',
+    ]),
+    id: z.string().uuid(),
+    expectedVersion: z.number().int().positive(),
+    expectedMemorySettingsVersion: z.number().int().positive().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (
+      (value.kind === 'memory') !==
+      (value.expectedMemorySettingsVersion !== undefined)
+    )
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Supply memory settings version only for memory context.',
+      });
+  });
 export const aiRoutingPreviewSchema = z.strictObject({
   expectedPolicyVersion: z.number().int().positive(),
   text: z.string().min(1).max(12000),
@@ -58,8 +71,8 @@ export const aiRoutingPreviewSchema = z.strictObject({
     .max(20)
     .refine(
       (value) =>
-        new Set(value.map((ref) => `${ref.kind}:${ref.id}`)).size ===
-        value.length,
+        new Set(value.map((ref) => `${ref.kind}:${ref.id.toLowerCase()}`))
+          .size === value.length,
       'Use unique context sources.',
     ),
   simulatedAvailableProviders: z
@@ -94,6 +107,12 @@ export const aiRoutingPreviewResponseSchema = aiRoutingDecisionSchema.extend({
       sensitivity: sensitivitySchema,
       attachmentDerived: z.boolean(),
       labels: z.array(sensitivitySchema).min(1).max(3),
+      memorySettingsVersion: z
+        .number()
+        .int()
+        .positive()
+        .nullable()
+        .default(null),
     }),
   ),
 });

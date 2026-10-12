@@ -1,0 +1,64 @@
+# Study planning backend
+
+Implemented backend capabilities; UI integration is pending. Planning is deterministic and makes no AI/provider calls. It uses owner goals, manual topic assessments and open manual academic work, without inferring grades, submissions or mastery. Migration 023 adds settings, goals, plans and owner schedule locks. Appended migration 024 adds schedule snapshot revisions; prior migrations remain unchanged.
+
+## Contracts and workflow
+
+Shared schemas/types live in `packages/contracts/src/study.ts`. Every route requires owner authorization. Writes preserve operation IDs and current expected versions. Exact retries return historical receipts; reload current state afterward. These operations are online-only and are not task-outbox operations.
+
+| Milestone | Implemented contract | Acceptance behavior |
+| --- | --- | --- |
+| 1. Study preferences | GET/PUT `/api/v1/study/preferences` | Timezone, weekly windows, session/break duration and daily cap; overlap/invalid settings rejected; versioned retries |
+| 2. Class goals | GET `/api/v1/study/goals`, PUT `/goals/:courseId` | Weekly minutes, priority 1–5 and optional target date; owned active classes only; zero disables a goal |
+| 3. Subject priorities | GET `/api/v1/study/priorities?from=…&to=…` | Ranked classes/topics with explicit manual-assessment reasons and target/remaining minutes |
+| 4. Conflict-aware preview | POST `/api/v1/study/preview` with `{from,to}` | No writes; planner events/exceptions, all-day spans, existing study time, windows, breaks, daily cap and DST |
+| 5. Durable drafts | POST `/api/v1/study/plans`, GET list/single record | Save current preview using `expectedContextRevision`; bounded owner history and retry deduplication |
+| 6. Draft editing | PUT `/api/v1/study/plans/:id` | Replace slots with expected version/current context revision; reject invalid parents, conflicts and limits |
+| 7. Atomic approval | POST `/api/v1/study/plans/:id/approve` | Fresh context/academic checks; all blocks or none; competing drafts/retries cannot duplicate time |
+| 8. Safe cancellation | POST `/api/v1/study/plans/:id/cancel`, DELETE `/:id` | Cancel unchanged planned blocks; preserve later edited/completed/deleted records; retained hiding tombstones |
+| 9. Progress reports | GET `/api/v1/study/progress?from=…&to=…` | Separate planned/completed/cancelled/deleted minutes against owner targets |
+| 10. Deleted-item browsing | GET `/api/v1/planner/deleted?kind=task` or `kind=calendar` | Bounded owner tombstone pages with current versions for existing restore endpoints |
+
+Ranges use inclusive `from` and exclusive `to`, up to 14 dates. Preferences default to UTC, 25-minute sessions, 5-minute breaks, a 120-minute daily cap and no availability. Default class goals are zero minutes, priority 3 and no target date. No settings are saved on behalf of the owner. Initial settings/goal version is 1; first saved version is 2. Windows use ISO weekday 1–7 and minutes from midnight; end 1440 means next midnight.
+
+Priorities score owner priority × 100, plus 150 when the target is within 14 days or overdue, plus the selected topic's incomplete progress and confidence weight (low 60, unknown 40, medium 20, high 0). The weakest scored topic is selected, with stable ID ties; no topics produces an explicit reason. Targets are weekly minutes prorated and rounded up for the range. Existing planned and completed timed study minutes reduce remaining work. Suggestions fill higher-ranked subjects first with full sessions on a five-minute search grid. Residual time shorter than a session stays unscheduled. This is a simple heuristic, not an optimized or learned recommendation.
+
+Warnings remain visible: no availability/goals, insufficient time, skipped DST times, and `EXTERNAL_CALENDARS_NOT_CHECKED`. Nonexistent/repeated wall-clock times and sessions crossing a DST offset change are skipped rather than shifted. Planner recurrence and moved/cancelled exceptions use shared expansion. All-day planner spans block dates; cancelled/deleted planner items do not occupy time. Breaks separate proposed and existing active timed study blocks. Manual edits may use different durations, up to 180 minutes, while respecting windows, breaks, conflicts and the daily cap.
+
+## Academic workload signals (implemented 2026-10-11)
+
+Enabled goals also evaluate owned, undeleted `planned`/`in_progress` academic work in active classes. Submitted, cancelled, archived-class and foreign records are excluded. Zero goals stay disabled. Each priority includes `academicWork`: open/overdue/due-soon counts, earliest known deadline, summed known full effort estimates, missing deadline/estimate counts and highest work priority. Historical saved previews return `academicWork: null` because they did not evaluate this data; new previews return an object even when its counts are zero. These fields are snapshot summaries, not current record detail or assignment-specific block links.
+
+Dates are compared with the requested local `from` date, independently of the server clock: overdue means before `from`; due soon includes `from` through `from + 14 days`. The class score adds 300 for any overdue work, otherwise 200 for any due-soon work; highest open-work priority times 10; and `min(60, floor(known estimated minutes / 25))`. Reasons are `ACADEMIC_WORK_OVERDUE`, `ACADEMIC_WORK_DUE_SOON`, `WORK_IMPORTANCE` and `ESTIMATED_WORKLOAD`, when applicable. This bounded heuristic favors urgent classes without claiming every deadline can be met. It does not enforce a session before a particular assignment deadline.
+
+Owner weekly goals remain the time budget. Estimates never increase that budget, and calendar study time never reduces assignment estimates or implies submission. A known zero estimate differs from an unknown estimate. Missing data adds visible `ACADEMIC_DEADLINES_MISSING` and `ACADEMIC_ESTIMATES_MISSING` warnings. Scores, titles and notes are not read for ranking; no grades change confidence or progress.
+
+Eligible work IDs, versions, labels and planning fields are included in the context revision. Creation, edits, submission/cancellation, deletion/restoration and propagated label changes can invalidate a draft; reload and deliberately revise before approval. Work, class and topic mutations acquire the same owner schedule lock as approval, including changes in classes without allocated slots, retaining optimistic versions and exact retry receipts. Old saved drafts retain their original snapshots and require deliberate revision when their old context hash is stale. No migration or dependency is added for this integration. Study preview/plan AI access remains blocked by the existing context allowlist.
+
+When any eligible work contributes to the context, the preview warns `ACADEMIC_WORK_PROVENANCE_INCOMPLETE`. Every approved block captures the strongest contributing work label, including work from other classes whose ranking affects allocation. Its `academicLabels` is null because source-content provenance is unverified. Migration 027 now adds [durable workload snapshots, block links, current/captured inspection and later label propagation](study-workload.md); this does not approve source text for AI. The gateway still rejects these events with `PROVENANCE_UNAVAILABLE`; manual calendar use remains available. Blocks generated with no eligible work retain normal complete class/topic label inheritance. Do not interpret null history as an unlabeled source.
+
+Workload integration validation: final `npm run check` passed lint, strict types, formatting, builds and 187 API/client tests, with one optional PostgreSQL test skipped. All 43 isolated browser regressions passed. Nine new study tests cover urgency boundaries, bounded importance/effort scores, missing versus zero estimates, enabled goals, owner/exclusion boundaries, deterministic allocation, stale work edits/deletion/restoration, deliberate revision, retained effort after approval, historical defaults/export, oversized workload rejection, serialized edit/approval, receipt replay and gateway provenance blocking. Optional PostgreSQL checks add stale-draft rejection and revision before duplicate approvals but remain unverified locally. All data is synthetic; no real provider calls, paid AI, owner database resets or device verification occurred.
+
+## Approval, cancellation and recovery
+
+Drafts retain range, settings version, context revision, ranked reasons, slots and warnings. The revision binds settings/goals, active academic records, planner records and occurrence exceptions. Changes invalidate the draft. Reload a preview for the same range, then deliberately revise with the current plan version and fresh context revision. No automatic rebase occurs.
+
+Approval takes `{operationId,expectedVersion}` and requires a nonempty draft whose range/blocks remain in the future. Owner schedule locks serialize study mutations with normal and legacy calendar mutations. Academic ancestors are locked before creation. Blocks use existing calendar validation and academic-label inheritance, retaining complete captured labels or unknown-history markers. They are ordinary one-time editable planner study events, with no Canvas source link or external write. Approval atomically records event IDs/approved versions alongside all blocks. A partial failure rolls back everything; the same operation can be retried after rollback.
+
+Cancellation takes the same change contract. A draft cancels without events. For approved plans, only unchanged, undeleted, planned blocks at their approved version become cancelled; queued/running/paused event reminders are cancelled too. Later owner edits, academic propagation, completion and deletion preserve the block and add its ID to `preservedEventIds`. The plan becomes cancelled even when preserved work remains; show that distinction. No mail is sent and completed study is not undone.
+
+Hiding retains a tombstone; approved plans must be cancelled first. History accepts `limit` 1–50 (default 20) and owned `before` IDs; timestamp microseconds/ID ties support hidden cursors. Restart retains links/receipts and does not recreate events. No plan restore or permanent purge exists. Export adds study preferences, goals including archived-class goals, plans and tombstones; older format-v1 files default these fields to null/empty.
+
+Progress counts elapsed timed minutes clipped to the range, including recurrence/exception behavior. Completed is the owner's recorded status, not attendance or mastery. Deleted minutes remain separate. A zero target gives null completion percentage. Reports show active classes; archived records remain in export.
+
+Deleted browsing sorts by deletion timestamp/ID and returns full task/calendar tombstones. Restore uses the returned current version through existing routes. A cursor restored during paging returns 404; reload the list. Browsing neither purges records nor restarts reminders.
+
+## Limits and pending work
+
+The original study-batch browser suite passed all 43 tests against migrations 023/024, including existing Calendar, account export, conflict handling, offline replay and narrow e-ink accessibility. These are compatibility checks; they do not claim study UI controls are implemented.
+
+Original study-batch validation: `npm run check` passed lint, strict types, formatting, builds and 149 API/client tests, with one optional standard PostgreSQL test skipped. All 17 study/recovery tests passed, including DST-boundary refinement and populated-schema upgrade. Tests cover owner isolation, versions/retries, recurrence/all-day conflicts, DST gaps/folds, valid post-gap approval, insufficient time, stale drafts, manual conflicts, competing approvals, inherited labels, partial-failure rollback, cancellation after edits/completion, status reports, paging/export, restore cursors, populated upgrade and persisted restart without duplicates. Optional PostgreSQL coverage includes study approval retries; it remains unverified locally because TEST_DATABASE_URL is unset. All data is synthetic and network calls are forbidden.
+
+Canvas, Proton and other external calendars are not checked; external conflicts can exist. Imported assignment durations, grades, AI, native/offline scheduling and attachment text are outside this slice. Manual effort estimates inform ranking only. Study plans are excluded from AI's context allowlist; future AI access requires complete label/provenance contracts.
+
+Planning supports at most 500 classes, 2,000 topics, 5,000 retained calendar records, 5,000 eligible open academic-work records and 200 draft slots. Oversized workload blocks the request with `413 STUDY_TOO_LARGE`, rather than returning partial suggestions. Export limits still apply. UI integration, offline drafts/settings, archived-class progress, a richer optimizer, real provider access and Kompakt verification remain pending. No dependency was added.

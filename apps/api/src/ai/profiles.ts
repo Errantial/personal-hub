@@ -1,19 +1,40 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { providerAliasSchema, aiProviderRegistrySchema } from '@hub/contracts';
-const profileSchema = z.strictObject({
-  alias: providerAliasSchema,
-  adapter: z.enum(['anthropic', 'openai', 'openai-compatible']),
-  model: z
-    .string()
-    .min(1)
-    .max(100)
-    .regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/),
-  credentialEnv: z.string().regex(/^AI_SECRET_[A-Z][A-Z0-9_]{0,63}$/),
-  enabled: z.boolean().default(false),
-  maxInputCharacters: z.number().int().min(1).max(48000),
-  maxOutputTokens: z.number().int().min(1).max(32000),
-});
+import {
+  providerAliasSchema,
+  aiProviderRegistrySchema,
+  aiPricePolicySchema,
+  aiRetentionDisclosureSchema,
+  aiProviderAdapterSchema,
+} from '@hub/contracts';
+const profileSchema = z
+  .strictObject({
+    alias: providerAliasSchema,
+    adapter: aiProviderAdapterSchema,
+    upstreamProvider: z
+      .string()
+      .regex(/^[a-z][a-z0-9/_-]{0,99}$/)
+      .nullable()
+      .default(null),
+    model: z
+      .string()
+      .min(1)
+      .max(100)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/),
+    credentialEnv: z.string().regex(/^AI_SECRET_[A-Z][A-Z0-9_]{0,63}$/),
+    enabled: z.boolean().default(false),
+    maxInputCharacters: z.number().int().min(1).max(48000),
+    maxOutputTokens: z.number().int().min(1).max(32000),
+    pricing: aiPricePolicySchema.nullable().default(null),
+    retentionDisclosure: aiRetentionDisclosureSchema.nullable().default(null),
+  })
+  .superRefine((value, ctx) => {
+    if ((value.adapter === 'openrouter') !== (value.upstreamProvider !== null))
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Only OpenRouter requires a pinned upstream provider.',
+      });
+  });
 const profilesSchema = z
   .array(profileSchema)
   .max(24)
@@ -42,6 +63,14 @@ export function publicAIRegistry(profiles: ReturnType<typeof readAIProfiles>) {
     .map((profile) => ({
       alias: profile.alias,
       adapter: profile.adapter,
+      accessMode:
+        profile.adapter === 'claude-code' ||
+        profile.adapter === 'codex-subscription'
+          ? 'owner-subscription'
+          : profile.adapter === 'prem-confidential'
+            ? 'confidential-api'
+            : 'api-key',
+      upstreamProvider: profile.upstreamProvider,
       model: profile.model,
       configuration: !profile.enabled
         ? 'disabled'
@@ -50,6 +79,14 @@ export function publicAIRegistry(profiles: ReturnType<typeof readAIProfiles>) {
           : 'credential_missing',
       maxInputCharacters: profile.maxInputCharacters,
       maxOutputTokens: profile.maxOutputTokens,
+      pricing: profile.pricing,
+      retentionDisclosure: profile.retentionDisclosure,
+    }))
+    .map((profile) => ({
+      ...profile,
+      policyRevision: createHash('sha256')
+        .update(JSON.stringify(profile))
+        .digest('hex'),
     }))
     .sort((a, b) => a.alias.localeCompare(b.alias));
   // Credentials and their names never enter responses or fingerprints.

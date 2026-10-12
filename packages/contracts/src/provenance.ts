@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { academicPlannerSourceSummarySchema } from './academic-source.js';
 
 const label = z.enum(['unlabeled', 'personal', 'restricted']);
 const timing = z.object({
@@ -60,6 +61,7 @@ export function plannerTextIsAttachmentDerived(record: {
 export function plannerSensitivity(record: {
   sensitivity: z.infer<typeof label>;
   canvasSource?: PlannerSource | null;
+  academicSource?: z.infer<typeof academicPlannerSourceSummarySchema> | null;
 }) {
   const levels = ['unlabeled', 'personal', 'restricted'] as const;
   return levels[
@@ -67,6 +69,9 @@ export function plannerSensitivity(record: {
       levels.indexOf(record.sensitivity),
       levels.indexOf(record.canvasSource?.sensitivity ?? 'unlabeled'),
       levels.indexOf(record.canvasSource?.currentSensitivity ?? 'unlabeled'),
+      ...(record.academicSource?.labels ?? []).map((value) =>
+        levels.indexOf(value),
+      ),
     )
   ]!;
 }

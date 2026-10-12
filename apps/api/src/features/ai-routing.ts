@@ -10,6 +10,7 @@ import {
   taskSchema,
   calendarRecordSchema,
   sensitivitySchema,
+  memorySchema,
 } from '@hub/contracts';
 import type { AIContextRef } from '@hub/contracts';
 import type { FastifyInstance } from 'fastify';
@@ -19,6 +20,7 @@ import { ApiError } from '../errors.js';
 import { mutate } from '../planner/mutations.js';
 import { taskColumns } from '../planner/routes.js';
 import { eventColumns, strongest, version } from './common.js';
+import { memoryColumns, readMemorySettings } from './memory.js';
 export async function readAIRoutingPolicy(tx: QueryExecutor, owner: string) {
   const [row] = await tx.query(
     'SELECT version,policy FROM ai_routing_policies WHERE owner_id=$1',
@@ -32,12 +34,38 @@ export async function resolveAIContext(
   tx: QueryExecutor,
   owner: string,
   ref: AIContextRef,
+  forTextAssembly = false,
 ) {
   let sensitivity: 'unlabeled' | 'personal' | 'restricted';
   let attachmentDerived: boolean;
   let currentVersion: number;
   let labels: ('unlabeled' | 'personal' | 'restricted')[] = [];
-  if (ref.kind === 'task' || ref.kind === 'event') {
+  let memorySettingsVersion: number | null = null;
+  if (ref.kind === 'memory') {
+    const settings = await readMemorySettings(tx, owner);
+    version(settings, ref.expectedMemorySettingsVersion);
+    if (!settings.enabled)
+      throw new ApiError(
+        409,
+        'MEMORY_DISABLED',
+        'Enable memory before selecting it as context.',
+      );
+    const [row] = await tx.query(
+      `SELECT ${memoryColumns} FROM memories WHERE owner_id=$1 AND id=$2 AND deleted_at IS NULL`,
+      [owner, ref.id],
+    );
+    if (!row)
+      throw new ApiError(404, 'NOT_FOUND', 'Context source not available.');
+    const memory = memorySchema.parse(row);
+    version(row, ref.expectedVersion);
+    if (!memory.enabled)
+      throw new ApiError(409, 'MEMORY_DISABLED', 'This memory is disabled.');
+    sensitivity = memory.sensitivity;
+    labels = memory.labels;
+    attachmentDerived = false;
+    currentVersion = memory.version;
+    memorySettingsVersion = settings.version;
+  } else if (ref.kind === 'task' || ref.kind === 'event') {
     const [row] = await tx.query(
       `SELECT ${ref.kind === 'task' ? taskColumns : eventColumns} FROM ${ref.kind === 'task' ? 'tasks' : 'events'} WHERE owner_id=$1 AND id=$2 AND deleted_at IS NULL`,
       [owner, ref.id],
@@ -50,6 +78,12 @@ export async function resolveAIContext(
       ref.kind === 'task'
         ? taskSchema.parse(row)
         : calendarRecordSchema.parse(row);
+    if (record.academicSource)
+      throw new ApiError(
+        409,
+        'PROVENANCE_UNAVAILABLE',
+        'Academic source text provenance is not verified.',
+      );
     sensitivity = plannerSensitivity(record);
     attachmentDerived = plannerTextIsAttachmentDerived(record);
     if (
@@ -111,10 +145,8 @@ export async function resolveAIContext(
     }
   } else {
     const sql = {
-      course:
-        'SELECT version,sensitivity,FALSE AS attachment_derived,hub_sensitivity_labels(ARRAY[sensitivity]) AS labels FROM courses WHERE owner_id=$1 AND id=$2',
-      topic:
-        "SELECT t.version,t.academic_labels,CASE WHEN 'restricted' IN(t.sensitivity,c.sensitivity) OR 'restricted'=ANY(t.academic_labels) THEN 'restricted' WHEN 'personal' IN(t.sensitivity,c.sensitivity) OR 'personal'=ANY(t.academic_labels) THEN 'personal' ELSE 'unlabeled' END AS sensitivity,FALSE AS attachment_derived,hub_sensitivity_labels(ARRAY[t.sensitivity,c.sensitivity] || COALESCE(t.academic_labels,ARRAY[]::text[])) AS labels FROM topics t JOIN courses c ON c.id=t.course_id AND c.owner_id=t.owner_id WHERE t.owner_id=$1 AND t.id=$2",
+      course: `SELECT version,sensitivity,FALSE AS attachment_derived,hub_sensitivity_labels(ARRAY[sensitivity]) AS labels FROM courses WHERE owner_id=$1 AND id=$2${forTextAssembly ? ' AND deleted_at IS NULL' : ''}`,
+      topic: `SELECT t.version,t.academic_labels,CASE WHEN 'restricted' IN(t.sensitivity,c.sensitivity) OR 'restricted'=ANY(t.academic_labels) THEN 'restricted' WHEN 'personal' IN(t.sensitivity,c.sensitivity) OR 'personal'=ANY(t.academic_labels) THEN 'personal' ELSE 'unlabeled' END AS sensitivity,FALSE AS attachment_derived,hub_sensitivity_labels(ARRAY[t.sensitivity,c.sensitivity] || COALESCE(t.academic_labels,ARRAY[]::text[])) AS labels FROM topics t JOIN courses c ON c.id=t.course_id AND c.owner_id=t.owner_id WHERE t.owner_id=$1 AND t.id=$2${forTextAssembly ? ' AND t.deleted_at IS NULL AND c.deleted_at IS NULL' : ''}`,
       'canvas-item':
         'SELECT i.version,x.sensitivity,x.attachment_derived,x.labels FROM canvas_items i JOIN canvas_item_context x ON x.id=i.id AND x.owner_id=i.owner_id WHERE i.owner_id=$1 AND i.id=$2',
       'canvas-assignment':
@@ -158,6 +190,7 @@ export async function resolveAIContext(
     sensitivity,
     attachmentDerived,
     labels: resolved,
+    memorySettingsVersion,
   };
 }
 export function registerAIRouting(

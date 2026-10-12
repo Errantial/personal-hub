@@ -51,70 +51,78 @@ export async function reserveAIBudget(
   candidate: z.infer<typeof reserveSchema>,
 ) {
   const input = reserveSchema.parse(candidate);
-  const hash = createHash('sha256').update(JSON.stringify(input)).digest('hex');
-  return database.transaction(async (tx) => {
-    await lockBudget(tx, owner);
-    const [existing] = await tx.query(
-      `SELECT ${columns},request_hash FROM ai_budget_reservations WHERE owner_id=$1 AND request_id=$2`,
-      [owner, input.requestId],
-    );
-    if (existing) {
-      if (existing.request_hash !== hash)
-        throw new ApiError(
-          409,
-          'OPERATION_CONFLICT',
-          'This inference step already has a different reservation.',
-        );
-      return record(existing);
-    }
-    const [policy] = await tx.query(
-      'SELECT version,monthly_limit_micros,per_request_limit_micros FROM ai_budget_policies WHERE owner_id=$1',
-      [owner],
-    );
-    version(policy!, input.expectedPolicyVersion);
-    if (
-      policy!.monthly_limit_micros === null ||
-      policy!.per_request_limit_micros === null
-    )
-      throw new ApiError(409, 'BUDGET_UNSET', 'Configure spending limits.');
-    if (
-      BigInt(input.maximumChargeMicros) >
-      BigInt(String(policy!.per_request_limit_micros))
-    )
-      throw new ApiError(
-        409,
-        'REQUEST_BUDGET_EXCEEDED',
-        'The request exceeds its spending limit.',
-      );
-    const usage = await readBudgetUsage(tx, owner);
-    if (
-      BigInt(String(usage.spentMicros)) +
-        BigInt(String(usage.heldMicros)) +
-        BigInt(input.maximumChargeMicros) >
-      BigInt(String(policy!.monthly_limit_micros))
-    )
-      throw new ApiError(
-        409,
-        'MONTHLY_BUDGET_EXCEEDED',
-        'The monthly spending limit is exhausted.',
-      );
-    const [row] = await tx.query(
-      `INSERT INTO ai_budget_reservations(id,owner_id,request_id,request_hash,month,provider,model,policy_version,reserved_micros,status) VALUES($1,$2,$3,$4,date_trunc('month',CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date,$5,$6,$7,$8,'reserved') RETURNING ${columns}`,
-      [
-        randomUUID(),
-        owner,
-        input.requestId,
-        hash,
-        input.provider,
-        input.model,
-        input.expectedPolicyVersion,
-        input.maximumChargeMicros,
-      ],
-    );
-    return record(row!);
-  });
+  return database.transaction((tx) =>
+    reserveAIBudgetInTransaction(tx, owner, input),
+  );
 }
-async function lockBudget(tx: QueryExecutor, owner: string) {
+export async function reserveAIBudgetInTransaction(
+  tx: QueryExecutor,
+  owner: string,
+  candidate: z.infer<typeof reserveSchema>,
+) {
+  const input = reserveSchema.parse(candidate);
+  const hash = createHash('sha256').update(JSON.stringify(input)).digest('hex');
+  await lockBudget(tx, owner);
+  const [existing] = await tx.query(
+    `SELECT ${columns},request_hash FROM ai_budget_reservations WHERE owner_id=$1 AND request_id=$2`,
+    [owner, input.requestId],
+  );
+  if (existing) {
+    if (existing.request_hash !== hash)
+      throw new ApiError(
+        409,
+        'OPERATION_CONFLICT',
+        'This inference step already has a different reservation.',
+      );
+    return record(existing);
+  }
+  const [policy] = await tx.query(
+    'SELECT version,monthly_limit_micros,per_request_limit_micros FROM ai_budget_policies WHERE owner_id=$1',
+    [owner],
+  );
+  version(policy!, input.expectedPolicyVersion);
+  if (
+    policy!.monthly_limit_micros === null ||
+    policy!.per_request_limit_micros === null
+  )
+    throw new ApiError(409, 'BUDGET_UNSET', 'Configure spending limits.');
+  if (
+    BigInt(input.maximumChargeMicros) >
+    BigInt(String(policy!.per_request_limit_micros))
+  )
+    throw new ApiError(
+      409,
+      'REQUEST_BUDGET_EXCEEDED',
+      'The request exceeds its spending limit.',
+    );
+  const usage = await readBudgetUsage(tx, owner);
+  if (
+    BigInt(String(usage.spentMicros)) +
+      BigInt(String(usage.heldMicros)) +
+      BigInt(input.maximumChargeMicros) >
+    BigInt(String(policy!.monthly_limit_micros))
+  )
+    throw new ApiError(
+      409,
+      'MONTHLY_BUDGET_EXCEEDED',
+      'The monthly spending limit is exhausted.',
+    );
+  const [row] = await tx.query(
+    `INSERT INTO ai_budget_reservations(id,owner_id,request_id,request_hash,month,provider,model,policy_version,reserved_micros,status) VALUES($1,$2,$3,$4,date_trunc('month',CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date,$5,$6,$7,$8,'reserved') RETURNING ${columns}`,
+    [
+      randomUUID(),
+      owner,
+      input.requestId,
+      hash,
+      input.provider,
+      input.model,
+      input.expectedPolicyVersion,
+      input.maximumChargeMicros,
+    ],
+  );
+  return record(row!);
+}
+export async function lockBudget(tx: QueryExecutor, owner: string) {
   await tx.query(
     'INSERT INTO ai_budget_policies(owner_id) VALUES($1) ON CONFLICT DO NOTHING',
     [owner],

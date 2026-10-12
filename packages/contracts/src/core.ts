@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { recurrenceSchema } from './features.js';
+import { academicPlannerSourceSummarySchema } from './academic-source.js';
 import { canvasSourceRefSchema, plannerSourceSchema } from './provenance.js';
 
 export const healthResponseSchema = z.object({
@@ -77,6 +78,7 @@ export const taskSchema = z.object({
   ...taskFields,
   ...metadata,
   canvasSource: plannerSourceSchema.nullable().default(null),
+  academicSource: academicPlannerSourceSummarySchema.nullable().default(null),
 });
 export const createTaskSchema = z.strictObject({
   ...taskFields,
@@ -93,6 +95,15 @@ export const updateTaskSchema = z.strictObject({
 export const deleteItemSchema = z.strictObject({
   operationId: z.string().uuid(),
   expectedVersion: z.number().int().positive(),
+});
+export const restoreItemSchema = deleteItemSchema;
+export const plannerRestorationSchema = z.object({
+  itemKind: z.enum(['task', 'event']),
+  itemId: z.string().uuid(),
+  deletedVersion: z.number().int().positive(),
+  deletedAt: z.string().datetime(),
+  restoredVersion: z.number().int().positive(),
+  restoredAt: z.string().datetime(),
 });
 export const taskResponseSchema = z.object({ task: taskSchema });
 export const tasksResponseSchema = z.object({ tasks: z.array(taskSchema) });
@@ -134,6 +145,7 @@ export const eventSchema = z
     recurrence: recurrenceSchema.nullable().default(null),
     courseId: z.string().uuid().nullable().default(null),
     canvasSource: plannerSourceSchema.nullable().default(null),
+    academicSource: academicPlannerSourceSummarySchema.nullable().default(null),
   })
   .refine(validEventRange, 'Event end must follow its start.');
 export const createEventSchema = z

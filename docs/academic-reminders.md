@@ -1,0 +1,15 @@
+# Academic-work reminders
+
+Backend implemented 2026-10-11. Existing `reminderWriteSchema` now accepts `targetKind: academic-work` and owned work ID. The owner supplies an explicit scheduled instant/title; no time is inferred from a date-only deadline and deadline changes never reschedule it.
+
+Create/reschedule requires open undeleted work in an active owned class. Unknown/foreign work returns 404; closed/deleted work or an archived class returns `409 TARGET_UNAVAILABLE`. Academic targets cannot have an occurrence date. Migration 029 extends the target-kind check and adds an internal generated work target with a composite same-owner foreign key. Existing task/event/standalone targets, deliveries and receipts are preserved; the generated column is not exposed/exported.
+
+Delivery rechecks source/class availability in the same transaction as the durable notification. The owner schedule lock serializes delivery against planner/academic changes. Closure, cancellation, deletion or archival before delivery suppresses it and leaves the reminder cancelled. Reopening/restoring work never restarts a cancelled reminder. Delivery committed before a later change remains history. Existing leases, restart recovery, duplicate suppression and receipts apply.
+
+Pause/cancel follows existing state/version rules. Resume/retry rechecks academic availability (`TARGET_UNAVAILABLE`). Snooze retains academic target/ID and null occurrence date, using existing explicit future-time/365-day bounds, one-child rule and operation/version guards. Unavailable targets block snooze with `REMINDER_TARGET_UNAVAILABLE`; work closed after snooze is suppressed at child delivery. Parent delivery/read history is retained.
+
+Academic targets export through existing reminder/inbox records. They do not change assignment status/estimates/grades or planner completion. Delivery remains in-app, with existing optional open-view browser alerts; native/closed-app delivery and Kompakt hardware remain unverified. No provider sends or AI calls occur.
+
+New UI creation controls are pending. Existing rescheduling preserves an academic target created through the API, with no new target picker yet. Keep availability/errors visible, retain drafts/request identities on failure and reload after historical receipts. Reminder writes/snooze remain online-only.
+
+Validation: full `npm run check` passed with 227 API/client tests and one optional standard PostgreSQL test skipped; all 45 isolated browser tests passed. Five new academic-reminder tests cover target ownership/schema constraints, closed/deleted/archived availability, explicit time and deadline independence, delivery-time suppression, snooze/resume/retry guards, preserved history and populated migration upgrade. Persisted restart/snooze coverage now uses an academic target. The new browser regression verifies rescheduling retains its source ID. Standard PostgreSQL delivery coverage is added but unverified locally. No real provider sends, paid AI, owner resets or device tests occurred.

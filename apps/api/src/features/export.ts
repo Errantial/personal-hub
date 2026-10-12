@@ -7,10 +7,21 @@ import { taskColumns } from '../planner/routes.js';
 import { readCanvasLms } from '../connections/canvas-lms.js';
 import { readReconciliations } from '../connections/canvas-reconciliation.js';
 import { readAIRoutingPolicy } from './ai-routing.js';
+import { readAIActionPolicy } from './ai-actions.js';
+import { exportEmailDrafts } from './email-drafts.js';
+import { exportMemory } from './memory.js';
+import { exportResponsibilities } from './responsibilities.js';
 import { readAIPreflights } from './ai-preflight.js';
 import { readAIBudget } from './ai-budget.js';
 import { readBudgetReservations } from '../ai/budget.js';
-import { eventColumns, metadataColumns } from './common.js';
+import { readAIProviderConsents } from '../ai/provider-policy.js';
+import { readAIRequests } from '../ai/requests.js';
+import { exportAISavedAnswers } from '../ai/saved-answers.js';
+import { exportStudy } from './study-engine.js';
+import { academicWorkColumns } from './academic-work.js';
+import { exportStudyWorkload } from './study-workload.js';
+import { exportAcademicPlanning } from './academic-planning.js';
+import { eventColumns, metadataColumns, stamp } from './common.js';
 import { reminderColumns, notificationColumns } from './reminders.js';
 import {
   canvasItemColumns,
@@ -77,9 +88,15 @@ export function registerExport(
       );
       return {
         tasks,
+        plannerRestorations: await tx.query(
+          `SELECT item_kind AS "itemKind",item_id AS "itemId",deleted_version AS "deletedVersion",restored_version AS "restoredVersion",${stamp('deleted_at', 'deletedAt')},${stamp('restored_at', 'restoredAt')} FROM planner_restorations WHERE owner_id=$1 ORDER BY item_kind,item_id,deleted_version LIMIT 10001`,
+          [owner.id],
+        ),
         events,
         courses,
         topics,
+        academicWork: await read('academic_work', academicWorkColumns),
+        academicPlannerSources: await exportAcademicPlanning(tx, owner.id),
         exceptions,
         reminders,
         notifications,
@@ -90,9 +107,18 @@ export function registerExport(
         canvasLmsSource: canvasLmsSource ?? null,
         canvasReconciliations,
         aiRouting: await readAIRoutingPolicy(tx, owner.id),
+        aiActions: await readAIActionPolicy(tx, owner.id),
+        ...(await exportEmailDrafts(tx, owner.id)),
+        ...(await exportMemory(tx, owner.id)),
+        ...(await exportResponsibilities(tx, owner.id)),
         aiPreflights: await readAIPreflights(tx, owner.id),
         aiBudget: await readAIBudget(tx, owner.id),
         aiBudgetReservations: await readBudgetReservations(tx, owner.id),
+        aiProviderConsents: await readAIProviderConsents(tx, owner.id),
+        aiRequests: await readAIRequests(tx, owner.id),
+        aiSavedAnswers: await exportAISavedAnswers(tx, owner.id),
+        ...(await exportStudy(tx, owner.id)),
+        ...(await exportStudyWorkload(tx, owner.id)),
       };
     });
     const tooLarge = () =>

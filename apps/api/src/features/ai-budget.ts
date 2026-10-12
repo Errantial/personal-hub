@@ -2,6 +2,7 @@ import {
   aiBudgetLiveSettingsSchema,
   aiBudgetWriteSchema,
   emptyAIBudgetPolicy,
+  AI_MONTHLY_HARD_LIMIT_MICROS,
 } from '@hub/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { Database, QueryExecutor } from '../db/database.js';
@@ -58,6 +59,17 @@ export function registerAIBudget(
       input.operationId,
       { kind: 'ai.budget', input },
       async (tx) => {
+        // Check after the historical receipt gate: a retry of an older setting
+        // returns its old receipt without re-enabling an above-ceiling policy.
+        if (
+          input.policy.monthlyLimitMicros !== null &&
+          input.policy.monthlyLimitMicros > AI_MONTHLY_HARD_LIMIT_MICROS
+        )
+          throw new ApiError(
+            400,
+            'BUDGET_HARD_LIMIT',
+            'Monthly spending cannot exceed $50.',
+          );
         await tx.query(
           'INSERT INTO ai_budget_policies(owner_id) VALUES($1) ON CONFLICT DO NOTHING',
           [user.id],

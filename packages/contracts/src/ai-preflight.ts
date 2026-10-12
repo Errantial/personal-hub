@@ -6,13 +6,28 @@ import {
   providerAliasSchema,
 } from './ai-routing.js';
 import { aiBudgetPolicySchema, aiBudgetUsageSchema } from './ai-budget.js';
+import { aiContextManifestSchema } from './ai-context-manifest.js';
+import {
+  aiProviderAdapterSchema,
+  aiProviderAccessModeSchema,
+} from './ai-provider-adapters.js';
+import {
+  aiPricePolicySchema,
+  aiRetentionDisclosureSchema,
+  aiProviderReadinessSchema,
+} from './ai-provider-policy.js';
 export const aiProviderProfileSchema = z.object({
   alias: providerAliasSchema,
-  adapter: z.enum(['anthropic', 'openai', 'openai-compatible']),
+  adapter: aiProviderAdapterSchema,
+  accessMode: aiProviderAccessModeSchema.default('api-key'),
+  upstreamProvider: z.string().max(100).nullable().default(null),
   model: z.string().min(1).max(100),
   configuration: z.enum(['configured', 'credential_missing', 'disabled']),
   maxInputCharacters: z.number().int().min(1).max(48000),
   maxOutputTokens: z.number().int().min(1).max(32000),
+  pricing: aiPricePolicySchema.nullable().default(null),
+  retentionDisclosure: aiRetentionDisclosureSchema.nullable().default(null),
+  policyRevision: z.string().regex(/^[a-f0-9]{64}$/),
 });
 export const aiProviderRegistrySchema = z.object({
   revision: z.string().regex(/^[a-f0-9]{64}$/),
@@ -54,6 +69,8 @@ export const aiPreflightSchema = z.object({
   requestCharacters: z.number().int().min(1).max(12000),
   contextCharacters: z.number().int().nonnegative().max(48000).nullable(),
   contextAssembled: z.boolean(),
+  contextManifest: aiContextManifestSchema.nullable().default(null),
+  executionReadiness: aiProviderReadinessSchema.nullable().default(null),
   sources: z
     .array(
       aiRoutingPreviewResponseSchema.shape.sources.element.extend({

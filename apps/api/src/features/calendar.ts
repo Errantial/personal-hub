@@ -11,6 +11,7 @@ import {
   rangeSchema,
   dateOnly,
   deleteItemSchema,
+  restoreItemSchema,
   recurrenceSchema,
 } from '@hub/contracts';
 import type {
@@ -21,9 +22,14 @@ import type {
 import type { FastifyInstance } from 'fastify';
 import type { Database, QueryExecutor } from '../db/database.js';
 import type { authService } from '../auth/routes.js';
-import { mutate } from '../planner/mutations.js';
+import { mutateSchedule as mutate } from '../planner/mutations.js';
 import { ApiError } from '../errors.js';
+import { restorePlannerItem } from '../planner/restore.js';
 import { captureCanvasSource } from '../connections/canvas-provenance.js';
+import {
+  academicPlannerLabels,
+  extendAcademicEventLabels,
+} from './academic-provenance.js';
 import {
   academicLabels,
   mergeAcademicLabels,
@@ -91,11 +97,101 @@ export function normalizeEvent(input: CalendarInput): CalendarInput {
       }
     : input;
 }
+export async function createStudyEvent(
+  tx: QueryExecutor,
+  owner: string,
+  input: CalendarInput,
+  workloadLabels?: string[],
+) {
+  // Uses the same validated calendar input, academic ancestors, labels and row shape.
+  const values = normalizeEvent(
+    calendarWriteSchema.parse({ ...input, operationId: randomUUID() }),
+  );
+  if (!values.courseId || values.allDay || values.recurrence)
+    throw new ApiError(
+      400,
+      'INVALID_INPUT',
+      'Use a one-time timed study block.',
+    );
+  const inherited = await academicLabels(
+    tx,
+    owner,
+    values.courseId,
+    values.topicId,
+  );
+  const labels = mergeAcademicLabels(
+    undefined,
+    inherited.complete && workloadLabels === undefined
+      ? [
+          ...inherited.labels,
+          ...[values.sensitivity].filter((v) => v !== 'unlabeled'),
+        ]
+      : null,
+  );
+  const [row] = await tx.query(
+    `INSERT INTO events(id,owner_id,title,notes,starts_at,ends_at,time_zone,sensitivity,all_day,start_date,end_date,recurrence,course_id,topic_id,study_status,academic_labels) VALUES($1,$2,$3,$4,$5,$6,$7,$8,false,NULL,NULL,NULL,$9,$10,'planned',$11::text[]) RETURNING ${eventColumns}`,
+    [
+      randomUUID(),
+      owner,
+      values.title,
+      values.notes,
+      values.startsAt,
+      values.endsAt,
+      values.timeZone,
+      strongest(
+        values.sensitivity,
+        ...inherited.labels,
+        ...(workloadLabels ?? []),
+      ),
+      values.courseId,
+      values.topicId,
+      labels,
+    ],
+  );
+  return calendarRecordSchema.parse(row);
+}
 export function registerCalendar(
   app: FastifyInstance,
   database: Database,
   auth: ReturnType<typeof authService>,
 ) {
+  app.get('/api/v1/calendar/:id', async (request) => {
+    const user = await auth.requireUser(request);
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const [row] = await database.query(
+      `SELECT ${eventColumns} FROM events WHERE owner_id=$1 AND id=$2`,
+      [user.id, id],
+    );
+    if (!row)
+      throw new ApiError(
+        404,
+        'NOT_FOUND',
+        'This event is no longer available.',
+      );
+    return calendarResponseSchema.parse({ event: row });
+  });
+  app.post('/api/v1/calendar/:id/restore', async (request) => {
+    const user = await auth.requireUser(request);
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const input = restoreItemSchema.parse(request.body);
+    return mutate(
+      database,
+      user.id,
+      input.operationId,
+      { kind: 'calendar.restore', id, input },
+      async (tx) =>
+        calendarResponseSchema.parse({
+          event: await restorePlannerItem(
+            tx,
+            'events',
+            eventColumns,
+            user.id,
+            id,
+            input.expectedVersion,
+          ),
+        }),
+    );
+  });
   app.get('/api/v1/calendar', async (request) => {
     const user = await auth.requireUser(request);
     return calendarListSchema.parse({
@@ -174,6 +270,13 @@ export function registerCalendar(
             const old =
               method === 'PUT' ? await active(tx, 'events', user.id, id) : null;
             if (old) version(old, input.expectedVersion);
+            if (method === 'PUT')
+              await extendAcademicEventLabels(
+                tx,
+                user.id,
+                id,
+                inherited.labels,
+              );
             const values = normalizeEvent(input);
             const explicit =
               request.body &&
@@ -193,7 +296,13 @@ export function registerCalendar(
                   ]
                 : null,
             );
-            values.sensitivity = strongest(ownLabel, ...inherited.labels);
+            values.sensitivity = strongest(
+              ownLabel,
+              ...inherited.labels,
+              ...(method === 'PUT'
+                ? await academicPlannerLabels(tx, user.id, 'event', id)
+                : []),
+            );
             const params = [
               id,
               user.id,
@@ -338,6 +447,12 @@ export function registerCalendar(
                   'An occurrence cannot repeat.',
                 );
               replacement = normalizeEvent(input);
+              await extendAcademicEventLabels(
+                tx,
+                user.id,
+                id,
+                inherited!.labels,
+              );
               capturedLabels = mergeAcademicLabels(
                 event.academicLabels,
                 inherited!.complete

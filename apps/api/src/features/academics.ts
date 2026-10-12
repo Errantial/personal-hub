@@ -12,8 +12,12 @@ import {
 } from '@hub/contracts';
 import type { Database } from '../db/database.js';
 import type { authService } from '../auth/routes.js';
-import { mutate } from '../planner/mutations.js';
+import { mutateSchedule as mutate } from '../planner/mutations.js';
 import { ApiError } from '../errors.js';
+import {
+  propagateAcademicPlannerLabels,
+  extendAcademicTopicLabels,
+} from './academic-provenance.js';
 import {
   active,
   metadataColumns,
@@ -133,13 +137,31 @@ export function registerAcademics(
                       `UPDATE ${table} SET ${fields.map(([, col], i) => `${col}=$${i + 3}`).join(',')}${table === 'topics' ? `,academic_labels=$${fields.length + 3}::text[]` : ''},version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${columns}`,
                       [id, user.id, ...values],
                     );
-              // An upgraded source label also upgrades existing derived records.
+              // Tombstones can be restored: capture labels while deleted too.
+              // Ancestor-first locking and child versions preserve conflict checks.
               if (table === 'courses' && input.sensitivity !== 'unlabeled')
-                for (const child of ['topics', 'events'])
+                for (const child of ['topics', 'events', 'academic_work']) {
+                  const academicDependent =
+                    child === 'events'
+                      ? "EXISTS(SELECT 1 FROM academic_planner_sources aps JOIN academic_work aw ON aw.id=aps.work_id AND aw.owner_id=aps.owner_id WHERE aps.event_id=events.id AND aps.owner_id=events.owner_id AND (aw.course_id=$2 OR events.course_id=$2 OR EXISTS(SELECT 1 FROM event_exceptions x WHERE x.event_id=events.id AND x.replacement->>'courseId'=$2::text)))"
+                      : '';
+                  const workloadDependent =
+                    child === 'events'
+                      ? 'EXISTS(SELECT 1 FROM study_event_contexts ec JOIN study_workload_sources ws ON ws.plan_id=ec.plan_id AND ws.owner_id=ec.owner_id JOIN academic_work w ON w.id=ws.work_id AND w.owner_id=ws.owner_id WHERE ec.event_id=events.id AND ec.owner_id=events.owner_id AND w.course_id=$2)'
+                      : '';
                   await tx.query(
-                    `UPDATE ${child} SET sensitivity=CASE WHEN sensitivity='restricted' OR $3='restricted' THEN 'restricted' ELSE 'personal' END,academic_labels=CASE WHEN academic_labels IS NULL THEN NULL ELSE ARRAY(SELECT DISTINCT label FROM unnest(academic_labels || ARRAY[$3]::text[]) AS inherited(label) ORDER BY label) END,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND (course_id=$2${child === 'events' ? " OR EXISTS(SELECT 1 FROM event_exceptions x WHERE x.event_id=events.id AND x.replacement->>'courseId'=$2::text)" : ''}) AND deleted_at IS NULL AND (sensitivity='unlabeled' OR (sensitivity='personal' AND $3='restricted') OR (academic_labels IS NOT NULL AND NOT($3=ANY(academic_labels))))`,
+                    `UPDATE ${child} SET sensitivity=CASE WHEN sensitivity='restricted' OR $3='restricted' THEN 'restricted' ELSE 'personal' END,academic_labels=CASE WHEN academic_labels IS NULL THEN NULL ELSE ARRAY(SELECT DISTINCT label FROM unnest(academic_labels || ARRAY[$3]::text[]) AS inherited(label) ORDER BY label) END,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND (course_id=$2${child === 'events' ? ` OR EXISTS(SELECT 1 FROM event_exceptions x WHERE x.event_id=events.id AND x.replacement->>'courseId'=$2::text) OR ${workloadDependent} OR ${academicDependent}` : ''}) AND (sensitivity='unlabeled' OR (sensitivity='personal' AND $3='restricted') OR (academic_labels IS NOT NULL AND NOT($3=ANY(academic_labels)))${workloadDependent && previous?.sensitivity !== input.sensitivity ? ` OR (academic_labels IS NULL AND ${workloadDependent})` : ''}${academicDependent ? ` OR (${academicDependent} AND EXISTS(SELECT 1 FROM academic_planner_sources aps WHERE aps.event_id=events.id AND aps.owner_id=events.owner_id AND NOT($3=ANY(aps.labels))))` : ''})`,
                     [user.id, id, input.sensitivity],
                   );
+                }
+              if (table === 'courses' && input.sensitivity !== 'unlabeled')
+                await propagateAcademicPlannerLabels(
+                  tx,
+                  user.id,
+                  { courseId: id },
+                  [String(input.sensitivity)],
+                  false,
+                );
               if (table === 'topics')
                 for (const label of new Set(
                   [
@@ -148,11 +170,13 @@ export function registerAcademics(
                       ? row.academicLabels.map(String)
                       : []),
                   ].filter((label) => label !== 'unlabeled'),
-                ))
+                )) {
                   await tx.query(
-                    `UPDATE events SET sensitivity=CASE WHEN sensitivity='restricted' OR $3='restricted' THEN 'restricted' ELSE 'personal' END,academic_labels=CASE WHEN academic_labels IS NULL THEN NULL ELSE ARRAY(SELECT DISTINCT label FROM unnest(academic_labels || ARRAY[$3]::text[]) AS inherited(label) ORDER BY label) END,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND (topic_id=$2 OR EXISTS(SELECT 1 FROM event_exceptions x WHERE x.event_id=events.id AND x.replacement->>'topicId'=$2::text)) AND deleted_at IS NULL AND (sensitivity='unlabeled' OR (sensitivity='personal' AND $3='restricted') OR (academic_labels IS NOT NULL AND NOT($3=ANY(academic_labels))))`,
+                    `UPDATE events SET sensitivity=CASE WHEN sensitivity='restricted' OR $3='restricted' THEN 'restricted' ELSE 'personal' END,academic_labels=CASE WHEN academic_labels IS NULL THEN NULL ELSE ARRAY(SELECT DISTINCT label FROM unnest(academic_labels || ARRAY[$3]::text[]) AS inherited(label) ORDER BY label) END,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND (topic_id=$2 OR EXISTS(SELECT 1 FROM event_exceptions x WHERE x.event_id=events.id AND x.replacement->>'topicId'=$2::text)) AND (sensitivity='unlabeled' OR (sensitivity='personal' AND $3='restricted') OR (academic_labels IS NOT NULL AND NOT($3=ANY(academic_labels))) OR EXISTS(SELECT 1 FROM academic_planner_sources aps WHERE aps.event_id=events.id AND aps.owner_id=events.owner_id AND NOT($3=ANY(aps.labels))))`,
                     [user.id, id, label],
                   );
+                  await extendAcademicTopicLabels(tx, user.id, id, [label]);
+                }
               return response.parse({ [key]: row });
             },
           );

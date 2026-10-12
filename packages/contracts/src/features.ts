@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { Temporal } from '@js-temporal/polyfill';
 import { canvasSourceRefSchema, plannerSourceSchema } from './provenance.js';
+import { academicPlannerSourceSummarySchema } from './academic-source.js';
 export { Temporal };
 export const dateOnly = z
   .string()
@@ -115,6 +116,7 @@ export const calendarRecordSchema = z.object({
     .nullable()
     .default(null),
   canvasSource: plannerSourceSchema.nullable().default(null),
+  academicSource: academicPlannerSourceSummarySchema.nullable().default(null),
   id: z.string().uuid(),
   version: z.number().int().positive(),
   createdAt: instant,
@@ -204,7 +206,10 @@ export type Topic = z.infer<typeof topicSchema>;
 export const reminderFields = {
   title: z.string().trim().min(1).max(200),
   scheduledAt: instant,
-  targetKind: z.enum(['task', 'event']).nullable().default(null),
+  targetKind: z
+    .enum(['task', 'event', 'academic-work'])
+    .nullable()
+    .default(null),
   targetId: z.string().uuid().nullable().default(null),
   occurrenceDate: dateOnly.nullable().default(null),
 };
@@ -221,6 +226,7 @@ export const reminderWriteSchema = z
   );
 export const reminderSchema = z.object({
   ...reminderFields,
+  snoozedFromId: z.string().uuid().nullable().default(null),
   id: z.string().uuid(),
   version: z.number().int().positive(),
   status: z.enum([

@@ -19,6 +19,7 @@ import { readAIBudget } from './ai-budget.js';
 import { mutate } from '../planner/mutations.js';
 import { stamp, version } from './common.js';
 import { ApiError } from '../errors.js';
+import { readAIProviderReadiness } from '../ai/provider-policy.js';
 const columns = `id,version,metadata,${stamp('created_at', 'createdAt')},${stamp('deleted_at', 'deletedAt')}`;
 const record = (row: Record<string, unknown>) =>
   aiPreflightSchema.parse({
@@ -39,6 +40,84 @@ export async function readAIPreflights(
       [owner, limit],
     )
   ).map(record);
+}
+export async function assessAIInput(
+  tx: QueryExecutor,
+  owner: string,
+  input: z.infer<typeof aiPreflightWriteSchema>,
+  registry: ReturnType<typeof publicAIRegistry>,
+) {
+  if (input.expectedRegistryRevision !== registry.revision)
+    throw new ApiError(409, 'REGISTRY_CONFLICT', 'Reload provider profiles.');
+  const settings = await readAIRoutingPolicy(tx, owner);
+  version(settings, input.expectedPolicyVersion);
+  const budget = await readAIBudget(tx, owner);
+  version(budget, input.expectedBudgetVersion);
+  const sources = [];
+  for (const ref of input.sources)
+    sources.push(await resolveAIContext(tx, owner, ref, true));
+  const route = evaluateAIRouting(
+    settings.policy,
+    [input.sensitivity, ...sources.flatMap((source) => source.labels)],
+    sources.some((source) => source.attachmentDerived),
+    registry.profiles
+      .filter((profile) => profile.configuration === 'configured')
+      .map((profile) => profile.alias),
+  );
+  const profile = registry.profiles.find(
+    (candidate) => candidate.alias === route.provider,
+  );
+  // No content assembly for denied/forbidden/unavailable routes. No provider transport exists here.
+  const assembled =
+    route.status === 'selected' && profile
+      ? await assembleAITextContext(
+          tx,
+          owner,
+          input.text,
+          sources,
+          profile.maxInputCharacters,
+          input.sensitivity,
+        )
+      : null;
+  const metadata = {
+    status: 'blocked',
+    reason:
+      route.status === 'blocked'
+        ? route.reason
+        : assembled
+          ? budget.policy.monthlyLimitMicros === null
+            ? 'BUDGET_UNSET'
+            : budget.policy.monthlyLimitMicros === 0 ||
+                budget.policy.perRequestLimitMicros === 0
+              ? 'BUDGET_ZERO_LIMIT'
+              : BigInt(budget.usage.spentMicros) +
+                    BigInt(budget.usage.heldMicros) >=
+                  BigInt(budget.policy.monthlyLimitMicros)
+                ? 'MONTHLY_BUDGET_EXCEEDED'
+                : 'DISPATCH_DISABLED'
+          : 'INPUT_LIMIT',
+    dispatchEnabled: false,
+    policyVersion: settings.version,
+    budgetVersion: budget.version,
+    budget: budget.policy,
+    budgetUsage: budget.usage,
+    registryRevision: registry.revision,
+    route,
+    model: profile?.model ?? null,
+    requestCharacters: input.text.length,
+    contextCharacters: assembled?.contextCharacters ?? null,
+    contextAssembled: assembled !== null,
+    contextManifest: assembled?.manifest ?? null,
+    executionReadiness:
+      route.status === 'selected' && profile
+        ? await readAIProviderReadiness(tx, owner, profile, budget)
+        : null,
+    sources: sources.map((source, index) => ({
+      ...source,
+      characters: assembled?.counts[index] ?? null,
+    })),
+  };
+  return { metadata, assembled };
 }
 export function registerAIPreflight(
   app: FastifyInstance,
@@ -65,74 +144,7 @@ export function registerAIPreflight(
         // mutate's receipt insert is already the first statement; repeatable isolation is set by its option.
         if (!(await auth.currentUser(request, tx)))
           throw new ApiError(401, 'UNAUTHENTICATED', 'Sign in again.');
-        if (input.expectedRegistryRevision !== registry.revision)
-          throw new ApiError(
-            409,
-            'REGISTRY_CONFLICT',
-            'Reload provider profiles.',
-          );
-        const settings = await readAIRoutingPolicy(tx, user.id);
-        version(settings, input.expectedPolicyVersion);
-        const budget = await readAIBudget(tx, user.id);
-        version(budget, input.expectedBudgetVersion);
-        const sources = [];
-        for (const ref of input.sources)
-          sources.push(await resolveAIContext(tx, user.id, ref));
-        const route = evaluateAIRouting(
-          settings.policy,
-          [input.sensitivity, ...sources.flatMap((source) => source.labels)],
-          sources.some((source) => source.attachmentDerived),
-          registry.profiles
-            .filter((profile) => profile.configuration === 'configured')
-            .map((profile) => profile.alias),
-        );
-        const profile = registry.profiles.find(
-          (candidate) => candidate.alias === route.provider,
-        );
-        // No content assembly for denied/forbidden/unavailable routes. No provider transport exists here.
-        const assembled =
-          route.status === 'selected' && profile
-            ? await assembleAITextContext(
-                tx,
-                user.id,
-                input.text,
-                sources,
-                profile.maxInputCharacters,
-              )
-            : null;
-        const metadata = {
-          status: 'blocked',
-          reason:
-            route.status === 'blocked'
-              ? route.reason
-              : assembled
-                ? budget.policy.monthlyLimitMicros === null
-                  ? 'BUDGET_UNSET'
-                  : budget.policy.monthlyLimitMicros === 0 ||
-                      budget.policy.perRequestLimitMicros === 0
-                    ? 'BUDGET_ZERO_LIMIT'
-                    : BigInt(budget.usage.spentMicros) +
-                          BigInt(budget.usage.heldMicros) >=
-                        BigInt(budget.policy.monthlyLimitMicros)
-                      ? 'MONTHLY_BUDGET_EXCEEDED'
-                      : 'DISPATCH_DISABLED'
-                : 'INPUT_LIMIT',
-          dispatchEnabled: false,
-          policyVersion: settings.version,
-          budgetVersion: budget.version,
-          budget: budget.policy,
-          budgetUsage: budget.usage,
-          registryRevision: registry.revision,
-          route,
-          model: profile?.model ?? null,
-          requestCharacters: input.text.length,
-          contextCharacters: assembled?.contextCharacters ?? null,
-          contextAssembled: assembled !== null,
-          sources: sources.map((source, index) => ({
-            ...source,
-            characters: assembled?.counts[index] ?? null,
-          })),
-        };
+        const { metadata } = await assessAIInput(tx, user.id, input, registry);
         const [row] = await tx.query(
           `INSERT INTO ai_preflights(id,owner_id,metadata) VALUES($1,$2,$3::jsonb) RETURNING ${columns}`,
           [randomUUID(), user.id, JSON.stringify(metadata)],

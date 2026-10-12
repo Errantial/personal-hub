@@ -5,6 +5,8 @@ import {
   topicSchema,
   canvasProviderDataSchema,
   canvasLmsAssignmentDataSchema,
+  aiContextManifestSchema,
+  sensitivitySchema,
 } from '@hub/contracts';
 import type { QueryExecutor } from '../db/database.js';
 import { stamp } from '../features/common.js';
@@ -73,6 +75,7 @@ export async function assembleAITextContext(
   text: string,
   sources: Source[],
   limit: number,
+  sensitivity: z.infer<typeof sensitivitySchema> = 'unlabeled',
 ) {
   if (sources.some((source) => source.attachmentDerived))
     throw new ApiError(
@@ -89,7 +92,29 @@ export async function assembleAITextContext(
   const counts: number[] = [];
   for (const source of sources) {
     let content: Record<string, unknown>;
-    if (source.kind === 'canvas-item' || source.kind === 'canvas-assignment') {
+    if (source.kind === 'memory') {
+      const [row] = await tx.query(
+        `SELECT m.version,m.kind,m.title,m.content,to_char(m.observed_on,'YYYY-MM-DD') AS "observedOn",s.version AS "settingsVersion" FROM memories m JOIN memory_settings s ON s.owner_id=m.owner_id WHERE m.owner_id=$1 AND m.id=$2 AND m.deleted_at IS NULL AND m.enabled AND s.enabled`,
+        [owner, source.id],
+      );
+      if (
+        !row ||
+        row.version !== source.version ||
+        row.settingsVersion !== source.memorySettingsVersion
+      )
+        throw new ApiError(409, 'VERSION_CONFLICT', 'Reload memory context.');
+      content = z
+        .object({
+          kind: z.enum(['preference', 'goal', 'fact']),
+          title: z.string().min(1).max(160),
+          content: z.string().min(1).max(4000),
+          observedOn: z.string().nullable(),
+        })
+        .parse(row);
+    } else if (
+      source.kind === 'canvas-item' ||
+      source.kind === 'canvas-assignment'
+    ) {
       const table =
         source.kind === 'canvas-item'
           ? 'canvas_items'
@@ -145,5 +170,25 @@ export async function assembleAITextContext(
     payload,
     counts,
     contextCharacters: counts.reduce((sum, value) => sum + value, 0),
+    manifest: aiContextManifestSchema.parse({
+      formatVersion: 1,
+      boundary: 'text-only',
+      projection: 'owned-text-v1',
+      request: {
+        provenance: 'owner-entered',
+        sensitivity,
+        characters: text.length,
+      },
+      sources: sources.map((source, index) => ({
+        kind: source.kind,
+        id: source.id.toLowerCase(),
+        version: source.version,
+        labels: source.labels,
+        attachmentDerived: false,
+        memorySettingsVersion: source.memorySettingsVersion ?? null,
+        characters: counts[index],
+      })),
+      payloadCharacters: payload.length,
+    }),
   };
 }

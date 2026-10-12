@@ -1,5 +1,9 @@
 # AI permissions and provider routing
 
+[Editable owner memory](memory.md) stores explicit preferences/goals/facts and owner label history with disable/forget controls. It remains outside AI context references and retrieval; enabling it does not verify text origin or grant provider disclosure. Future integration must evaluate every retained label, current version/tombstone and source provenance before routing, and invalidate active derived copies on forgetting.
+
+Implemented [typed action permissions](ai-actions.md) are a separate owner policy/authority preview. They do not authorize model dispatch or prove provider write capability; mandatory email approval and existing text/provenance/routing gates remain in force. [Email draft approvals](email-drafts.md) retain explicit exact-message review records separately. No action executor or sender/provider send capability is enabled.
+
 ## Confirmed requirement
 
 The owner can set rules that route sensitive requests to a different approved AI provider. For example, routine context might use Claude while personal context uses another selected provider. Neither provider has been selected yet. A different provider is not automatically more private; approval is an explicit user configuration based on the intended data boundary.
@@ -10,7 +14,7 @@ Routing permissions are separate from action permissions. Every provider must ob
 
 ### Implemented: permissions and read-only preview
 
-Preferences includes AI permissions and Routing preview. This remains a policy simulation; dispatch is disabled. Separate server profiles, spending limits, and metadata-only preflights are implemented in the [gateway foundation](ai-gateway.md). Profiles are empty by default, and no SDK/transport, health/model verification, conversation, memory, paid request or agent runtime is enabled. Saving routing aliases does not connect a provider.
+Preferences includes AI permissions and Routing preview. This remains a policy simulation; dispatch is disabled. Separate server profiles, spending limits, and metadata-only preflights are implemented in the [gateway foundation](ai-gateway.md). Profiles are empty by default, and no SDK/transport, health/model verification, conversation, AI memory retrieval, paid request or agent runtime is enabled. Saving routing aliases does not connect a provider.
 
 Set allowed provider aliases and an optional preferred alias for Unlabeled, Personal and Restricted. Aliases are lowercase identifiers, not URLs, model names or secrets. Defaults allow no destination. A request can have an explicit owner label and owned source references. The web preview currently offers task context; the API also accepts calendar, class, topic and Canvas feed/assignment references. Sources require current versions and owner authorization. Preview text is accepted only to model the request shape; it is neither returned, persisted nor sent to another service, and its wording never determines a label.
 
@@ -51,7 +55,7 @@ Keep provider credentials out of the model and browser. A provider profile can l
 
 Confirmed: only sources or content explicitly labeled by the owner determine sensitive routing. No local patterns, heuristic classifier, or hosted model automatically assigns sensitivity. Content derived from a labeled source inherits that label; this preserves the owner's choice rather than inferring a new category.
 
-Current owner-applied labels are personal and restricted, each with allowed destinations; changing label names is later scope. Unlabeled content uses the configured default route. Planned memory/mail labels follow the same boundary. A request label does not remove labels carried by retrieved context.
+Current owner-applied labels are personal and restricted, each with allowed destinations; changing label names is later scope. Unlabeled content uses the configured default route. Stored owner memory labels and future retrieved memory/mail context follow the same boundary. A request label does not remove labels carried by retrieved context.
 
 Do not automatically label Proton mail personal or Canvas routine. The owner chooses these source defaults. Existing content and derived records are re-evaluated after a source label changes. Labels cannot retract content already sent to a provider; apply them before processing where that boundary is required.
 

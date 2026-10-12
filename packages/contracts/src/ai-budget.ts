@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { providerAliasSchema } from './ai-routing.js';
 const amount = z.number().int().min(0).max(1_000_000_000_000).nullable();
+export const AI_MONTHLY_HARD_LIMIT_MICROS = 50_000_000;
+export const initialAIBudgetPolicy = {
+  monthlyLimitMicros: AI_MONTHLY_HARD_LIMIT_MICROS,
+  perRequestLimitMicros: 250_000,
+};
 export const aiBudgetPolicySchema = z
   .strictObject({
     monthlyLimitMicros: amount,
@@ -35,6 +40,9 @@ export const aiBudgetSettingsSchema = z.object({
   monthBoundary: z.literal('UTC'),
   dispatchEnabled: z.literal(false),
   usage: aiBudgetUsageSchema.nullable().default(null),
+  hardMonthlyLimitMicros: z
+    .literal(AI_MONTHLY_HARD_LIMIT_MICROS)
+    .default(AI_MONTHLY_HARD_LIMIT_MICROS),
 });
 export const aiBudgetLiveSettingsSchema = aiBudgetSettingsSchema.extend({
   usage: aiBudgetUsageSchema,
