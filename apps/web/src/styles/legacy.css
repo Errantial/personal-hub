@@ -72,43 +72,48 @@
   border-radius: var(--radius-surface);
   padding: 24px;
 }
-.connection-card-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 24px;
-}
-.account-icon {
-  width: 39px;
-  height: 39px;
-  border: 1px solid var(--border);
-  background: var(--surface-subtle);
+.connection-card {
   display: grid;
-  place-items: center;
-  border-radius: var(--radius-surface);
-  font-size: 22px;
-}
-.status-tag {
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 5px 9px;
-  font-size: var(--text-caption);
-  color: var(--text-muted);
+  gap: var(--space-2);
+  align-content: start;
+  justify-items: start;
+  min-width: 0;
 }
 .connection-card h3 {
   font-size: var(--text-body);
-  margin-bottom: 9px;
+  margin: 0;
   font-weight: 600;
+}
+/* Outlined in-app links (cards, back links, sub-page tabs) at button size. */
+.link-button,
+.canvas-tabs a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target);
+  padding: 0 var(--space-3);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+}
+.canvas-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.canvas-tabs a[aria-current='page'] {
+  font-weight: 600;
+  text-decoration: underline;
 }
 .connection-card p {
   font-size: var(--text-caption);
   color: var(--text-muted);
   line-height: 1.8;
   margin: 0;
-}
-.connection-placeholder {
-  padding: 24px;
 }
 .preferences-grid {
   display: grid;

@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { notificationsSchema } from '@hub/contracts';
+import { notificationSummarySchema } from '@hub/contracts';
 import type { User } from '@hub/contracts';
 import {
   applyAppearance,
@@ -33,7 +33,7 @@ import type { WorkspaceState } from './views/ConnectionsView';
 import {
   ClassesView,
   CalendarView,
-  ReminderWorkspace,
+  InboxView,
   SettingsView,
   TasksView,
   TodayView,
@@ -87,11 +87,17 @@ function Workspace({
   const [attempt, setAttempt] = useState(0);
   const sync = useTaskSync();
   const inbox = useResource(
-    (signal) => getJson('/api/v1/notifications', notificationsSchema, signal),
+    (signal) =>
+      getJson(
+        '/api/v1/notifications/summary',
+        notificationSummarySchema,
+        signal,
+      ),
     { failure: '' },
   );
-  const unread =
-    inbox.data?.notifications.filter((item) => !item.readAt).length ?? 0;
+  // The server counts every unread record. If the count cannot be read, the
+  // last known value stays (it is never replaced by zero).
+  const unread = inbox.data?.unreadCount ?? 0;
 
   useEffect(() => {
     // Move focus to the new view's heading after in-app or Back navigation,
@@ -200,10 +206,16 @@ function Workspace({
                 }}
               />
             )}
-            {view === 'inbox' && <ReminderWorkspace />}
+            {route.name === 'inbox' && (
+              <InboxView
+                route={route}
+                navigate={navigate}
+                onChanged={reloadInbox}
+              />
+            )}
             {route.name === 'settings' && (
               <SettingsView
-                section={route.section}
+                route={route}
                 navigate={navigate}
                 workspace={workspace}
                 appearance={appearance}

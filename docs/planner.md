@@ -40,7 +40,7 @@ The API entry point starts the worker automatically. It polls every five seconds
 
 Delivery means an inbox record and terminal job status committed together. A unique reminder receipt prevents duplicate inbox items after retry or restart. It does not mean an operating-system notification was displayed. Completed/deleted targets, cancelled/completed study sessions and cancelled occurrences suppress pending delivery. Pause, resume, retry and cancel use optimistic versions and mutation receipts. Delivered notifications remain in history; the inbox shows the latest 200 items.
 
-Browser alerts are optional, require permission and run only while the Reminders view is open. A denied permission leaves the durable inbox available. Closing the page does not stop the server worker, but no browser push, Android alarm, email or attachment processing is implemented. The UI reports a missing/stale worker; it cannot guarantee a powered-off or unavailable server delivers on time. Overdue queued jobs are delivered when the server resumes.
+Browser alerts are optional, require permission and run only while the Inbox view is open. A denied permission leaves the durable inbox available. Closing the page does not stop the server worker, but no browser push, Android alarm, email or attachment processing is implemented. The UI reports a missing/stale worker; it cannot guarantee a powered-off or unavailable server delivers on time. Overdue queued jobs are delivered when the server resumes.
 
 Use isolated synthetic test databases. Standard PostgreSQL migration/worker coverage is configured in CI and opt-in locally through TEST_DATABASE_URL; physical Kompakt and production deployment acceptance remain separate gates.
 

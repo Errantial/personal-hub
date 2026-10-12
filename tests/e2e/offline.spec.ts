@@ -437,7 +437,7 @@ test('views not yet opened load offline at their own URLs after one online visit
   ).toBeVisible();
   await page.goto('/settings/connections');
   await expect(
-    page.getByRole('heading', { name: 'Your accounts' }),
+    page.getByRole('heading', { name: 'Connections', level: 2 }),
   ).toBeVisible();
   await context.setOffline(false);
 });

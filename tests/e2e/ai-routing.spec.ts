@@ -36,7 +36,7 @@ test('routing permissions retry once, keep drafts on conflict and preview inheri
     name: 'AI routing permissions',
     exact: true,
   });
-  await expect(panel).toContainText('Preview only · AI dispatch disabled');
+  await expect(panel).toContainText('Preview only · AI requests are off');
   const form = panel.getByRole('form', {
     name: 'Routing permissions',
     exact: true,

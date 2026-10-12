@@ -51,7 +51,12 @@ export function CanvasEntry({
         </details>
       )}
       {data.sourceUrl && (
-        <a href={data.sourceUrl} target="_blank" rel="noreferrer">
+        <a
+          className="link-button"
+          href={data.sourceUrl}
+          target="_blank"
+          rel="noreferrer"
+        >
           Open in Canvas
         </a>
       )}

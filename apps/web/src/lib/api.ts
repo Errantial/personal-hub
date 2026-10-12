@@ -110,6 +110,11 @@ export async function liveRequestJson<T>(
         'Edit this event in Calendar to preserve its schedule and class links.',
       REMINDER_STATE:
         'The reminder status changed. Reload the list before trying again.',
+      REMINDER_ALREADY_SNOOZED:
+        'This reminder was already snoozed. Reload the inbox, or add a new reminder.',
+      REMINDER_TARGET_UNAVAILABLE:
+        'The linked item is completed, deleted or cancelled, so this reminder cannot be snoozed.',
+      SNOOZE_TIME: 'Choose a future time within the next 365 days.',
       NOT_DELETED: 'This item is already active. Reload the list.',
       UNAUTHENTICATED: 'Your session ended. Sign out and sign in again.',
       INVALID_CREDENTIALS: 'Email or password is incorrect.',

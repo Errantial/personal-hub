@@ -48,26 +48,27 @@ test('server preflights retain input through retry/conflict and hide metadata wi
   await openSettings(page, 'AI');
   await page.setViewportSize({ width: 320, height: 900 });
   const panel = page.getByRole('region', {
-    name: 'AI preflights',
+    name: 'AI request checks',
     exact: true,
   });
-  await expect(panel).toContainText('No server profiles.');
+  await expect(
+    page.getByRole('region', { name: 'AI providers', exact: true }),
+  ).toContainText('No server profiles.');
   await expect(panel).toContainText('Provider health unchecked');
-  const form = panel.getByRole('form', { name: 'AI preflight', exact: true });
+  const form = panel.getByRole('form', {
+    name: 'AI request check',
+    exact: true,
+  });
   const text = 'Synthetic preflight text must never appear in receipts.';
   await form
-    .getByRole('textbox', { name: 'Preflight text', exact: true })
+    .getByRole('textbox', { name: 'Check text', exact: true })
     .fill(text);
-  await form
-    .getByRole('button', { name: 'Check preflight', exact: true })
-    .click();
+  await form.getByRole('button', { name: 'Run check', exact: true }).click();
   await expect(panel.getByRole('alert')).toBeVisible();
   await expect(
-    form.getByRole('textbox', { name: 'Preflight text', exact: true }),
+    form.getByRole('textbox', { name: 'Check text', exact: true }),
   ).toHaveValue(text);
-  await form
-    .getByRole('button', { name: 'Check preflight', exact: true })
-    .click();
+  await form.getByRole('button', { name: 'Run check', exact: true }).click();
   await expect(panel.getByRole('status')).toHaveText(
     'Blocked · No provider permitted for all context',
   );
@@ -85,20 +86,16 @@ test('server preflights retain input through retry/conflict and hide metadata wi
       })
     ).status(),
   ).toBe(200);
-  await form
-    .getByRole('button', { name: 'Check preflight', exact: true })
-    .click();
+  await form.getByRole('button', { name: 'Run check', exact: true }).click();
   await expect(panel.getByRole('alert')).toContainText('changed elsewhere');
   await panel
-    .getByRole('button', { name: 'Reload preflights', exact: true })
+    .getByRole('button', { name: 'Reload checks', exact: true })
     .click();
   await expect(panel.getByRole('alert')).toHaveCount(0);
   await expect(
-    form.getByRole('textbox', { name: 'Preflight text', exact: true }),
+    form.getByRole('textbox', { name: 'Check text', exact: true }),
   ).toHaveValue(text);
-  await form
-    .getByRole('button', { name: 'Check preflight', exact: true })
-    .click();
+  await form.getByRole('button', { name: 'Run check', exact: true }).click();
   await expect(panel.getByRole('status')).toHaveText(
     'Blocked · No provider permitted for all context',
   );
@@ -109,16 +106,12 @@ test('server preflights retain input through retry/conflict and hide metadata wi
   const receipt = history.preflights[0];
   expect(JSON.stringify(history)).not.toContain(text);
   const entry = panel.getByRole('article', {
-    name: `Preflight ${receipt.id}`,
+    name: `Check ${receipt.id}`,
     exact: true,
   });
-  await entry
-    .getByRole('button', { name: 'Hide preflight', exact: true })
-    .click();
+  await entry.getByRole('button', { name: 'Hide check', exact: true }).click();
   await expect(panel.getByRole('alert')).toBeVisible();
-  await entry
-    .getByRole('button', { name: 'Hide preflight', exact: true })
-    .click();
+  await entry.getByRole('button', { name: 'Hide check', exact: true }).click();
   await expect(entry).toHaveCount(0);
   expect(hideIds[0]).toBe(hideIds[1]);
   const exported = await (
@@ -151,11 +144,11 @@ test('spending limits preserve exact amounts, retry identities and conflict draf
     exact: true,
   });
   const preflights = page.getByRole('region', {
-    name: 'AI preflights',
+    name: 'AI request checks',
     exact: true,
   });
   await preflights
-    .getByRole('textbox', { name: 'Preflight text', exact: true })
+    .getByRole('textbox', { name: 'Check text', exact: true })
     .fill('Keep this preflight draft');
   await form
     .getByLabel('Monthly limit (USD)', { exact: true })
@@ -185,19 +178,19 @@ test('spending limits preserve exact amounts, retry identities and conflict draf
   await expect(panel.getByRole('status')).toHaveText('Spending limits saved.');
   expect(ids[0]).toBe(ids[1]);
   await expect(
-    preflights.getByRole('button', { name: 'Check preflight', exact: true }),
+    preflights.getByRole('button', { name: 'Run check', exact: true }),
   ).toBeDisabled();
   await expect(preflights).toContainText(
-    'Reload preflights after settings changes.',
+    'Reload checks after settings changes.',
   );
   await preflights
-    .getByRole('button', { name: 'Reload preflights', exact: true })
+    .getByRole('button', { name: 'Reload checks', exact: true })
     .click();
   await expect(
-    preflights.getByRole('button', { name: 'Check preflight', exact: true }),
+    preflights.getByRole('button', { name: 'Run check', exact: true }),
   ).toBeEnabled();
   await expect(
-    preflights.getByRole('textbox', { name: 'Preflight text', exact: true }),
+    preflights.getByRole('textbox', { name: 'Check text', exact: true }),
   ).toHaveValue('Keep this preflight draft');
   const stored = await (await page.request.get('/api/v1/ai/budget')).json();
   expect(stored.policy).toEqual({
@@ -272,7 +265,7 @@ test('a late preflight load cannot clear a newer settings-change warning', async
   await openSettings(page, 'AI');
   await ready;
   const preflights = page.getByRole('region', {
-    name: 'AI preflights',
+    name: 'AI request checks',
     exact: true,
   });
   const budget = page.getByRole('region', {
@@ -281,7 +274,7 @@ test('a late preflight load cannot clear a newer settings-change warning', async
   });
   try {
     await preflights
-      .getByRole('textbox', { name: 'Preflight text', exact: true })
+      .getByRole('textbox', { name: 'Check text', exact: true })
       .fill('Retain this input while loading');
     await budget.getByLabel('Monthly limit (USD)', { exact: true }).fill('5');
     await budget.getByLabel('Request limit (USD)', { exact: true }).fill('0.1');
@@ -293,21 +286,23 @@ test('a late preflight load cannot clear a newer settings-change warning', async
     );
     holdProfiles = false;
     release();
-    await expect(preflights).toContainText('No server profiles.');
+    await expect(
+      page.getByRole('region', { name: 'AI providers', exact: true }),
+    ).toContainText('No server profiles.');
     await expect(preflights).toContainText(
-      'Reload preflights after settings changes.',
+      'Reload checks after settings changes.',
     );
     await expect(
-      preflights.getByRole('button', { name: 'Check preflight', exact: true }),
+      preflights.getByRole('button', { name: 'Run check', exact: true }),
     ).toBeDisabled();
     await preflights
-      .getByRole('button', { name: 'Reload preflights', exact: true })
+      .getByRole('button', { name: 'Reload checks', exact: true })
       .click();
     await expect(
-      preflights.getByRole('button', { name: 'Check preflight', exact: true }),
+      preflights.getByRole('button', { name: 'Run check', exact: true }),
     ).toBeEnabled();
     await expect(
-      preflights.getByRole('textbox', { name: 'Preflight text', exact: true }),
+      preflights.getByRole('textbox', { name: 'Check text', exact: true }),
     ).toHaveValue('Retain this input while loading');
   } finally {
     release();

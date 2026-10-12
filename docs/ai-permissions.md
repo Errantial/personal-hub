@@ -14,7 +14,7 @@ Routing permissions are separate from action permissions. Every provider must ob
 
 ### Implemented: permissions and read-only preview
 
-Preferences includes AI permissions and Routing preview. This remains a policy simulation; dispatch is disabled. Separate server profiles, spending limits, and metadata-only preflights are implemented in the [gateway foundation](ai-gateway.md). Profiles are empty by default, and no SDK/transport, health/model verification, conversation, AI memory retrieval, paid request or agent runtime is enabled. Saving routing aliases does not connect a provider.
+Settings › AI includes Permissions and a routing preview. This remains a policy simulation; dispatch is disabled. Separate server profiles, spending limits, and metadata-only preflights are implemented in the [gateway foundation](ai-gateway.md). Profiles are empty by default, and no SDK/transport, health/model verification, conversation, AI memory retrieval, paid request or agent runtime is enabled. Saving routing aliases does not connect a provider.
 
 Set allowed provider aliases and an optional preferred alias for Unlabeled, Personal and Restricted. Aliases are lowercase identifiers, not URLs, model names or secrets. Defaults allow no destination. A request can have an explicit owner label and owned source references. The web preview currently offers task context; the API also accepts calendar, class, topic and Canvas feed/assignment references. Sources require current versions and owner authorization. Preview text is accepted only to model the request shape; it is neither returned, persisted nor sent to another service, and its wording never determines a label.
 

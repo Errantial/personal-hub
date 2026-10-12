@@ -5,6 +5,9 @@ import {
   eventEditor,
   newEvent,
   classesRegion,
+  inboxRegion,
+  newReminder,
+  showReminders,
   open,
   openClass,
   showCalendar,
@@ -47,9 +50,10 @@ test('rescheduling an academic-work reminder preserves its source link', async (
   const reminderId = (await reminder.json()).reminder.id;
   await page.goto('/');
   await open(page, 'Inbox');
-  const view = page.getByRole('region', { name: 'Reminders workspace' });
+  await showReminders(page);
+  const view = inboxRegion(page);
   await view
-    .getByRole('button', {
+    .getByRole('link', {
       name: 'Reschedule Academic source reminder',
       exact: true,
     })
@@ -282,10 +286,9 @@ test('server reminders deliver to the inbox after navigating away and support pa
 }) => {
   await page.goto('/');
   await open(page, 'Inbox');
-  const view = page.getByRole('region', { name: 'Reminders workspace' });
-  await expect(view.getByRole('status')).toHaveText(
-    'Reminder worker is running.',
-  );
+  const view = inboxRegion(page);
+  await expect(view.getByText(/^Reminder worker is running\./)).toBeVisible();
+  await newReminder(page);
   await view.getByLabel('Reminder title').fill('Browser durable reminder');
   await view.getByLabel('Remind at', { exact: true }).fill('2020-01-01T10:00');
   await view.getByRole('button', { name: 'Add reminder', exact: true }).click();
@@ -305,24 +308,33 @@ test('server reminders deliver to the inbox after navigating away and support pa
     )
     .toBe(true);
   await open(page, 'Inbox');
-  const inbox = view.getByRole('region', { name: 'Reminder inbox' });
-  await expect(
-    inbox.getByText('Browser durable reminder', { exact: true }),
-  ).toBeVisible();
-  await inbox.getByRole('button', { name: 'Mark read', exact: true }).click();
-  await expect(inbox.getByText('Read', { exact: true })).toBeVisible();
+  const inbox = view.getByRole('region', { name: 'Notifications' });
+  const note = inbox
+    .getByRole('listitem')
+    .filter({ hasText: 'Browser durable reminder' });
+  await expect(note).toBeVisible();
+  await note
+    .getByRole('button', { name: 'Mark read: Browser durable reminder' })
+    .click();
+  await expect(note.getByText('Read', { exact: true })).toBeVisible();
+  await newReminder(page);
   await view.getByLabel('Reminder title').fill('Paused browser reminder');
   await view.getByLabel('Remind at', { exact: true }).fill('2035-01-01T10:00');
   await view.getByRole('button', { name: 'Add reminder', exact: true }).click();
   const job = view.locator('li').filter({ hasText: 'Paused browser reminder' });
-  await job.getByRole('button', { name: 'Pause', exact: true }).click();
-  await expect(job).toContainText('Status: paused');
-  await job.getByRole('button', { name: 'Resume', exact: true }).click();
-  await expect(job).toContainText('Status: queued');
-  await job
+  await job.getByRole('button', { name: /^Pause/ }).click();
+  await expect(job).toContainText('Paused');
+  await job.getByRole('button', { name: /^Resume/ }).click();
+  await expect(job).toContainText('Scheduled');
+  await job.getByRole('button', { name: /^Cancel reminder/ }).click();
+  await page
+    .getByRole('dialog')
     .getByRole('button', { name: 'Cancel reminder', exact: true })
     .click();
-  await expect(job).toContainText('Status: cancelled');
+  await view.getByText(/^Earlier reminders/).click();
+  await expect(
+    view.locator('li').filter({ hasText: 'Paused browser reminder' }),
+  ).toContainText('Cancelled');
 });
 test('new screens fit monochrome on a narrow viewport and explain denied alert permission', async ({
   page,
@@ -348,6 +360,10 @@ test('new screens fit monochrome on a narrow viewport and explain denied alert p
     ).toBe(true);
   }
   await expect(
+    page.getByText('Blocked by browser', { exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Help: Browser alerts' }).click();
+  await expect(
     page.getByText(/Change this site’s notification setting/),
   ).toBeVisible();
 });
@@ -355,8 +371,8 @@ test('new screens fit monochrome on a narrow viewport and explain denied alert p
 test('a reminder whose save response is lost retries with the same operation and saves once', async ({
   page,
 }) => {
-  await page.goto('/reminders');
-  const view = page.getByRole('region', { name: 'Reminders workspace' });
+  await page.goto('/inbox/reminders/new');
+  const view = inboxRegion(page);
   await view.getByLabel('Reminder title').fill('Lost response reminder');
   await view.getByLabel('Remind at', { exact: true }).fill('2036-01-01T10:00');
   const operations: string[] = [];

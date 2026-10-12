@@ -13,6 +13,7 @@ import type {
 } from '@hub/contracts';
 import { requestJson } from '../lib/api';
 import { Help } from './Help';
+import { StatusChip } from './StatusChip';
 import { CanvasPlanning } from './CanvasPlanning';
 
 const base = '/api/v1/connections/canvas';
@@ -95,14 +96,16 @@ export function CanvasConnection() {
   return (
     <section className="panel canvas-connection" aria-label="Canvas connection">
       <div className="panel-heading">
-        <h2>Canvas</h2>
-        <span className="status-tag">
-          {data?.configured
-            ? data.enabled
-              ? 'Auto refresh on'
-              : 'Auto refresh paused'
-            : 'Feed not configured'}
-        </span>
+        <h3>Calendar feed</h3>
+        {data && (
+          <StatusChip>
+            {data.configured
+              ? data.enabled
+                ? 'Auto refresh on'
+                : 'Auto refresh paused'
+              : 'Feed not configured'}
+          </StatusChip>
+        )}
       </div>
       <Help label="Canvas">
         Read-only calendar entries. Configure CANVAS_CALENDAR_FEED_URL on the
@@ -235,6 +238,7 @@ export function CanvasConnection() {
                 </p>
                 {item.providerData.sourceUrl && (
                   <a
+                    className="link-button"
                     href={item.providerData.sourceUrl}
                     target="_blank"
                     rel="noreferrer"

@@ -124,6 +124,65 @@ it('addresses a class, its section and the add-class form', () => {
   });
 });
 
+it('addresses reminders and their editor inside the inbox', () => {
+  const id = '3f2b8c1e-5a4d-4e6f-9a0b-1c2d3e4f5a6b';
+  expect(routePath({ name: 'inbox' })).toBe('/inbox');
+  expect(routePath({ name: 'inbox', section: 'reminders' })).toBe(
+    '/inbox/reminders',
+  );
+  expect(
+    routePath({ name: 'inbox', section: 'reminders', reminder: 'new' }),
+  ).toBe('/inbox/reminders/new');
+  expect(parseRoute(`/inbox/reminders/${id}`, '')).toEqual({
+    name: 'inbox',
+    section: 'reminders',
+    reminder: id,
+  });
+  expect(parseRoute('/inbox/reminders/nope', '')).toEqual({
+    name: 'inbox',
+    section: 'reminders',
+  });
+  // The old address still opens the inbox.
+  expect(parseRoute('/reminders', '')).toEqual({ name: 'inbox' });
+});
+
+it('addresses the Canvas connection and its tabs', () => {
+  expect(routePath({ name: 'settings', section: 'connections' })).toBe(
+    '/settings/connections',
+  );
+  expect(
+    routePath({
+      name: 'settings',
+      section: 'connections',
+      connection: 'canvas',
+    }),
+  ).toBe('/settings/connections/canvas');
+  expect(
+    routePath({
+      name: 'settings',
+      section: 'connections',
+      connection: 'canvas',
+      tab: 'matching',
+    }),
+  ).toBe('/settings/connections/canvas?tab=matching');
+  expect(parseRoute('/settings/connections/canvas', '?tab=api')).toEqual({
+    name: 'settings',
+    section: 'connections',
+    connection: 'canvas',
+    tab: 'api',
+  });
+  // The default tab has no query; unknown providers and tabs are ignored.
+  expect(parseRoute('/settings/connections/canvas', '?tab=nope')).toEqual({
+    name: 'settings',
+    section: 'connections',
+    connection: 'canvas',
+  });
+  expect(parseRoute('/settings/connections/other', '')).toEqual({
+    name: 'settings',
+    section: 'connections',
+  });
+});
+
 it('addresses the calendar editor and keeps the visible window', () => {
   const id = '3f2b8c1e-5a47-4d0e-9b3a-1c2d3e4f5a6b';
   const cases = [

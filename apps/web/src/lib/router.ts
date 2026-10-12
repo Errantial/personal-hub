@@ -19,6 +19,13 @@ export const settingsSections = [
   'ai',
 ] as const;
 export type SettingsSection = (typeof settingsSections)[number];
+export const canvasTabs = ['feed', 'api', 'matching'] as const;
+export type CanvasTab = (typeof canvasTabs)[number];
+export const canvasTabLabels: Record<CanvasTab, string> = {
+  feed: 'Calendar feed',
+  api: 'Canvas API',
+  matching: 'Matching',
+};
 export const taskFilters = [
   'open',
   'due-soon',
@@ -51,7 +58,19 @@ export const classSectionLabels: Record<ClassSection, string> = {
   details: 'Details',
 };
 export type Route =
-  | { name: Exclude<View, 'calendar' | 'settings' | 'tasks' | 'classes'> }
+  | {
+      name: Exclude<
+        View,
+        'calendar' | 'settings' | 'tasks' | 'classes' | 'inbox'
+      >;
+    }
+  | {
+      name: 'inbox';
+      /** Notifications are the default; reminders have their own address. */
+      section?: 'reminders';
+      /** A reminder's editor: `'new'` or a reminder id. */
+      reminder?: string;
+    }
   | {
       name: 'classes';
       /** A class, or `'new'` for the add-class form. */
@@ -65,7 +84,13 @@ export type Route =
       view?: CalendarView;
       editor?: CalendarEditorRoute;
     }
-  | { name: 'settings'; section: SettingsSection };
+  | {
+      name: 'settings';
+      section: SettingsSection;
+      /** A provider's detail page under Connections. */
+      connection?: 'canvas';
+      tab?: CanvasTab;
+    };
 
 export const viewLabels: Record<View, string> = {
   today: 'Today',
@@ -104,6 +129,8 @@ const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
 const isClassSection = (value: string | null): value is ClassSection =>
   (classSections as readonly (string | null)[]).includes(value);
+const isCanvasTab = (value: string | null): value is CanvasTab =>
+  (canvasTabs as readonly (string | null)[]).includes(value);
 const isTaskFilter = (value: string | null): value is TaskFilter =>
   (taskFilters as readonly (string | null)[]).includes(value);
 
@@ -116,14 +143,21 @@ export function parseRoute(pathname: string, search: string): Route {
   const name = (views as readonly string[]).includes(segment)
     ? (segment as View)
     : 'today';
-  if (name === 'settings')
-    return {
-      name,
-      section: (settingsSections as readonly string[]).includes(detail)
-        ? (detail as SettingsSection)
-        : 'account',
-    };
   const query = new URLSearchParams(search);
+  if (name === 'settings') {
+    const section = (settingsSections as readonly string[]).includes(detail)
+      ? (detail as SettingsSection)
+      : 'account';
+    const tab = query.get('tab');
+    if (section === 'connections' && extra === 'canvas')
+      return {
+        name,
+        section,
+        connection: 'canvas',
+        ...(isCanvasTab(tab) && tab !== 'feed' ? { tab } : {}),
+      };
+    return { name, section };
+  }
   if (name === 'tasks') {
     const filter = query.get('filter');
     return {
@@ -140,6 +174,12 @@ export function parseRoute(pathname: string, search: string): Route {
       ...(isClassSection(section) && section !== 'topics' ? { section } : {}),
     };
   }
+  if (name === 'inbox' && detail === 'reminders')
+    return {
+      name,
+      section: 'reminders',
+      ...(extra === 'new' || isUuid(extra) ? { reminder: extra } : {}),
+    };
   if (name !== 'calendar') return { name };
   const date = query.get('date');
   const view = query.get('view');
@@ -162,7 +202,14 @@ export function parseRoute(pathname: string, search: string): Route {
 }
 
 export function routePath(route: Route): string {
-  if (route.name === 'settings') return `/settings/${route.section}`;
+  if (route.name === 'settings')
+    return `/settings/${route.section}${
+      route.connection
+        ? `/${route.connection}${
+            route.tab && route.tab !== 'feed' ? `?tab=${route.tab}` : ''
+          }`
+        : ''
+    }`;
   if (route.name === 'tasks')
     return `/tasks${route.id ? `/${route.id}` : ''}${
       route.filter && route.filter !== 'open' ? `?filter=${route.filter}` : ''
@@ -173,6 +220,10 @@ export function routePath(route: Route): string {
         ? `?section=${route.section}`
         : ''
     }`;
+  if (route.name === 'inbox')
+    return route.section
+      ? `/inbox/reminders${route.reminder ? `/${route.reminder}` : ''}`
+      : '/inbox';
   if (route.name !== 'calendar') return `/${route.name}`;
   const query = new URLSearchParams();
   if (route.date) query.set('date', route.date);

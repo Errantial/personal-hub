@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   calendarDay,
   open,
-  openSettings,
+  openCanvas,
   openClass,
   openTask,
   showCalendar,
@@ -46,7 +46,7 @@ test('Canvas planning creates editable tasks and study blocks, retaining provena
   expect(courseReply.status()).toBe(200);
   const course = (await courseReply.json()).course;
   await page.goto('/');
-  await openSettings(page, 'Connections');
+  await openCanvas(page, 'Calendar feed');
   const connection = page.getByRole('region', { name: 'Canvas connection' });
   const entry = connection.locator('article').filter({
     has: page.getByRole('heading', {
@@ -188,7 +188,7 @@ test('Canvas class links survive refreshes and appear as read-only entries in po
     ).status(),
   ).toBe(200);
   await page.goto('/');
-  await openSettings(page, 'Connections');
+  await openCanvas(page, 'Calendar feed');
   const connection = page.getByRole('region', { name: 'Canvas connection' });
   const entry = connection
     .locator('article')
@@ -271,7 +271,7 @@ test('Canvas imports deduplicate, retain notes, show source changes and fit a na
   await page.setViewportSize({ width: 320, height: 900 });
   await page.goto('/');
   await toggleEink(page);
-  await openSettings(page, 'Connections');
+  await openCanvas(page, 'Calendar feed');
   const panel = page.getByRole('region', { name: 'Canvas connection' });
   await expect(
     panel.getByRole('button', { name: 'Sync Canvas', exact: true }),
@@ -356,7 +356,7 @@ test('Canvas conflict retains a note draft and malformed input leaves imported e
     ).status(),
   ).toBe(200);
   await page.goto('/');
-  await openSettings(page, 'Connections');
+  await openCanvas(page, 'Calendar feed');
   const panel = page.getByRole('region', { name: 'Canvas connection' });
   const card = panel
     .locator('article')

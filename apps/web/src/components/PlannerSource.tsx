@@ -47,7 +47,12 @@ export function PlannerSource({
           : ''}
       </p>
       {source.sourceUrl && (
-        <a href={source.sourceUrl} target="_blank" rel="noreferrer">
+        <a
+          className="link-button"
+          href={source.sourceUrl}
+          target="_blank"
+          rel="noreferrer"
+        >
           Open in Canvas
         </a>
       )}

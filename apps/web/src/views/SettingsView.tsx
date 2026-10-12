@@ -1,19 +1,17 @@
 import { Help } from '../components/Help';
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { AccountSettings } from '../components/AccountSettings';
-import { AIRoutingSettings } from '../components/AIRoutingSettings';
-import { AIPreflights } from '../components/AIPreflights';
-import { AIBudgetSettings } from '../components/AIBudgetSettings';
+import { AIView } from '../components/AIView';
 import { ConnectionsView } from './ConnectionsView';
 import type { WorkspaceState } from './ConnectionsView';
 import { Link } from '../components/Link';
 import type { User } from '@hub/contracts';
 import type { Appearance } from '../lib/appearance';
 import { sectionLabels, settingsSections } from '../lib/router';
-import type { Route, SettingsSection } from '../lib/router';
+import type { Route } from '../lib/router';
 
 export function SettingsView({
-  section,
+  route,
   navigate,
   workspace,
   appearance,
@@ -21,7 +19,7 @@ export function SettingsView({
   user,
   signOut,
 }: {
-  section: SettingsSection;
+  route: Extract<Route, { name: 'settings' }>;
   navigate: (route: Route) => void;
   workspace: WorkspaceState;
   appearance: Appearance;
@@ -29,6 +27,7 @@ export function SettingsView({
   user: User;
   signOut: () => Promise<void>;
 }) {
+  const { section } = route;
   return (
     <div className="settings">
       <nav className="settings__nav" aria-label="Settings sections">
@@ -72,14 +71,14 @@ export function SettingsView({
             onChange={onAppearanceChange}
           />
         )}
-        {section === 'connections' && <ConnectionsView workspace={workspace} />}
-        {section === 'ai' && (
-          <div className="preferences-grid">
-            <AIRoutingSettings />
-            <AIBudgetSettings />
-            <AIPreflights />
-          </div>
+        {section === 'connections' && (
+          <ConnectionsView
+            workspace={workspace}
+            route={route}
+            navigate={navigate}
+          />
         )}
+        {section === 'ai' && <AIView />}
       </div>
     </div>
   );

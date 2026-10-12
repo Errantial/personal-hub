@@ -50,6 +50,7 @@ export function CanvasAssignment({
         </details>
       )}
       <a
+        className="link-button"
         href={`https://canvas.colorado.edu/courses/${course.providerId}/assignments/${item.providerId}`}
         target="_blank"
         rel="noreferrer"

@@ -8,7 +8,10 @@ import {
 import type { Task } from '@hub/contracts';
 import type { z } from 'zod';
 import { requestJson } from '../lib/api';
+import { AIContextPicker } from './AIContextPicker';
+import type { Context } from './AIContextPicker';
 import { Help } from './Help';
+import { StatusChip } from './StatusChip';
 const labels = ['unlabeled', 'personal', 'restricted'] as const;
 type Settings = z.infer<typeof aiRoutingSettingsSchema>;
 type Draft = {
@@ -43,10 +46,11 @@ export function AIRoutingSettings() {
   const [saved, setSaved] = useState<Settings | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [taskId, setTaskId] = useState('');
-  const [text, setText] = useState('');
-  const [requestLabel, setRequestLabel] =
-    useState<(typeof labels)[number]>('unlabeled');
+  const [context, setContext] = useState<Context>({
+    text: '',
+    label: 'unlabeled',
+    taskId: '',
+  });
   const [available, setAvailable] = useState<string[]>([]);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -113,8 +117,8 @@ export function AIRoutingSettings() {
       className="panel preference-panel"
       aria-label="AI routing permissions"
     >
-      <h2>AI permissions</h2>
-      <p className="status-tag">Preview only · AI dispatch disabled</p>
+      <h2>Permissions</h2>
+      <StatusChip>Preview only · AI requests are off</StatusChip>
       <Help label="AI permissions">
         Provider aliases name destinations you may connect later; they are not
         credentials, endpoints or model names. Use lowercase names, numbers,
@@ -257,8 +261,9 @@ export function AIRoutingSettings() {
           void perform(async () => {
             if (!saved) throw new Error('Load permissions first.');
             setPreview(null);
-            const task = tasks.find((row) => row.id === taskId);
-            if (taskId && !task) throw new Error('Reload the selected task.');
+            const task = tasks.find((row) => row.id === context.taskId);
+            if (context.taskId && !task)
+              throw new Error('Reload the selected task.');
             setPreview(
               await requestJson(
                 `${base}/preview`,
@@ -267,8 +272,8 @@ export function AIRoutingSettings() {
                   method: 'POST',
                   body: {
                     expectedPolicyVersion: saved.version,
-                    text,
-                    sensitivity: requestLabel,
+                    text: context.text,
+                    sensitivity: context.label,
                     sources: task
                       ? [
                           {
@@ -288,55 +293,20 @@ export function AIRoutingSettings() {
           });
         }}
       >
-        <label>
-          Preview text
-          <textarea
-            value={text}
-            maxLength={12000}
-            required
-            disabled={busy}
-            onChange={(event) => {
-              setText(event.target.value);
-              setPreview(null);
-            }}
-            rows={2}
-          />
-        </label>
-        <label>
-          Request label
-          <select
-            value={requestLabel}
-            disabled={busy}
-            onChange={(event) => {
-              setRequestLabel(event.target.value as typeof requestLabel);
-              setPreview(null);
-            }}
-          >
-            {labels.map((label) => (
-              <option key={label} value={label}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Task context
-          <select
-            value={taskId}
-            disabled={busy}
-            onChange={(event) => {
-              setTaskId(event.target.value);
-              setPreview(null);
-            }}
-          >
-            <option value="">No task</option>
-            {tasks.map((task) => (
-              <option key={task.id} value={task.id}>
-                {task.title}
-              </option>
-            ))}
-          </select>
-        </label>
+        <AIContextPicker
+          value={context}
+          tasks={tasks}
+          disabled={busy}
+          names={{
+            text: 'Preview text',
+            label: 'Request label',
+            task: 'Task context',
+          }}
+          onChange={(value) => {
+            setContext(value);
+            setPreview(null);
+          }}
+        />
         <fieldset>
           <legend>Simulated availability</legend>
           {profiles.map((provider) => (
@@ -371,6 +341,14 @@ export function AIRoutingSettings() {
           </p>
           <p>Labels: {preview.labels.join(', ')}</p>
         </div>
+      )}
+      {preview?.status === 'blocked' && (
+        <details>
+          <summary>Details</summary>
+          <p>
+            Code: <code>{preview.reason}</code>
+          </p>
+        </details>
       )}
     </section>
   );

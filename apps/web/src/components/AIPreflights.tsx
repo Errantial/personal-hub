@@ -9,7 +9,10 @@ import {
 } from '@hub/contracts';
 import type { AIProviderRegistry, AIPreflight, Task } from '@hub/contracts';
 import { requestJson } from '../lib/api';
+import { AIContextPicker } from './AIContextPicker';
+import type { Context } from './AIContextPicker';
 import { Help } from './Help';
+import { StatusChip } from './StatusChip';
 const base = '/api/v1/ai/preflights';
 const reasons: Record<AIPreflight['reason'], string> = {
   ATTACHMENT_DERIVED: 'File-derived context',
@@ -27,11 +30,11 @@ export function AIPreflights() {
   const [budgetVersion, setBudgetVersion] = useState<number | null>(null);
   const [needsReload, setNeedsReload] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [text, setText] = useState('');
-  const [label, setLabel] = useState<'unlabeled' | 'personal' | 'restricted'>(
-    'unlabeled',
-  );
-  const [taskId, setTaskId] = useState('');
+  const [context, setContext] = useState<Context>({
+    text: '',
+    label: 'unlabeled',
+    taskId: '',
+  });
   const [history, setHistory] = useState<AIPreflight[]>([]);
   const [nextBefore, setNextBefore] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -64,7 +67,7 @@ export function AIPreflights() {
   useEffect(() => {
     const abort = new AbortController();
     void load(abort.signal).catch(() => {
-      if (!abort.signal.aborted) setError('AI preflights unavailable.');
+      if (!abort.signal.aborted) setError('Request checks unavailable.');
     });
     return () => abort.abort();
   }, []);
@@ -85,7 +88,7 @@ export function AIPreflights() {
       await work();
     } catch (cause) {
       setError(
-        cause instanceof Error ? cause.message : 'Preflight request failed.',
+        cause instanceof Error ? cause.message : 'Request check failed.',
       );
     } finally {
       setBusy(false);
@@ -95,25 +98,21 @@ export function AIPreflights() {
     setResult(null);
   }
   return (
-    <section className="panel preference-panel" aria-label="AI preflights">
-      <h2>AI preflights</h2>
-      <p className="status-tag">
-        AI dispatch disabled · Provider health unchecked
-      </p>
-      <Help label="AI preflights">
-        Profiles come from server configuration. Configured means an enabled
-        profile has a credential; it does not prove provider access, model
-        support, or availability. This check uses saved routing permissions and
-        current source versions, independently of preview simulation. It never
-        calls a provider or queues execution. Prompt/source text is discarded;
-        routing metadata is retained. Hide removes a receipt from this list
-        while retaining its export tombstone. Limits count the serialized text
-        envelope, not model tokens or cost. Reload retains your input and adopts
-        current policy, task, and profile versions.
+    <section className="panel preference-panel" aria-label="AI request checks">
+      <h2>Request checks</h2>
+      <StatusChip>AI requests are off · Provider health unchecked</StatusChip>
+      <Help label="Request checks">
+        This check uses saved routing permissions and current source versions,
+        independently of preview simulation. It never calls a provider or queues
+        execution. Prompt/source text is discarded; routing metadata is
+        retained. Hide removes a check from this list while retaining its export
+        tombstone. Limits count the serialized text envelope, not model tokens
+        or cost. Reload retains your input and adopts current policy, task and
+        provider versions.
       </Help>
       {error && <p role="alert">{error}</p>}
       {needsReload && (
-        <p role="status">Reload preflights after settings changes.</p>
+        <p role="status">Reload checks after settings changes.</p>
       )}
       <button
         disabled={busy}
@@ -124,43 +123,25 @@ export function AIPreflights() {
           })
         }
       >
-        Reload preflights
+        Reload checks
       </button>
-      <h3>Provider profiles</h3>
-      {registry && !registry.profiles.length && <p>No server profiles.</p>}
-      {registry?.profiles.map((profile) => (
-        <details key={profile.alias}>
-          <summary>
-            {profile.alias} · {profile.configuration.replaceAll('_', ' ')}
-          </summary>
-          <dl>
-            <dt>Model</dt>
-            <dd>{profile.model}</dd>
-            <dt>Adapter</dt>
-            <dd>{profile.adapter}</dd>
-            <dt>Input character limit</dt>
-            <dd>{profile.maxInputCharacters}</dd>
-            <dt>Output token limit</dt>
-            <dd>{profile.maxOutputTokens}</dd>
-          </dl>
-        </details>
-      ))}
       <form
         className="editor-form"
-        aria-label="AI preflight"
+        aria-label="AI request check"
         onSubmit={(event) => {
           event.preventDefault();
           void perform(async () => {
             if (!registry || !policyVersion || !budgetVersion || needsReload)
               throw new Error('Reload profiles and permissions.');
-            const task = tasks.find((item) => item.id === taskId);
-            if (taskId && !task) throw new Error('Reload the selected task.');
+            const task = tasks.find((item) => item.id === context.taskId);
+            if (context.taskId && !task)
+              throw new Error('Reload the selected task.');
             const body = {
               expectedPolicyVersion: policyVersion,
               expectedRegistryRevision: registry.revision,
               expectedBudgetVersion: budgetVersion,
-              text,
-              sensitivity: label,
+              text: context.text,
+              sensitivity: context.label,
               sources: task
                 ? [{ kind: 'task', id: task.id, expectedVersion: task.version }]
                 : [],
@@ -182,68 +163,45 @@ export function AIPreflights() {
           });
         }}
       >
-        <label>
-          Preflight text
-          <textarea
-            required
-            maxLength={12000}
-            rows={2}
-            value={text}
-            disabled={busy}
-            onChange={(event) => {
-              setText(event.target.value);
-              changed();
-            }}
-          />
-        </label>
-        <label>
-          Preflight label
-          <select
-            value={label}
-            disabled={busy}
-            onChange={(event) => {
-              setLabel(event.target.value as typeof label);
-              changed();
-            }}
-          >
-            {(['unlabeled', 'personal', 'restricted'] as const).map((value) => (
-              <option key={value}>{value}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Preflight task
-          <select
-            value={taskId}
-            disabled={busy}
-            onChange={(event) => {
-              setTaskId(event.target.value);
-              changed();
-            }}
-          >
-            <option value="">No task</option>
-            {tasks.map((task) => (
-              <option key={task.id} value={task.id}>
-                {task.title}
-              </option>
-            ))}
-          </select>
-        </label>
+        <AIContextPicker
+          value={context}
+          tasks={tasks}
+          disabled={busy}
+          names={{
+            text: 'Check text',
+            label: 'Check label',
+            task: 'Check task',
+          }}
+          onChange={(value) => {
+            setContext(value);
+            changed();
+          }}
+        />
         <button
           disabled={
             busy || !registry || !policyVersion || !budgetVersion || needsReload
           }
           aria-busy={busy}
         >
-          Check preflight
+          Run check
         </button>
       </form>
-      {busy && <p role="status">Updating preflights…</p>}
-      {result && <p role="status">Blocked · {reasons[result.reason]}</p>}
-      <h3>Preflight history</h3>
-      {registry && !history.length && <p>No preflights.</p>}
+      {busy && <p role="status">Updating checks…</p>}
+      {result && (
+        <>
+          <p role="status">Blocked · {reasons[result.reason]}</p>
+          <details>
+            <summary>Details</summary>
+            <p>
+              Code: <code>{result.reason}</code>
+            </p>
+          </details>
+        </>
+      )}
+      <h3>Check history</h3>
+      {registry && !history.length && <p>No checks yet.</p>}
       {history.map((receipt) => (
-        <article key={receipt.id} aria-label={`Preflight ${receipt.id}`}>
+        <article key={receipt.id} aria-label={`Check ${receipt.id}`}>
           <details>
             <summary>
               {reasons[receipt.reason]} ·{' '}
@@ -298,7 +256,7 @@ export function AIPreflights() {
               })
             }
           >
-            Hide preflight
+            Hide check
           </button>
         </article>
       ))}
@@ -321,7 +279,7 @@ export function AIPreflights() {
             })
           }
         >
-          Load older preflights
+          Load older checks
         </button>
       )}
     </section>

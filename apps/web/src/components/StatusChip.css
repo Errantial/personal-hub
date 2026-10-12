@@ -7,7 +7,9 @@
   color: var(--text);
   font-size: var(--text-caption);
   line-height: 1.5rem;
-  white-space: nowrap;
+  /* Short labels stay on one line; a long one wraps instead of overflowing. */
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .chip--attention {
   border-color: var(--accent);

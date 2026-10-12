@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { openSettings } from './shell';
+import { openCanvas } from './shell';
 import { authenticate } from './auth';
 test('reconciliation preserves conflicts and retry identity, shows source differences and removes changed links on a narrow screen', async ({
   page,
@@ -125,7 +125,7 @@ test('reconciliation preserves conflicts and retry identity, shows source differ
     },
   );
   await page.goto('/');
-  await openSettings(page, 'Connections');
+  await openCanvas(page, 'Matching');
   await page.setViewportSize({ width: 320, height: 900 });
   const panel = page.getByRole('region', {
     name: 'Canvas reconciliation',

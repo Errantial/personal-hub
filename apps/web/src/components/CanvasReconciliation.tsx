@@ -105,7 +105,7 @@ export function CanvasReconciliation() {
       className="panel canvas-connection"
       aria-label="Canvas reconciliation"
     >
-      <h2>Canvas reconciliation</h2>
+      <h3>Canvas reconciliation</h3>
       <Help label="Canvas reconciliation">
         Confirm matching assignment URLs to associate feed and API records.
         Titles, dates, notes and class links stay separate. Differences remain

@@ -1,6 +1,6 @@
 # Frontend development plan
 
-Status: plan approved 2026-10-10 with the owner decisions in §6; Phases 0 and 1 merged into `main` at `2e8f922`. Phases 2, 2b, 3, 4 and 5 are implemented and validated on branch `ui/phase-4` (not merged). Later phases are proposals until implemented. Rules come from [ui-guidelines.md](ui-guidelines.md); behavior to preserve comes from [ui-agent-ledger.md](ui-agent-ledger.md).
+Status: plan approved 2026-10-10 with the owner decisions in §6; Phases 0 and 1 merged into `main` at `2e8f922`. Phases 2, 2b, 3, 4, 5, 6 and 7 are implemented and validated on branch `ui/phase-4` (not merged); Phase 8 is only partly doable without devices (see its result). Later phases are proposals until implemented. Rules come from [ui-guidelines.md](ui-guidelines.md); behavior to preserve comes from [ui-agent-ledger.md](ui-agent-ledger.md).
 
 ## 1. Current state (audit, 2026-10-10)
 
@@ -141,12 +141,18 @@ Notifications (unread first, mark read, latest 200 note), scheduled reminders wi
 
 Acceptance: port reminder delivery/pause/resume and denied-permission scenarios.
 
+Result: met. `InboxView` replaces `ReminderWorkspace`: `/inbox` (Notifications, default), `/inbox/reminders`, `/inbox/reminders/new` and `/inbox/reminders/:id`; `/reminders` still redirects. Notifications list unread first, newest first, with Mark loaded read, Load older (history pages) and Snooze on delivered reminders; a snoozed source shows "Snoozed" and offers Snooze once. `ReminderEditor` adds, reschedules (queued/paused/failed) or snoozes (delivered: In 1 hour, Tomorrow 09:00, or a typed time) with gap/fold handling, a linked task/event/academic target and an explicit conflict draft ("Load latest version"). The reminders list has status chips (Scheduled, Paused, Delivered, Failed, Cancelled), Pause/Resume/Retry/Cancel (Cancel asks to confirm) and collapses earlier reminders. The status panel shows worker health and browser-alert permission (Not enabled, Allowed, Blocked by browser, Only while Inbox is open). The nav unread count comes from `/notifications/summary`. Below 1024 px the editor replaces the list. 7 new browser tests, 4 unit tests (`lib/reminders.ts`) plus router tests; features scenarios ported.
+
 ### Phase 7 — Settings: Connections and AI (L)
 
 1. **Connections:** one card per provider with status line. Canvas card opens a detail with three tabs: Calendar feed (settings, sync, import ICS, entries, history), Canvas API (settings, sync, courses/assignments), Matching (reconciliation). Entry/assignment rows reuse `ItemRow`; Create task / Plan study open the respective editors pre-filled with source refs (online-only, with the reason shown when offline). Planned Outlook/Proton: "Not available yet" rows.
 2. **AI:** single page with a top status "AI requests are off" and sections Permissions (per-label allowed/preferred providers as a table), Spending limits, Providers (read-only server profiles), Request checks (renamed preflight, with history). Consolidate the duplicate task pickers in routing preview and request checks into one `ContextPicker` (ledger known debt). Preserve the `hub-ai-settings-changed` reload behavior and all blocked reasons, translated to plain text with the code in details.
 
 Acceptance: port `canvas*.spec.ts`, `ai-routing.spec.ts`, `ai-preflight.spec.ts` without weakening retry/conflict/no-provider-call assertions.
+
+Result: met, with deferrals. **AI** (`AIView`): one page at `/settings/ai`, top status "AI requests are off" with a Preview only chip and Help, jump links, and four always-mounted sections: Permissions, Spending limits, Providers (`AIProviders`, read-only) and Request checks (renamed preflight). All sections stay mounted (no tabs) so drafts and the `hub-ai-settings-changed` reload warnings survive moving between them. `AIContextPicker` replaces the duplicated text/label/task fields. Blocked reasons are plain text with the code in a sibling `<details>`. **Connections**: `/settings/connections` shows a card per provider (Canvas with a feed status line; Outlook and Proton "Not available yet"); `/settings/connections/canvas[?tab=api|matching]` shows Calendar feed (default), Canvas API and Matching, each the unchanged component under its original region name, with a Back link. 3 new browser tests (`connections.spec.ts`: addresses, back/forward, axe/overflow/targets at 1280 px and 320 px e-ink); canvas, canvas-lms, canvas-reconciliation, hub, ai-routing and ai-preflight scenarios ported with their assertions intact.
+
+Deferred: Canvas entry and assignment rows still use their own markup instead of `ItemRow`, and Create task / Plan study still use inline planning forms rather than opening prefilled editors. Request/attempt history and consent/quote controls have no UI (backend only).
 
 ### Phase 8 — Hardening and device pass (M)
 
@@ -155,6 +161,8 @@ Acceptance: port `canvas*.spec.ts`, `ai-routing.spec.ts`, `ai-preflight.spec.ts`
 - Android: Back button behavior with History routing on the emulator (add `@capacitor/app` only if needed, §6); 130% text zoom; safe areas; offline navigation between lazy routes after process restart.
 - Performance: split Temporal-dependent contracts helpers into a separate entry point and evaluate lighter client-side schemas to approach a ≤ 250 kB initial chunk; bundle budget check in CI (fail over budget); emulator cold start and route switch timings recorded in the ledger.
 - Docs: update ledger, development.md (routes, test commands), README status.
+
+Result: partly done (2026-10-12). Done: docs (ledger, README, development.md); automated axe, overflow and 44 px/48 px target checks on every new screen at 1280 px and 320 px e-ink. Initial JS is 568.8 kB (567.8 kB after Phase 5): Phases 6-7 added only lazy chunks, but the 250 kB target still needs the contracts entry-point split, and there is no CI budget check yet. **Not done:** NVDA keyboard pass, TalkBack, Android Back button with History routing, 130% text zoom, safe areas, offline navigation after process restart, emulator timings, and anything on Mudita Kompakt hardware; these need devices I cannot run. Also not done: e-ink `Pager` for long lists, a layout-shift (CLS) assertion, and the contracts split. Browser results are not evidence of hardware behavior.
 
 ### Reevaluation 2026-10-12
 

@@ -1,6 +1,6 @@
 # Account controls and planner export
 
-Open Preferences while signed in to change the owner password, view/revoke active sessions, or download planner JSON. These controls require a server connection. Recovery/reset remains unimplemented; retain the password in a password manager.
+Open Settings › Account while signed in to change the owner password, view/revoke active sessions, or download planner JSON. These controls require a server connection. Recovery/reset remains unimplemented; retain the password in a password manager.
 
 Password changes require the current password, a different new password of at least 12 characters, and the current credential version. The server hashes the new password, increments that version, revokes all existing owner sessions and issues a replacement session in one transaction. The browser retains the same owner's queued task drafts and records the replacement session's actual expiration. Other devices must sign in again before reading private server data or replaying edits. A device that remains offline cannot discover revocation immediately; its existing local expiry still bounds cached access.
 

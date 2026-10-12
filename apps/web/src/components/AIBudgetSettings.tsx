@@ -7,6 +7,7 @@ import type { AIBudgetLiveSettings as BudgetSettings } from '@hub/contracts';
 import { requestJson } from '../lib/api';
 import { parseUsdMicros, formatUsdMicros } from '../lib/ai-budget';
 import { Help } from './Help';
+import { StatusChip } from './StatusChip';
 type Draft = { version: number; monthly: string; request: string };
 export function AIBudgetSettings() {
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -60,8 +61,8 @@ export function AIBudgetSettings() {
   }
   return (
     <section className="panel preference-panel" aria-label="AI spending limits">
-      <h2>AI spending limits</h2>
-      <p className="status-tag">AI dispatch disabled</p>
+      <h2>Spending limits</h2>
+      <StatusChip>AI requests are off</StatusChip>
       <Help label="AI spending limits">
         Amounts are USD, with up to six decimal places. Set both limits; the
         request limit cannot exceed the monthly limit. Leave both empty for

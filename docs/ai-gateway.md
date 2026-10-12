@@ -44,7 +44,7 @@ Admission requires configured limits, a matching version, a maximum charge withi
 
 Settled actual charges replace the hold. A confirmed amount above the reservation is recorded as an overrun rather than understated; it can block subsequent admission. Each amount is bounded at 1,000,000 USD. Aggregate totals use decimal strings/BigInt to preserve exact arithmetic. Limit reductions do not erase existing holds. Accounting attributes costs to the reservation's admission month, not the provider's invoice month; an old inference ID is not re-reserved at a month boundary. All-month unresolved/uncertain totals remain visible so rollover does not hide outstanding work.
 
-Preferences shows recorded current-month spend/holds and additional earlier-month outstanding holds. Uncertain amounts are already included in held amounts. This is internal app accounting, not provider billing synchronization. Runtime workers do not create reservations while execution is disabled. Export includes safe reservation records without operational hashes or secrets. Verified prices and token bounds, provider usage reconciliation, actual paid requests and a reviewed uncertainty-resolution workflow remain pending.
+Settings › AI shows recorded current-month spend/holds and additional earlier-month outstanding holds. Uncertain amounts are already included in held amounts. This is internal app accounting, not provider billing synchronization. Runtime workers do not create reservations while execution is disabled. Export includes safe reservation records without operational hashes or secrets. Verified prices and token bounds, provider usage reconciliation, actual paid requests and a reviewed uncertainty-resolution workflow remain pending.
 
 ## Preflight
 

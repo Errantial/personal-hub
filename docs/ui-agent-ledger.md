@@ -299,9 +299,10 @@ Verification: `npm run check` passed with 123 API/client tests and one optional 
 | Tasks/sync | `TasksView.tsx`, `DeletedItems.tsx`, `QuickCapture.tsx`, `SyncStatus.tsx`, `lib/tasks.ts`, `lib/offline.ts` | Durable task outbox, stable IDs, version conflicts, same-owner recovery. |
 | Calendar | `CalendarView.tsx`, `CalendarEditor.tsx`, `DeletedItems.tsx`, `TimeZoneInput.tsx`, `lib/calendar.ts`, shared `occurrences.ts` | Timezones, date-only events, recurring series/occurrences, separate study blocks and imported deadlines. |
 | Classes | `ClassesView.tsx`, `ClassForms.tsx`, `lib/classes.ts`, `ClassCanvasEntries.tsx`, `ClassCanvasAssignments.tsx` | Manual class/topic assessments, explicit Canvas links, cached loaded portfolios. |
-| Reminders | `ReminderWorkspace.tsx` | Durable server inbox/worker state and explicit optional browser permission. |
-| Canvas | `CanvasConnection.tsx`, `CanvasLmsConnection.tsx`, `CanvasReconciliation.tsx` | Independent feed/API facts, explicit reconciliation, retained note/conflict drafts. |
+| Inbox/Reminders | `InboxView.tsx`, `ReminderEditor.tsx`, `lib/reminders.ts` | Durable server inbox/worker state, snooze once, versioned reminder drafts, explicit optional browser permission. |
+| Connections/Canvas | `views/ConnectionsView.tsx`, `CanvasConnection.tsx`, `CanvasLmsConnection.tsx`, `CanvasReconciliation.tsx` | Independent feed/API facts, explicit reconciliation, retained note/conflict drafts. |
 | Source planning | `CanvasPlanning.tsx`, `CanvasAssignmentPlanning.tsx`, `CanvasPlannerWork.tsx`, `PlannerSource.tsx` | Captured/current provenance, versioned explicit creation, grouped task/study visibility. |
+| AI page | `AIView.tsx`, `AIProviders.tsx`, `AIContextPicker.tsx` | All sections mounted at once; shared context fields; Providers read-only. |
 | AI permissions | `AIRoutingSettings.tsx`, contracts `ai-routing.ts` | Versioned label rules, deny by default, preview-only status. |
 | AI preflight/budget | `AIPreflights.tsx`, `AIBudgetSettings.tsx`, contracts `ai-preflight.ts`/`ai-budget.ts` | Server configuration versus health, blocked metadata history, exact USD amounts, retained reload/retry drafts. |
 | Requests/transport | `lib/api.ts`, `lib/transport.ts`, `lib/request-signal.ts` | Owner-separated caches, native cookie transport, abort compatibility. |
@@ -332,7 +333,7 @@ Canvas tokens and private feeds stay server-side. The API connection exposes a s
 
 ### Reminders
 
-Server inbox delivery and native notification delivery are separate. Browser alerts currently require permission and an open Reminders view. Keep permission denial, pause, retry, cancellation, worker failure, and inbox read state understandable. Closed-app push/native alarms are pending.
+Server inbox delivery and native notification delivery are separate. Browser alerts currently require permission and an open Inbox view. Keep permission denial, pause, retry, cancellation, worker failure, and inbox read state understandable. Closed-app push/native alarms are pending.
 
 ### AI
 
@@ -399,6 +400,17 @@ Validation: full check passed with 132 API/client tests and one optional Postgre
 - States: blocked can be cancelled or hidden; cancelled/completed/failed can be hidden; uncertain cannot be cancelled, hidden or resent. Uncertain retains the full hold through timeout/restart. Failed with confirmed usage can still have a charge; an overrun remains visible. All attempts currently have `adapter: 'synthetic'`; label them as synthetic, never as real AI work.
 - Hiding is a retained tombstone, not permanent deletion. Historical operation receipts can precede later changes/hiding; refresh current state after retries. Preflight history and request history are independently hidden. Planner export includes `records.aiRequests` with safe attempts and tombstones; older files default it to an empty array.
 - No provider output, prompt/source text, private digest or input manifest is returned/exported. There are no live dispatch controls, AI actions, automatic retries, usage-confirmation controls, conversation/memory or email approval flows in this slice. Preserve visible blockers and uncertain funds when those features arrive.
+
+### 2026-10-12 — Frontend Phases 6 and 7: Inbox, AI and Connections
+
+- Inbox routes: `/inbox` (Notifications), `/inbox/reminders`, `/inbox/reminders/new`, `/inbox/reminders/:id`; `/reminders` redirects to `/inbox`. Unknown reminder: "This reminder is not available." Below 1024 px the editor replaces the list.
+- Notifications: unread first then newest; Mark loaded read and Load older (history) are online-only. A delivered reminder's notification offers Snooze once; the source then shows Snoozed (`REMINDER_ALREADY_SNOOZED` is explained). The nav unread count uses `/notifications/summary` (online-only); the notification list read is cached.
+- Reminders: chips Scheduled/Paused/Delivered/Failed/Cancelled; Pause, Resume, Retry, Cancel (confirmed). Only queued, paused, failed and delivered reminders open the editor. The editor keeps its base version; a newer version or conflict disables Save until **Load latest version**. Past times are allowed and delivered on the worker's next check; snooze must be within 365 days. A local time in a DST gap is rejected and a repeated time needs Earlier/Later.
+- Worker health and permission state are visible in the status panel; closed-app delivery is still unimplemented.
+- AI (`/settings/ai`): one page, all sections mounted. "Request checks" is the renamed preflight; reasons are plain text with the code in details; unavailable approved providers still block, never fall back. Everything remains preview/metadata only; nothing calls a provider. No UI yet for request/attempt history, quotes or consent.
+- Connections: `/settings/connections` cards; `/settings/connections/canvas` with `?tab=api|matching` (feed is the default, no query). Outlook/Proton cards read "Not available yet". Region names (`Canvas connection`, `Canvas API connection`, `Canvas reconciliation`) are unchanged.
+- Tests: `tests/e2e/inbox.spec.ts`, `connections.spec.ts`, `apps/web/tests/reminders.test.ts`, router tests; shell helpers `inboxRegion`/`showReminders`/`newReminder`/`openCanvas`; features, canvas*, hub and ai-* scenarios ported.
+- Known limits: no screen-reader, emulator or Kompakt verification (Phase 8 device items open); Canvas rows not on `ItemRow`; no e-ink `Pager`; initial JS 568.8 kB.
 
 ### 2026-10-12 — Frontend Phases 2b and 5: Appearance profiles and Classes
 

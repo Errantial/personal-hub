@@ -37,6 +37,50 @@ export async function openSettings(page: Page, section: Section) {
     .click();
 }
 
+/** Opens a Canvas page (calendar feed by default) under Settings › Connections. */
+export async function openCanvas(
+  page: Page,
+  tab: 'Calendar feed' | 'Canvas API' | 'Matching' = 'Calendar feed',
+) {
+  await openSettings(page, 'Connections');
+  await page.getByRole('link', { name: 'Manage Canvas', exact: true }).click();
+  await page
+    .getByRole('navigation', { name: 'Canvas sections' })
+    .getByRole('link', { name: tab, exact: true })
+    .click();
+  await expect(
+    page
+      .getByRole('navigation', { name: 'Canvas sections' })
+      .getByRole('link', { name: tab, exact: true }),
+  ).toHaveAttribute('aria-current', 'page');
+}
+
+/* Inbox screen helpers. */
+export const inboxRegion = (page: Page) =>
+  page.getByRole('region', { name: 'Inbox', exact: true });
+
+/** Shows the Reminders section of Inbox (the list, or its editor). */
+export async function showReminders(page: Page) {
+  await page
+    .getByRole('navigation', { name: 'Inbox sections' })
+    .getByRole('link', { name: 'Reminders', exact: true })
+    .click();
+  await expect(
+    inboxRegion(page).getByRole('region', { name: 'Reminders' }),
+  ).toBeVisible();
+}
+
+/** Opens the add-reminder form from the Reminders section. */
+export async function newReminder(page: Page) {
+  await showReminders(page);
+  await inboxRegion(page)
+    .getByRole('link', { name: 'Add reminder', exact: true })
+    .click();
+  await expect(
+    inboxRegion(page).getByRole('form', { name: 'Add reminder' }),
+  ).toBeVisible();
+}
+
 /* Classes screen helpers. */
 export const classesRegion = (page: Page) =>
   page.getByRole('region', { name: 'Classes', exact: true });

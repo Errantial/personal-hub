@@ -1,0 +1,29 @@
+.ai-view {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.ai-view__jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ai-view__jump a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target);
+  padding: 0 var(--space-3);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+}
+/* Jump targets stay below the sticky header and the bottom bar. */
+.ai-view [id^='ai-'] {
+  scroll-margin-block: var(--space-6);
+  min-width: 0;
+}
