@@ -486,3 +486,47 @@ main:focus {
   display: grid;
   gap: var(--space-1);
 }
+
+/* Settings › Memory. */
+.memory-settings {
+  max-width: 48rem;
+}
+.memory-switch,
+.memory-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: end;
+  margin: var(--space-3) 0;
+}
+.memory-filters label {
+  display: grid;
+  gap: var(--space-1);
+}
+.memory-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.memory-list > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: start;
+  padding: var(--space-2) 0;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  overflow-wrap: anywhere;
+}
+.memory-list__body {
+  display: grid;
+  gap: var(--space-1);
+}
+.memory-list__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.memory-add {
+  margin-top: var(--space-3);
+}

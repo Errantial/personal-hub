@@ -16,6 +16,7 @@ const views = [
   'settings/study',
   'settings/connections',
   'settings/ai',
+  'settings/memory',
 ];
 const configurations = [
   { theme: 'standard', width: 1280, target: 44 },

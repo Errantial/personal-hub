@@ -18,6 +18,7 @@ export const settingsSections = [
   'study',
   'connections',
   'ai',
+  'memory',
 ] as const;
 export type SettingsSection = (typeof settingsSections)[number];
 export const canvasTabs = ['feed', 'api', 'matching'] as const;
@@ -114,6 +115,7 @@ export const sectionLabels: Record<SettingsSection, string> = {
   study: 'Study',
   connections: 'Connections',
   ai: 'AI',
+  memory: 'Memory',
 };
 
 /** Addresses used before the confirmed navigation (D46) keep working. */

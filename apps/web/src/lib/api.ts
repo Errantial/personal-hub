@@ -110,6 +110,7 @@ export async function liveRequestJson<T>(
         'Edit this event in Calendar to preserve its schedule and class links.',
       CALENDAR_STUDY_SELECTION_REQUIRED:
         'Study status applies only to one-time timed study blocks. Nothing was changed.',
+      MEMORY_FORGOTTEN: 'This memory was forgotten. Reload the list.',
       STUDY_CONTEXT_CONFLICT:
         'Your calendar, goals or classes changed since this plan was made. Recheck the draft or preview again.',
       STUDY_PLAN_STATE:

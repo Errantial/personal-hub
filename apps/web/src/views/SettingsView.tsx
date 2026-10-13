@@ -1,6 +1,7 @@
 import { Help } from '../components/Help';
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { AccountSettings } from '../components/AccountSettings';
+import { MemorySettings } from '../components/MemorySettings';
 import { StudySettings } from '../components/StudySettings';
 import { AIView } from '../components/AIView';
 import { ConnectionsView } from './ConnectionsView';
@@ -81,6 +82,7 @@ export function SettingsView({
           />
         )}
         {section === 'ai' && <AIView />}
+        {section === 'memory' && <MemorySettings />}
       </div>
     </div>
   );

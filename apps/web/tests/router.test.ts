@@ -22,6 +22,7 @@ it('addresses each settings section and defaults to Account', () => {
     'study',
     'connections',
     'ai',
+    'memory',
   ] as const) {
     expect(routePath({ name: 'settings', section })).toBe(
       `/settings/${section}`,

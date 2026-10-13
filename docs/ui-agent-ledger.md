@@ -409,6 +409,18 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 
 ## Change ledger
 
+### 2026-10-13 — Settings: Memory
+
+- New **Settings › Memory** (`/settings/memory`).
+  - **Use memory** switch (`PUT /api/v1/memory/settings`). Help states that it is off by default, starts no AI use, and keeps memories when turned off. A conflict offers **Reload memory**.
+  - Filters: **Show** (Active, Disabled, Forgotten, All, with the server's counts), **Type** and literal **Search** (submitted, up to 100 characters). Pages hold 25 items with an `after` cursor and version. Changing filters resets paging and late reads are ignored. A changed cursor shows "The list changed. Reload to see the latest."
+  - Rows show the title (or "Forgotten memory"), type, noted date, Disabled/Forgotten and the label. List pages carry no content.
+- **Add memory / Edit memory**: Type, Noted on, Title, Memory text, Enabled and **Memory content label**. Edit loads `GET /api/v1/memory/:id` for the full text. Saves return a metadata receipt and the list reloads. A version conflict shows "Changed elsewhere" with **Load latest version**, keeping the edits.
+- **Forget memory** asks first. The dialog says the text is cleared from the app and future exports, cannot be restored, and remains in earlier backups and downloaded exports. `MEMORY_FORGOTTEN` has a specific client message.
+- Reminder snooze, notification history, the unread summary and "Mark loaded read" were already built by the earlier UI work. Only the reminder history list (`GET /api/v1/reminders/history`) is still unused.
+- Tests: `tests/e2e/memory.spec.ts` (switch, add validation, search, conflict then Load latest, disable/Show Disabled, forget leaves a text-free tombstone); `settings/memory` is added to the all-view axe and target checks.
+- Known limits: no AI use or retrieval, no import, no restore after forgetting.
+
 ### 2026-10-12 — Classes: Study plan (preview, draft, approval)
 
 - **Study plan** link in the Classes list opens `/classes/plan`. Controls: **Starting** date and **Length** (7 or 14 days). **Preview plan** calls `POST /api/v1/study/preview` with no operation ID; it is read-only. The preview shows warnings as visible text, "Why this order" (remaining/target minutes and ranking reasons in words), and blocks grouped by local day in the plan timezone with the total time.
