@@ -26,6 +26,12 @@ jobs:
         run: npx playwright install --with-deps chromium
       - if: runner.os == 'Linux'
         run: npm run test:e2e
+      - if: failure() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-results
+          path: test-results/
+          retention-days: 7
   postgres:
     runs-on: ubuntu-latest
     timeout-minutes: 10
