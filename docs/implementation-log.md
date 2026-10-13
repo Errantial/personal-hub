@@ -4,6 +4,12 @@ Completed work and validation receipts moved verbatim from backlog.md on 2026-10
 
 ## UI validation receipts
 
+### 2026-10-13 — Canvas browser feasibility proof
+
+After owner-confirmed blocked token creation and normal owner login, saved browser authentication survived a T3 runtime restart. Bounded DOM reads/navigation reached one academic course's assignment list. Repeated stable reads found 27 unique source links/titles, ten valid exact due timestamps and 17 undated records. Initial asynchronous emptiness was correctly treated as not yet loaded. A fresh public-page snapshot still timed out, so the proof used DOM inspection; this is not a full automation-tool recovery.
+
+No hub import, provider write, cookie export, screenshot/attachment capture or paid AI call occurred. Only sanitized aggregate evidence/selectors are retained in project documentation; private records and scores are not fixtures. This completed feasibility test is distinct from the proposed, unimplemented browser connector. Completeness across courses, durable ingestion/provenance/receipts, session-expiry handling and feed reconciliation remain pending. See [receipt and proposal](canvas-browser.md). Application code was unchanged, so broad application/browser test suites were not rerun.
+
 ### 2026-10-13 — Oracle Linux deployment
 
 Deployed app commit `265a99d` on the inspected Oracle Linux 9.7 ARM64 host (two CPUs, 10 GiB RAM), preserving the existing Java service. Node 24.21.0/npm 11.19.0, Caddy 2.11.7 and PostgreSQL 16.15 support supervised loopback API, public HTTPS and a fresh owner database. Provider execution is disabled. The owner added DNS and Oracle Cloud HTTP/HTTPS ingress; host firewall changes preserve SSH/database exposure.
