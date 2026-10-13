@@ -108,6 +108,12 @@ export async function liveRequestJson<T>(
       CURRENT_SESSION: 'Use Sign out for this session.',
       CALENDAR_EDITOR_REQUIRED:
         'Edit this event in Calendar to preserve its schedule and class links.',
+      CALENDAR_STUDY_SELECTION_REQUIRED:
+        'Study status applies only to one-time timed study blocks. Nothing was changed.',
+      ACADEMIC_CLASS_ARCHIVED:
+        'This class is archived. Its work and study blocks cannot be edited.',
+      ACADEMIC_SCORE_REVIEW_REQUIRED:
+        'A selected item has a recorded score. Review and clear the recorded score individually before changing its status. Nothing was changed.',
       REMINDER_STATE:
         'The reminder status changed. Reload the list before trying again.',
       REMINDER_ALREADY_SNOOZED:

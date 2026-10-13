@@ -49,10 +49,17 @@ export type CalendarEditorRoute =
   | { kind: 'new' }
   | { kind: 'event'; id: string }
   | { kind: 'occurrence'; id: string; date: string };
-export const classSections = ['topics', 'study', 'canvas', 'details'] as const;
+export const classSections = [
+  'topics',
+  'work',
+  'study',
+  'canvas',
+  'details',
+] as const;
 export type ClassSection = (typeof classSections)[number];
 export const classSectionLabels: Record<ClassSection, string> = {
   topics: 'Topics',
+  work: 'Work',
   study: 'Study blocks',
   canvas: 'Canvas',
   details: 'Details',
