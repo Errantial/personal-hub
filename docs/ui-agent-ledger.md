@@ -409,6 +409,16 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 
 ## Change ledger
 
+### 2026-10-12 — Calendar: selected changes
+
+- **Select** in the Calendar list header adds a checkbox to each event row ("Select <title>", "(series)" for repeating events) and shows the **Selected events** bar. Selection is per record: checking any occurrence of a series selects the whole series. It belongs to the shown range (changing date/view or leaving Select clears it). Canvas entries are read-only and not selectable.
+- Changes: **Mark study done / Mark study planned / Cancel study** (`study-status`) and **Delete**, through one atomic `POST /api/v1/calendar/batch` (1-100 records).
+- Study status applies to one-time timed study blocks only. If the selection has anything else, "n selected event(s) is/are not a one-time timed study block." shows and Apply is disabled. Repeating blocks are changed per occurrence in the editor.
+- Delete removes whole records. With a series selected, "n repeating series selected: every occurrence is deleted." shows, and the confirmation repeats it. No invitations or cancellation emails are sent. Restore is per item from Recently deleted.
+- Conflict, offline, pending and retry behavior is the same as for Tasks. The bar frame is shared (`SelectionBar`), and change controls are disabled while **Review latest versions** loads. Deleting the event open in the editor returns to the list.
+- Tests: `apps/web/tests/calendar.test.ts` (eligibility, request bodies) and `tests/e2e/calendar.spec.ts`. The e2e test covers the study-status change, the ineligible-selection block, series scope in the warning and dialog, conflict then review, delete and Recently deleted. It also runs axe, overflow and target checks in Select mode with a series deletion pending.
+- Known limits: archived-class study blocks are rejected by the server and the server message is shown. There are no offline batches, no batch restore and no occurrence-level batch.
+
 ### 2026-10-12 — Tasks: selected changes
 
 - **Select** (list header, `aria-pressed`) switches row checkboxes from "Complete <title>" to "Select <title>" and shows the **Selected tasks** bar: count, **Select shown (n)** / **Clear selection**, a **Change** choice (Mark done, Mark not done, Set priority, Set due date, Clear due date, Delete) and **Apply to n tasks**. One atomic `POST /api/v1/tasks/batch`; up to 100 explicit IDs.

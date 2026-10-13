@@ -316,6 +316,109 @@ test('deleting a recurring event asks for the scope and a series can be undone',
   );
 });
 
+test('selected events change together; study status is limited and series deletion is explicit', async ({
+  page,
+}) => {
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const courseReply = await page.request.post('/api/v1/courses', {
+    headers,
+    data: { operationId: crypto.randomUUID(), name: `Batch class ${suffix}` },
+  });
+  expect(courseReply.status()).toBe(200);
+  const courseId = (await courseReply.json()).course.id as string;
+  const study = (name: string, hour: number) => ({
+    title: `${name} ${suffix}`,
+    startsAt: `2028-07-03T${hour}:00:00Z`,
+    endsAt: `2028-07-03T${hour + 1}:00:00Z`,
+    timeZone: 'UTC',
+    courseId,
+  });
+  const first = await createEvent(page, '', study('Study A', 10));
+  const second = await createEvent(page, '', study('Study B', 12));
+  const series = await createEvent(page, `Series ${suffix}`, {
+    startsAt: '2028-07-03T15:00:00Z',
+    endsAt: '2028-07-03T16:00:00Z',
+    recurrence: { frequency: 'daily', interval: 1, count: 3, until: null },
+  });
+  const current = async (id: string) =>
+    (
+      (await (await page.request.get('/api/v1/calendar')).json()) as {
+        events: { id: string; version: number; studyStatus: string }[];
+      }
+    ).events.find((event) => event.id === id);
+  await page.goto('/calendar?date=2028-07-03&view=day');
+  await showCalendar(page, { zone: 'UTC' });
+  const view = calendarRegion(page);
+  const bar = view.getByRole('region', { name: 'Selected events' });
+  const select = (name: string) =>
+    view.getByRole('checkbox', { name: `Select ${name}` }).check();
+
+  // Study status changes exactly the selected one-time study blocks.
+  await view.getByRole('button', { name: 'Select', exact: true }).click();
+  await select(`Study A ${suffix}`);
+  await select(`Study B ${suffix}`);
+  await expect(bar.getByText('2 events selected')).toBeVisible();
+  await bar.getByRole('button', { name: 'Apply to 2 events' }).click();
+  await expect(
+    view.getByText('Mark study done: 2 events updated.', { exact: true }),
+  ).toBeVisible();
+  expect((await current(first.id))?.studyStatus).toBe('completed');
+  expect((await current(second.id))?.studyStatus).toBe('completed');
+
+  // A series cannot take a study status, and its deletion scope is shown.
+  await view.getByRole('button', { name: 'Select', exact: true }).click();
+  await select(`Study A ${suffix}`);
+  await select(`Series ${suffix} (series)`);
+  await expect(
+    bar.getByText('1 selected event is not a one-time timed study block.'),
+  ).toBeVisible();
+  await expect(
+    bar.getByRole('button', { name: 'Apply to 2 events' }),
+  ).toBeDisabled();
+  await bar.getByRole('combobox', { name: /^Change/ }).selectOption('Delete');
+  await expect(
+    bar.getByText('1 repeating series selected: every occurrence is deleted.'),
+  ).toBeVisible();
+
+  // A record changed after selection makes the whole batch fail unchanged.
+  const changed = await page.request.put(`/api/v1/calendar/${first.id}`, {
+    headers,
+    data: {
+      ...study('Study A', 10),
+      studyStatus: 'completed',
+      notes: 'Changed elsewhere',
+      expectedVersion: (await current(first.id))!.version,
+      operationId: crypto.randomUUID(),
+    },
+  });
+  expect(changed.status()).toBe(200);
+  const dialog = page.getByRole('dialog', { name: 'Delete 2 events?' });
+  await bar.getByRole('button', { name: 'Apply to 2 events' }).click();
+  await expect(dialog).toContainText(
+    'Includes 1 repeating series: every occurrence is deleted.',
+  );
+  await dialog.getByRole('button', { name: 'Delete 2 events' }).click();
+  await expect(bar.getByRole('alert')).toContainText(
+    'A selected event changed or was deleted elsewhere. Nothing was changed.',
+  );
+  expect(await current(series.id)).toBeDefined();
+  await bar.getByRole('button', { name: 'Review latest versions' }).click();
+  await bar.getByRole('button', { name: 'Apply to 2 events' }).click();
+  await dialog.getByRole('button', { name: 'Delete 2 events' }).click();
+  await expect(
+    view.getByText('Deleted 2 events. Restore from Recently deleted.', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  expect(await current(series.id)).toBeUndefined();
+  expect(await current(first.id)).toBeUndefined();
+  expect(await current(second.id)).toBeDefined();
+  await view.getByText('Recently deleted', { exact: true }).click();
+  await expect(
+    view.getByRole('button', { name: `Restore Series ${suffix}` }),
+  ).toBeVisible();
+});
+
 test('changing a series start or repeat rule warns that occurrence edits reset', async ({
   page,
 }) => {
@@ -403,14 +506,16 @@ for (const { theme, width, target } of [
       startsAt: '2028-05-01T00:00:00Z',
       endsAt: '2028-05-02T00:00:00Z',
     });
+    // [path, whether Select mode is open with a series deletion pending]
     const paths = [
-      '/calendar?date=2028-05-01',
-      '/calendar?date=2028-05-01&view=week',
-      '/calendar/new?date=2028-05-01',
-      `/calendar/${event.id}?date=2028-05-01`,
-      `/calendar/${event.id}/occurrence/2028-05-01?date=2028-05-01`,
-    ];
-    for (const path of paths) {
+      ['/calendar?date=2028-05-01', false],
+      ['/calendar?date=2028-05-01', true],
+      ['/calendar?date=2028-05-01&view=week', false],
+      ['/calendar/new?date=2028-05-01', false],
+      [`/calendar/${event.id}?date=2028-05-01`, false],
+      [`/calendar/${event.id}/occurrence/2028-05-01?date=2028-05-01`, false],
+    ] as const;
+    for (const [path, selecting] of paths) {
       await page.goto(path);
       await expect(page.getByRole('heading', { level: 1 })).toHaveText(
         'Calendar',
@@ -419,6 +524,20 @@ for (const { theme, width, target } of [
       await expect(
         calendarRegion(page).getByRole('heading', { level: 2 }).first(),
       ).toBeVisible();
+      if (selecting) {
+        const view = calendarRegion(page);
+        await view.getByRole('button', { name: 'Select', exact: true }).click();
+        await view
+          .getByRole('checkbox', { name: `Select ${title} (series)` })
+          .first()
+          .check();
+        await view
+          .getByRole('combobox', { name: /^Change/ })
+          .selectOption('Delete');
+        await expect(
+          view.getByText('1 repeating series selected', { exact: false }),
+        ).toBeVisible();
+      }
       const { violations } = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
         .analyze();

@@ -2,11 +2,13 @@ import { expect, it } from 'vitest';
 import type { CalendarRecord, Occurrence } from '@hub/contracts';
 import {
   DraftError,
+  calendarBatchBody,
   checkLocalTime,
   dayOccurrences,
   occursOn,
   resetsSeries,
   shiftDate,
+  studyStatusAllowed,
   timeLabel,
   toDraft,
   toInput,
@@ -285,4 +287,37 @@ it('resets the series only when its start, timezone or rule changes', () => {
       recurrence: { frequency: 'daily', interval: 2, count: 3, until: null },
     }),
   ).toBe(true);
+});
+
+it('allows batch study status only on one-time timed study blocks', () => {
+  const courseId = '00000000-0000-4000-8000-000000000009';
+  expect(studyStatusAllowed(record({ courseId }))).toBe(true);
+  expect(studyStatusAllowed(record())).toBe(false);
+  expect(studyStatusAllowed(record({ courseId, allDay: true }))).toBe(false);
+  expect(
+    studyStatusAllowed(
+      record({
+        courseId,
+        recurrence: { frequency: 'daily', interval: 1, count: 2, until: null },
+      }),
+    ),
+  ).toBe(false);
+});
+
+it('builds calendar batch bodies in selection order', () => {
+  const selection = new Map([
+    ['b', 3],
+    ['a', 1],
+  ]);
+  expect(calendarBatchBody(selection, { kind: 'delete' })).toEqual({
+    items: [
+      { id: 'b', expectedVersion: 3 },
+      { id: 'a', expectedVersion: 1 },
+    ],
+    action: { kind: 'delete' },
+  });
+  expect(
+    calendarBatchBody(selection, { kind: 'study-status', status: 'cancelled' })
+      .action,
+  ).toEqual({ kind: 'study-status', status: 'cancelled' });
 });

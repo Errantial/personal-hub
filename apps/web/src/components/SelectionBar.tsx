@@ -81,7 +81,10 @@ export function SelectionBar<T extends Versioned>({
             : `Select shown (${candidates.length})`}
         </button>
       </div>
-      {children}
+      {/* Changes wait until a review has loaded the latest versions. */}
+      <fieldset className="batch-bar__fields" disabled={refreshing}>
+        {children}
+      </fieldset>
       {!online && (
         <p className="form-error">Selected changes need a connection.</p>
       )}

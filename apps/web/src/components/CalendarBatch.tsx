@@ -47,7 +47,9 @@ export function CalendarBatchBar({
   const byId = new Map(visible.map((record) => [record.id, record]));
   const chosen = [...selection.keys()].flatMap((id) => byId.get(id) ?? []);
   const series = chosen.filter((record) => record.recurrence).length;
-  const notStudy = chosen.filter((record) => !studyStatusAllowed(record)).length;
+  const notStudy = chosen.filter(
+    (record) => !studyStatusAllowed(record),
+  ).length;
   const blocked = kind !== 'delete' && notStudy > 0;
 
   async function apply(event: FormEvent<HTMLFormElement>) {
