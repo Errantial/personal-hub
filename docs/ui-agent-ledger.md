@@ -417,6 +417,20 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 
 ## Change ledger
 
+### 2026-10-13 — Email: Proton Bridge connector and Inbox › Mail
+
+- **Settings › Connections › Email (Proton Bridge)** panel. The Proton Mail placeholder card is removed. Contract: [email-ingestion.md](email-ingestion.md).
+  - **Add connector**: Name and **Imported mail label** (default Personal). The token is shown once in a read-only field with **I saved it**.
+  - Each connector shows its status (Waiting for first sync / Connected / Revoked), label, import start date, last sync and a folder table: On Bridge, Since start, Imported, with visible "(incomplete)" when Imported is below Since start. Reload connectors refreshes the list, including recovery after a lost token response.
+  - **Revoke connector** asks first.
+- **Inbox › Mail** (`/inbox/mail`, `/inbox/mail/:id`), between Reminders and Email drafts.
+  - Folder filter; newest first, 50 per page with **Load more mail**; a late-cursor message. Rows show the subject link, sender, received time, a 2-line snippet and the attachment count marked "(not imported)".
+  - The detail page shows From/To/Cc/Received/Folders/Attachments/Label, then the body as plain pre-wrapped text, never HTML, with a "Shortened" note when truncated. "Back to mail" link.
+  - With no connector, Mail links to Connections.
+- Tests: `tests/e2e/mail.spec.ts`; `inbox/mail` is added to the accessibility sweep; router tests cover the mail addresses.
+- Known limits: read-only, no search, no flags, no deletion tracking, no AI filtering yet.
+- Creation retries preserve one connector, but cannot reissue its one-time token. Keep the recovery error visible: reload Connections, revoke it, and add a replacement. Revocation is versioned and receipt-backed. Incomplete folder counts remain visible; a shortened message does not imply that 32,000 characters were available (oversized messages can have headers only).
+
 ### 2026-10-13 — Today: Assistant (first live AI flow)
 
 - **Assistant** panel at the top of Today. Contract: [ai-assistant.md](ai-assistant.md).

@@ -6,6 +6,8 @@ Status: authenticated web/API planner implemented, including tasks, day/week cal
 
 Backend responsibility reviews now support [local daily/weekly schedules](docs/responsibility-local-schedules.md), preserving wall-clock cadence across DST with explicit missed-slot admission. Review records remain blocked placeholders; UI and agent execution are pending.
 
+[Read-only email ingestion](docs/email-ingestion.md) now includes a local Proton Bridge connector, owner-managed upload tokens and Inbox mail browsing. Headers and bounded plain-text bodies are imported; attachments and provider writes remain excluded. The observed Bridge snapshot was checked read-only, but live hub upload, scheduling, Gmail delivery completeness and AI filtering remain pending.
+
 The backend also has [verified AI context binding and explicit memory selection](docs/ai-verified-context.md), plus an internal fake-adapter text-result flow. Live model calls and public result delivery remain disabled.
 
 Owner-confirmed AI policy now has a $50 monthly ceiling, a $0.25 initial request allowance and [explicit per-request saved answers](docs/ai-provider-setup.md). Actual subscription/API provider execution remains pending.

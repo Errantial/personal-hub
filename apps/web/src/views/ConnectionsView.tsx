@@ -7,6 +7,7 @@ import { StatusChip } from '../components/StatusChip';
 import { CanvasConnection } from '../components/CanvasConnection';
 import { CanvasLmsConnection } from '../components/CanvasLmsConnection';
 import { CanvasReconciliation } from '../components/CanvasReconciliation';
+import { EmailConnectors } from '../components/EmailConnectors';
 import { getSnapshot } from '../lib/api';
 import { useResource } from '../lib/hooks';
 import { canvasTabLabels, canvasTabs } from '../lib/router';
@@ -74,13 +75,18 @@ export function ConnectionsView({
     >
       <h2 id="connections-title">Connections</h2>
       <Help label="Connections">
-        Email and Proton Calendar connections are not implemented yet.
+        Proton Mail is imported read-only through a connector on the computer
+        running Proton Bridge. School Outlook and Proton Calendar are not
+        implemented yet.
       </Help>
       <div className="connection-grid">
         <CanvasCard navigate={navigate} />
         {workspace.status === 'ready' &&
           workspace.data.connections
-            .filter((connection) => connection.id !== 'canvas')
+            .filter(
+              (connection) =>
+                !['canvas', 'proton-mail'].includes(connection.id),
+            )
             .map((connection) => (
               <article
                 className="connection-card panel"
@@ -100,6 +106,7 @@ export function ConnectionsView({
             : 'Connect to the hub server to view the other providers.'}
         </p>
       )}
+      <EmailConnectors />
     </section>
   );
 }

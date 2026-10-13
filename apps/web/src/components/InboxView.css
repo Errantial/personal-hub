@@ -159,3 +159,22 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.mail-filter {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 24rem;
+  margin: var(--space-3) 0;
+}
+.mail-view a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target);
+}
+.mail-snippet {
+  color: var(--text-muted);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+}

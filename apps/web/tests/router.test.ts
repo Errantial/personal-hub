@@ -130,6 +130,21 @@ it('addresses a class, its section and the add-class form', () => {
   });
 });
 
+it('addresses imported mail inside the inbox', () => {
+  const id = '00000000-0000-4000-8000-000000000004';
+  expect(routePath({ name: 'inbox', section: 'mail', mail: id })).toBe(
+    `/inbox/mail/${id}`,
+  );
+  expect(parseRoute('/inbox/mail', '')).toEqual({
+    name: 'inbox',
+    section: 'mail',
+  });
+  expect(parseRoute('/inbox/mail/nope', '')).toEqual({
+    name: 'inbox',
+    section: 'mail',
+  });
+});
+
 it('addresses email drafts inside the inbox', () => {
   const id = '00000000-0000-4000-8000-000000000003';
   expect(routePath({ name: 'inbox', section: 'drafts' })).toBe('/inbox/drafts');

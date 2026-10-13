@@ -11,6 +11,7 @@ const views = [
   'tasks',
   'classes',
   'inbox',
+  'inbox/mail',
   'inbox/drafts',
   'inbox/drafts/new',
   'settings/account',
@@ -41,9 +42,10 @@ for (const { theme, width, target } of configurations) {
     );
     for (const view of views) {
       await page.goto(`/${view}`);
-      await expect(page.getByRole('heading', { level: 1 })).not.toHaveText(
-        'Sign in',
-      );
+      await expect(
+        page.getByRole('heading', { level: 1 }),
+        `${view} stays signed in`,
+      ).not.toHaveText('Sign in');
       await expect(page.getByText('Loading…', { exact: true })).toHaveCount(0);
       const { violations } = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
