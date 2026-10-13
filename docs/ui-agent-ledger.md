@@ -1,5 +1,13 @@
 # UI agent ledger
 
+## Canvas access limitation and browser proof (2026-10-13)
+
+The owner's school blocks personal token creation, so **Canvas API not configured** is an actual access gate. A browser DOM feasibility test passed for one course (27 unique links/titles, 10 valid due timestamps, 17 missing dates). It did not import hub data, prove all-course coverage or add a connector. See [canvas-browser.md](canvas-browser.md). Do not expose browser sync as supported yet. A future UI must distinguish sign-in required, loading/partial/filter-limited snapshot, missing due date, source freshness, conflict and failed import; its contracts do not exist yet. Initial collection must project selected metadata locally because assignment pages also contain scores and other unnecessary text. No whole-page prompt export, screenshot/attachment input, automatic sensitivity inference or provider execution is added.
+
+## Deployed web boundary (2026-10-13)
+
+The tested UI through reminder-history commit `265a99d` is served at `https://hub.ecg.name` on the actual Oracle Linux ARM64 VM. Deep links fall back to the shell, `/api` stays same-origin and `/sw.js` uses `Cache-Control: no-cache`. Secure sessions and the setup-token gate remain required. Live unauthenticated setup/deep-link/320px checks passed with no JS errors and private API 401; no synthetic owner was enrolled. Daily use is unverified. Local DNS propagation was incomplete, so the browser check used a hostname/address override. Same-device backups retain private history; off-host protection is deferred by owner choice. Do not promise permanent erasure, migrated development records, live providers or Kompakt acceptance.
+
 ## Final backend-hour verification (2026-10-12)
 
 `npm run check` passed lint, strict types, formatting, builds and 505 API/client tests, with one optional PostgreSQL skip. All 32 new academic/Calendar/session tests passed again after the final error-copy correction; targeted lint/formatting and the refreshed API build passed. Compiled API smoke verified all 45 migrations/new routes/receipts/immutable origins with no network calls.
@@ -409,6 +417,35 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 
 ## Change ledger
 
+### 2026-10-13 — Inbox: Email drafts and exact-message approval
+
+- New **Inbox › Email drafts** (`/inbox/drafts`, `/inbox/drafts/new`, `/inbox/drafts/:id`).
+  - **List**: drafts with **Show** (Current or Deleted drafts) and cursor paging with a stale-cursor message. Summaries show subject, status (Not approved, Approved, Deleted), recipient count, a purpose other than email, and saved time. Bodies and addresses are not listed.
+  - **New draft / Edit draft** fields: Account (Proton Mail, Outlook), Purpose, From, To/Cc/Bcc (separated by commas, semicolons or new lines), Subject, plain-text Body and **Draft content label**.
+  - Client checks run before sending: sender, each address, 1-50 recipients, no case-insensitive duplicates, single-line subject. Attachments are always empty.
+  - Editing an approved draft first warns "Saving changes removes the current approval." Version conflicts keep edits through "Load latest version".
+- The detail page shows **Message to approve**: the stored, normalized message with every field, "Attachments: None" and the body as plain pre-wrapped text (never HTML).
+  - **Approve this exact message** sends `reviewedContentHash` = the loaded `contentHash` with `decision: 'approve-exact-message'`.
+  - On `VERSION_CONFLICT`, `EMAIL_REVIEW_CONFLICT` or `DRAFT_STATE_CONFLICT`, the page says "Review it again" and offers **Reload draft**. **Revoke approval** uses the approval version.
+- **Sending: not available** is always shown, with the blockers from `POST /send-preview` in words. No send control exists.
+- **Delete draft** confirms that the text, recipients and history stay in private storage and exports and that permanent erasure is not available. **Restore draft** needs a new approval.
+- Tests: `tests/e2e/drafts.spec.ts` (validation, review, conflict then reload then approve, edit removing approval, delete/restore without sending); `inbox/drafts` and `inbox/drafts/new` are added to the all-view axe and target checks; router tests cover the draft addresses.
+- Conflict recovery retains editor text even if loading the latest version fails. Detail actions are disabled together while a write is pending; send-preview blockers reset when the loaded draft changes.
+- Tests additionally cover failed conflict reload without losing edits and a committed save with a lost response: retry keeps the operation ID and creates only one revision.
+- Known limits: online-only, no revision or approval history views, no mailbox connection, no sending.
+
+### 2026-10-13 — Settings: Memory
+
+- New **Settings › Memory** (`/settings/memory`).
+  - **Use memory** switch (`PUT /api/v1/memory/settings`). Help states that it is off by default, starts no AI use, and keeps memories when turned off. A conflict offers **Reload memory**.
+  - Filters: **Show** (Active, Disabled, Forgotten, All, with the server's counts), **Type** and literal **Search** (submitted, up to 100 characters). Pages hold 25 items with an `after` cursor and version. Changing filters resets paging and late reads are ignored. A changed cursor shows "The list changed. Reload to see the latest."
+  - Rows show the title (or "Forgotten memory"), type, noted date, Disabled/Forgotten and the label. List pages carry no content.
+- **Add memory / Edit memory**: Type, Noted on, Title, Memory text, Enabled and **Memory content label**. Edit loads `GET /api/v1/memory/:id` for the full text. Saves return a metadata receipt and the list reloads. A version conflict shows "Changed elsewhere" with **Load latest version**, keeping the edits.
+- **Forget memory** asks first. The dialog says the text is cleared from the app and future exports, cannot be restored, and remains in earlier backups and downloaded exports. `MEMORY_FORGOTTEN` has a specific client message.
+- Reminder snooze, notification history, the unread summary and "Mark loaded read" were already built by the earlier UI work. Only the reminder history list (`GET /api/v1/reminders/history`) is still unused.
+- Tests: `tests/e2e/memory.spec.ts` (switch, add validation, search, conflict then Load latest, disable/Show Disabled, forget leaves a text-free tombstone); `settings/memory` is added to the all-view axe and target checks.
+- Known limits: no AI use or retrieval, no import, no restore after forgetting.
+
 ### 2026-10-12 — Classes: Study plan (preview, draft, approval)
 
 - **Study plan** link in the Classes list opens `/classes/plan`. Controls: **Starting** date and **Length** (7 or 14 days). **Preview plan** calls `POST /api/v1/study/preview` with no operation ID; it is read-only. The preview shows warnings as visible text, "Why this order" (remaining/target minutes and ranking reasons in words), and blocks grouped by local day in the plan timezone with the total time.
@@ -628,3 +665,11 @@ Implemented; see [frontend-plan.md](frontend-plan.md) Phase 1.
 
 
 Final verification after the approval-lock read change: all 12 email draft tests passed again; targeted lint/format checks and `git diff --check` passed.
+
+### 2026-10-13 — Inbox: paged reminder history
+
+- Inbox › Reminders adds an expandable **Reminder history** section. Opening it loads the owner-only `/api/v1/reminders/history` endpoint with the shared `reminderHistorySchema`, 25 records per page, creation timestamp/ID ordering and `before` cursors.
+- **History status** filters all/scheduled/delivering/paused/delivered/failed/cancelled. Filter changes reset rows and cursor; delayed reads from an old filter or unmounted view cannot replace current rows. **Reload history** starts a fresh first page; new arrivals are not silently added to the loaded pages.
+- **Load more reminders** appends unique IDs. A page failure preserves loaded rows/cursor and offers retry or a fresh reload. Loading, empty and actionable error states remain visible. History is online and read-only; it does not expose mutation controls or cached/outbox writes. Current reminder editing, controls, snooze, earlier reminders and notification behavior are preserved.
+- Help explains creation ordering, changing status across pages and the boundary between durable inbox delivery and device alerts. Closed-app native delivery, permanent purge, offline history and frozen cross-page snapshots remain unavailable. No provider execution or backend changes.
+- Focused browser checks passed all nine Inbox tests, including real synthetic records paged across 25 rows, failed-page retry without duplicates, delayed filter response and expanded-view axe/overflow/target checks at 1280px standard and 320px e-ink. Broader validation is recorded in implementation-log.md.

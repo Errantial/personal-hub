@@ -22,6 +22,7 @@ it('addresses each settings section and defaults to Account', () => {
     'study',
     'connections',
     'ai',
+    'memory',
   ] as const) {
     expect(routePath({ name: 'settings', section })).toBe(
       `/settings/${section}`,
@@ -126,6 +127,23 @@ it('addresses a class, its section and the add-class form', () => {
   );
   expect(parseRoute('/classes/nope', '?section=nope')).toEqual({
     name: 'classes',
+  });
+});
+
+it('addresses email drafts inside the inbox', () => {
+  const id = '00000000-0000-4000-8000-000000000003';
+  expect(routePath({ name: 'inbox', section: 'drafts' })).toBe('/inbox/drafts');
+  expect(routePath({ name: 'inbox', section: 'drafts', draft: id })).toBe(
+    `/inbox/drafts/${id}`,
+  );
+  expect(parseRoute('/inbox/drafts/new', '')).toEqual({
+    name: 'inbox',
+    section: 'drafts',
+    draft: 'new',
+  });
+  expect(parseRoute('/inbox/drafts/nope', '')).toEqual({
+    name: 'inbox',
+    section: 'drafts',
   });
 });
 
