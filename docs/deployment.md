@@ -2,6 +2,10 @@
 
 ## Confirmed target
 
+Current deployment (2026-10-13): the existing VM is Oracle Linux 9.7 ARM64, with two CPUs and 10 GiB RAM. The tested app is running at `https://hub.ecg.name` with PostgreSQL, supervised API, managed HTTPS and daily same-device backups. Isolated backup restore passed. See the [receipt and operating guide](../deploy/oracle-linux/README.md). Owner enrollment and development-data transfer remain pending. The owner deferred encrypted off-host backups.
+
+The Ubuntu/sizing description below remains the original proposal, not the inspected host configuration.
+
 Oracle Cloud Ubuntu Linux VM with 24 GB RAM and 4 OCPUs. Hosted inference initially; no local GPU/model-serving service required. Exact shape, architecture, Ubuntu version, storage, domain, and backup destination remain setup decisions.
 
 Proposed services: HTTPS reverse proxy/static web delivery, application API, PostgreSQL, durable worker, and isolated browser worker when needed. Keep database/browser-control ports private. Use service supervision, bounded concurrency, resource limits, health checks, encrypted off-host backups, and a verified restore procedure. Start browser work with one active job and tune from measurements.

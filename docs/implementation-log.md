@@ -4,6 +4,12 @@ Completed work and validation receipts moved verbatim from backlog.md on 2026-10
 
 ## UI validation receipts
 
+### 2026-10-13 — Oracle Linux deployment
+
+Deployed app commit `265a99d` on the inspected Oracle Linux 9.7 ARM64 host (two CPUs, 10 GiB RAM), preserving the existing Java service. Node 24.21.0/npm 11.19.0, Caddy 2.11.7 and PostgreSQL 16.15 support supervised loopback API, public HTTPS and a fresh owner database. Provider execution is disabled. The owner added DNS and Oracle Cloud HTTP/HTTPS ingress; host firewall changes preserve SSH/database exposure.
+
+Shell/systemd checks, migration/startup, API restart/readiness, unauthenticated 401, root-only secret/backup permissions, custom dump checksum and isolated schema/synthetic receipt restore passed. External HTTPS and a read-only live browser check passed setup/deep-link loading, narrow layout and no JS errors using a DNS override (local resolver cached NXDOMAIN). No owner enrollment, private-token output, real providers or development database reset occurred. Daily same-device backups are enabled; encrypted off-host backups are deferred by owner choice. Enrollment, authenticated live workflows, development-data transfer and load remain pending. See [operating instructions](../deploy/oracle-linux/README.md).
+
 ### 2026-10-13 — Paged reminder history
 
 Inbox › Reminders now loads read-only, online history in 25-record pages, with status filters, reload and retry. Failed paging preserves loaded rows and the cursor; generation guards reject delayed filter responses. Current controls, snooze and notification behavior remain intact.
