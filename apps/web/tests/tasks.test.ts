@@ -1,6 +1,12 @@
 import { expect, it } from 'vitest';
 import type { Task } from '@hub/contracts';
-import { countByFilter, groupTasks, matchesFilter } from '../src/lib/tasks';
+import {
+  batchBody,
+  countByFilter,
+  groupTasks,
+  matchesFilter,
+  refreshSelection,
+} from '../src/lib/tasks';
 
 const today = '2026-10-12';
 let counter = 0;
@@ -81,4 +87,53 @@ it('lists done tasks together, newest change first', () => {
   );
   expect(groups).toHaveLength(1);
   expect(groups[0]?.tasks.map((item) => item.title)).toEqual(['New', 'Old']);
+});
+
+it('builds selected-change requests with the versions seen at selection', () => {
+  const selection = new Map([
+    ['b', 3],
+    ['a', 1],
+  ]);
+  const items = [
+    { id: 'b', expectedVersion: 3 },
+    { id: 'a', expectedVersion: 1 },
+  ];
+  expect(batchBody(selection, { kind: 'complete' })).toEqual({
+    items,
+    action: { kind: 'update', changes: { completed: true } },
+  });
+  expect(batchBody(selection, { kind: 'reopen' }).action).toEqual({
+    kind: 'update',
+    changes: { completed: false },
+  });
+  expect(
+    batchBody(selection, { kind: 'priority', priority: 'low' }).action,
+  ).toEqual({ kind: 'update', changes: { priority: 'low' } });
+  expect(
+    batchBody(selection, { kind: 'due', dueDate: '2026-11-01' }).action,
+  ).toEqual({ kind: 'update', changes: { dueDate: '2026-11-01' } });
+  // Clearing sends an explicit null; omitted fields stay unchanged.
+  expect(batchBody(selection, { kind: 'clear-due' }).action).toEqual({
+    kind: 'update',
+    changes: { dueDate: null },
+  });
+  expect(batchBody(selection, { kind: 'delete' })).toEqual({
+    items,
+    action: { kind: 'delete' },
+  });
+});
+
+it('refreshes a selection to latest versions and drops unavailable tasks', () => {
+  const [kept, gone, blocked] = [task('Kept'), task('Gone'), task('Queued')];
+  const selection = new Map([
+    [kept.id, 1],
+    [gone.id, 1],
+    [blocked.id, 1],
+  ]);
+  const refreshed = refreshSelection(
+    selection,
+    [{ ...kept, version: 4 }, blocked],
+    (item) => item.id !== blocked.id,
+  );
+  expect([...refreshed]).toEqual([[kept.id, 4]]);
 });

@@ -13,7 +13,12 @@ import type { OfflineStatus } from '../lib/hooks';
 import { offlineStatus } from '../lib/offline';
 import { taskFilterLabels, taskFilters } from '../lib/router';
 import type { Route, TaskFilter } from '../lib/router';
-import { countByFilter, groupTasks, matchesFilter } from '../lib/tasks';
+import {
+  countByFilter,
+  groupTasks,
+  matchesFilter,
+  maxSelection,
+} from '../lib/tasks';
 import { useConfirm } from './ConfirmDialog';
 import { DeletedItems } from './DeletedItems';
 import { Help } from './Help';
@@ -22,6 +27,7 @@ import { AcademicSource, PlannerSource } from './PlannerSource';
 import { QuickCapture } from './QuickCapture';
 import { ReadState } from './ReadState';
 import { StatusChip } from './StatusChip';
+import { TaskBatchBar } from './TaskBatch';
 import { formatDate } from '../lib/format';
 import './TasksView.css';
 
@@ -61,6 +67,15 @@ export function TasksView({
   const remove = useMutation();
   const restore = useMutation();
   const heading = useRef<HTMLHeadingElement>(null);
+  const [selecting, setSelecting] = useState(false);
+  // A selection belongs to the filter it was made in, so hidden tasks are
+  // never changed by a later filter's action.
+  const [selection, setSelection] = useState<{
+    filter: TaskFilter;
+    items: Map<string, number>;
+  }>({ filter, items: new Map() });
+  const selected =
+    selection.filter === filter ? selection.items : new Map<string, number>();
 
   // Reload when the outbox content changes (not on every status event), so a
   // conflict that stays queued cannot start a request loop.
@@ -84,6 +99,28 @@ export function TasksView({
   const counts = countByFilter(all, today);
   const visible = all.filter((task) => matchesFilter(task, filter, today));
   const groups = groupTasks(visible, filter, today);
+  // Tasks with queued or conflicting offline edits are changed through sync.
+  const selectable = (task: Task) =>
+    !status?.queued.includes(task.id) &&
+    !status?.conflicts.some((item) => item.id === task.id);
+  const select = (items: Map<string, number>) =>
+    setSelection({ filter, items });
+  function toggleSelected(task: Task) {
+    const items = new Map(selected);
+    if (items.has(task.id)) items.delete(task.id);
+    else items.set(task.id, task.version);
+    select(items);
+  }
+  async function batchApplied(text: string) {
+    setNotice({ text });
+    setSelecting(false);
+    select(new Map());
+    const fresh = await reload();
+    if (route.id && !fresh?.data.tasks.some((task) => task.id === route.id))
+      navigate(listRoute);
+    setDeletedKey((value) => value + 1);
+    heading.current?.focus();
+  }
   const listRoute: TasksRoute = {
     name: 'tasks',
     ...(route.filter ? { filter: route.filter } : {}),
@@ -199,10 +236,35 @@ export function TasksView({
           className="panel tasks-list-pane"
           aria-labelledby="task-list-title"
         >
-          <h2 id="task-list-title" ref={heading} tabIndex={-1}>
-            {taskFilterLabels[filter]}
-            {tasks.data ? ` (${visible.length})` : ''}
-          </h2>
+          <div className="tasks-list-pane__header">
+            <h2 id="task-list-title" ref={heading} tabIndex={-1}>
+              {taskFilterLabels[filter]}
+              {tasks.data ? ` (${visible.length})` : ''}
+            </h2>
+            {visible.length > 0 && (
+              <button
+                type="button"
+                className="secondary-button"
+                aria-pressed={selecting}
+                onClick={() => {
+                  setSelecting(!selecting);
+                  select(new Map());
+                }}
+              >
+                Select
+              </button>
+            )}
+          </div>
+          {selecting && (
+            <TaskBatchBar
+              selection={selected}
+              visible={groups.flatMap((group) => group.tasks)}
+              latest={async () => (await reload())?.data.tasks}
+              selectable={selectable}
+              onSelect={select}
+              onApplied={batchApplied}
+            />
+          )}
           <ReadState resource={tasks} label="tasks" />
           {tasks.data && !visible.length && <p>{emptyMessages[filter]}</p>}
           {groups.map((group) => (
@@ -228,6 +290,18 @@ export function TasksView({
                     navigate={navigate}
                     onChanged={reload}
                     onRemoved={() => heading.current?.focus()}
+                    selection={
+                      selecting
+                        ? {
+                            selected: selected.has(task.id),
+                            available:
+                              selectable(task) &&
+                              (selected.has(task.id) ||
+                                selected.size < maxSelection),
+                            toggle: () => toggleSelected(task),
+                          }
+                        : null
+                    }
                   />
                 ))}
               </ul>
@@ -263,6 +337,7 @@ function TaskRow({
   navigate,
   onChanged,
   onRemoved,
+  selection,
 }: {
   task: Task;
   status: OfflineStatus | null;
@@ -271,6 +346,12 @@ function TaskRow({
   navigate: (route: Route) => void;
   onChanged: () => Promise<unknown>;
   onRemoved: () => void;
+  /** Present while choosing tasks for a selected change. */
+  selection: {
+    selected: boolean;
+    available: boolean;
+    toggle: () => void;
+  } | null;
 }) {
   const toggle = useMutation();
   const checkbox = useRef<HTMLInputElement>(null);
@@ -302,16 +383,26 @@ function TaskRow({
       className={`task-row ${task.completed ? 'task-row--done' : ''}`}
       aria-current={current ? 'true' : undefined}
     >
-      <input
-        ref={checkbox}
-        type="checkbox"
-        aria-label={`Complete ${task.title}`}
-        checked={task.completed}
-        disabled={toggle.pending}
-        onChange={() => {
-          void complete();
-        }}
-      />
+      {selection ? (
+        <input
+          type="checkbox"
+          aria-label={`Select ${task.title}`}
+          checked={selection.selected}
+          disabled={!selection.available}
+          onChange={selection.toggle}
+        />
+      ) : (
+        <input
+          ref={checkbox}
+          type="checkbox"
+          aria-label={`Complete ${task.title}`}
+          checked={task.completed}
+          disabled={toggle.pending}
+          onChange={() => {
+            void complete();
+          }}
+        />
+      )}
       <div className="task-row__body">
         <Link
           className="task-row__title"

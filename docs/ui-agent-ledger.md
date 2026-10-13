@@ -409,6 +409,15 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 
 ## Change ledger
 
+### 2026-10-12 — Tasks: selected changes
+
+- **Select** (list header, `aria-pressed`) switches row checkboxes from "Complete <title>" to "Select <title>" and shows the **Selected tasks** bar: count, **Select shown (n)** / **Clear selection**, a **Change** choice (Mark done, Mark not done, Set priority, Set due date, Clear due date, Delete) and **Apply to n tasks**. One atomic `POST /api/v1/tasks/batch`; up to 100 explicit IDs.
+- A selection keeps each task's version from the moment it was selected, belongs to the current filter (changing filter or leaving Select clears it) and never includes tasks added later. Tasks with queued, locked or conflicting offline edits cannot be selected.
+- `VERSION_CONFLICT`/`NOT_FOUND` shows "A selected task changed or was deleted elsewhere. Nothing was changed." with **Review latest versions**, which reloads, keeps still-listed tasks at their latest versions and requires a new Apply (new operation ID). Other failures keep the selection; an unchanged retry reuses the operation ID.
+- Online only: offline shows "Selected changes need a connection." and disables Apply. Delete asks "Delete n tasks?" (Cancel focused); afterwards the notice points to Recently deleted, since restore is per item. Success clears the selection, leaves Select, reloads and focuses the list heading; an open editor for a deleted task returns to the list.
+- Tests: `apps/web/tests/tasks.test.ts` (request bodies, selection refresh); `tests/e2e/tasks.spec.ts` (atomic priority change, conflict blocks the whole batch then succeeds after review, delete confirmation/Recently deleted; axe/overflow/targets in Select mode at 1280 px and 320 px e-ink).
+- Known limits: no offline batches, no batch restore, no selection across filters or server pages.
+
 ### 2026-10-10 — Ten study/recovery backend milestones
 
 Validation: full check passed with 149 API/client tests (17 study/recovery tests) and one optional PostgreSQL test skipped; all 43 browser tests passed against the final migrations. Tests use synthetic isolated data and forbid provider calls. Existing UI/offline behavior is preserved; new study/recovery UI controls remain pending.
@@ -491,7 +500,7 @@ Validation: full check passed with 132 API/client tests and one optional Postgre
 - Global task-conflict banner is unchanged and now links each conflict to **Open task**; Discard local changes stays confirmed there.
 - Quick capture and `ReadState` are shared with Today (`QuickCapture.tsx`, `ReadState.tsx`). `PlannerBoard.tsx` (always-open form, Reload list, per-row Edit/Delete) is removed.
 - Layout: < 1024 px shows the editor alone with a Back link; ≥ 1024 px keeps the list beside the editor. 44/48 px targets, e-ink status chips use text plus border, no colour-only state.
-- Known limits: server search/paging (`/tasks/browse`) and selected changes (`/tasks/batch`) are not used; the list loads all tasks. Completing a task from the list while its editor is open for the same task shows "Changed elsewhere" in the editor. Restore needs a connection. Browser/emulator results do not establish Kompakt compatibility.
+- Known limits: server search/paging (`/tasks/browse`) is not used; the list loads all tasks. Selected changes (`/tasks/batch`) were added later; see the 2026-10-12 Tasks selection entry. Completing a task from the list while its editor is open for the same task shows "Changed elsewhere" in the editor. Restore needs a connection. Browser/emulator results do not establish Kompakt compatibility.
 - Tests: hub, offline, Canvas and conflict scenarios were ported without weakening assertions (labels are now chips, the conflict reload is "Load latest version", completion is verified in Done). New `tests/e2e/tasks.spec.ts` covers grouping/filter URLs, Undo and Recently deleted, title validation, unknown-task address, and axe/overflow/target checks at 1280 px and 320 px e-ink. Shared helpers (`addTask`, `openTask`, `showTasks`) live in `tests/e2e/shell.ts`.
 
 ### 2026-10-10 — Frontend Phase 2: Today
