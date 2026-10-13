@@ -38,7 +38,7 @@ Verify the Ubuntu VM's CPU shape. If Oracle Ampere A1 (ARM) is selected, officia
 
 Reading messages through Bridge exposes plaintext to the integrating process. Uploading that content to this app's server expands who can process it; require a clear choice about metadata, snippets, bodies, and attachments.
 
-Proof required in this app: local read-only ingestion works; Gmail messages are complete; repeat fetches deduplicate; reconnection works; category corrections persist; and the Bridge host's online dependency is understood. Sending and provider-side moves are separate later gates.
+Status 2026-10-13: read-only ingestion is implemented with Bridge on the owner's Windows computer and a local connector ([email-ingestion.md](email-ingestion.md)). Bridge exposes a Gmail label; its newest message is 2026-09-28, so Gmail delivery into Proton needs checking. Proof required in this app: local read-only ingestion works; Gmail messages are complete; repeat fetches deduplicate; reconnection works; category corrections persist; and the Bridge host's online dependency is understood. Sending and provider-side moves are separate later gates.
 
 ## Proton Calendar
 

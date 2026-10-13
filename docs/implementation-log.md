@@ -4,6 +4,14 @@ Completed work and validation receipts moved verbatim from backlog.md on 2026-10
 
 ## UI validation receipts
 
+### 2026-10-13 — Read-only Proton Bridge ingestion
+
+Implemented a local Windows Bridge connector and owner-authorized Mail list/detail views. Migration 047 stores hash-only connector credentials, per-folder UIDVALIDITY/high-water marks and de-duplicated plain-text messages with owner-selected labels. Connector tokens can upload and inspect cursor state but cannot read mail; session cookies cannot use connector routes. Attachments are counted, never uploaded. Creation/revocation have durable metadata-only receipts and optimistic revocation versions; a lost one-time token response produces explicit replacement instructions without creating a duplicate. Uploads serialize with revocation, and missing IMAP fetch results stop before cursor advancement.
+
+Validation: `npm run check` passed, including 536 unit tests (one optional PostgreSQL test skipped), lint, types, formatting and production builds. The final full browser suite passed all 98 tests on an isolated synthetic database, including both accessibility widths, token recovery, plain-text detail rendering and revocation. Initial runs exposed an undersized setup link and an outdated placeholder assertion, followed by login-rate-limit cascades; both causes were corrected before the clean full run. All nine mail-specific tests and final type checks also passed.
+
+Prior live read-only Bridge checks found matching distinct-message counts across the observed folder snapshot. No real mail was uploaded to the hub or sent to AI. Live deployment/upload, scheduling, ongoing Gmail completeness, deletion/move tracking, export and AI filtering remain pending; see [operating contract](email-ingestion.md).
+
 ### 2026-10-13 — Canvas browser feasibility proof
 
 After owner-confirmed blocked token creation and normal owner login, saved browser authentication survived a T3 runtime restart. Bounded DOM reads/navigation reached one academic course's assignment list. Repeated stable reads found 27 unique source links/titles, ten valid exact due timestamps and 17 undated records. Initial asynchronous emptiness was correctly treated as not yet loaded. A fresh public-page snapshot still timed out, so the proof used DOM inspection; this is not a full automation-tool recovery.

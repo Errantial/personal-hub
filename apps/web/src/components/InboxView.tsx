@@ -21,6 +21,7 @@ import type { PermissionState } from '../lib/reminders';
 import type { Route } from '../lib/router';
 import { useConfirm } from './ConfirmDialog';
 import { EmailDrafts } from './EmailDrafts';
+import { MailView } from './MailView';
 import { Help } from './Help';
 import { Link } from './Link';
 import { ReadState } from './ReadState';
@@ -258,6 +259,15 @@ export function InboxView({
               </li>
               <li>
                 <Link
+                  route={{ name: 'inbox', section: 'mail' }}
+                  navigate={navigate}
+                  current={route.section === 'mail'}
+                >
+                  Mail
+                </Link>
+              </li>
+              <li>
+                <Link
                   route={{ name: 'inbox', section: 'drafts' }}
                   navigate={navigate}
                   current={route.section === 'drafts'}
@@ -282,6 +292,9 @@ export function InboxView({
                 void markLoadedRead();
               }}
             />
+          )}
+          {route.section === 'mail' && (
+            <MailView mail={route.mail} navigate={navigate} />
           )}
           {route.section === 'drafts' && (
             <EmailDrafts draft={route.draft} navigate={navigate} />

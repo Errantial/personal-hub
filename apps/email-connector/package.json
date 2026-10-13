@@ -1,0 +1,22 @@
+{
+  "name": "@hub/email-connector",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only Proton Bridge collector that uploads opted-in mail to the hub.",
+  "scripts": {
+    "check": "tsx src/main.ts check",
+    "sync": "tsx src/main.ts sync",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "html-to-text": "10.0.1",
+    "imapflow": "2.4.0",
+    "mailparser": "3.9.38",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/html-to-text": "9.0.4",
+    "@types/mailparser": "3.9.0"
+  }
+}

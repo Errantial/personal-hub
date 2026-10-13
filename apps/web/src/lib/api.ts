@@ -161,6 +161,8 @@ export async function liveRequestJson<T>(
       UNAUTHENTICATED: 'Your session ended. Sign out and sign in again.',
       INVALID_CREDENTIALS: 'Email or password is incorrect.',
       OWNER_EXISTS: 'This workspace already has an owner. Refresh to sign in.',
+      TOKEN_ALREADY_ISSUED:
+        'This connector was already added. Its token cannot be shown again. Reload Connections, revoke it, and add a replacement if the token was lost.',
       SETUP_DISABLED: 'Enter the setup token configured on the server.',
       INVALID_INPUT: 'Check the entered values and try again.',
       VERSION_CONFLICT:

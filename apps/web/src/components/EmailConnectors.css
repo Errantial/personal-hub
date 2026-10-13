@@ -1,0 +1,27 @@
+.email-token input {
+  width: 100%;
+  font-family: var(--font-mono, monospace);
+}
+.email-connector {
+  margin: var(--space-3) 0;
+  padding-bottom: var(--space-3);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+.email-folders {
+  border-collapse: collapse;
+  margin: var(--space-2) 0;
+}
+.email-folders th,
+.email-folders td {
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  overflow-wrap: anywhere;
+}
+.email-folders td {
+  text-align: right;
+}
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}

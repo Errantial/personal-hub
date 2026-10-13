@@ -75,12 +75,14 @@ export type Route =
     }
   | {
       name: 'inbox';
-      /** Notifications are the default; reminders and drafts have their own addresses. */
-      section?: 'reminders' | 'drafts';
+      /** Notifications are the default; other sections have their own addresses. */
+      section?: 'reminders' | 'drafts' | 'mail';
       /** A reminder's editor: `'new'` or a reminder id. */
       reminder?: string;
       /** An email draft: `'new'` or a draft id. */
       draft?: string;
+      /** An imported message id. */
+      mail?: string;
     }
   | {
       name: 'classes';
@@ -189,6 +191,12 @@ export function parseRoute(pathname: string, search: string): Route {
       ...(isClassSection(section) && section !== 'topics' ? { section } : {}),
     };
   }
+  if (name === 'inbox' && detail === 'mail')
+    return {
+      name,
+      section: 'mail',
+      ...(isUuid(extra) ? { mail: extra } : {}),
+    };
   if (name === 'inbox' && detail === 'drafts')
     return {
       name,
@@ -241,6 +249,8 @@ export function routePath(route: Route): string {
         ? `?section=${route.section}`
         : ''
     }`;
+  if (route.name === 'inbox' && route.section === 'mail')
+    return `/inbox/mail${route.mail ? `/${route.mail}` : ''}`;
   if (route.name === 'inbox' && route.section === 'drafts')
     return `/inbox/drafts${route.draft ? `/${route.draft}` : ''}`;
   if (route.name === 'inbox')
