@@ -6,6 +6,8 @@ import {
 } from '@hub/contracts';
 import type { CalendarInput, CalendarRecord, Occurrence } from '@hub/contracts';
 import type { CalendarView } from './router';
+import { selectionItems } from './selection';
+import type { Selection } from './selection';
 
 /* Pure calendar helpers: visible window, day membership, and conversion
    between the editor's text fields and the API's calendar input. */
@@ -361,3 +363,21 @@ export function resetsSeries(series: CalendarRecord, next: CalendarInput) {
         before.until !== after.until))
   );
 }
+
+/* Selected changes (POST /api/v1/calendar/batch); see ./selection.
+   Deletion removes whole records, so a selected recurring series loses every
+   occurrence. Study status applies to one-time timed study blocks only. */
+
+export type CalendarChange =
+  | { kind: 'study-status'; status: 'planned' | 'completed' | 'cancelled' }
+  | { kind: 'delete' };
+
+/** Whether the server accepts a study-status change for this record. */
+export const studyStatusAllowed = (record: CalendarRecord) =>
+  !!record.courseId && !record.allDay && !record.recurrence;
+
+/** Request body without operationId, which the mutation hook adds. */
+export const calendarBatchBody = (
+  selection: Selection,
+  change: CalendarChange,
+) => ({ items: selectionItems(selection), action: change });

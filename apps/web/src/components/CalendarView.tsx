@@ -24,6 +24,8 @@ import type { StudyDraft } from '../lib/calendar';
 import { useMutation, useResource, useToday } from '../lib/hooks';
 import { calendarViews } from '../lib/router';
 import type { CalendarView as View, Route } from '../lib/router';
+import { maxSelection } from '../lib/selection';
+import { CalendarBatchBar } from './CalendarBatch';
 import { CalendarEditor } from './CalendarEditor';
 import { CanvasEntry } from './CanvasEntry';
 import { useChoice } from './ConfirmDialog';
@@ -137,6 +139,17 @@ export function CalendarView({
   const [dialog, choose] = useChoice<'occurrence' | 'series'>();
   const remove = useMutation();
   const restore = useMutation();
+  const [selecting, setSelecting] = useState(false);
+  // A selection belongs to the range it was made in, so records outside the
+  // shown window are never changed by a later range's action.
+  const [selection, setSelection] = useState<{
+    key: string;
+    items: Map<string, number>;
+  }>({ key: rangeKey, items: new Map() });
+  const selected =
+    selection.key === rangeKey ? selection.items : new Map<string, number>();
+  const select = (items: Map<string, number>) =>
+    setSelection({ key: rangeKey, items });
 
   // A study draft belongs to one visit to the new-event form.
   const editingNew = route.editor?.kind === 'new';
@@ -216,6 +229,16 @@ export function CalendarView({
     setDeletedKey((value) => value + 1);
   }
 
+  async function batchApplied(text: string, deleted: readonly string[]) {
+    setNotice({ text });
+    setSelecting(false);
+    select(new Map());
+    const open = route.editor;
+    if (open && 'id' in open && deleted.includes(open.id)) navigate(listRoute);
+    await reloadAll();
+    setDeletedKey((value) => value + 1);
+  }
+
   function saved(event: CalendarRecord, created: boolean) {
     void occurrences.reload();
     if (!created) return;
@@ -236,6 +259,17 @@ export function CalendarView({
   }
 
   const items = occurrences.data?.data.occurrences ?? [];
+  // Selection works on whole records; prefer the record over an edited
+  // occurrence's replacement fields.
+  const records = new Map(
+    (events.data?.data.events ?? []).map((record) => [record.id, record]),
+  );
+  function toggleSelected(record: CalendarRecord) {
+    const next = new Map(selected);
+    if (next.has(record.id)) next.delete(record.id);
+    else next.set(record.id, record.version);
+    select(next);
+  }
   const canvasItems = canvas.data?.items ?? [];
   const sections = days.map((day) => {
     const entries: Entry[] = [
@@ -251,6 +285,16 @@ export function CalendarView({
               courses.data?.courses.find(
                 (course) => course.id === item.courseId,
               )?.name
+            }
+            selection={
+              selecting
+                ? {
+                    selected: selected.has(item.id),
+                    available:
+                      selected.has(item.id) || selected.size < maxSelection,
+                    toggle: () => toggleSelected(records.get(item.id) ?? item),
+                  }
+                : null
             }
             route={{
               ...listRoute,
@@ -285,6 +329,14 @@ export function CalendarView({
   });
   const shown =
     view === 'agenda' ? sections.filter((s) => s.entries.length) : sections;
+  // Records with an occurrence in range, in display order, once each.
+  const visibleRecords = [
+    ...new Map(
+      days
+        .flatMap((day) => dayOccurrences(items, day, viewingZone))
+        .map((item) => [item.id, records.get(item.id) ?? item]),
+    ).values(),
+  ];
   const ready = !!occurrences.data;
   const readState = {
     loading: events.loading || occurrences.loading,
@@ -384,15 +436,42 @@ export function CalendarView({
           className="panel calendar-list-pane"
           aria-labelledby="calendar-list-title"
         >
-          <h2 id="calendar-list-title">
-            {viewLabels[view]} · {formatRange(from, last)}
-          </h2>
+          <div className="list-header">
+            <h2 id="calendar-list-title">
+              {viewLabels[view]} · {formatRange(from, last)}
+            </h2>
+            {visibleRecords.length > 0 && (
+              <button
+                type="button"
+                className="secondary-button"
+                aria-pressed={selecting}
+                onClick={() => {
+                  setSelecting(!selecting);
+                  select(new Map());
+                }}
+              >
+                Select
+              </button>
+            )}
+          </div>
           <Help label="Calendar">
             Times are shown in {viewingZone}. Task deadlines are separate from
             reserved calendar time. Canvas entries are read-only; deadlines are
             single moments, and cancelled or missing entries stay visible
             without reserving time.
           </Help>
+          {selecting && (
+            <CalendarBatchBar
+              selection={selected}
+              visible={visibleRecords}
+              latest={async () => {
+                void occurrences.reload();
+                return reloadEvents();
+              }}
+              onSelect={select}
+              onApplied={batchApplied}
+            />
+          )}
           <ReadState resource={readState} label="calendar" />
           {canvas.error && (
             <p role="alert" className="form-error">
@@ -510,12 +589,19 @@ function EventRow({
   item,
   zone,
   courseName,
+  selection,
   route,
   navigate,
 }: {
   item: Occurrence;
   zone: string;
   courseName: string | undefined;
+  /** Present while choosing events for a selected change. */
+  selection: {
+    selected: boolean;
+    available: boolean;
+    toggle: () => void;
+  } | null;
   route: Route;
   navigate: (route: Route) => void;
 }) {
@@ -523,8 +609,17 @@ function EventRow({
   const cancelled = item.studyStatus === 'cancelled';
   return (
     <article
-      className={`calendar-row ${cancelled ? 'calendar-row--cancelled' : ''}`}
+      className={`calendar-row ${cancelled ? 'calendar-row--cancelled' : ''} ${selection ? 'calendar-row--selecting' : ''}`}
     >
+      {selection && (
+        <input
+          type="checkbox"
+          aria-label={`Select ${item.title}${item.recurrence ? ' (series)' : ''}`}
+          checked={selection.selected}
+          disabled={!selection.available}
+          onChange={selection.toggle}
+        />
+      )}
       <Link className="calendar-row__title" route={route} navigate={navigate}>
         {item.title}
       </Link>

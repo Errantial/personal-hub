@@ -3,9 +3,11 @@ import type { FormEvent } from 'react';
 import { taskBatchResponseSchema } from '@hub/contracts';
 import type { Task } from '@hub/contracts';
 import { useMutation, useOnline } from '../lib/hooks';
-import { batchBody, maxSelection, refreshSelection } from '../lib/tasks';
-import type { BatchChange, TaskSelection } from '../lib/tasks';
+import type { Selection } from '../lib/selection';
+import { batchBody } from '../lib/tasks';
+import type { BatchChange } from '../lib/tasks';
 import { useConfirm } from './ConfirmDialog';
+import { SelectionBar, countOf } from './SelectionBar';
 
 type ChangeKind = BatchChange['kind'];
 const changeLabels: Record<ChangeKind, string> = {
@@ -16,7 +18,7 @@ const changeLabels: Record<ChangeKind, string> = {
   'clear-due': 'Clear due date',
   delete: 'Delete',
 };
-const plural = (count: number) => `${count} task${count === 1 ? '' : 's'}`;
+const plural = (count: number) => countOf(count, 'task');
 
 /**
  * Applies one change to explicitly selected tasks in a single atomic,
@@ -31,7 +33,7 @@ export function TaskBatchBar({
   onSelect,
   onApplied,
 }: {
-  selection: TaskSelection;
+  selection: Selection;
   /** Tasks shown in the current filter, in display order. */
   visible: readonly Task[];
   /** Reloads the task list and returns the latest tasks. */
@@ -44,15 +46,10 @@ export function TaskBatchBar({
   const [priority, setPriority] = useState<Task['priority']>('high');
   const [dueDate, setDueDate] = useState('');
   const [dateError, setDateError] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
   const batch = useMutation();
   const online = useOnline();
   const [dialog, confirm] = useConfirm();
   const count = selection.size;
-  const candidates = visible.filter(selectable).slice(0, maxSelection);
-  const allSelected =
-    candidates.length > 0 && candidates.every((task) => selection.has(task.id));
-  const stale = batch.code === 'VERSION_CONFLICT' || batch.code === 'NOT_FOUND';
 
   function change(): BatchChange {
     if (kind === 'priority') return { kind, priority };
@@ -92,41 +89,19 @@ export function TaskBatchBar({
     );
   }
 
-  /** Deliberate review after a conflict: adopt the latest versions. */
-  async function reviewLatest() {
-    setRefreshing(true);
-    const tasks = await latest();
-    setRefreshing(false);
-    if (!tasks) return;
-    batch.reset();
-    onSelect(refreshSelection(selection, tasks, selectable));
-  }
-
   return (
-    <section className="task-batch" aria-label="Selected tasks">
-      <div className="task-batch__row">
-        <p role="status">
-          {count ? `${plural(count)} selected` : 'None selected'}
-        </p>
-        <button
-          type="button"
-          className="secondary-button"
-          disabled={batch.pending || !candidates.length}
-          onClick={() =>
-            onSelect(
-              allSelected
-                ? new Map()
-                : new Map(candidates.map((task) => [task.id, task.version])),
-            )
-          }
-        >
-          {allSelected
-            ? 'Clear selection'
-            : `Select shown (${candidates.length})`}
-        </button>
-      </div>
+    <SelectionBar
+      label="Selected tasks"
+      noun="task"
+      selection={selection}
+      visible={visible}
+      selectable={selectable}
+      latest={latest}
+      onSelect={onSelect}
+      batch={batch}
+    >
       <form
-        className="task-batch__row"
+        className="batch-bar__row"
         noValidate
         onSubmit={(event) => {
           void apply(event);
@@ -180,7 +155,7 @@ export function TaskBatchBar({
         )}
         <button
           className={kind === 'delete' ? 'danger-button' : 'primary-button'}
-          disabled={!count || !online || batch.pending || refreshing}
+          disabled={!count || !online || batch.pending}
         >
           {batch.pending ? 'Applying…' : `Apply to ${plural(count)}`}
         </button>
@@ -191,31 +166,7 @@ export function TaskBatchBar({
           {dateError}
         </p>
       )}
-      {!online && (
-        <p className="form-error">Selected changes need a connection.</p>
-      )}
-      {batch.error && (
-        <div role="alert" className="form-error">
-          <p>
-            {stale
-              ? 'A selected task changed or was deleted elsewhere. Nothing was changed.'
-              : batch.error}
-          </p>
-          {stale && (
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={refreshing}
-              onClick={() => {
-                void reviewLatest();
-              }}
-            >
-              {refreshing ? 'Loading…' : 'Review latest versions'}
-            </button>
-          )}
-        </div>
-      )}
       {dialog}
-    </section>
+    </SelectionBar>
   );
 }
