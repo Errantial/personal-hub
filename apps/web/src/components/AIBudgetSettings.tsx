@@ -62,15 +62,15 @@ export function AIBudgetSettings() {
   return (
     <section className="panel preference-panel" aria-label="AI spending limits">
       <h2>Spending limits</h2>
-      <StatusChip>AI requests are off</StatusChip>
+      <StatusChip>Used by the Assistant</StatusChip>
       <Help label="AI spending limits">
         Amounts are USD, with up to six decimal places. Set both limits; the
         request limit cannot exceed the monthly limit. Leave both empty for
-        unconfigured limits. Zero blocks paid execution. Monthly accounting will
-        use UTC calendar months. Saving limits does not enable AI, establish
-        pricing, or approve a provider's data retention. Cost estimation,
-        pricing and paid execution are pending. Recorded spending/holds come
-        from the internal accounting ledger, not a provider billing sync.
+        unconfigured limits; the Assistant then refuses to send. Zero blocks
+        paid requests. Monthly accounting uses UTC calendar months. Before each
+        Assistant request, its worst-case cost from OpenRouter's published price
+        is held; the reported cost replaces the hold. Recorded spending/holds
+        come from the internal accounting ledger, not a provider billing sync.
         Uncertain charges remain included in held funds and cannot be released
         by this form. Reload preserves your draft and adopts the current
         version. Costs belong to the admission month, not the provider's billing

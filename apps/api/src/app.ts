@@ -36,6 +36,8 @@ import { registerAcademicPlanning } from './features/academic-planning.js';
 import { registerToday } from './features/today.js';
 import { registerTaskManagement } from './features/task-management.js';
 import { registerAIActions } from './features/ai-actions.js';
+import { registerAssistant } from './features/assistant.js';
+import type { OpenRouterFetch } from './ai/openrouter-live.js';
 import { registerEmailDrafts } from './features/email-drafts.js';
 import { registerMemory } from './features/memory.js';
 import { registerResponsibilities } from './features/responsibilities.js';
@@ -58,6 +60,8 @@ export async function buildApp(
     runWorker?: boolean;
     canvasFetcher?: FeedFetcher;
     canvasApiFetcher?: CanvasApiFetcher;
+    /** Tests inject this; the default is the global fetch. */
+    openRouterFetch?: OpenRouterFetch;
   } = {},
 ) {
   const config = runtime.config ?? readConfig({});
@@ -114,6 +118,7 @@ export async function buildApp(
   registerAIProviderPolicy(app, database, auth, config);
   registerAIRequests(app, database, auth, config);
   registerAIActions(app, database, auth);
+  registerAssistant(app, database, auth, config, runtime.openRouterFetch);
   registerEmailDrafts(app, database, auth);
   registerMemory(app, database, auth);
   registerResponsibilities(app, database, auth);

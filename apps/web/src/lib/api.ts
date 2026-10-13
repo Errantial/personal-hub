@@ -115,6 +115,20 @@ export async function liveRequestJson<T>(
       DRAFT_STATE_CONFLICT: 'This draft’s state changed. Reload it.',
       EMAIL_PAYLOAD_UNAVAILABLE:
         'This draft could not be verified, so it cannot be approved.',
+      ASSISTANT_NOT_CONFIGURED:
+        'The assistant is not set up: the server has no OpenRouter key.',
+      ASSISTANT_MODEL_UNSUPPORTED:
+        'Choose a model from Anthropic, OpenAI, Google, Mistral, xAI or DeepSeek.',
+      ASSISTANT_MODEL_UNAVAILABLE:
+        'OpenRouter does not list this model as a text model. Choose another in Settings › AI.',
+      ASSISTANT_CATALOG_UNAVAILABLE:
+        'Model prices could not be checked. Nothing was sent; try again.',
+      BUDGET_UNSET:
+        'Set AI spending limits in Settings › AI before asking. Nothing was sent.',
+      REQUEST_BUDGET_EXCEEDED:
+        'This request could cost more than your per-request limit. Nothing was sent.',
+      MONTHLY_BUDGET_EXCEEDED:
+        'This month’s AI spending limit is used up. Nothing was sent.',
       MEMORY_FORGOTTEN: 'This memory was forgotten. Reload the list.',
       STUDY_CONTEXT_CONFLICT:
         'Your calendar, goals or classes changed since this plan was made. Recheck the draft or preview again.',

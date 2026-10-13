@@ -1,0 +1,42 @@
+.assistant__form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: end;
+  margin-top: var(--space-3);
+}
+.assistant__form label {
+  display: grid;
+  flex: 1 1 18rem;
+  gap: var(--space-1);
+}
+.assistant__result {
+  margin-top: var(--space-3);
+  overflow-wrap: anywhere;
+}
+.assistant__reply {
+  white-space: pre-wrap;
+}
+.assistant__changes {
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.assistant__changes legend {
+  font-weight: var(--weight-strong);
+}
+.assistant__changes ul {
+  margin: var(--space-2) 0;
+  padding: 0;
+  list-style: none;
+}
+.assistant__changes li {
+  padding: var(--space-2) 0;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+.assistant__state {
+  display: block;
+  margin-left: calc(var(--target) * 0.6);
+  color: var(--text-muted);
+}
