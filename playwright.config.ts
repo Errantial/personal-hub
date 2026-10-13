@@ -11,7 +11,8 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:5180',
     browserName: 'chromium',
     screenshot: 'off',
-    trace: 'off',
+    // CI keeps traces of failed tests only; every browser test uses synthetic data.
+    trace: process.env.CI ? 'retain-on-failure' : 'off',
     video: 'off',
   },
   webServer: {

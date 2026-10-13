@@ -1725,7 +1725,8 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
         revokedAt: expect.any(String),
       });
       expect(finalExport.records.emailAttempts).toEqual([emailConfirmed[0]]);
-      expect(finalExport.records.aiPreflights).toHaveLength(2);
+      // Two direct preflights plus the assessment stored with the AI request.
+      expect(finalExport.records.aiPreflights).toHaveLength(3);
       expect(finalExport.records.aiBudgetReservations).toHaveLength(2);
       expect(finalExport.records.canvasLmsSource.accountProviderId).toBe('30');
       const batchCourse = await app.inject({

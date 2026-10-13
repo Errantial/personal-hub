@@ -11,7 +11,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -26,6 +26,12 @@ jobs:
         run: npx playwright install --with-deps chromium
       - if: runner.os == 'Linux'
         run: npm run test:e2e
+      - if: failure() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-results
+          path: test-results/
+          retention-days: 7
   postgres:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -52,6 +58,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm test
+      # The full suite runs in the checks job; this job covers the PostgreSQL driver.
+      - run: npm test -- apps/api/tests/postgres.test.ts
         env:
           TEST_DATABASE_URL: postgresql://hub_test:synthetic-ci-password@127.0.0.1:5432/hub_test

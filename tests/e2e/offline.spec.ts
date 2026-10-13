@@ -299,9 +299,8 @@ test('offline conflicts retain local drafts until explicitly discarded', async (
     .getByLabel('Notes (optional)', { exact: true })
     .fill('Local conflict notes');
   await editor.getByRole('button', { name: 'Save changes' }).click();
-  // Pause automatic replay while another device changes the server record.
-  await page.route('**/api/v1/tasks/*', (route) => route.abort());
-  await context.setOffline(false);
+  // Another device changes the server record while this page is still offline;
+  // the API request context bypasses the page's offline emulation.
   const remote = await page.request.put(`/api/v1/tasks/${task.id}`, {
     headers: { Origin: 'http://127.0.0.1:5180' },
     data: {
@@ -311,7 +310,7 @@ test('offline conflicts retain local drafts until explicitly discarded', async (
     },
   });
   expect(remote.status()).toBe(200);
-  await page.unroute('**/api/v1/tasks/*');
+  await context.setOffline(false);
   await syncNow(page);
   const conflicts = page.getByRole('alert', { name: 'Task conflicts' });
   await expect(conflicts).toContainText(

@@ -1,6 +1,6 @@
 # Project development guide
 
-Read README.md and docs/development.md first. docs/product.md is the agreed scope; docs/decisions.md records unresolved choices. docs/backlog.md identifies the current milestone and acceptance checks. Keep completed implementation distinct from proposals.
+Read README.md and docs/development.md first. docs/product.md is the agreed scope; docs/decisions.md records unresolved choices. docs/backlog.md identifies the current milestone and acceptance checks. docs/implementation-log.md holds completed work and validation receipts. Keep completed implementation distinct from proposals.
 
 Maintain docs/ui-agent-ledger.md with UI-facing contracts, required states, behavior to preserve, and known limitations for the later UI rewrite. Prioritize functional backend work; visual refinement is deferred.
 
