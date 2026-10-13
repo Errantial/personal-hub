@@ -147,7 +147,15 @@ test('Today groups deadlines without changing them and keeps Canvas separate fro
   await expect(
     attention.getByText('Today overdue', { exact: true }),
   ).toBeVisible();
-  await expect(attention).toContainText(`Due ${yesterday}`);
+  await expect(attention).toContainText(
+    `Due ${new Date(yesterday).toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      timeZone: 'UTC',
+    })}`,
+  );
   await expect(page.getByText('Today finished', { exact: true })).toHaveCount(
     0,
   );

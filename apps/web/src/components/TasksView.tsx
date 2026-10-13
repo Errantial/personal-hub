@@ -22,6 +22,7 @@ import { AcademicSource, PlannerSource } from './PlannerSource';
 import { QuickCapture } from './QuickCapture';
 import { ReadState } from './ReadState';
 import { StatusChip } from './StatusChip';
+import { formatDate } from '../lib/format';
 import './TasksView.css';
 
 type TasksRoute = Extract<Route, { name: 'tasks' }>;
@@ -38,16 +39,6 @@ const emptyMessages: Record<TaskFilter, string> = {
   'no-date': 'No open tasks without a date.',
   done: 'No completed tasks.',
 };
-
-// Due dates are date-only; format in UTC so the calendar day never shifts.
-const dateFormat = new Intl.DateTimeFormat(undefined, {
-  weekday: 'short',
-  month: 'short',
-  day: 'numeric',
-  year: 'numeric',
-  timeZone: 'UTC',
-});
-const formatDate = (date: string) => dateFormat.format(new Date(date));
 
 export function TasksView({
   route,

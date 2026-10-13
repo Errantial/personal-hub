@@ -101,6 +101,19 @@
   margin: var(--space-4) 0 var(--space-1);
   font-size: var(--text-body);
 }
+/* A day with nothing on it is one quiet line, not a block. */
+.calendar-day--empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--space-3);
+}
+.calendar-day--empty h3 {
+  margin-bottom: var(--space-1);
+}
+.calendar-day--empty p {
+  margin: var(--space-4) 0 var(--space-1);
+}
 .calendar-entries {
   list-style: none;
   margin: 0;

@@ -1,3 +1,16 @@
+// Date-only values (task due dates) are calendar days, not instants:
+// format in UTC so the day never shifts with the device timezone.
+const dateOnly = new Intl.DateTimeFormat(undefined, {
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  timeZone: 'UTC',
+});
+
+/** "Fri, Oct 9, 2026" for a YYYY-MM-DD value. */
+export const formatDate = (date: string) => dateOnly.format(new Date(date));
+
 /**
  * Short, readable date and time for a stored instant, in the device's
  * timezone: "Oct 12, 6:52 PM", with the year only when it is not the current

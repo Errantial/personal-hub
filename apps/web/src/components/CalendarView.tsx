@@ -410,7 +410,7 @@ export function CalendarView({
           {shown.map(({ day, entries }) => (
             <section
               key={day}
-              className="calendar-day"
+              className={`calendar-day${entries.length ? '' : ' calendar-day--empty'}`}
               data-date={day}
               aria-labelledby={`calendar-day-${day}`}
             >

@@ -16,7 +16,7 @@ import { Link } from './Link';
 import { QuickCapture } from './QuickCapture';
 import { ReadState } from './ReadState';
 import type { Route } from '../lib/router';
-import { formatInstant } from '../lib/format';
+import { formatDate, formatInstant } from '../lib/format';
 import './TodayView.css';
 
 export function TodayView({ navigate }: { navigate: (route: Route) => void }) {
@@ -228,7 +228,7 @@ function TaskList({ tasks }: { tasks: Task[] }) {
         <li key={task.id}>
           <strong>{task.title}</strong>
           <small>
-            Due {task.dueDate}
+            {task.dueDate ? `Due ${formatDate(task.dueDate)}` : 'No due date'}
             {task.priority === 'high' ? ' · High priority' : ''}
           </small>
         </li>
