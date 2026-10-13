@@ -121,6 +121,13 @@ async function warm(page: import('@playwright/test').Page) {
   await expect(
     tasksRegion(page).getByRole('button', { name: 'Reload tasks' }),
   ).toBeEnabled();
+  // Every view's modules must be cached too; the app only preloads them when
+  // idle, which can still be in progress here.
+  await page.evaluate(async () => {
+    const url = '/src/views/lazy.ts';
+    const views = (await import(url)) as { loadViews: () => Promise<unknown> };
+    await views.loadViews();
+  });
 }
 test('academic source relabeling retains an offline task draft and inherited labels', async ({
   page,
