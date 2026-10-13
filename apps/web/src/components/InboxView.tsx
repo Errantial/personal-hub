@@ -19,6 +19,7 @@ import {
 import type { PermissionState } from '../lib/reminders';
 import type { Route } from '../lib/router';
 import { useConfirm } from './ConfirmDialog';
+import { EmailDrafts } from './EmailDrafts';
 import { Help } from './Help';
 import { Link } from './Link';
 import { ReadState } from './ReadState';
@@ -253,6 +254,15 @@ export function InboxView({
                   Reminders
                 </Link>
               </li>
+              <li>
+                <Link
+                  route={{ name: 'inbox', section: 'drafts' }}
+                  navigate={navigate}
+                  current={route.section === 'drafts'}
+                >
+                  Email drafts
+                </Link>
+              </li>
             </ul>
           </nav>
           {!route.section && (
@@ -270,6 +280,9 @@ export function InboxView({
                 void markLoadedRead();
               }}
             />
+          )}
+          {route.section === 'drafts' && (
+            <EmailDrafts draft={route.draft} navigate={navigate} />
           )}
           {route.section === 'reminders' && (
             <section aria-label="Reminders">

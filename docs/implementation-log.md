@@ -4,6 +4,12 @@ Completed work and validation receipts moved verbatim from backlog.md on 2026-10
 
 ## Completed local foundation
 
+### 2026-10-13 — Email draft review UI
+
+Inbox now supports online plain-text draft creation/editing, current/deleted browsing, exact stored-message review, approval/revocation and delete/restore. Sending remains visibly blocked. Deletion explains retained private text/history; restoring or editing requires fresh approval. Failed conflict reloads preserve local edits, and lost-response saves reuse their operation identity.
+
+Validation: `npm run check` passed lint, types, formatting, builds and 516 tests (one optional PostgreSQL test skipped). The full browser run passed 91 of 92 checks; the new draft test failed on an ambiguous alert locator. After narrowing that assertion, the draft test passed on a fresh isolated run, including conflict reload failure and duplicate-safe lost-response retry. All 92 checks therefore passed across the full run and focused rerun. No real providers, paid AI, owner database reset or device tests were used. The existing web bundle size advisory remains. Reminder-history paging is the remaining step-2 UI item; revision/approval history views and live mail delivery remain pending.
+
 - React/Vite web, Fastify API, strict shared TypeScript/Zod contracts, reproducible npm workspaces/lockfile.
 - Single-owner enrollment and email/password login, scrypt password hashing, revocable hashed session tokens, protected private routes, origin checks, rate limits.
 - Versioned tasks with title/notes/date-only deadline/priority/completion/explicit content label, and one-time calendar events with UTC instants/display timezone.

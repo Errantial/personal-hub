@@ -11,6 +11,8 @@ const views = [
   'tasks',
   'classes',
   'inbox',
+  'inbox/drafts',
+  'inbox/drafts/new',
   'settings/account',
   'settings/appearance',
   'settings/study',

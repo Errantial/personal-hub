@@ -409,6 +409,23 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 
 ## Change ledger
 
+### 2026-10-13 — Inbox: Email drafts and exact-message approval
+
+- New **Inbox › Email drafts** (`/inbox/drafts`, `/inbox/drafts/new`, `/inbox/drafts/:id`).
+  - **List**: drafts with **Show** (Current or Deleted drafts) and cursor paging with a stale-cursor message. Summaries show subject, status (Not approved, Approved, Deleted), recipient count, a purpose other than email, and saved time. Bodies and addresses are not listed.
+  - **New draft / Edit draft** fields: Account (Proton Mail, Outlook), Purpose, From, To/Cc/Bcc (separated by commas, semicolons or new lines), Subject, plain-text Body and **Draft content label**.
+  - Client checks run before sending: sender, each address, 1-50 recipients, no case-insensitive duplicates, single-line subject. Attachments are always empty.
+  - Editing an approved draft first warns "Saving changes removes the current approval." Version conflicts keep edits through "Load latest version".
+- The detail page shows **Message to approve**: the stored, normalized message with every field, "Attachments: None" and the body as plain pre-wrapped text (never HTML).
+  - **Approve this exact message** sends `reviewedContentHash` = the loaded `contentHash` with `decision: 'approve-exact-message'`.
+  - On `VERSION_CONFLICT`, `EMAIL_REVIEW_CONFLICT` or `DRAFT_STATE_CONFLICT`, the page says "Review it again" and offers **Reload draft**. **Revoke approval** uses the approval version.
+- **Sending: not available** is always shown, with the blockers from `POST /send-preview` in words. No send control exists.
+- **Delete draft** confirms that the text, recipients and history stay in private storage and exports and that permanent erasure is not available. **Restore draft** needs a new approval.
+- Tests: `tests/e2e/drafts.spec.ts` (validation, review, conflict then reload then approve, edit removing approval, delete/restore without sending); `inbox/drafts` and `inbox/drafts/new` are added to the all-view axe and target checks; router tests cover the draft addresses.
+- Conflict recovery retains editor text even if loading the latest version fails. Detail actions are disabled together while a write is pending; send-preview blockers reset when the loaded draft changes.
+- Tests additionally cover failed conflict reload without losing edits and a committed save with a lost response: retry keeps the operation ID and creates only one revision.
+- Known limits: online-only, no revision or approval history views, no mailbox connection, no sending.
+
 ### 2026-10-13 — Settings: Memory
 
 - New **Settings › Memory** (`/settings/memory`).
