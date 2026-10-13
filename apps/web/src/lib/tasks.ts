@@ -85,3 +85,59 @@ export function groupTasks(
     }))
     .filter((group) => group.tasks.length > 0);
 }
+
+/* Selected changes (POST /api/v1/tasks/batch). A selection maps task IDs to
+   the versions seen when they were selected, in selection order, so a change
+   made elsewhere afterwards makes the whole batch conflict instead of being
+   overwritten. */
+
+export const maxSelection = 100;
+export type TaskSelection = ReadonlyMap<string, number>;
+export type BatchChange =
+  | { kind: 'complete' }
+  | { kind: 'reopen' }
+  | { kind: 'priority'; priority: Task['priority'] }
+  | { kind: 'due'; dueDate: string }
+  | { kind: 'clear-due' }
+  | { kind: 'delete' };
+
+/** Request body without operationId, which the mutation hook adds. */
+export function batchBody(selection: TaskSelection, change: BatchChange) {
+  const items = [...selection].map(([id, expectedVersion]) => ({
+    id,
+    expectedVersion,
+  }));
+  const changes =
+    change.kind === 'complete'
+      ? { completed: true }
+      : change.kind === 'reopen'
+        ? { completed: false }
+        : change.kind === 'priority'
+          ? { priority: change.priority }
+          : change.kind === 'due'
+            ? { dueDate: change.dueDate }
+            : { dueDate: null };
+  return {
+    items,
+    action:
+      change.kind === 'delete'
+        ? { kind: 'delete' }
+        : { kind: 'update', changes },
+  };
+}
+
+/** A deliberate refresh after a conflict: keeps selected tasks that are still
+ *  listed and selectable, at their latest versions. */
+export function refreshSelection(
+  selection: TaskSelection,
+  tasks: readonly Task[],
+  selectable: (task: Task) => boolean,
+): Map<string, number> {
+  const latest = new Map(tasks.map((task) => [task.id, task]));
+  const next = new Map<string, number>();
+  for (const id of selection.keys()) {
+    const task = latest.get(id);
+    if (task && selectable(task)) next.set(id, task.version);
+  }
+  return next;
+}

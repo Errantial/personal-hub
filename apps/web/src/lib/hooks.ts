@@ -77,6 +77,7 @@ export function useMutation() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState(false);
+  const [code, setCode] = useState('');
 
   const run = useCallback(
     async <T>(
@@ -89,6 +90,7 @@ export function useMutation() {
       setPending(true);
       setError('');
       setConflict(false);
+      setCode('');
       try {
         const result = await requestJson(path, schema, {
           method,
@@ -101,6 +103,7 @@ export function useMutation() {
         setConflict(
           caught instanceof RequestError && caught.code === 'VERSION_CONFLICT',
         );
+        setCode(caught instanceof RequestError ? caught.code : '');
         return undefined;
       } finally {
         setPending(false);
@@ -113,9 +116,26 @@ export function useMutation() {
   const reset = useCallback(() => {
     setError('');
     setConflict(false);
+    setCode('');
   }, []);
 
-  return { run, pending, error, conflict, setError, reset };
+  /** code: the server error code of the last failure, or '' (e.g. offline). */
+  return { run, pending, error, conflict, code, setError, reset };
+}
+
+/** Browser connectivity, updated on online/offline events. */
+export function useOnline() {
+  const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
+  }, []);
+  return online;
 }
 
 export type OfflineStatus = Awaited<ReturnType<typeof offlineStatus>>;

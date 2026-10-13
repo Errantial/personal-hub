@@ -7,7 +7,7 @@ Updated 2026-10-12. This is the work queue; product.md remains the full scope, d
 New backend features are frozen until steps 2–3 are done (D49); fixes and backend work those steps require are allowed.
 
 1. **Stabilize repository** — done 2026-10-12: backend work committed, `main` updated, stale UI branches removed, private GitHub remote and CI added.
-2. **UI for existing backend endpoints**, in order: batch changes and undo/restore (tasks, Calendar, academic work); academic work and study-plan approval; reminder snooze and inbox history; memory editor and email draft review. Contracts are in [ui-agent-ledger.md](ui-agent-ledger.md).
+2. **UI for existing backend endpoints**, in order: batch changes and undo/restore (Tasks selected changes done 2026-10-12; task/Calendar Undo and Recently deleted already existed; Calendar and academic batches next); academic work and study-plan approval; reminder snooze and inbox history; memory editor and email draft review. Contracts are in [ui-agent-ledger.md](ui-agent-ledger.md).
 3. **Deploy for daily use** on the Oracle VM: HTTPS, standard PostgreSQL, setup token, backup/restore. Verify CPU architecture and storage first.
 4. **First live AI flow**: natural-language task/event creation and edits through existing planner operations, via OpenRouter with an owner-configurable model in Settings (initially Claude Haiku 5.5, D47), within the $0.25 request / $50 monthly caps.
 5. **Email ingestion**: prove Proton Bridge completeness (Oracle VM if supported, otherwise an always-on local machine, D48), read-only first; then AI filtering through the gateway.

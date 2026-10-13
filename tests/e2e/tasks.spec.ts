@@ -198,10 +198,19 @@ for (const { theme, width, target } of [
       priority: 'high',
       sensitivity: 'personal',
     });
-    for (const path of ['/tasks', `/tasks/${task.id}`]) {
+    for (const [path, selecting] of [
+      ['/tasks', false],
+      ['/tasks', true],
+      [`/tasks/${task.id}`, false],
+    ] as const) {
       await page.goto(path);
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Tasks');
       await expect(page.getByText('Loading…', { exact: true })).toHaveCount(0);
+      if (selecting) {
+        // Selection mode with its widest form (date input) showing.
+        await page.getByRole('button', { name: 'Select', exact: true }).click();
+        await page.getByLabel('Change').selectOption('Set due date');
+      }
       const { violations } = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
         .analyze();
@@ -247,3 +256,89 @@ for (const { theme, width, target } of [
     }
   });
 }
+
+test('selected tasks change together, and a change elsewhere blocks the whole batch', async ({
+  page,
+}) => {
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const [first, second, third] = await Promise.all(
+    ['First', 'Second', 'Third'].map((name) =>
+      createTask(page, `${name} ${suffix}`),
+    ),
+  );
+  const current = async (id: string) =>
+    (
+      (await (await page.request.get(`/api/v1/tasks/${id}`)).json()) as {
+        task: { version: number; priority: string; completed: boolean };
+      }
+    ).task;
+  await page.goto('/tasks');
+  const panel = tasksRegion(page);
+  const bar = panel.getByRole('region', { name: 'Selected tasks' });
+  const select = async (name: string) =>
+    panel.getByRole('checkbox', { name: `Select ${name} ${suffix}` }).check();
+
+  // One change applies to exactly the selected tasks.
+  await panel.getByRole('button', { name: 'Select', exact: true }).click();
+  await select('First');
+  await select('Second');
+  await expect(bar.getByText('2 tasks selected')).toBeVisible();
+  await bar.getByLabel('Change').selectOption('Set priority');
+  await bar.getByRole('combobox', { name: /^Priority/ }).selectOption('High');
+  await bar.getByRole('button', { name: 'Apply to 2 tasks' }).click();
+  await expect(
+    panel.getByText('Set priority: 2 tasks updated.', { exact: true }),
+  ).toBeVisible();
+  expect((await current(first.id)).priority).toBe('high');
+  expect((await current(second.id)).priority).toBe('high');
+  expect((await current(third.id)).priority).toBe('normal');
+  await expect(bar).toHaveCount(0);
+
+  // A task changed after selection makes the whole batch fail unchanged.
+  await panel.getByRole('button', { name: 'Select', exact: true }).click();
+  await select('First');
+  await select('Third');
+  const { version } = await current(third.id);
+  const edit = await page.request.put(`/api/v1/tasks/${third.id}`, {
+    headers,
+    data: {
+      title: `Third ${suffix}`,
+      expectedVersion: version,
+      operationId: crypto.randomUUID(),
+    },
+  });
+  expect(edit.status()).toBe(200);
+  await bar.getByRole('button', { name: 'Apply to 2 tasks' }).click();
+  await expect(bar.getByRole('alert')).toContainText(
+    'changed or was deleted elsewhere. Nothing was changed.',
+  );
+  expect((await current(first.id)).completed).toBe(false);
+  await bar.getByRole('button', { name: 'Review latest versions' }).click();
+  await bar.getByRole('button', { name: 'Apply to 2 tasks' }).click();
+  await expect(
+    panel.getByText('Mark done: 2 tasks updated.', { exact: true }),
+  ).toBeVisible();
+  expect((await current(first.id)).completed).toBe(true);
+  expect((await current(third.id)).completed).toBe(true);
+
+  // Deleting asks first and points to per-item restore.
+  await panel.getByRole('button', { name: 'Select', exact: true }).click();
+  await select('Second');
+  await bar.getByLabel('Change').selectOption('Delete');
+  await bar.getByRole('button', { name: 'Apply to 1 task' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Delete 1 task?' });
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+  await dialog.getByRole('button', { name: 'Delete 1 task' }).click();
+  await expect(
+    panel.getByText('Deleted 1 task. Restore from Recently deleted.', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    panel.getByRole('link', { name: `Second ${suffix}`, exact: true }),
+  ).toHaveCount(0);
+  await panel.getByText('Recently deleted', { exact: true }).click();
+  await expect(
+    panel.getByRole('button', { name: `Restore Second ${suffix}` }),
+  ).toBeVisible();
+});
