@@ -452,3 +452,37 @@ main:focus {
   display: grid;
   gap: var(--space-1);
 }
+
+/* Settings › Study availability windows. */
+.study-settings {
+  grid-column: 1 / -1;
+  max-width: 48rem;
+}
+.study-windows {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--border-subtle);
+}
+.study-windows legend {
+  font-weight: var(--weight-strong);
+}
+.study-windows__list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.study-windows__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: end;
+}
+.study-windows__row label {
+  display: grid;
+  gap: var(--space-1);
+}

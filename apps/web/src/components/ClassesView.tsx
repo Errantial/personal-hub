@@ -27,6 +27,7 @@ import { Help } from './Help';
 import { Link } from './Link';
 import { ReadState } from './ReadState';
 import { StatusChip } from './StatusChip';
+import { StudyGoal } from './StudyGoal';
 import './ClassesView.css';
 
 type ClassesRoute = Extract<Route, { name: 'classes' }>;
@@ -543,6 +544,7 @@ function StudySection({
         Calendar events linked to this class. Completing a block records time
         spent; it does not change topic progress or mean mastery.
       </Help>
+      <StudyGoal key={course.id} course={course} />
       <ReadState resource={events} label="study blocks" />
       <button
         type="button"

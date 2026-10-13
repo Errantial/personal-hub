@@ -409,6 +409,14 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 
 ## Change ledger
 
+### 2026-10-12 — Study settings and class weekly goals
+
+- New **Settings › Study** (`/settings/study`) reads and writes `GET/PUT /api/v1/study/preferences`. Fields: Study timezone, Session, Break and Daily limit (minutes), and **Weekly availability** rows (Window n day/start/end, Remove, Add window, up to 28). An end of 00:00 is stored as 1440 (midnight at the end of the day). The client rejects missing times, end-before-start and same-day overlaps, naming the weekday, before sending. A "n h available each week" total is shown. A version conflict shows "Changed elsewhere" with **Load latest version**, which keeps the edits and adopts the new version.
+- Each class's **Study blocks** section now has **Weekly goal** (`GET /api/v1/study/goals`, `PUT /api/v1/study/goals/:courseId`): Minutes per week (0-2400; 0 turns planning off), Study priority (5 is highest) and an optional target date. It has the same conflict handling.
+- Both are online only. Help explains that only planner calendars are checked and that nothing is scheduled until a plan is approved.
+- Tests: `apps/web/tests/study.test.ts` (time conversion, midnight end, overlap and invalid windows); `tests/e2e/study.spec.ts` (save and reload windows, overlap error, conflict then Load latest, class goal validation and save); `settings/study` is added to the all-view axe and target checks.
+- Next: the study plan screen (preview, draft, approval, cancel/hide, progress).
+
 ### 2026-10-12 — Classes: Work section and selected changes
 
 - New class section **Work** (`/classes/:id?section=work`). It reads `GET /api/v1/academic-work/browse` with `courseState=all`, a **Status** filter (All, Open, Planned, In progress, Submitted, Cancelled) and 50-item pages. **Load more** passes the cursor ID and the work and class versions. A changed or removed cursor shows "The list changed. Reload to see the latest." Changing the filter resets paging and selection; delayed reads are ignored.

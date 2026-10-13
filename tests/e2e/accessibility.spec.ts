@@ -13,6 +13,7 @@ const views = [
   'inbox',
   'settings/account',
   'settings/appearance',
+  'settings/study',
   'settings/connections',
   'settings/ai',
 ];

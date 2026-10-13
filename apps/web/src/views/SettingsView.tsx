@@ -1,6 +1,7 @@
 import { Help } from '../components/Help';
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { AccountSettings } from '../components/AccountSettings';
+import { StudySettings } from '../components/StudySettings';
 import { AIView } from '../components/AIView';
 import { ConnectionsView } from './ConnectionsView';
 import type { WorkspaceState } from './ConnectionsView';
@@ -71,6 +72,7 @@ export function SettingsView({
             onChange={onAppearanceChange}
           />
         )}
+        {section === 'study' && <StudySettings />}
         {section === 'connections' && (
           <ConnectionsView
             workspace={workspace}
