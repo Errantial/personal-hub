@@ -312,11 +312,15 @@ test('offline conflicts retain local drafts until explicitly discarded', async (
   });
   expect(remote.status()).toBe(200);
   await page.unroute('**/api/v1/tasks/*');
-  await syncNow(page);
   const conflicts = page.getByRole('alert', { name: 'Task conflicts' });
-  await expect(conflicts).toContainText(
-    'Task conflict: Retained offline draft',
-  );
+  // A click is skipped while the aborted automatic replay still holds the sync lock.
+  await expect(async () => {
+    await syncNow(page);
+    await expect(conflicts).toContainText(
+      'Task conflict: Retained offline draft',
+      { timeout: 1000 },
+    );
+  }).toPass();
   await expect(syncState(page)).toContainText('Conflict · 1');
   // The editor refuses edits while a queued change conflicts.
   await expect(editor.getByRole('alert').first()).toContainText(
