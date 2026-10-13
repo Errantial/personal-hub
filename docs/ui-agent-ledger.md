@@ -657,3 +657,11 @@ Implemented; see [frontend-plan.md](frontend-plan.md) Phase 1.
 
 
 Final verification after the approval-lock read change: all 12 email draft tests passed again; targeted lint/format checks and `git diff --check` passed.
+
+### 2026-10-13 — Inbox: paged reminder history
+
+- Inbox › Reminders adds an expandable **Reminder history** section. Opening it loads the owner-only `/api/v1/reminders/history` endpoint with the shared `reminderHistorySchema`, 25 records per page, creation timestamp/ID ordering and `before` cursors.
+- **History status** filters all/scheduled/delivering/paused/delivered/failed/cancelled. Filter changes reset rows and cursor; delayed reads from an old filter or unmounted view cannot replace current rows. **Reload history** starts a fresh first page; new arrivals are not silently added to the loaded pages.
+- **Load more reminders** appends unique IDs. A page failure preserves loaded rows/cursor and offers retry or a fresh reload. Loading, empty and actionable error states remain visible. History is online and read-only; it does not expose mutation controls or cached/outbox writes. Current reminder editing, controls, snooze, earlier reminders and notification behavior are preserved.
+- Help explains creation ordering, changing status across pages and the boundary between durable inbox delivery and device alerts. Closed-app native delivery, permanent purge, offline history and frozen cross-page snapshots remain unavailable. No provider execution or backend changes.
+- Focused browser checks passed all nine Inbox tests, including real synthetic records paged across 25 rows, failed-page retry without duplicates, delayed filter response and expanded-view axe/overflow/target checks at 1280px standard and 320px e-ink. Broader validation is recorded in implementation-log.md.

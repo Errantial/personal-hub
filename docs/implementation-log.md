@@ -2,13 +2,21 @@
 
 Completed work and validation receipts moved verbatim from backlog.md on 2026-10-12. Newest backend slices appear first within the core server/site section. backlog.md holds the current work queue.
 
-## Completed local foundation
+## UI validation receipts
+
+### 2026-10-13 — Paged reminder history
+
+Inbox › Reminders now loads read-only, online history in 25-record pages, with status filters, reload and retry. Failed paging preserves loaded rows and the cursor; generation guards reject delayed filter responses. Current controls, snooze and notification behavior remain intact.
+
+`npm run check` passed lint, types, formatting, builds and 516 tests (one optional PostgreSQL test skipped). All 93 full browser tests passed, including history paging/retry/races and expanded-view accessibility, overflow and target checks at 1280px standard and 320px e-ink. The nine focused Inbox tests also passed. Tests used isolated synthetic databases, no real providers or paid AI, and no device tests. Existing bundle-size advisory remains. Step 2 is implemented locally; recent UI PRs await integration. Deployment is next.
 
 ### 2026-10-13 — Email draft review UI
 
 Inbox now supports online plain-text draft creation/editing, current/deleted browsing, exact stored-message review, approval/revocation and delete/restore. Sending remains visibly blocked. Deletion explains retained private text/history; restoring or editing requires fresh approval. Failed conflict reloads preserve local edits, and lost-response saves reuse their operation identity.
 
 Validation: `npm run check` passed lint, types, formatting, builds and 516 tests (one optional PostgreSQL test skipped). The full browser run passed 91 of 92 checks; the new draft test failed on an ambiguous alert locator. After narrowing that assertion, the draft test passed on a fresh isolated run, including conflict reload failure and duplicate-safe lost-response retry. All 92 checks therefore passed across the full run and focused rerun. No real providers, paid AI, owner database reset or device tests were used. The existing web bundle size advisory remains. Reminder-history paging is the remaining step-2 UI item; revision/approval history views and live mail delivery remain pending.
+
+## Completed local foundation
 
 - React/Vite web, Fastify API, strict shared TypeScript/Zod contracts, reproducible npm workspaces/lockfile.
 - Single-owner enrollment and email/password login, scrypt password hashing, revocable hashed session tokens, protected private routes, origin checks, rate limits.
