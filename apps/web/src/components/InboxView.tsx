@@ -24,6 +24,7 @@ import { Link } from './Link';
 import { ReadState } from './ReadState';
 import { ReminderEditor } from './ReminderEditor';
 import { StatusChip } from './StatusChip';
+import { formatInstant } from '../lib/format';
 import './InboxView.css';
 
 type InboxRoute = Extract<Route, { name: 'inbox' }>;
@@ -43,7 +44,7 @@ const targetText = {
   'academic-work': 'Linked academic work',
 } as const;
 
-const when = (value: string) => new Date(value).toLocaleString();
+const when = (value: string) => formatInstant(value);
 
 export function InboxView({
   route,

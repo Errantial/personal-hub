@@ -48,14 +48,27 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 21px 24px;
-  border-bottom: 1px solid var(--border);
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
 }
 .panel-heading h2,
-.connections-section h2 {
-  font-size: var(--text-small);
-  font-weight: 600;
+.panel-heading h3 {
+  font-size: var(--text-title-small);
   margin: 0;
+}
+.connections-section h2 {
+  font-size: var(--text-title);
+  margin: 0;
+}
+.connections-section {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.connections-section > .link-button,
+.connections-section > .help {
+  justify-self: start;
 }
 .secondary-button {
   flex-shrink: 0;
@@ -88,6 +101,7 @@
 .link-button,
 .canvas-tabs a {
   display: inline-flex;
+  font-size: var(--text-small);
   align-items: center;
   min-height: var(--target);
   padding: 0 var(--space-3);
@@ -125,9 +139,34 @@
   gap: 12px;
   margin-top: 16px;
 }
+/* The three Canvas panels (feed, API, matching) share one rhythm. */
 .canvas-connection {
-  padding: 24px;
-  margin-bottom: 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  justify-items: start;
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+  min-width: 0;
+}
+.canvas-connection > * {
+  max-width: 100%;
+  min-width: 0;
+}
+.canvas-connection > form,
+.canvas-connection > div,
+.canvas-connection > ul,
+.canvas-connection > details,
+.canvas-connection > article {
+  justify-self: stretch;
+}
+.canvas-connection > h3,
+.canvas-connection .panel-heading h3 {
+  margin: 0;
+  font-size: var(--text-title-small);
+}
+.canvas-connection p {
+  margin: 0;
 }
 .canvas-actions {
   display: flex;
@@ -336,6 +375,7 @@
 .item-actions {
   display: flex;
   flex-direction: column;
+  gap: var(--space-2);
   flex-shrink: 0;
 }
 .item-label {
@@ -344,15 +384,23 @@
   border-radius: var(--radius-control);
   padding: 2px 6px;
 }
+/* Secondary actions (Reload, Retry): quiet, underlined and muted, like Help,
+   so they read as controls without competing with the primary action. */
 .text-button {
   background: none;
   border: 1px solid transparent;
   border-radius: var(--radius-control);
-  color: inherit;
-  padding: 8px;
+  color: var(--text-muted);
+  padding: 0 var(--space-2);
   min-height: var(--target);
   font: inherit;
+  font-size: var(--text-small);
+  text-decoration: underline;
+  text-underline-offset: 3px;
   cursor: pointer;
+}
+.text-button:hover:not(:disabled) {
+  color: var(--text);
 }
 @media (max-width: 480px) {
   .planner-panel {

@@ -6,6 +6,7 @@ import { useConfirm } from './ConfirmDialog';
 import { Help } from './Help';
 import { Link } from './Link';
 import type { Route } from '../lib/router';
+import { formatInstant } from '../lib/format';
 
 type Status = Awaited<ReturnType<typeof offlineStatus>>;
 
@@ -124,7 +125,7 @@ export function SyncDetails({ state }: { state: TaskSync }) {
     >
       <p>{summary}</p>
       {(!online || status.unavailable) && status.lastSaved && (
-        <p>Tasks cached {new Date(status.lastSaved).toLocaleString()}</p>
+        <p>Tasks cached {formatInstant(status.lastSaved)}</p>
       )}
       {status.locked && <p>Sign in again to sync queued changes.</p>}
       {error && <p role="alert">{error}</p>}

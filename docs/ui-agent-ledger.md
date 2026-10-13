@@ -401,6 +401,15 @@ Validation: full check passed with 132 API/client tests and one optional Postgre
 - Hiding is a retained tombstone, not permanent deletion. Historical operation receipts can precede later changes/hiding; refresh current state after retries. Preflight history and request history are independently hidden. Planner export includes `records.aiRequests` with safe attempts and tombstones; older files default it to an empty array.
 - No provider output, prompt/source text, private digest or input manifest is returned/exported. There are no live dispatch controls, AI actions, automatic retries, usage-confirmation controls, conversation/memory or email approval flows in this slice. Preserve visible blockers and uncertain funds when those features arrive.
 
+### 2026-10-12 — Web visual consistency pass
+
+- Reviewed every screen in a browser against a synthetic, isolated instance (not the owner's database) and fixed shared styling instead of per-screen patches.
+- Controls: every button and button-like link uses one size (`--text-small`); Reload/Retry (`.text-button`) are quiet underlined muted text like Help, so they read as controls without competing with the primary action. File inputs use a matching restyled picker button.
+- Dates: `lib/format.ts` `formatInstant` ("Oct 12, 6:52 PM", year only when not the current year) replaces long numeric `toLocaleString()` text everywhere it was shown. Calendar/Today day headings keep their own formatters.
+- Settings now has its own icon (sliders); it no longer repeats Today's sun.
+- Inbox: worker health and browser-alert state share one compact row. Connections: the page heading is readable; the three Canvas panels (feed, API, matching) share one padding and spacing rhythm, with no horizontal overflow at 320 px.
+- Not changed: copy, states, routes, or any behavior to preserve above.
+
 ### 2026-10-12 — Frontend Phases 6 and 7: Inbox, AI and Connections
 
 - Inbox routes: `/inbox` (Notifications), `/inbox/reminders`, `/inbox/reminders/new`, `/inbox/reminders/:id`; `/reminders` redirects to `/inbox`. Unknown reminder: "This reminder is not available." Below 1024 px the editor replaces the list.

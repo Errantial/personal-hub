@@ -7,6 +7,7 @@ import {
 import { requestJson } from '../lib/api';
 import { useMutation } from '../lib/hooks';
 import { Help } from './Help';
+import { formatInstant } from '../lib/format';
 import './DeletedItems.css';
 
 const limit = 20;
@@ -151,10 +152,7 @@ function DeletedList({
               <span>
                 {item.title}
                 {item.deletedAt && (
-                  <small>
-                    {' '}
-                    · Deleted {new Date(item.deletedAt).toLocaleString()}
-                  </small>
+                  <small> · Deleted {formatInstant(item.deletedAt)}</small>
                 )}
               </span>
               <button

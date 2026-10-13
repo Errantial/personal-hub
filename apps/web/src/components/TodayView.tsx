@@ -16,6 +16,7 @@ import { Link } from './Link';
 import { QuickCapture } from './QuickCapture';
 import { ReadState } from './ReadState';
 import type { Route } from '../lib/router';
+import { formatInstant } from '../lib/format';
 import './TodayView.css';
 
 export function TodayView({ navigate }: { navigate: (route: Route) => void }) {
@@ -169,8 +170,7 @@ export function TodayView({ navigate }: { navigate: (route: Route) => void }) {
         <ReadState resource={canvas} label="Canvas" />
         {canvas.data?.data.lastImportedAt && (
           <p className="meta">
-            Canvas imported{' '}
-            {new Date(canvas.data.data.lastImportedAt).toLocaleString()}
+            Canvas imported {formatInstant(canvas.data.data.lastImportedAt)}
           </p>
         )}
         {!!agenda.length && (
@@ -207,7 +207,7 @@ export function TodayView({ navigate }: { navigate: (route: Route) => void }) {
           {unread.slice(0, 3).map((item) => (
             <li key={item.id}>
               <strong>{item.title}</strong>
-              <small>{new Date(item.createdAt).toLocaleString()}</small>
+              <small>{formatInstant(item.createdAt)}</small>
             </li>
           ))}
         </ul>

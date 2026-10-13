@@ -4,6 +4,7 @@ import type { CanvasItem } from '@hub/contracts';
 import { getJson } from '../lib/api';
 import { CanvasEntry } from './CanvasEntry';
 import { Help } from './Help';
+import { formatInstant } from '../lib/format';
 
 export function ClassCanvasEntries({ courseId }: { courseId: string }) {
   const [items, setItems] = useState<CanvasItem[]>([]);
@@ -48,8 +49,7 @@ export function ClassCanvasEntries({ courseId }: { courseId: string }) {
         Reload class Canvas entries
       </button>
       <p className="meta">
-        Last import:{' '}
-        {lastImported ? new Date(lastImported).toLocaleString() : 'Never'}
+        Last import: {lastImported ? formatInstant(lastImported) : 'Never'}
       </p>
       {items.map((item) => (
         <CanvasEntry

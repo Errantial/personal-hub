@@ -1,4 +1,5 @@
 import type { CanvasLmsAssignment, CanvasLmsCourse } from '@hub/contracts';
+import { formatInstant } from '../lib/format';
 export function CanvasAssignment({
   item,
   course,
@@ -14,7 +15,7 @@ export function CanvasAssignment({
       <strong>{item.providerData.title}</strong>
       <p>
         {item.providerData.dueAt
-          ? `Due ${new Date(item.providerData.dueAt).toLocaleString()}`
+          ? `Due ${formatInstant(item.providerData.dueAt)}`
           : 'Deadline unknown'}{' '}
         ·{' '}
         {item.availability === 'missing'

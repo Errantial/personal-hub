@@ -13,6 +13,7 @@ import { AIContextPicker } from './AIContextPicker';
 import type { Context } from './AIContextPicker';
 import { Help } from './Help';
 import { StatusChip } from './StatusChip';
+import { formatInstant } from '../lib/format';
 const base = '/api/v1/ai/preflights';
 const reasons: Record<AIPreflight['reason'], string> = {
   ATTACHMENT_DERIVED: 'File-derived context',
@@ -204,8 +205,7 @@ export function AIPreflights() {
         <article key={receipt.id} aria-label={`Check ${receipt.id}`}>
           <details>
             <summary>
-              {reasons[receipt.reason]} ·{' '}
-              {new Date(receipt.createdAt).toLocaleString()}
+              {reasons[receipt.reason]} · {formatInstant(receipt.createdAt)}
             </summary>
             <dl>
               <dt>Provider</dt>

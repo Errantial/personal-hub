@@ -3,6 +3,7 @@ import { canvasPlannerWorkSchema } from '@hub/contracts';
 import type { z } from 'zod';
 import { getJson } from '../lib/api';
 import { Help } from './Help';
+import { formatInstant } from '../lib/format';
 type Work = z.infer<typeof canvasPlannerWorkSchema>;
 export function CanvasPlannerWork({
   kind,
@@ -72,7 +73,7 @@ export function CanvasPlannerWork({
           {data.studies.map((study) => (
             <p key={study.id}>
               {study.title} · {study.studyStatus} ·{' '}
-              {new Date(study.startsAt).toLocaleString()}
+              {formatInstant(study.startsAt)}
             </p>
           ))}
         </>

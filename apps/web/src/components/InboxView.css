@@ -8,9 +8,19 @@
 .inbox-main {
   min-width: 0;
 }
-.inbox-status,
 .inbox-editor {
   padding: var(--space-4);
+}
+/* Worker health and browser-alert state share one wrapping row. */
+.inbox-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+  padding: var(--space-2) var(--space-4);
+}
+.inbox-status p {
+  margin: 0;
 }
 .inbox-layout {
   display: grid;
@@ -32,6 +42,7 @@
   display: inline-flex;
   align-items: center;
   min-height: var(--target);
+  font-size: var(--text-small);
   padding: 0 var(--space-3);
   border: var(--border-width) solid var(--border);
   border-radius: var(--radius-control);

@@ -5,6 +5,7 @@ import { getJson } from '../lib/api';
 import { CanvasAssignment } from './CanvasAssignment';
 import { Help } from './Help';
 import { CanvasPlannerWork } from './CanvasPlannerWork';
+import { formatInstant } from '../lib/format';
 export function ClassCanvasAssignments({ courseId }: { courseId: string }) {
   const [data, setData] = useState<{
     courses: CanvasLmsCourse[];
@@ -52,9 +53,7 @@ export function ClassCanvasAssignments({ courseId }: { courseId: string }) {
         <>
           <p className="meta">
             Last API import:{' '}
-            {data.lastImportedAt
-              ? new Date(data.lastImportedAt).toLocaleString()
-              : 'Never'}
+            {data.lastImportedAt ? formatInstant(data.lastImportedAt) : 'Never'}
           </p>
           {data.courses.map((course) => (
             <div key={course.id}>

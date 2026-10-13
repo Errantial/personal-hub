@@ -1,3 +1,4 @@
+import { formatInstant } from '../lib/format';
 /** Per-read loading, error, cache time and reload control. */
 export function ReadState({
   resource,
@@ -17,7 +18,7 @@ export function ReadState({
       {resource.error && <p role="alert">{resource.error}</p>}
       {resource.data?.cachedAt && (
         <p className="meta">
-          Cached {label}: {new Date(resource.data.cachedAt).toLocaleString()}
+          Cached {label}: {formatInstant(resource.data.cachedAt)}
         </p>
       )}
       <button

@@ -60,6 +60,7 @@
 }
 .calendar-date input {
   min-height: var(--target);
+  padding: 0 var(--space-2);
 }
 .calendar-zone summary {
   display: flex;

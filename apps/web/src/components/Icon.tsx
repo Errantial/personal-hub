@@ -7,8 +7,7 @@ const paths = {
   tasks: 'M4 5h4v4H4zM4 15h4v4H4zM11 7h9M11 17h9M5 7l1 1 2-2',
   classes: 'M4 5c3-1 6-1 8 1 2-2 5-2 8-1v14c-3-1-6-1-8 1-2-2-5-2-8-1zM12 6v14',
   inbox: 'M3 13l3-8h12l3 8v6H3zM3 13h5l1 3h6l1-3h5',
-  settings:
-    'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1',
+  settings: 'M4 7h9M17 7h3M15 4v6M4 17h3M11 17h9M9 14v6',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
   eink: 'M6 3h12v18H6zM9 7h6M9 11h6M9 15h3',
 } as const;

@@ -1,4 +1,5 @@
 import type { HubNotification, Reminder } from '@hub/contracts';
+import { formatInstant } from './format';
 
 /** Reminders that can still act (or need attention) versus finished ones. */
 export function splitReminders(reminders: Reminder[]) {
@@ -33,7 +34,7 @@ export type Worker = {
 /** One-line worker health: whether it runs, and when it last checked in. */
 export function workerSummary(worker: Worker) {
   const seen = worker.lastTick
-    ? ` Last seen ${new Date(worker.lastTick).toLocaleString()}.`
+    ? ` Last seen ${formatInstant(worker.lastTick)}.`
     : '';
   if (worker.healthy)
     return { text: `Reminder worker is running.${seen}`, ok: true };

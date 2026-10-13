@@ -9,6 +9,7 @@ import type { AccountResponse } from '@hub/contracts';
 import { requestJson } from '../lib/api';
 import { pendingCount } from '../lib/offline';
 import { Help } from './Help';
+import { formatInstant } from '../lib/format';
 
 export function AccountSettings() {
   const [account, setAccount] = useState<AccountResponse | null>(null);
@@ -146,9 +147,9 @@ export function AccountSettings() {
             <span>
               {session.current ? 'Current session' : 'Other session'}
               <small>
-                Created {new Date(session.createdAt).toLocaleString()}
+                Created {formatInstant(session.createdAt)}
                 <br />
-                Expires {new Date(session.expiresAt).toLocaleString()}
+                Expires {formatInstant(session.expiresAt)}
               </small>
             </span>
             {!session.current && (

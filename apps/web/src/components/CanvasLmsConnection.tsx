@@ -17,6 +17,7 @@ import { requestJson } from '../lib/api';
 import { Help } from './Help';
 import { CanvasAssignment } from './CanvasAssignment';
 import { CanvasAssignmentPlanning } from './CanvasAssignmentPlanning';
+import { formatInstant } from '../lib/format';
 const base = '/api/v1/connections/canvas/lms';
 type Editing =
   | { kind: 'courses'; item: CanvasLmsCourse }
@@ -218,7 +219,10 @@ export function CanvasLmsConnection() {
     );
   }
   return (
-    <section className="panel" aria-label="Canvas API connection">
+    <section
+      className="panel canvas-connection"
+      aria-label="Canvas API connection"
+    >
       <h3>Canvas API</h3>
       <Help label="Canvas API">
         Read-only courses and assignments. Configure the API token on the server
@@ -315,9 +319,7 @@ export function CanvasLmsConnection() {
           </p>
           <p className="meta">
             Last API import:{' '}
-            {data.lastImportedAt
-              ? new Date(data.lastImportedAt).toLocaleString()
-              : 'Never'}
+            {data.lastImportedAt ? formatInstant(data.lastImportedAt) : 'Never'}
           </p>
           {data.jobs[0] && (
             <p>

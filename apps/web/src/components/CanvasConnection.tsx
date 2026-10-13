@@ -15,6 +15,7 @@ import { requestJson } from '../lib/api';
 import { Help } from './Help';
 import { StatusChip } from './StatusChip';
 import { CanvasPlanning } from './CanvasPlanning';
+import { formatInstant } from '../lib/format';
 
 const base = '/api/v1/connections/canvas';
 export function CanvasConnection() {
@@ -211,9 +212,7 @@ export function CanvasConnection() {
           </div>
           <p className="meta">
             Last import:{' '}
-            {data.lastImportedAt
-              ? new Date(data.lastImportedAt).toLocaleString()
-              : 'Never'}
+            {data.lastImportedAt ? formatInstant(data.lastImportedAt) : 'Never'}
           </p>
           {data.jobs[0] && (
             <p role="status">
@@ -228,7 +227,7 @@ export function CanvasConnection() {
                 <p>
                   {item.providerData.startDate ??
                     (item.providerData.startsAt
-                      ? new Date(item.providerData.startsAt).toLocaleString()
+                      ? formatInstant(item.providerData.startsAt)
                       : 'No date')}{' '}
                   ·{' '}
                   {item.availability === 'missing'
@@ -382,8 +381,7 @@ export function CanvasConnection() {
               <summary>Refresh history</summary>
               {data.jobs.map((job) => (
                 <p key={job.id}>
-                  {new Date(job.createdAt).toLocaleString()} · {job.trigger} ·{' '}
-                  {job.status}
+                  {formatInstant(job.createdAt)} · {job.trigger} · {job.status}
                   {job.errorCode ? ` · ${job.errorCode}` : ''}
                   {job.counts
                     ? ` · ${job.counts.added} added, ${job.counts.updated} updated, ${job.counts.missing} missing`

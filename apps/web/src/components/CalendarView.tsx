@@ -34,6 +34,7 @@ import { PlannerSource } from './PlannerSource';
 import { ReadState } from './ReadState';
 import { StatusChip } from './StatusChip';
 import { TimeZoneInput } from './TimeZoneInput';
+import { formatInstant } from '../lib/format';
 import './CalendarView.css';
 
 type CalendarRoute = Extract<Route, { name: 'calendar' }>;
@@ -400,8 +401,7 @@ export function CalendarView({
           )}
           {canvas.data?.lastImportedAt && (
             <p className="meta">
-              Canvas last import:{' '}
-              {new Date(canvas.data.lastImportedAt).toLocaleString()}
+              Canvas last import: {formatInstant(canvas.data.lastImportedAt)}
             </p>
           )}
           {ready && !shown.length && (
