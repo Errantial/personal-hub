@@ -2,6 +2,14 @@
 
 ## Current implementation
 
+[Academic management](academic-management.md) adds owner-only guarded browsing/full counts and atomic selected status/deadline/effort/priority/deletion. [Selected Calendar changes](calendar-management.md) add whole-record deletion and one-time timed study statuses, preserving recurrence/source history. Both use shared contracts, versions, schedule locks and guarded historical receipts. UI/offline integration remains pending.
+
+[Transient context review](ai-context-preview.md) adds owner-authorized POST /api/v1/ai/context/preview in a read-only snapshot. It returns bounded text for local review with no-store/no-persistence semantics and visible execution blockers. Durable submission still rechecks and binds fresh sources; this enables no provider dispatch.
+
+[Manual academic AI context](ai-academic-context.md) adds explicit work/class version references, bounded score-free text projections and verified direct task/study origins. Migration 045 guards immutable captures and retained labels. Workload-plan/legacy incomplete provenance and all live dispatch remain blocked.
+
+[Offline Claude response inspection](ai-claude-response.md) adds a bounded pure native JSON decoder with exact-model/source validation and separately named unverified usage estimates. It enables no process, provider, accounting settlement or answer retention; CLI cost reports cannot establish an invoice.
+
 [Local subscription runtime doctor](ai-runtime-doctor.md) adds npm run ai:runtime-doctor with explicit native executable paths. It inspects only version/help in a filtered environment and bounded temporary working directory, producing redacted reports. Advertised controls do not clear subscription blockers; account/isolation/billing remain unverified.
 
 [Subscription isolation requirements](ai-subscription-isolation.md) add explicit readiness blockers and a pure bounded Claude CLI draft. No process or login is launched; preparation is not verified isolation. Codex request preparation and dedicated runtime/account/usage verification remain pending. Existing synthetic byte-token execution blocks subscription routes before admission.
@@ -154,9 +162,12 @@ Planner undo backend: owner-authorized `POST /api/v1/tasks/:id/restore`, `POST /
 | `PUT /api/v1/tasks/:id`, `PUT /api/v1/events/:id` | Replace editable fields with operationId and expectedVersion |
 | `DELETE /api/v1/tasks/:id`, `DELETE /api/v1/events/:id` | Tombstone with operationId and expectedVersion |
 | `GET/POST /api/v1/calendar`, `PUT/DELETE /api/v1/calendar/:id` | Full series CRUD; legacy event edits reject advanced records |
+| `POST /api/v1/calendar/batch` | Atomic selected whole-record deletion or one-time timed study-status changes |
 | `GET /api/v1/calendar/occurrences?from=YYYY-MM-DD&to=YYYY-MM-DD&timeZone=...` | Expand a date window, exclusive to, maximum 93 days |
 | `PUT/DELETE /api/v1/calendar/:id/occurrences/:date` | Replace/cancel one occurrence using the series expectedVersion |
 | `GET/POST /api/v1/courses`, `PUT/DELETE /api/v1/courses/:id` | Owner class portfolios and tombstones |
+| `GET /api/v1/academic-work/browse` | Guarded all-status manual work with full filter counts and current class versions |
+| `POST /api/v1/academic-work/batch` | Explicit versioned/class-guarded status, priority, deadline, effort or tombstone changes |
 | `POST /api/v1/academic-work/:id/planner-work` | Explicit linked task/study creation with current work/class versions and atomic receipts |
 | `GET /api/v1/academic-work/:id/planner-work` | Bounded linked-work pages, optional deleted history and owned UUID cursor |
 | `GET /api/v1/tasks/:id/academic-source`, `GET /api/v1/calendar/:id/academic-source` | Captured/current direct academic provenance, including owned tombstones |
@@ -183,6 +194,7 @@ Planner undo backend: owner-authorized `POST /api/v1/tasks/:id/restore`, `POST /
 | `GET /api/v1/ai/providers` | Safe server profile/configuration status; health unchecked, dispatch disabled |
 | `GET/PUT /api/v1/ai/budget` | Owner USD spending limits; versioned/idempotent settings |
 | `POST /api/v1/ai/preflights` | Versioned bounded text check; persists metadata only, never dispatches |
+| `POST /api/v1/ai/context/preview` | Transient owner text review; no records, receipts, holds or dispatch |
 | `GET /api/v1/ai/preflights` | Owner history with bounded ID-cursor pagination |
 | `GET/DELETE /api/v1/ai/preflights/:id` | Read an active receipt or versionedly retain a hide tombstone |
 

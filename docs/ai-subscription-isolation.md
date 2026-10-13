@@ -18,6 +18,8 @@ The [Claude CLI reference](https://code.claude.com/docs/en/cli-reference) separa
 
 ## Codex boundary and operating limits
 
+[Offline Claude response inspection](ai-claude-response.md) now decodes bounded synthetic print-mode JSON into validated guidance and unverified usage estimates. It does not launch inference, prove runtime isolation or settle subscription accounting. Native durable integration remains pending.
+
 [Local runtime metadata doctor](ai-runtime-doctor.md) now checks selected executables' version/help advertisements with bounded output and a filtered environment. It performs no account check or inference and cannot satisfy the isolation/usage requirements below.
 
 Official [Codex configuration](https://learn.chatgpt.com/docs/config-file/config-reference) documents shell/tool feature controls and history settings. [App-server](https://learn.chatgpt.com/docs/app-server) supports persistent and ephemeral conversation operations. Neither an empty dynamic-tool list nor a history setting by itself proves all local tools, hooks, skills, plugins, project instructions and other data sources are absent. A complete effective-runtime check remains required before a Codex request draft or inference is enabled.

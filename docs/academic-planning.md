@@ -43,7 +43,7 @@ Format-v1 export adds default-empty `academicPlannerSources`, retaining snapshot
 
 Creation, full inspection, browsing and reports are online-only, outside cache/outbox allowlists. Summary metadata in existing cached task/Calendar snapshots is historical offline. Linked-task edits use the ordinary outbox, versions and conflict review.
 
-Every direct academic task/event remains AI-gateway blocked with `PROVENANCE_UNAVAILABLE`, including unlabeled/detached records. Labels/planning snapshots do not verify source/planner text origin. Academic records and these APIs are outside AI reference allowlists. New UI controls, verified text provenance, automatic matching/deadline propagation, assignment optimizer allocation and provider execution remain pending.
+The [manual academic context gateway](ai-academic-context.md) now verifies explicitly selected academic work and direct planner origins, projects allowlisted manual text and binds captured/current source metadata. Newly created direct study blocks retain complete class/topic history. Existing incomplete history and workload-plan blocks still return PROVENANCE_UNAVAILABLE; no legacy history is invented. Migration 045 protects capture identity/snapshots/time from rewriting or deletion and permits only growing labels. UI selection, automatic matching/deadline propagation, assignment optimizer allocation and provider execution remain pending.
 
 ## Validation
 

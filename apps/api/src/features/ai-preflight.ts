@@ -7,6 +7,8 @@ import {
   aiPreflightsResponseSchema,
   deleteItemSchema,
   evaluateAIRouting,
+  aiContextPreviewWriteSchema,
+  aiContextPreviewResponseSchema,
 } from '@hub/contracts';
 import type { Database, QueryExecutor } from '../db/database.js';
 import type { FastifyInstance } from 'fastify';
@@ -44,7 +46,7 @@ export async function readAIPreflights(
 export async function assessAIInput(
   tx: QueryExecutor,
   owner: string,
-  input: z.infer<typeof aiPreflightWriteSchema>,
+  input: Omit<z.infer<typeof aiPreflightWriteSchema>, 'operationId'>,
   registry: ReturnType<typeof publicAIRegistry>,
 ) {
   if (input.expectedRegistryRevision !== registry.revision)
@@ -127,6 +129,30 @@ export function registerAIPreflight(
 ) {
   const registry = publicAIRegistry(config.AI_PROVIDER_PROFILES);
   const base = '/api/v1/ai/preflights';
+  app.post('/api/v1/ai/context/preview', async (request) => {
+    const user = await auth.requireUser(request);
+    const input = aiContextPreviewWriteSchema.parse(request.body);
+    return database.transaction(async (tx) => {
+      await tx.query(
+        'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY',
+      );
+      if (!(await auth.currentUser(request, tx)))
+        throw new ApiError(401, 'UNAUTHENTICATED', 'Sign in again.');
+      const { metadata, assembled } = await assessAIInput(
+        tx,
+        user.id,
+        input,
+        registry,
+      );
+      return aiContextPreviewResponseSchema.parse({
+        preview: true,
+        dispatchEnabled: false,
+        retained: false,
+        payload: assembled?.payload ?? null,
+        assessment: metadata,
+      });
+    });
+  });
   app.get('/api/v1/ai/providers', async (request) => {
     await auth.requireUser(request);
     return registry;

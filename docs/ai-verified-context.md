@@ -16,6 +16,8 @@ Both synthetic executors take a fresh read-only repeatable snapshot after commit
 
 ## Explicit memory context
 
+[Manual academic context](ai-academic-context.md) now supports explicit work/class version references and directly linked planner text through immutable provenance. Workload-derived study blocks and incomplete legacy history remain blocked.
+
 AI context references add kind=memory with id, expectedVersion and required expectedMemorySettingsVersion. That extra field is rejected on other kinds. Both global settings and the individual memory must be enabled; the record must be owned, nonforgotten and source=owner-entered. Only kind/title/content/observedOn is projected. Complete owner label history follows the same provider intersection and no-fallback rules as other context.
 
 Changing global settings invalidates pending references even if the owner disables then re-enables memory. Disable/forget/edit/version changes are checked again at admission and final revalidation. Forgotten memories remain text-free tombstones; no retrieval index, saved context copy, embedding, automatic extraction or automatic selection is created. UI memory selection remains pending. Current private integrity digests and safe admitted metadata remain; logical forgetting does not erase old backups or separate owner copies.

@@ -11,8 +11,11 @@ import {
   calendarRecordSchema,
   sensitivitySchema,
   memorySchema,
+  academicPlannerSourceSummarySchema,
+  studyWorkloadSnapshotSchema,
 } from '@hub/contracts';
 import type { AIContextRef } from '@hub/contracts';
+import type { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import type { Database, QueryExecutor } from '../db/database.js';
 import type { authService } from '../auth/routes.js';
@@ -41,7 +44,33 @@ export async function resolveAIContext(
   let currentVersion: number;
   let labels: ('unlabeled' | 'personal' | 'restricted')[] = [];
   let memorySettingsVersion: number | null = null;
-  if (ref.kind === 'memory') {
+  let academicCourse: { id: string; version: number } | null = null;
+  let academicPlanning: z.infer<
+    typeof academicPlannerSourceSummarySchema
+  > | null = null;
+  if (ref.kind === 'academic-work') {
+    const [row] = await tx.query(
+      `SELECT w.version,w.course_id AS "courseId",c.version AS "courseVersion",w.sensitivity,w.academic_labels AS "academicLabels",c.sensitivity AS "courseSensitivity"
+       FROM academic_work w JOIN courses c ON c.id=w.course_id AND c.owner_id=w.owner_id
+       WHERE w.owner_id=$1 AND w.id=$2 AND w.deleted_at IS NULL AND c.deleted_at IS NULL`,
+      [owner, ref.id],
+    );
+    if (!row)
+      throw new ApiError(404, 'NOT_FOUND', 'Context source not available.');
+    version(row, ref.expectedVersion);
+    version({ version: row.courseVersion }, ref.expectedCourseVersion);
+    const own = sensitivitySchema.parse(row.sensitivity);
+    const inherited = sensitivitySchema.parse(row.courseSensitivity);
+    const history = sensitivitySchema.array().max(2).parse(row.academicLabels);
+    labels = [own, inherited, ...history];
+    sensitivity = strongest(own, inherited, ...history);
+    attachmentDerived = false; // Explicit manual record; no imported/provider fields exist here.
+    currentVersion = Number(row.version);
+    academicCourse = {
+      id: String(row.courseId),
+      version: Number(row.courseVersion),
+    };
+  } else if (ref.kind === 'memory') {
     const settings = await readMemorySettings(tx, owner);
     version(settings, ref.expectedMemorySettingsVersion);
     if (!settings.enabled)
@@ -78,12 +107,59 @@ export async function resolveAIContext(
       ref.kind === 'task'
         ? taskSchema.parse(row)
         : calendarRecordSchema.parse(row);
-    if (record.academicSource)
-      throw new ApiError(
-        409,
-        'PROVENANCE_UNAVAILABLE',
-        'Academic source text provenance is not verified.',
+    if (record.academicSource) {
+      if (
+        record.academicSource.sourceDeleted ||
+        record.academicSource.courseArchived
+      )
+        throw new ApiError(
+          404,
+          'NOT_FOUND',
+          'Academic context source not available.',
+        );
+      const [origin] = await tx.query(
+        `SELECT s.snapshot,s.labels,w.sensitivity,w.academic_labels AS "academicLabels",c.sensitivity AS "courseSensitivity"
+         FROM academic_planner_sources s JOIN academic_work w ON w.id=s.work_id AND w.owner_id=s.owner_id
+         JOIN courses c ON c.id=w.course_id AND c.owner_id=w.owner_id
+         WHERE s.owner_id=$1 AND s.id=$2 AND s.${ref.kind === 'task' ? 'task_id' : 'event_id'}=$3`,
+        [owner, record.academicSource.linkId, ref.id],
       );
+      if (!origin)
+        throw new ApiError(
+          409,
+          'PROVENANCE_UNAVAILABLE',
+          'Academic origin is unavailable.',
+        );
+      const checked = studyWorkloadSnapshotSchema.safeParse(origin.snapshot);
+      if (!checked.success)
+        throw new ApiError(
+          409,
+          'PROVENANCE_UNAVAILABLE',
+          'Academic capture is incomplete.',
+        );
+      const captured = checked.data;
+      if (
+        captured.id !== record.academicSource.workId ||
+        captured.courseId !== record.academicSource.courseId ||
+        captured.version !== record.academicSource.capturedWorkVersion ||
+        captured.courseVersion !== record.academicSource.capturedCourseVersion
+      )
+        throw new ApiError(
+          409,
+          'PROVENANCE_UNAVAILABLE',
+          'Academic origin does not match its capture.',
+        );
+      academicPlanning = record.academicSource;
+      labels.push(
+        ...sensitivitySchema.array().max(2).parse(origin.labels),
+        ...captured.academicLabels,
+        captured.sensitivity,
+        captured.courseSensitivity,
+        sensitivitySchema.parse(origin.sensitivity),
+        sensitivitySchema.parse(origin.courseSensitivity),
+        ...sensitivitySchema.array().max(2).parse(origin.academicLabels),
+      );
+    }
     sensitivity = plannerSensitivity(record);
     attachmentDerived = plannerTextIsAttachmentDerived(record);
     if (
@@ -96,7 +172,7 @@ export async function resolveAIContext(
         'PROVENANCE_UNAVAILABLE',
         'Captured source labels need review before AI processing.',
       );
-    labels = [
+    labels.push(
       record.sensitivity,
       ...(record.canvasSource?.labels ?? [
         record.canvasSource?.sensitivity ?? 'unlabeled',
@@ -104,7 +180,8 @@ export async function resolveAIContext(
       ...(record.canvasSource?.currentLabels ?? [
         record.canvasSource?.currentSensitivity ?? 'unlabeled',
       ]),
-    ];
+    );
+    sensitivity = strongest(sensitivity, ...labels);
     if (ref.kind === 'event') {
       const event = calendarRecordSchema.parse(row);
       if (!attachmentDerived && event.academicLabels === null)
@@ -191,6 +268,8 @@ export async function resolveAIContext(
     attachmentDerived,
     labels: resolved,
     memorySettingsVersion,
+    ...(academicCourse ? { academicCourse } : {}),
+    ...(academicPlanning ? { academicPlanning } : {}),
   };
 }
 export function registerAIRouting(

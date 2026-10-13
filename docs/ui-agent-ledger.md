@@ -1,5 +1,43 @@
 # UI agent ledger
 
+## Final backend-hour verification (2026-10-12)
+
+`npm run check` passed lint, strict types, formatting, builds and 505 API/client tests, with one optional PostgreSQL skip. All 32 new academic/Calendar/session tests passed again after the final error-copy correction; targeted lint/formatting and the refreshed API build passed. Compiled API smoke verified all 45 migrations/new routes/receipts/immutable origins with no network calls.
+
+The complete isolated browser rerun passed all 84 tests on ports 5184/3014 with a new synthetic database and builds idle. Earlier overflow/conflict failures below describe previous shared-workspace snapshots, not the current passing run. The initial backend-hour browser run passed 83/84 with an API-unavailable conflict-draft snapshot during overlapping builds; its fresh single-test and complete reruns passed. No assertions were weakened. New batch controls, offline integration, class/topic restoration, standard PostgreSQL and actual Kompakt/provider execution remain pending. This backend work did not edit the concurrently developed UI.
+
+## Backend handoff: academic management and Calendar selections (2026-10-12)
+
+Read [academic management](academic-management.md) and [Calendar selection contracts](calendar-management.md). Academic browse defaults to active classes/all statuses, sorts open before closed with deadline/UUID paging, and returns full filter counts independent of selected status/page. Entries/cursors carry current class versions. Keep filters between pages; reset on refresh/filter changes. Work/class cursor conflicts require reload. The existing academic history/tombstone and deadline-agenda routes remain available.
+
+Academic batches select 1-100 exact IDs/work versions/class versions. Only status, priority, deadline, estimate and deletion are supported; omitted fields remain unchanged, null clears, zero is known effort. `ACADEMIC_SCORE_REVIEW_REQUIRED` blocks the entire selection until an individual explicit score correction. Submission is owner-reported and never completes linked planner work. Archived classes support history/deletion but not work editing; class/topic restoration remains unimplemented and must not be offered as recovery.
+
+Calendar batches select 1-100 exact record IDs/versions. Deletion affects a whole recurring series; show that scope before submission. Study-status changes accept only one-time timed blocks with active ancestors; mixed/recurring/all-day/ordinary selections are wholly rejected. Preserve source labels/unknown history and occurrence edits. Study completion does not prove submission/mastery. Restore uses existing individual endpoints and does not restart cancelled reminders.
+
+Both batches are atomic and online-only. Show pending/error/conflict states; retain drafts/selections and the exact operation ID after a lost response. Historical retries do not reapply changes, so reload current data. Never send a filter-wide selection or include future arrivals silently. UI/offline integration, batch restore and external-provider writes remain pending. No invitation/cancellation email authority is added.
+
+## Earlier browser verification handoff (2026-10-12)
+
+An earlier isolated 84-test browser run returned 75 passes and nine failures while shared UI/backend files were changing. Its fresh rerun of nine affected tests on independent ports 5182/3012 passed six, including preflight lost-response receipts, session/outage handling, e-ink persistence, task lifecycle and lost-save deduplication. At that time, three narrow Canvas overflow checks still failed: canvas.spec.ts planning at line 103, canvas.spec.ts import at line 341 and connections.spec.ts at line 69 for /settings/connections/canvas. Those runs did not establish a complete browser pass; the later final verification above passed all 84 checks without weakening assertions. Both earlier runs used separate synthetic databases; no owner database or device was used.
+
+## Backend handoff: transient context review (2026-10-12)
+
+Read [review contracts](ai-context-preview.md). POST /api/v1/ai/context/preview accepts the preflight input without operationId; it rejects uploaded payload/manifests, saveAnswer, attachments and dispatch flags. Response has preview=true, retained=false, dispatchEnabled=false, nullable payload and a metadata assessment. It creates no records/receipts/holds. Keep the returned text temporary: render as text, clear on source/settings/session changes and exclude it from offline caches, storage and logs.
+
+Review availability and execution readiness are separate. Visible blockers remain authoritative. Denied/unavailable/file-derived/oversized routes return no text. Stale/foreign/deleted/archived/disabled sources error without disclosure. Source changes after review require refreshed versions and a deliberate fresh submission; the original text/references go to the normal request endpoint, never the uploaded preview assembly. No answer-saving consent, action authority or paid permission follows from review. Provider-specific system/native context remains unverified. UI controls and live dispatch are pending. All 41 context tests pass; the full API/client run passed 487 tests with one optional PostgreSQL skip. Refreshed lint/types/formatting and production builds passed; twelve additional Calendar-management tests passed separately. Browser limitations are recorded above. No owner database, paid AI or device was used.
+
+## Backend handoff: manual academic AI context (2026-10-12)
+
+Read [academic context contracts](ai-academic-context.md). References add `kind=academic-work` with required work and class versions. Reject class-version fields on other reference kinds. Assessments/manifests add optional `academicCourse`; directly linked task/event manifests add `academicPlanning` with captured/current source metadata. Ordinary/older manifests omit both fields. Work text excludes recorded grades and class details; linked planner context projects only its own text.
+
+Keep stale-reference errors, deleted/archived source errors and `CONTEXT_CONFLICT` visible; refresh versions and deliberately create a new assessment. Source/class changes can invalidate context without a planner version change. Detached study blocks retain origin labels. Incomplete legacy history and workload-plan blocks remain AI-blocked. Preserve owner-only selection, full inherited routing, no unavailable-provider fallback, explicit saved-answer consent and independent forget behavior. UI selection/offline integration and live dispatch remain pending.
+
+## Backend handoff: offline Claude response inspection (2026-10-12)
+
+Read [response boundaries](ai-claude-response.md). This decoder is internal preparation with no public endpoint or persisted/public contract change. A validated answer is guidance only, not evidence of provider readiness, tool isolation or completed accounting. Every result keeps dispatchEnabled=false, billing=unverified and accounting=unsettled; usageEstimate is an unverified estimate and must not be rendered as actual spend or a zero-dollar subscription receipt.
+
+Invalid/blocked/error output can coexist with a usage estimate. Missing/malformed usage never means free execution. Preserve current unavailable-provider blocking, no fallback/resend, spending caps and per-request answer consent. Session IDs, native error text and other metadata are discarded. Native result persistence, effective runtime/account/model/billing verification and UI integration remain pending. Ten focused synthetic tests and existing OpenRouter protocol tests pass. Final npm run check passed lint, strict types, formatting, production builds and 445 API/client tests; one optional standard PostgreSQL test was skipped. Browser tests were not rerun for this backend slice because it changes no UI/authentication code. No owner database, native inference, real provider, paid AI or device tests were used. No UI/authentication code changes in this slice.
+
 ## Backend handoff: local runtime metadata doctor (2026-10-12)
 
 Read [doctor boundaries](ai-runtime-doctor.md). This is an operator command, not a new public endpoint. Runtime JSON can report controls-advertised, missing-controls or probe-failed, but always keeps dispatchEnabled=false, isolation=unverified, account=not_checked and billing=unverified. Exit zero does not authorize inference or establish a working subscription.

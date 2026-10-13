@@ -5,29 +5,14 @@ import type { Config } from '../config.js';
 import { ApiError } from '../errors.js';
 import { publicAIRegistry } from './profiles.js';
 import { buildOpenRouterTextRequest } from './openrouter-request.js';
+import { providerDollarsToMicros } from './provider-cost.js';
+export { providerDollarsToMicros } from './provider-cost.js';
 
 type Profile = AIProviderRegistry['profiles'][number];
 const token = z.number().int().min(0).max(2000000);
 // Source lexemes preserve provider dollar numbers before binary float rounding.
 class DollarLexeme {
   constructor(readonly source: string) {}
-}
-export function providerDollarsToMicros(source: string) {
-  if (source.length > 100) throw new Error('Invalid cost');
-  const match = /^(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(source);
-  if (!match) throw new Error('Invalid cost');
-  const fraction = match[2] ?? '',
-    exponent = Number(match[3] ?? 0);
-  if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > 30)
-    throw new Error('Invalid cost');
-  const digits = BigInt(match[1]! + fraction),
-    power = exponent - fraction.length + 6;
-  const value =
-    power >= 0
-      ? digits * 10n ** BigInt(power)
-      : (digits + 10n ** BigInt(-power) - 1n) / 10n ** BigInt(-power);
-  if (value > 1000000000000n) throw new Error('Invalid cost');
-  return Number(value);
 }
 const usageSchema = z.object({
   prompt_tokens: token,

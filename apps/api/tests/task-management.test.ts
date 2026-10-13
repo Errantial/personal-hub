@@ -504,13 +504,16 @@ it('retains linked source snapshots and inherited labels through batch deletion,
     await get(`/api/v1/tasks/${linked.id}/academic-source`)
   ).json();
   expect(sourceAfter.source).toEqual(sourceBefore.source);
-  await expect(
-    resolveAIContext(db, owner, {
-      kind: 'task',
-      id: linked.id,
-      expectedVersion: 4,
-    }),
-  ).rejects.toMatchObject({ code: 'PROVENANCE_UNAVAILABLE' });
+  const context = await resolveAIContext(db, owner, {
+    kind: 'task',
+    id: linked.id,
+    expectedVersion: 4,
+  });
+  expect(context).toMatchObject({
+    attachmentDerived: false,
+    labels: ['restricted'],
+    academicPlanning: { workId: work.id, courseId: course.id },
+  });
   expect((await get('/api/v1/tasks')).json().tasks[0]).toEqual(restored);
 });
 it('preserves Canvas file provenance and captured facts when batching linked and ordinary tasks', async () => {

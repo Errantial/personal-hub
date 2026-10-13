@@ -6,6 +6,7 @@ docs
 .artifacts
 test-results
 playwright-report
+.playwright-mcp
 
 .data
 apps/android

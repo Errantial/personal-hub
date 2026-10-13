@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { sensitivitySchema } from './core.js';
+import { academicPlannerSourceSummarySchema } from './academic-source.js';
 export const providerAliasSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,47}$/);
 const routeSchema = z
   .strictObject({
@@ -47,10 +48,12 @@ export const aiContextRefSchema = z
       'canvas-item',
       'canvas-assignment',
       'memory',
+      'academic-work',
     ]),
     id: z.string().uuid(),
     expectedVersion: z.number().int().positive(),
     expectedMemorySettingsVersion: z.number().int().positive().optional(),
+    expectedCourseVersion: z.number().int().positive().optional(),
   })
   .superRefine((value, ctx) => {
     if (
@@ -60,6 +63,14 @@ export const aiContextRefSchema = z
       ctx.addIssue({
         code: 'custom',
         message: 'Supply memory settings version only for memory context.',
+      });
+    if (
+      (value.kind === 'academic-work') !==
+      (value.expectedCourseVersion !== undefined)
+    )
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Supply class version only for academic work context.',
       });
   });
 export const aiRoutingPreviewSchema = z.strictObject({
@@ -113,6 +124,11 @@ export const aiRoutingPreviewResponseSchema = aiRoutingDecisionSchema.extend({
         .positive()
         .nullable()
         .default(null),
+      academicCourse: z
+        .object({ id: z.string().uuid(), version: z.number().int().positive() })
+        .nullable()
+        .optional(),
+      academicPlanning: academicPlannerSourceSummarySchema.optional(),
     }),
   ),
 });

@@ -432,7 +432,7 @@ it('creates explicit task/study work with immutable planning snapshots and exact
   expect(study.json().event).toMatchObject({
     courseId,
     studyStatus: 'planned',
-    academicLabels: null,
+    academicLabels: ['personal'],
     academicSource: { workId: source.id },
   });
   const separate = await planWork(source.id, taskPlanning());
@@ -505,7 +505,10 @@ it('retains captured/current source differences without rewriting personal plann
         .owner_id as string,
       { kind: 'task', id: created.task.id, expectedVersion: 1 },
     ),
-  ).rejects.toMatchObject({ code: 'PROVENANCE_UNAVAILABLE' });
+  ).resolves.toMatchObject({
+    academicPlanning: { workId: source.id, currentWorkVersion: 4 },
+    labels: ['personal'],
+  });
 });
 it('keeps task completion and planner tombstones separate from assignment submission', async () => {
   const source = (await create()).json().work;
@@ -564,7 +567,7 @@ it('propagates source/class labels once through detached and deleted planner wor
     (await get(`/api/v1/calendar/${event.id}`)).json().event,
   ).toMatchObject({
     sensitivity: 'restricted',
-    academicLabels: null,
+    academicLabels: ['personal', 'restricted'],
     courseId: null,
   });
   await write('DELETE', `/api/v1/tasks/${task.id}`, change(1));
@@ -612,7 +615,7 @@ it('propagates source/class labels once through detached and deleted planner wor
     (await get(`/api/v1/calendar/${secondEvent.id}`)).json().event,
   ).toMatchObject({
     version: 2,
-    academicLabels: null,
+    academicLabels: ['personal', 'restricted'],
     sensitivity: 'restricted',
   });
   await write('DELETE', `/api/v1/courses/${courseId}`, change(4));
@@ -664,7 +667,7 @@ it('captures masked work labels and keeps deleted planner item versions conflict
     (await get(`/api/v1/calendar/${block.id}`)).json().event,
   ).toMatchObject({
     version: 3,
-    academicLabels: null,
+    academicLabels: ['restricted'],
     sensitivity: 'restricted',
   });
   expect(
@@ -781,7 +784,7 @@ it('retains topic and changed-class labels through later study detachment and le
   });
   expect(detached.json().event.sensitivity).toBe('restricted');
 });
-it('advances a masked topic label once and retains source routing blocks after detachment', async () => {
+it('advances a masked topic label once and retains source label history after detachment', async () => {
   const parent = (
     await write('POST', '/api/v1/courses', {
       name: 'Plain parent',
@@ -851,7 +854,10 @@ it('advances a masked topic label once and retains source routing blocks after d
       id: event.id,
       expectedVersion: 3,
     }),
-  ).rejects.toMatchObject({ code: 'PROVENANCE_UNAVAILABLE' });
+  ).resolves.toMatchObject({
+    labels: ['personal', 'restricted'],
+    academicPlanning: { workId: source.id },
+  });
 });
 it('serializes source planning with closing work rather than creating against a stale source', async () => {
   const source = (await create()).json().work;
@@ -1134,7 +1140,7 @@ it('preserves legacy planner rows and receipts without inventing academic links 
     'DROP TABLE academic_planner_sources; ALTER TABLE tasks DROP CONSTRAINT tasks_owned_id',
   );
   await db.query(
-    "DELETE FROM schema_migrations WHERE name='028_academic_planner_sources.sql'",
+    "DELETE FROM schema_migrations WHERE name IN ('028_academic_planner_sources.sql','045_academic_origin_guard.sql')",
   );
   await migrate(db);
   expect((await write('POST', '/api/v1/tasks', input)).json()).toEqual(
@@ -1798,7 +1804,7 @@ it('upgrades a populated planner without changing existing records or receipts',
     ALTER TABLE events DROP CONSTRAINT events_owned_id;
     DROP TABLE academic_work`);
   await db.query(
-    "DELETE FROM schema_migrations WHERE name IN ('026_academic_work.sql','027_study_workload_sources.sql','028_academic_planner_sources.sql','029_academic_work_reminders.sql')",
+    "DELETE FROM schema_migrations WHERE name IN ('026_academic_work.sql','027_study_workload_sources.sql','028_academic_planner_sources.sql','029_academic_work_reminders.sql','045_academic_origin_guard.sql')",
   );
   await migrate(db);
   expect((await get('/api/v1/courses')).json()).toEqual(course);

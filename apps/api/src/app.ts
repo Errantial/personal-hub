@@ -31,6 +31,7 @@ import { registerStudy } from './features/study.js';
 import { registerDeletedPlanner } from './features/deleted-planner.js';
 import { registerReminderInbox } from './features/reminder-inbox.js';
 import { registerAcademicWork } from './features/academic-work.js';
+import { registerAcademicManagement } from './features/academic-management.js';
 import { registerAcademicPlanning } from './features/academic-planning.js';
 import { registerToday } from './features/today.js';
 import { registerTaskManagement } from './features/task-management.js';
@@ -43,6 +44,7 @@ import { registerPlanner } from './planner/routes.js';
 import { ApiError } from './errors.js';
 import { registerAcademics } from './features/academics.js';
 import { registerCalendar } from './features/calendar.js';
+import { registerCalendarManagement } from './features/calendar-management.js';
 import {
   registerReminders,
   startReminderWorker,
@@ -121,10 +123,12 @@ export async function buildApp(
   registerPlanner(app, database, auth);
   registerAcademics(app, database, auth);
   registerAcademicWork(app, database, auth);
+  registerAcademicManagement(app, database, auth);
   registerAcademicPlanning(app, database, auth);
   registerToday(app, database, auth);
   registerTaskManagement(app, database, auth);
   registerCalendar(app, database, auth);
+  registerCalendarManagement(app, database, auth);
   registerReminders(app, database, auth);
   registerReminderInbox(app, database, auth);
   if (runtime.runWorker)

@@ -10,6 +10,7 @@ coverage/
 .artifacts/
 test-results/
 playwright-report/
+.playwright-mcp/
 .data/
 apps/android/.gradle/
 apps/android/**/build/

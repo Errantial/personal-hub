@@ -1,10 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { expect, it } from 'vitest';
+import {
+  academicWorkSchema,
+  calendarRecordSchema,
+  academicWorkBrowseResponseSchema,
+} from '@hub/contracts';
+import type { AcademicWork, CalendarRecord } from '@hub/contracts';
 import { buildApp } from '../src/app.js';
 import { readConfig } from '../src/config.js';
 import { openDatabase } from '../src/db/database.js';
 import { runReminderBatch } from '../src/features/reminders.js';
+import { resolveAIContext } from '../src/features/ai-routing.js';
 import {
   beginSyntheticEmailAttempt,
   confirmSyntheticEmailAttempt,
@@ -1001,7 +1008,7 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
       );
       expect(workRestores[0]!.statusCode).toBe(200);
       expect(workRestores[1]!.json()).toEqual(workRestores[0]!.json());
-      const agendaWorks = [];
+      const agendaWorks: AcademicWork[] = [];
       for (const dueDate of ['2030-04-03', '2030-04-04', null]) {
         const created = await app.inject({
           method: 'POST',
@@ -1016,7 +1023,7 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
           },
         });
         expect(created.statusCode).toBe(200);
-        agendaWorks.push(created.json().work);
+        agendaWorks.push(academicWorkSchema.parse(created.json().work));
       }
       const agendaUrl = `/api/v1/academic-work/agenda?asOf=2030-04-04&to=2030-04-11&courseId=${workCourse.id}&limit=1`;
       const firstAgenda = await app.inject({ url: agendaUrl, headers });
@@ -1029,21 +1036,21 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
         missingEstimateCount: 0,
         estimatedOpenMinutes: 0,
       });
-      expect(firstAgenda.json().entries[0].id).toBe(agendaWorks[0].id);
+      expect(firstAgenda.json().entries[0].id).toBe(agendaWorks[0]!.id);
       const cursor = firstAgenda.json().nextAfter;
       const secondAgenda = await app.inject({
         url: `${agendaUrl}&after=${cursor.id}&expectedCursorVersion=${cursor.version}`,
         headers,
       });
       expect(secondAgenda.statusCode).toBe(200);
-      expect(secondAgenda.json().entries[0].id).toBe(agendaWorks[1].id);
+      expect(secondAgenda.json().entries[0].id).toBe(agendaWorks[1]!.id);
       const secondCursor = secondAgenda.json().nextAfter;
       const thirdAgenda = await app.inject({
         url: `${agendaUrl}&after=${secondCursor.id}&expectedCursorVersion=${secondCursor.version}`,
         headers,
       });
       expect(thirdAgenda.statusCode).toBe(200);
-      expect(thirdAgenda.json().entries[0].id).toBe(agendaWorks[2].id);
+      expect(thirdAgenda.json().entries[0].id).toBe(agendaWorks[2]!.id);
       expect(thirdAgenda.json().nextAfter).toBeNull();
       const planningInput = {
         kind: 'task',
@@ -1052,7 +1059,7 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
         operationId: randomUUID(),
         task: { title: 'Academic linked PostgreSQL task' },
       };
-      const planningUrl = `/api/v1/academic-work/${agendaWorks[0].id}/planner-work`;
+      const planningUrl = `/api/v1/academic-work/${agendaWorks[0]!.id}/planner-work`;
       const linkedCreates = await Promise.all(
         [1, 2].map(() =>
           app!.inject({
@@ -1072,12 +1079,53 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
       });
       expect(inspection.statusCode).toBe(200);
       expect(inspection.json().source.snapshot).toMatchObject({
-        id: agendaWorks[0].id,
+        id: agendaWorks[0]!.id,
         version: 1,
         estimatedMinutes: 0,
       });
+      // Manual academic text and direct planner origins use the same owned,
+      // versioned provenance gates on the standard driver as on PGlite.
+      const academicContext = await accounting!.transaction(async (tx) => {
+        await tx.query(
+          'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY',
+        );
+        return resolveAIContext(
+          tx,
+          setup.json().user.id,
+          {
+            kind: 'academic-work',
+            id: agendaWorks[0]!.id,
+            expectedVersion: 1,
+            expectedCourseVersion: 2,
+          },
+          true,
+        );
+      });
+      expect(academicContext.academicCourse).toEqual({
+        id: workCourse.id,
+        version: 2,
+      });
+      const plannerContext = await resolveAIContext(
+        accounting!,
+        setup.json().user.id,
+        {
+          kind: 'task',
+          id: linkedTask.id,
+          expectedVersion: linkedTask.version,
+        },
+        true,
+      );
+      expect(plannerContext.academicPlanning).toMatchObject({
+        workId: agendaWorks[0]!.id,
+      });
+      await expect(
+        accounting!.query(
+          'DELETE FROM academic_planner_sources WHERE owner_id=$1 AND task_id=$2',
+          [setup.json().user.id, linkedTask.id],
+        ),
+      ).rejects.toThrow('cannot be removed');
       const summary = await app.inject({
-        url: `/api/v1/academic-work/${agendaWorks[0].id}/planner-work-summary?from=2030-04-04&to=2030-04-11&timeZone=UTC`,
+        url: `/api/v1/academic-work/${agendaWorks[0]!.id}/planner-work-summary?from=2030-04-04&to=2030-04-11&timeZone=UTC`,
         headers,
       });
       expect(summary.statusCode).toBe(200);
@@ -1089,7 +1137,7 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
         payload: {
           title: 'Academic PostgreSQL reminder',
           targetKind: 'academic-work',
-          targetId: agendaWorks[0].id,
+          targetId: agendaWorks[0]!.id,
           scheduledAt: '2020-01-01T00:00:00Z',
           operationId: randomUUID(),
         },
@@ -1680,6 +1728,191 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
       expect(finalExport.records.aiPreflights).toHaveLength(2);
       expect(finalExport.records.aiBudgetReservations).toHaveLength(2);
       expect(finalExport.records.canvasLmsSource.accountProviderId).toBe('30');
+      const batchCourse = await app.inject({
+        method: 'POST',
+        url: '/api/v1/courses',
+        headers,
+        payload: {
+          operationId: randomUUID(),
+          name: 'PostgreSQL selected changes',
+        },
+      });
+      expect(batchCourse.statusCode).toBe(200);
+      const batchCourseId = batchCourse.json().course.id;
+      const selectedWork: AcademicWork[] = [];
+      for (let index = 0; index < 3; index++) {
+        const created = await app.inject({
+          method: 'POST',
+          url: '/api/v1/academic-work',
+          headers,
+          payload: {
+            operationId: randomUUID(),
+            courseId: batchCourseId,
+            title: 'PostgreSQL selected work',
+            dueDate: index ? null : '2030-04-04',
+            estimatedMinutes: 0,
+          },
+        });
+        expect(created.statusCode).toBe(200);
+        selectedWork.push(academicWorkSchema.parse(created.json().work));
+      }
+      const browsed = await app.inject({
+        url: `/api/v1/academic-work/browse?courseId=${batchCourseId}&limit=1`,
+        headers,
+      });
+      expect(browsed.statusCode).toBe(200);
+      const browseResult = academicWorkBrowseResponseSchema.parse(
+        browsed.json(),
+      );
+      expect(browseResult.summary).toMatchObject({
+        totalCount: 3,
+        openCount: 3,
+        missingDeadlineCount: 2,
+        missingEstimateCount: 0,
+        estimatedOpenMinutes: 0,
+      });
+      const browseCursor = browseResult.nextAfter!;
+      expect(
+        (
+          await app.inject({
+            url: `/api/v1/academic-work/browse?courseId=${batchCourseId}&after=${browseCursor.id}&expectedCursorVersion=${browseCursor.version}&expectedCourseVersion=${browseCursor.courseVersion}`,
+            headers,
+          })
+        ).statusCode,
+      ).toBe(200);
+      const workBatch = {
+        operationId: randomUUID(),
+        items: selectedWork.map((value) => ({
+          id: value.id,
+          expectedVersion: value.version,
+          expectedCourseVersion: 1,
+        })),
+        action: { kind: 'update', changes: { priority: 4 } },
+      };
+      const workCopies = await Promise.all(
+        [1, 2].map(() =>
+          app!.inject({
+            method: 'POST',
+            url: '/api/v1/academic-work/batch',
+            headers,
+            payload: workBatch,
+          }),
+        ),
+      );
+      expect(workCopies[0]!.statusCode).toBe(200);
+      expect(workCopies[1]!.json()).toEqual(workCopies[0]!.json());
+      const workUpdates: AcademicWork[] = workCopies[0]!.json().work;
+      const workRaces = await Promise.all(
+        [
+          [workUpdates[0]!, workUpdates[1]!],
+          [workUpdates[1]!, workUpdates[2]!],
+        ].map((values, index) =>
+          app!.inject({
+            method: 'POST',
+            url: '/api/v1/academic-work/batch',
+            headers,
+            payload: {
+              operationId: randomUUID(),
+              items: values.map((value) => ({
+                id: value.id,
+                expectedVersion: value.version,
+                expectedCourseVersion: 1,
+              })),
+              action: { kind: 'update', changes: { priority: index ? 5 : 3 } },
+            },
+          }),
+        ),
+      );
+      expect(workRaces.map((response) => response.statusCode).sort()).toEqual([
+        200, 409,
+      ]);
+      const preservedWork =
+        workRaces[0]!.statusCode === 200 ? workUpdates[2]! : workUpdates[0]!;
+      expect(
+        (
+          await app.inject({
+            url: `/api/v1/academic-work/${preservedWork.id}`,
+            headers,
+          })
+        ).json().work,
+      ).toEqual(preservedWork);
+      const selectedEvents: CalendarRecord[] = [];
+      for (let index = 0; index < 3; index++) {
+        const created = await app.inject({
+          method: 'POST',
+          url: '/api/v1/calendar',
+          headers,
+          payload: {
+            operationId: randomUUID(),
+            courseId: batchCourseId,
+            title: 'PostgreSQL selected study',
+            startsAt: '2030-04-04T09:00:00Z',
+            endsAt: '2030-04-04T09:25:00Z',
+            timeZone: 'UTC',
+          },
+        });
+        expect(created.statusCode).toBe(200);
+        selectedEvents.push(calendarRecordSchema.parse(created.json().event));
+      }
+      const eventBatch = {
+        operationId: randomUUID(),
+        items: selectedEvents.map((event) => ({
+          id: event.id,
+          expectedVersion: event.version,
+        })),
+        action: { kind: 'study-status', status: 'completed' },
+      };
+      const eventCopies = await Promise.all(
+        [1, 2].map(() =>
+          app!.inject({
+            method: 'POST',
+            url: '/api/v1/calendar/batch',
+            headers,
+            payload: eventBatch,
+          }),
+        ),
+      );
+      expect(eventCopies[0]!.statusCode).toBe(200);
+      expect(eventCopies[1]!.json()).toEqual(eventCopies[0]!.json());
+      const eventUpdates: CalendarRecord[] = eventCopies[0]!.json().events;
+      const eventRaces = await Promise.all(
+        [
+          [eventUpdates[0]!, eventUpdates[1]!],
+          [eventUpdates[1]!, eventUpdates[2]!],
+        ].map((events) =>
+          app!.inject({
+            method: 'POST',
+            url: '/api/v1/calendar/batch',
+            headers,
+            payload: {
+              operationId: randomUUID(),
+              items: events.map((event) => ({
+                id: event.id,
+                expectedVersion: event.version,
+              })),
+              action: { kind: 'delete' },
+            },
+          }),
+        ),
+      );
+      expect(
+        eventRaces.filter((response) => response.statusCode === 200),
+      ).toHaveLength(1);
+      expect(
+        eventRaces.filter((response) =>
+          [404, 409].includes(response.statusCode),
+        ),
+      ).toHaveLength(1);
+      const preservedEvent =
+        eventRaces[0]!.statusCode === 200 ? eventUpdates[2]! : eventUpdates[0]!;
+      expect(
+        (
+          await app.inject({
+            url: `/api/v1/calendar/${preservedEvent.id}`,
+            headers,
+          })
+        ).json().event,
+      ).toEqual(preservedEvent);
     } finally {
       await app?.close();
       await accounting?.close();

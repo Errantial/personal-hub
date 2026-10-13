@@ -10,6 +10,10 @@ The backend also has [verified AI context binding and explicit memory selection]
 
 Owner-confirmed AI policy now has a $50 monthly ceiling, a $0.25 initial request allowance and [explicit per-request saved answers](docs/ai-provider-setup.md). Actual subscription/API provider execution remains pending.
 
+[Offline Claude response inspection](docs/ai-claude-response.md) now validates bounded native JSON guidance and source references. Usage remains an unverified estimate; the decoder enables neither inference nor accounting settlement.
+
+[Transient context review](docs/ai-context-preview.md) exposes the bounded text assembly to the owner without saving it or enabling inference.
+
 ## Run locally
 
 Requires Node.js 24 and npm 11.
@@ -28,7 +32,7 @@ Confirmed: personal use first with future expansion; school Canvas/calendar, sch
 
 Priority: Windows website and Mudita Kompakt Android APK first. Dedicated Windows app and Kindle Scribe are deferred. Hosted AI API initially, with a later self-hosting option. Paid Proton Bridge access and prior feed/browser automation routes are established; app-specific validation remains.
 
-Planned server: Oracle Cloud Ubuntu, 24 GB RAM and 4 OCPUs. MCP works in both directions. Hosted AI receives relevant text only, excluding screenshots and attachments. Keep routine costs low and meter stronger-model features; a numeric cap remains unset.
+Planned server: Oracle Cloud Ubuntu, 24 GB RAM and 4 OCPUs. MCP is planned in both directions. Hosted AI receives relevant text only, excluding screenshots and attachments. Keep routine costs low and meter stronger-model features within the owner-confirmed $50 monthly ceiling and $0.25 initial request allowance.
 
 AI permissions include provider-routing rules based only on sources/content explicitly labeled by the owner. Derived context inherits labels; unlabeled content uses the default route. Labeled sensitive context goes to an approved provider with no silent fallback.
 
@@ -80,7 +84,9 @@ The [task agenda and Today attention summary](docs/today-summary.md) provide ful
 
 The [academic deadline agenda](docs/academic-agenda.md) now provides owned, date-sorted open manual work across classes, overdue/today/upcoming/undated buckets and full horizon counts with explicit missing estimates. UI and offline integration remain pending; provider deadlines and Calendar reservations stay separate.
 
-Manual academic-work backend supports class-linked assignments/exams, owner-entered deadlines/effort/submission/scores, restore/history and missing-data summaries. Explicit [linked task/study creation](docs/academic-planning.md) adds atomic source snapshots, captured/current inspection, paged linked work and status/time reports. [Academic reminders](docs/academic-reminders.md) suppress delivery when work is closed, deleted or in an archived class. New UI controls and live grade/submission import remain pending; see [academic-work contracts](docs/academic-work.md). Direct academic planner items remain AI-blocked until text provenance is verified.
+[Academic management](docs/academic-management.md) adds guarded all-status browsing and atomic selected status/deadline/effort/priority/deletion with score protection. [Calendar batches](docs/calendar-management.md) add selected whole-record deletion and one-time study-status changes, preserving source/recurrence history. UI/offline controls remain pending.
+
+Manual academic-work backend supports class-linked assignments/exams, owner-entered deadlines/effort/submission/scores, restore/history and missing-data summaries. Explicit [linked task/study creation](docs/academic-planning.md) adds atomic source snapshots, captured/current inspection, paged linked work and status/time reports. [Academic reminders](docs/academic-reminders.md) suppress delivery when work is closed, deleted or in an archived class. [Verified manual academic context](docs/ai-academic-context.md) supports explicit work/class versions and direct planner origins without grades; workload-plan/legacy incomplete provenance stays blocked. New UI controls and live grade/submission import remain pending; see [academic-work contracts](docs/academic-work.md).
 
 Reminder/inbox backend now supports durable snooze, paged history, full unread counts and atomic selected-notification mark-read. These controls await UI integration and retain the existing in-app delivery boundary; see [reminder contracts](docs/planner.md#snooze-and-inbox-history-backend-implemented-2026-10-11).
 
@@ -95,4 +101,4 @@ Backend AI lifecycle now includes metadata-only requests, owner cancellation/hid
 - Kompakt packaging/offline/closed-app notification behavior remains an open device gate.
 - The first implementation milestone has bounded scope and measurable acceptance criteria.
 
-Research baseline: 2026-10-09; implementation/scope updated 2026-10-11. Recheck provider requirements when implementation starts.
+Research baseline: 2026-10-09; implementation/scope updated 2026-10-12. Recheck provider requirements when implementation starts.

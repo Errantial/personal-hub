@@ -1,4 +1,5 @@
 import type { AIProviderRegistry } from '@hub/contracts';
+import { aiContextRefSchema } from '@hub/contracts';
 import { ApiError } from '../errors.js';
 
 // Transport preparation only. No fetch, credential or production dispatch lives
@@ -24,15 +25,7 @@ export function buildOpenRouterTextRequest(
     properties: {
       kind: {
         type: 'string',
-        enum: [
-          'task',
-          'event',
-          'course',
-          'topic',
-          'canvas-item',
-          'canvas-assignment',
-          'memory',
-        ],
+        enum: aiContextRefSchema.shape.kind.options,
       },
       id: { type: 'string' },
       version: { type: 'integer', minimum: 1 },

@@ -3,6 +3,7 @@ import {
   calendarRecordSchema,
   courseSchema,
   topicSchema,
+  academicWorkSchema,
   canvasProviderDataSchema,
   canvasLmsAssignmentDataSchema,
   aiContextManifestSchema,
@@ -92,7 +93,33 @@ export async function assembleAITextContext(
   const counts: number[] = [];
   for (const source of sources) {
     let content: Record<string, unknown>;
-    if (source.kind === 'memory') {
+    if (source.kind === 'academic-work') {
+      const [row] = await tx.query(
+        `SELECT w.version,c.version AS "courseVersion",w.title,w.kind,w.notes,to_char(w.due_date,'YYYY-MM-DD') AS "dueDate",w.estimated_minutes AS "estimatedMinutes",w.priority,w.status
+         FROM academic_work w JOIN courses c ON c.id=w.course_id AND c.owner_id=w.owner_id
+         WHERE w.owner_id=$1 AND w.id=$2 AND w.deleted_at IS NULL AND c.deleted_at IS NULL`,
+        [owner, source.id],
+      );
+      if (
+        !row ||
+        row.version !== source.version ||
+        row.courseVersion !== source.academicCourse?.version
+      )
+        throw new ApiError(409, 'VERSION_CONFLICT', 'Reload academic context.');
+      // Manual planning text only. Exclude recorded grades, arbitrary rows,
+      // class/instructor details, provider payloads and attachments.
+      content = academicWorkSchema
+        .pick({
+          title: true,
+          kind: true,
+          notes: true,
+          dueDate: true,
+          estimatedMinutes: true,
+          priority: true,
+          status: true,
+        })
+        .parse(row);
+    } else if (source.kind === 'memory') {
       const [row] = await tx.query(
         `SELECT m.version,m.kind,m.title,m.content,to_char(m.observed_on,'YYYY-MM-DD') AS "observedOn",s.version AS "settingsVersion" FROM memories m JOIN memory_settings s ON s.owner_id=m.owner_id WHERE m.owner_id=$1 AND m.id=$2 AND m.deleted_at IS NULL AND m.enabled AND s.enabled`,
         [owner, source.id],
@@ -186,6 +213,12 @@ export async function assembleAITextContext(
         labels: source.labels,
         attachmentDerived: false,
         memorySettingsVersion: source.memorySettingsVersion ?? null,
+        ...(source.academicCourse
+          ? { academicCourse: source.academicCourse }
+          : {}),
+        ...(source.academicPlanning
+          ? { academicPlanning: source.academicPlanning }
+          : {}),
         characters: counts[index],
       })),
       payloadCharacters: payload.length,

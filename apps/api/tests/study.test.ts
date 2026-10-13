@@ -92,7 +92,7 @@ async function removeWorkloadMigration() {
     ALTER TABLE events DROP CONSTRAINT events_owned_id;
     ALTER TABLE academic_work DROP CONSTRAINT academic_work_owned_id`);
   await db.query(
-    "DELETE FROM schema_migrations WHERE name IN ('027_study_workload_sources.sql','028_academic_planner_sources.sql','029_academic_work_reminders.sql')",
+    "DELETE FROM schema_migrations WHERE name IN ('027_study_workload_sources.sql','028_academic_planner_sources.sql','029_academic_work_reminders.sql','045_academic_origin_guard.sql')",
   );
 }
 beforeEach(async () => {

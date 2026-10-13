@@ -3,13 +3,20 @@ import type { Database, QueryExecutor } from '../db/database.js';
 import { ApiError } from '../errors.js';
 import { lockSchedule } from './schedule-lock.js';
 
+type MutationOptions = {
+  isolation?: 'repeatable read';
+  // Database-only authorization. Recheck both fresh changes and historical
+  // receipt replay; a revoked session must not release private receipt text.
+  authorize?: (transaction: QueryExecutor) => Promise<void>;
+};
+
 export function mutateSchedule<T>(
   database: Database,
   owner: string,
   operationId: string,
   payload: unknown,
   work: (tx: QueryExecutor) => Promise<T>,
-  options: { isolation?: 'repeatable read' } = {},
+  options: MutationOptions = {},
 ) {
   return mutate(
     database,
@@ -30,7 +37,7 @@ export async function mutate<T>(
   operationId: string,
   payload: unknown,
   work: (transaction: QueryExecutor) => Promise<T>,
-  options: { isolation?: 'repeatable read' } = {},
+  options: MutationOptions = {},
 ): Promise<T> {
   const hash = createHash('sha256')
     .update(JSON.stringify(payload))
@@ -41,6 +48,7 @@ export async function mutate<T>(
         await transaction.query(
           'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ',
         );
+      await options.authorize?.(transaction);
       const [inserted] = await transaction.query(
         'INSERT INTO mutation_receipts (owner_id, operation_id, payload_hash) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING operation_id',
         [ownerId, operationId, hash],
@@ -59,6 +67,7 @@ export async function mutate<T>(
             'OPERATION_CONFLICT',
             'This operation ID was already used for a different change.',
           );
+        await options.authorize?.(transaction);
         return receipt.result;
       }
       if (
@@ -70,6 +79,7 @@ export async function mutate<T>(
       )
         await lockSchedule(transaction, ownerId);
       const result = await work(transaction);
+      await options.authorize?.(transaction);
       await transaction.query(
         'UPDATE mutation_receipts SET result = $3::jsonb WHERE owner_id = $1 AND operation_id = $2',
         [ownerId, operationId, JSON.stringify(result)],

@@ -179,8 +179,15 @@ export function registerAcademicPlanning(
           labels.push(
             ...inherited.labels.filter((label) => !labels.includes(label)),
           );
-          eventId = (await createStudyEvent(tx, owner.id, input.event, labels))
-            .id;
+          // Direct manual planning has a durable, separately bound source.
+          // Keep complete class/topic label history; the workload-plan path
+          // still supplies unverified workloadLabels and remains fail-closed.
+          eventId = (
+            await createStudyEvent(tx, owner.id, {
+              ...input.event,
+              sensitivity: strongest(input.event.sensitivity, ...labels),
+            })
+          ).id;
         }
         await tx.query(
           'INSERT INTO academic_planner_sources(id,owner_id,work_id,task_id,event_id,snapshot,labels) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::text[])',
