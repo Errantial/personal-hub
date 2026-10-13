@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mailTaskSourceSchema } from './mail-source.js';
 import { recurrenceSchema } from './features.js';
 import { academicPlannerSourceSummarySchema } from './academic-source.js';
 import { canvasSourceRefSchema, plannerSourceSchema } from './provenance.js';
@@ -79,6 +80,7 @@ export const taskSchema = z.object({
   ...metadata,
   canvasSource: plannerSourceSchema.nullable().default(null),
   academicSource: academicPlannerSourceSummarySchema.nullable().default(null),
+  mailSource: mailTaskSourceSchema.nullable().default(null),
 });
 export const createTaskSchema = z.strictObject({
   ...taskFields,

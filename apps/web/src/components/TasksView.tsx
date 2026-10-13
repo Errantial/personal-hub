@@ -712,6 +712,32 @@ function TaskEditor({
         <>
           <PlannerSource source={latest.canvasSource} />
           <AcademicSource source={latest.academicSource} />
+          {latest.mailSource && (
+            <details>
+              <summary>Mail source</summary>
+              <Link
+                navigate={navigate}
+                route={{
+                  name: 'inbox',
+                  section: 'mail',
+                  mail: latest.mailSource.messageId,
+                }}
+              >
+                Open source message
+              </Link>
+              <p>
+                Message version {latest.mailSource.messageVersion} ·{' '}
+                {latest.mailSource.labels.join(', ')}
+              </p>
+              <blockquote className="task-mail-quote">
+                {latest.mailSource.quote}
+              </blockquote>
+              <p>
+                Confirmed at creation:{' '}
+                {latest.mailSource.confirmedDueDate ?? 'No deadline'}
+              </p>
+            </details>
+          )}
           <div className="task-editor__danger">
             <button
               type="button"
