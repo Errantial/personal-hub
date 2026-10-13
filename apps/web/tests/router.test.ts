@@ -130,6 +130,23 @@ it('addresses a class, its section and the add-class form', () => {
   });
 });
 
+it('addresses email drafts inside the inbox', () => {
+  const id = '00000000-0000-4000-8000-000000000003';
+  expect(routePath({ name: 'inbox', section: 'drafts' })).toBe('/inbox/drafts');
+  expect(routePath({ name: 'inbox', section: 'drafts', draft: id })).toBe(
+    `/inbox/drafts/${id}`,
+  );
+  expect(parseRoute('/inbox/drafts/new', '')).toEqual({
+    name: 'inbox',
+    section: 'drafts',
+    draft: 'new',
+  });
+  expect(parseRoute('/inbox/drafts/nope', '')).toEqual({
+    name: 'inbox',
+    section: 'drafts',
+  });
+});
+
 it('addresses reminders and their editor inside the inbox', () => {
   const id = '3f2b8c1e-5a4d-4e6f-9a0b-1c2d3e4f5a6b';
   expect(routePath({ name: 'inbox' })).toBe('/inbox');

@@ -1,10 +1,11 @@
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   notificationHistorySchema,
   notificationResponseSchema,
   notificationsReadResponseSchema,
   notificationsSchema,
   reminderResponseSchema,
+  reminderHistorySchema,
   remindersSchema,
 } from '@hub/contracts';
 import type { HubNotification, Reminder } from '@hub/contracts';
@@ -19,6 +20,7 @@ import {
 import type { PermissionState } from '../lib/reminders';
 import type { Route } from '../lib/router';
 import { useConfirm } from './ConfirmDialog';
+import { EmailDrafts } from './EmailDrafts';
 import { Help } from './Help';
 import { Link } from './Link';
 import { ReadState } from './ReadState';
@@ -62,6 +64,7 @@ export function InboxView({
       : Notification.permission,
   );
   const [permissionError, setPermissionError] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
   const observed = useRef(new Set<string>());
   const initialized = useRef(false);
   const [dialog, confirm] = useConfirm();
@@ -253,6 +256,15 @@ export function InboxView({
                   Reminders
                 </Link>
               </li>
+              <li>
+                <Link
+                  route={{ name: 'inbox', section: 'drafts' }}
+                  navigate={navigate}
+                  current={route.section === 'drafts'}
+                >
+                  Email drafts
+                </Link>
+              </li>
             </ul>
           </nav>
           {!route.section && (
@@ -270,6 +282,9 @@ export function InboxView({
                 void markLoadedRead();
               }}
             />
+          )}
+          {route.section === 'drafts' && (
+            <EmailDrafts draft={route.draft} navigate={navigate} />
           )}
           {route.section === 'reminders' && (
             <section aria-label="Reminders">
@@ -314,6 +329,12 @@ export function InboxView({
                   </ul>
                 </details>
               )}
+              <details
+                onToggle={(event) => setShowHistory(event.currentTarget.open)}
+              >
+                <summary>Reminder history</summary>
+                {showHistory && <ReminderHistory />}
+              </details>
             </section>
           )}
         </div>
@@ -367,11 +388,13 @@ function ReminderRow({
   busy,
   navigate,
   onChange,
+  readOnly = false,
 }: {
   item: Reminder;
   busy: boolean;
   navigate: Navigate;
   onChange: (action: string) => void;
+  readOnly?: boolean;
 }) {
   const button = (
     action: string,
@@ -405,23 +428,146 @@ function ReminderRow({
           <p className="form-error">Last failure: {item.lastError}</p>
         )}
       </div>
-      <div className="inbox-list__actions">
-        {['queued', 'paused', 'failed'].includes(item.status) && (
-          <Link
-            route={{ name: 'inbox', section: 'reminders', reminder: item.id }}
-            navigate={navigate}
-          >
-            Reschedule<span className="visually-hidden"> {item.title}</span>
-          </Link>
-        )}
-        {['queued', 'running'].includes(item.status) &&
-          button('pause', 'Pause')}
-        {item.status === 'paused' && button('resume', 'Resume')}
-        {item.status === 'failed' && button('retry', 'Retry')}
-        {['queued', 'running', 'paused', 'failed'].includes(item.status) &&
-          button('cancel', 'Cancel', `Cancel reminder ${item.title}`)}
-      </div>
+      {!readOnly && (
+        <div className="inbox-list__actions">
+          {['queued', 'paused', 'failed'].includes(item.status) && (
+            <Link
+              route={{ name: 'inbox', section: 'reminders', reminder: item.id }}
+              navigate={navigate}
+            >
+              Reschedule<span className="visually-hidden"> {item.title}</span>
+            </Link>
+          )}
+          {['queued', 'running'].includes(item.status) &&
+            button('pause', 'Pause')}
+          {item.status === 'paused' && button('resume', 'Resume')}
+          {item.status === 'failed' && button('retry', 'Retry')}
+          {['queued', 'running', 'paused', 'failed'].includes(item.status) &&
+            button('cancel', 'Cancel', `Cancel reminder ${item.title}`)}
+        </div>
+      )}
     </li>
+  );
+}
+
+/** Online inspection only; current reminder controls keep their existing versions. */
+function ReminderHistory() {
+  const [status, setStatus] = useState<Reminder['status'] | ''>('');
+  const [rows, setRows] = useState<Reminder[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const generation = useRef(0);
+  const load = useCallback(
+    async (before?: string) => {
+      const current = ++generation.current;
+      setLoading(true);
+      setError('');
+      if (!before) {
+        setRows([]);
+        setCursor(null);
+      }
+      const query = new URLSearchParams({ limit: '25' });
+      if (status) query.set('status', status);
+      if (before) query.set('before', before);
+      try {
+        const page = await getJson(
+          `/api/v1/reminders/history?${query}`,
+          reminderHistorySchema,
+        );
+        if (current !== generation.current) return;
+        setRows((previous) =>
+          before
+            ? [
+                ...previous,
+                ...page.reminders.filter(
+                  (item) => !previous.some((row) => row.id === item.id),
+                ),
+              ]
+            : page.reminders,
+        );
+        setCursor(page.nextBefore);
+      } catch {
+        if (current === generation.current)
+          setError(
+            'Could not load reminder history. Retry online or reload the list.',
+          );
+      } finally {
+        if (current === generation.current) setLoading(false);
+      }
+    },
+    [status],
+  );
+  useEffect(() => {
+    void load();
+    return () => {
+      generation.current++;
+    };
+  }, [load]);
+  return (
+    <section aria-label="Reminder history">
+      <h3>Reminder history</h3>
+      <Help label="Reminder history">
+        Online, read-only history, newest created first. Delivery means a saved
+        inbox record, not a device alert. Reload for new arrivals; status
+        changes can affect later pages.
+      </Help>
+      <label>
+        History status
+        <select
+          value={status}
+          onChange={(event) =>
+            setStatus(event.target.value as Reminder['status'] | '')
+          }
+        >
+          <option value="">All statuses</option>
+          {Object.entries(statusText).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {loading && <p role="status">Loading history…</p>}
+      {error && (
+        <p role="alert" className="form-error">
+          {error}
+        </p>
+      )}
+      {!loading && !error && !rows.length && <p>No matching reminders.</p>}
+      <ul className="inbox-list">
+        {rows.map((item) => (
+          <ReminderRow
+            key={item.id}
+            item={item}
+            busy={false}
+            navigate={() => undefined}
+            onChange={() => undefined}
+            readOnly
+          />
+        ))}
+      </ul>
+      <div className="form-actions">
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={loading}
+          onClick={() => void load()}
+        >
+          Reload history
+        </button>
+        {cursor && (
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={loading}
+            onClick={() => void load(cursor)}
+          >
+            {error ? 'Retry loading more reminders' : 'Load more reminders'}
+          </button>
+        )}
+      </div>
+    </section>
   );
 }
 

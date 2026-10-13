@@ -4,6 +4,8 @@ Verified against the official documentation below on 2026-10-09. School-specific
 
 ## Canvas LMS
 
+Access update (2026-10-13): the owner confirmed personal tokens are blocked. A live read-only DOM proof in one authenticated course found stable unique assignment links and exact/missing due timestamps. See the [sanitized receipt and proposed browser connector](canvas-browser.md). This does not implement syncing, prove all-account coverage or enable AI; the calendar-feed path remains independent.
+
 Implementation update (2026-10-10): a read-only school feed adapter, manual ICS import, durable refresh jobs and separate owner annotations are implemented and verified with synthetic fixtures. See [Canvas setup](canvas.md). Live school access, completeness, richer API/browser enrichment and grades remain unverified.
 
 Confirmed: school Canvas LMS at `canvas.colorado.edu`, including its calendar. The owner has an existing personal ICS feed and previously used a model-driven browser to inspect assignments and alerts. Do not place the personal feed URL in source, documentation, or logs; configure it later as a secret.
@@ -20,7 +22,7 @@ Sources: [OAuth and manual token policy](https://www.canvas.instructure.com/doc/
 
 Proof required: authenticate against the actual school instance, list an accessible course and assignment, validate the effective deadline, follow pagination, repeat the import, and recover from expired/revoked access. Do not request secrets in chat.
 
-If using the feed/browser fallback instead, validate feed UID deduplication and updates/cancellations, map browser-extracted assignments to feed/source records, recover browser login, and surface missing/uncertain data. Previous success establishes a candidate route, not a completed app integration test. No live feed or private account has been accessed during planning.
+If using the feed/browser fallback instead, validate feed UID deduplication and updates/cancellations, map browser-extracted assignments to feed/source records, recover browser login, and surface missing/uncertain data. The one-course live DOM proof establishes a candidate route, not a completed app integration test. No live feed has been accessed as part of this proof.
 
 ## Proton Mail
 

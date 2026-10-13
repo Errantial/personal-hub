@@ -2,6 +2,32 @@
 
 Completed work and validation receipts moved verbatim from backlog.md on 2026-10-12. Newest backend slices appear first within the core server/site section. backlog.md holds the current work queue.
 
+## UI validation receipts
+
+### 2026-10-13 — Canvas browser feasibility proof
+
+After owner-confirmed blocked token creation and normal owner login, saved browser authentication survived a T3 runtime restart. Bounded DOM reads/navigation reached one academic course's assignment list. Repeated stable reads found 27 unique source links/titles, ten valid exact due timestamps and 17 undated records. Initial asynchronous emptiness was correctly treated as not yet loaded. A fresh public-page snapshot still timed out, so the proof used DOM inspection; this is not a full automation-tool recovery.
+
+No hub import, provider write, cookie export, screenshot/attachment capture or paid AI call occurred. Only sanitized aggregate evidence/selectors are retained in project documentation; private records and scores are not fixtures. This completed feasibility test is distinct from the proposed, unimplemented browser connector. Completeness across courses, durable ingestion/provenance/receipts, session-expiry handling and feed reconciliation remain pending. See [receipt and proposal](canvas-browser.md). Application code was unchanged, so broad application/browser test suites were not rerun.
+
+### 2026-10-13 — Oracle Linux deployment
+
+Deployed app commit `265a99d` on the inspected Oracle Linux 9.7 ARM64 host (two CPUs, 10 GiB RAM), preserving the existing Java service. Node 24.21.0/npm 11.19.0, Caddy 2.11.7 and PostgreSQL 16.15 support supervised loopback API, public HTTPS and a fresh owner database. Provider execution is disabled. The owner added DNS and Oracle Cloud HTTP/HTTPS ingress; host firewall changes preserve SSH/database exposure.
+
+Shell/systemd checks, migration/startup, API restart/readiness, unauthenticated 401, root-only secret/backup permissions, custom dump checksum and isolated schema/synthetic receipt restore passed. External HTTPS and a read-only live browser check passed setup/deep-link loading, narrow layout and no JS errors using a DNS override (local resolver cached NXDOMAIN). No owner enrollment, private-token output, real providers or development database reset occurred. Daily same-device backups are enabled; encrypted off-host backups are deferred by owner choice. Enrollment, authenticated live workflows, development-data transfer and load remain pending. See [operating instructions](../deploy/oracle-linux/README.md).
+
+### 2026-10-13 — Paged reminder history
+
+Inbox › Reminders now loads read-only, online history in 25-record pages, with status filters, reload and retry. Failed paging preserves loaded rows and the cursor; generation guards reject delayed filter responses. Current controls, snooze and notification behavior remain intact.
+
+`npm run check` passed lint, types, formatting, builds and 516 tests (one optional PostgreSQL test skipped). All 93 full browser tests passed, including history paging/retry/races and expanded-view accessibility, overflow and target checks at 1280px standard and 320px e-ink. The nine focused Inbox tests also passed. Tests used isolated synthetic databases, no real providers or paid AI, and no device tests. Existing bundle-size advisory remains. Step 2 is implemented locally; recent UI PRs await integration. Deployment is next.
+
+### 2026-10-13 — Email draft review UI
+
+Inbox now supports online plain-text draft creation/editing, current/deleted browsing, exact stored-message review, approval/revocation and delete/restore. Sending remains visibly blocked. Deletion explains retained private text/history; restoring or editing requires fresh approval. Failed conflict reloads preserve local edits, and lost-response saves reuse their operation identity.
+
+Validation: `npm run check` passed lint, types, formatting, builds and 516 tests (one optional PostgreSQL test skipped). The full browser run passed 91 of 92 checks; the new draft test failed on an ambiguous alert locator. After narrowing that assertion, the draft test passed on a fresh isolated run, including conflict reload failure and duplicate-safe lost-response retry. All 92 checks therefore passed across the full run and focused rerun. No real providers, paid AI, owner database reset or device tests were used. The existing web bundle size advisory remains. Reminder-history paging is the remaining step-2 UI item; revision/approval history views and live mail delivery remain pending.
+
 ## Completed local foundation
 
 - React/Vite web, Fastify API, strict shared TypeScript/Zod contracts, reproducible npm workspaces/lockfile.
