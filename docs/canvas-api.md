@@ -4,6 +4,8 @@ Connections has a separate Canvas API panel for read-only course and assignment 
 
 ## Setup and access
 
+Owner access update (2026-10-13): the school blocks personal token creation, so the setup path below is currently unavailable to this owner. A [read-only browser feasibility test](canvas-browser.md) passed; its durable connector remains a proposal. No OAuth flow has been implemented or approved for this app.
+
 Set `CANVAS_API_TOKEN` privately in the server environment or repository-root `.env`, then restart the API. Never put it in `VITE_*` settings, source control, chat, screenshots or logs. The frontend accepts no token and displays only configured/not configured. The fixed upstream origin is `https://canvas.colorado.edu`; the server-held token is bound to the enrolled owner in `owner_setup`, so another owner cannot activate or use it.
 
 This manual-token path is for the owner's personal testing. School policy/permissions may prevent token generation or access; live access remains a gate. Canvas documents manual tokens for testing and requires OAuth for multi-user applications. Expansion needs institution-approved OAuth and per-owner credential storage rather than this singleton configuration. [Canvas OAuth and manual token guidance](https://developerdocs.instructure.com/services/canvas/oauth2/file.oauth).
