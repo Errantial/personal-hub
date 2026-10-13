@@ -2,11 +2,13 @@ import { AIBudgetSettings } from './AIBudgetSettings';
 import { AIPreflights } from './AIPreflights';
 import { AIProviders } from './AIProviders';
 import { AIRoutingSettings } from './AIRoutingSettings';
+import { AssistantSettings } from './AssistantSettings';
 import { Help } from './Help';
 import { StatusChip } from './StatusChip';
 import './AIView.css';
 
 const sections = [
+  ['ai-assistant', 'Assistant'],
   ['ai-permissions', 'Permissions'],
   ['ai-spending', 'Spending limits'],
   ['ai-providers', 'Providers'],
@@ -23,14 +25,15 @@ export function AIView() {
     <section className="ai-view" aria-label="AI settings">
       <div className="panel preference-panel">
         <h2>
-          AI requests are off <StatusChip>Preview only</StatusChip>
+          AI <StatusChip>Assistant only</StatusChip>
         </h2>
         <Help label="AI status">
-          Nothing on this page sends a request to a provider. Permissions,
-          spending limits and request checks are saved rules and metadata for
-          when AI is enabled. A provider that is unavailable blocks or queues a
-          request; it never falls back to another one. Email always needs your
-          approval before it is sent.
+          Only the Assistant on Today sends requests, to OpenRouter, within your
+          spending limits. Its changes are applied only when you choose.
+          Permissions, providers and request checks below are saved rules for
+          later AI features. A provider that is unavailable blocks a request; it
+          never falls back to another one. Email always needs your approval
+          before it is sent.
         </Help>
         <nav aria-label="AI sections">
           <ul className="ai-view__jump">
@@ -43,6 +46,9 @@ export function AIView() {
         </nav>
       </div>
       <div className="preferences-grid">
+        <div id="ai-assistant">
+          <AssistantSettings />
+        </div>
         <div id="ai-permissions">
           <AIRoutingSettings />
         </div>

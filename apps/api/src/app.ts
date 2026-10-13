@@ -36,6 +36,12 @@ import { registerAcademicPlanning } from './features/academic-planning.js';
 import { registerToday } from './features/today.js';
 import { registerTaskManagement } from './features/task-management.js';
 import { registerAIActions } from './features/ai-actions.js';
+import { registerAssistant } from './features/assistant.js';
+import {
+  connectorPathPrefix,
+  registerEmailIngestion,
+} from './features/email-ingestion.js';
+import type { OpenRouterFetch } from './ai/openrouter-live.js';
 import { registerEmailDrafts } from './features/email-drafts.js';
 import { registerMemory } from './features/memory.js';
 import { registerResponsibilities } from './features/responsibilities.js';
@@ -58,6 +64,8 @@ export async function buildApp(
     runWorker?: boolean;
     canvasFetcher?: FeedFetcher;
     canvasApiFetcher?: CanvasApiFetcher;
+    /** Tests inject this; the default is the global fetch. */
+    openRouterFetch?: OpenRouterFetch;
   } = {},
 ) {
   const config = runtime.config ?? readConfig({});
@@ -88,9 +96,16 @@ export async function buildApp(
   app.addHook('onRequest', async (request, reply) => {
     reply.header('Cache-Control', 'no-store');
     if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
+      // The local mail connector is not a browser: it authenticates with a
+      // bearer token instead of a session cookie, so CSRF origin checks do
+      // not apply to its routes.
+      const connector =
+        request.url.startsWith(connectorPathPrefix) &&
+        request.headers.authorization?.startsWith('Bearer hubc_');
       if (
-        !request.headers.origin ||
-        !config.WEB_ORIGINS.includes(request.headers.origin)
+        !connector &&
+        (!request.headers.origin ||
+          !config.WEB_ORIGINS.includes(request.headers.origin))
       )
         throw new ApiError(
           403,
@@ -114,7 +129,9 @@ export async function buildApp(
   registerAIProviderPolicy(app, database, auth, config);
   registerAIRequests(app, database, auth, config);
   registerAIActions(app, database, auth);
+  registerAssistant(app, database, auth, config, runtime.openRouterFetch);
   registerEmailDrafts(app, database, auth);
+  registerEmailIngestion(app, database, auth);
   registerMemory(app, database, auth);
   registerResponsibilities(app, database, auth);
   registerResponsibilityInbox(app, database, auth);

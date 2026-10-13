@@ -1,0 +1,406 @@
+import { randomUUID } from 'node:crypto';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { Temporal } from '@hub/contracts';
+import { buildApp } from '../src/app.js';
+import { readConfig } from '../src/config.js';
+import { openDatabase } from '../src/db/database.js';
+import {
+  chatUrl,
+  modelsUrl,
+  worstCaseMicros,
+} from '../src/ai/openrouter-live.js';
+import { toProposal } from '../src/features/assistant.js';
+
+// Every provider exchange is injected; global fetch is forbidden.
+const origin = 'http://127.0.0.1:5173';
+const model = 'anthropic/claude-haiku-5.5';
+const base = { NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' };
+let app: Awaited<ReturnType<typeof buildApp>>;
+let database: Awaited<ReturnType<typeof openDatabase>>;
+let cookie: string;
+let chat: (body: Record<string, unknown>) => Promise<Response> | Response;
+let sent: Record<string, unknown>[];
+
+const catalog = () =>
+  new Response(
+    JSON.stringify({
+      data: [
+        {
+          id: model,
+          architecture: {
+            input_modalities: ['text', 'image'],
+            output_modalities: ['text'],
+          },
+          pricing: { prompt: '0.0000001', completion: '0.0000005' },
+        },
+      ],
+    }),
+    { status: 200 },
+  );
+const completion = (content: unknown, cost = '0.000123') =>
+  new Response(
+    `{"id":"gen-test-1","model":"${model}","usage":{"prompt_tokens":900,"completion_tokens":60,"total_tokens":960,"cost":${cost}},"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":${JSON.stringify(
+      typeof content === 'string' ? content : JSON.stringify(content),
+    )}}}]}`,
+    { status: 200, headers: { 'content-type': 'application/json' } },
+  );
+const action = (fields: Record<string, unknown>) => ({
+  type: 'task.create',
+  ref: null,
+  title: null,
+  dueDate: null,
+  clearDueDate: false,
+  priority: null,
+  completed: null,
+  start: null,
+  end: null,
+  allDay: null,
+  notes: null,
+  ...fields,
+});
+
+async function start(key: string | null = 'sk-or-synthetic-test') {
+  const config = readConfig({
+    ...base,
+    ...(key ? { AI_SECRET_OPENROUTER: key } : {}),
+  });
+  database = await openDatabase(config);
+  sent = [];
+  const fetcher = vi.fn(async (url: string, init: RequestInit) => {
+    if (url === modelsUrl) return catalog();
+    if (url === chatUrl) {
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+      sent.push(body);
+      return chat(body);
+    }
+    throw new Error(`Unexpected ${url}`);
+  });
+  app = await buildApp(
+    { logger: false },
+    { config, database, openRouterFetch: fetcher },
+  );
+  const setup = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/setup',
+    headers: { origin },
+    payload: {
+      email: 'assistant@example.test',
+      password: 'synthetic-password',
+    },
+  });
+  cookie = String(setup.headers['set-cookie']).split(';')[0]!;
+  return fetcher;
+}
+const call = (method: string, url: string, payload?: object) =>
+  app.inject({
+    method: method as 'GET',
+    url,
+    headers: { origin, cookie },
+    ...(payload ? { payload } : {}),
+  });
+const setBudget = () =>
+  call('PUT', '/api/v1/ai/budget', {
+    operationId: randomUUID(),
+    expectedVersion: 1,
+    policy: { monthlyLimitMicros: 50000000, perRequestLimitMicros: 250000 },
+  });
+const ask = (text: string, operationId = randomUUID()) =>
+  call('POST', '/api/v1/assistant/requests', {
+    operationId,
+    text,
+    timeZone: 'America/Denver',
+  });
+
+beforeEach(() => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => {
+      throw new Error('Network forbidden in assistant tests.');
+    }),
+  );
+  chat = () => completion({ reply: 'Nothing to do.', actions: [] });
+});
+afterEach(async () => {
+  expect(fetch).not.toHaveBeenCalled();
+  vi.unstubAllGlobals();
+  await app.close();
+});
+
+it('reports a missing key and blocks unset budgets before any request', async () => {
+  const fetcher = await start(null);
+  const settings = await call('GET', '/api/v1/assistant/settings');
+  expect(settings.json().settings).toEqual({
+    model,
+    version: 1,
+    configured: false,
+  });
+  expect((await ask('Plan my week')).json().error.code).toBe(
+    'ASSISTANT_NOT_CONFIGURED',
+  );
+  await app.close();
+  await start();
+  expect((await ask('Plan my week')).json().error.code).toBe('BUDGET_UNSET');
+  expect(sent).toHaveLength(0);
+  expect(fetcher).not.toHaveBeenCalledWith(chatUrl, expect.anything());
+});
+
+it('proposes checked changes, withholds labeled items and settles the reported cost', async () => {
+  await start();
+  await setBudget();
+  const task = (
+    await call('POST', '/api/v1/tasks', {
+      title: 'Lab report',
+      dueDate: '2036-03-10',
+      operationId: randomUUID(),
+    })
+  ).json().task;
+  await call('POST', '/api/v1/tasks', {
+    title: 'Private appointment',
+    sensitivity: 'personal',
+    operationId: randomUUID(),
+  });
+  const startsAt = Temporal.Now.instant().add({ hours: 48 }).round('minute');
+  const event = (
+    await call('POST', '/api/v1/calendar', {
+      title: 'Advisor meeting',
+      startsAt: startsAt.toString(),
+      endsAt: startsAt.add({ minutes: 30 }).toString(),
+      timeZone: 'America/Denver',
+      operationId: randomUUID(),
+    })
+  ).json().event;
+  const moved = startsAt
+    .add({ hours: 1 })
+    .toZonedDateTimeISO('America/Denver')
+    .toPlainDateTime()
+    .toString({ smallestUnit: 'minute' });
+  chat = () =>
+    completion({
+      reply: 'Added a task, moved the lab report and the meeting.',
+      actions: [
+        action({ title: 'Buy notebook', dueDate: '2036-03-01' }),
+        action({ type: 'task.update', ref: 't1', dueDate: '2036-03-12' }),
+        action({ type: 'event.update', ref: 'e1', start: moved }),
+        action({ type: 'task.update', ref: 't9', title: 'Invented' }),
+      ],
+    });
+  const reply = await ask(
+    'Add buy notebook, push the lab report, move my meeting',
+  );
+  expect(reply.statusCode).toBe(200);
+  const request = reply.json().request;
+  expect(request).toMatchObject({
+    status: 'completed',
+    reason: null,
+    resultAvailable: true,
+    withheld: 1,
+    dropped: 1,
+    costMicros: 123,
+    heldMicros: 0,
+  });
+  expect(request.proposals.map((p: { kind: string }) => p.kind)).toEqual([
+    'task.create',
+    'task.update',
+    'event.update',
+  ]);
+  expect(request.proposals[1]).toMatchObject({
+    target: { id: task.id, version: task.version },
+    changes: { dueDate: '2036-03-12' },
+  });
+  expect(request.proposals[2].changes).toEqual({
+    startsAt: new Date(
+      startsAt.add({ hours: 1 }).epochMilliseconds,
+    ).toISOString(),
+    endsAt: new Date(
+      startsAt.add({ minutes: 90 }).epochMilliseconds,
+    ).toISOString(),
+  });
+  expect(request.proposals[2].target.id).toBe(event.id);
+
+  // Only unlabeled items and refs leave the server, pinned with no fallback.
+  const body = sent[0]!;
+  const text = JSON.stringify(body);
+  expect(text).not.toContain('Private appointment');
+  expect(text).not.toContain(task.id);
+  expect(text).not.toContain(event.id);
+  expect(body).toMatchObject({
+    model,
+    provider: {
+      only: ['anthropic'],
+      allow_fallbacks: false,
+      data_collection: 'deny',
+      zdr: true,
+    },
+    usage: { include: true },
+  });
+  const budget = (await call('GET', '/api/v1/ai/budget')).json();
+  expect(budget.usage).toMatchObject({ spentMicros: '123', heldMicros: '0' });
+  // Nothing was applied: the task is unchanged until the owner applies it.
+  expect(
+    (await call('GET', `/api/v1/tasks`))
+      .json()
+      .tasks.find((t: { id: string }) => t.id === task.id).dueDate,
+  ).toBe('2036-03-10');
+});
+
+it('never resends a retried operation and rejects a changed one', async () => {
+  await start();
+  await setBudget();
+  const operationId = randomUUID();
+  expect((await ask('Plan my week', operationId)).json().request).toMatchObject(
+    { resultAvailable: true, reply: 'Nothing to do.' },
+  );
+  const again = (await ask('Plan my week', operationId)).json().request;
+  expect(again).toMatchObject({
+    status: 'completed',
+    resultAvailable: false,
+    reply: null,
+    proposals: [],
+  });
+  expect((await ask('Plan next week', operationId)).json().error.code).toBe(
+    'OPERATION_CONFLICT',
+  );
+  expect(sent).toHaveLength(1);
+});
+
+it('withholds source-linked events and unknown label history even when their root labels are unlabeled', async () => {
+  await start();
+  await setBudget();
+  const instant = Temporal.Now.instant().add({ hours: 48 }).round('minute');
+  const course = (
+    await call('POST', '/api/v1/courses', {
+      operationId: randomUUID(),
+      name: 'Synthetic private class',
+      sensitivity: 'unlabeled',
+    })
+  ).json().course;
+  const linked = (
+    await call('POST', '/api/v1/calendar', {
+      operationId: randomUUID(),
+      title: 'EXCLUDED_CLASS_EVENT',
+      startsAt: instant.toString(),
+      endsAt: instant.add({ hours: 1 }).toString(),
+      timeZone: 'UTC',
+      courseId: course.id,
+      sensitivity: 'unlabeled',
+    })
+  ).json().event;
+  const legacy = (
+    await call('POST', '/api/v1/calendar', {
+      operationId: randomUUID(),
+      title: 'EXCLUDED_UNKNOWN_EVENT',
+      startsAt: instant.add({ hours: 2 }).toString(),
+      endsAt: instant.add({ hours: 3 }).toString(),
+      timeZone: 'UTC',
+      sensitivity: 'unlabeled',
+    })
+  ).json().event;
+  expect(linked.id).toBeDefined();
+  expect(legacy.id).toBeDefined();
+  await database.query(
+    "UPDATE courses SET sensitivity='personal',version=version+1 WHERE id=$1",
+    [course.id],
+  );
+  await database.query('UPDATE events SET academic_labels=NULL WHERE id=$1', [
+    legacy.id,
+  ]);
+  const result = await ask('Plan my day');
+  expect(result.statusCode).toBe(200);
+  expect(result.json().request.withheld).toBe(2);
+  expect(JSON.stringify(sent)).not.toContain('EXCLUDED_CLASS_EVENT');
+  expect(JSON.stringify(sent)).not.toContain('EXCLUDED_UNKNOWN_EVENT');
+});
+
+it('releases refused requests and keeps the hold when the outcome is unknown', async () => {
+  await start();
+  await setBudget();
+  chat = () => new Response('{"error":{}}', { status: 402 });
+  expect((await ask('One')).json().request).toMatchObject({
+    status: 'failed',
+    reason: 'payment-required',
+    heldMicros: 0,
+    costMicros: null,
+  });
+  chat = () => {
+    throw new TypeError('socket hang up');
+  };
+  const unknown = (await ask('Two')).json().request;
+  expect(unknown).toMatchObject({ status: 'uncertain', reason: 'transport' });
+  expect(unknown.heldMicros).toBeGreaterThan(0);
+  const usage = (await call('GET', '/api/v1/ai/budget')).json().usage;
+  expect(usage).toMatchObject({
+    spentMicros: '0',
+    heldMicros: String(unknown.heldMicros),
+  });
+  // Invalid structured output is still charged, with no proposals.
+  chat = () => completion('not json', '0.00005');
+  expect((await ask('Three')).json().request).toMatchObject({
+    status: 'completed',
+    reason: 'invalid',
+    costMicros: 50,
+    resultAvailable: false,
+  });
+});
+
+it('blocks a request whose worst case exceeds the per-request limit', async () => {
+  await start();
+  await call('PUT', '/api/v1/ai/budget', {
+    operationId: randomUUID(),
+    expectedVersion: 1,
+    policy: { monthlyLimitMicros: 50000000, perRequestLimitMicros: 1 },
+  });
+  expect((await ask('Plan my week')).json().error.code).toBe(
+    'REQUEST_BUDGET_EXCEEDED',
+  );
+  expect(sent).toHaveLength(0);
+});
+
+it('saves a supported model with optimistic versions', async () => {
+  await start();
+  const put = (value: string, expectedVersion: number) =>
+    call('PUT', '/api/v1/assistant/settings', {
+      model: value,
+      expectedVersion,
+    });
+  expect((await put('meta-llama/llama-5', 1)).json().error.code).toBe(
+    'ASSISTANT_MODEL_UNSUPPORTED',
+  );
+  expect((await put('anthropic/claude-sonnet-5.5', 1)).json().settings).toEqual(
+    { model: 'anthropic/claude-sonnet-5.5', version: 2, configured: true },
+  );
+  expect((await put(model, 1)).json().error.code).toBe('VERSION_CONFLICT');
+});
+
+it('converts all-day events and rejects skipped local times', () => {
+  const context = { tasks: [], events: [], withheld: 0 };
+  expect(
+    toProposal(
+      action({
+        type: 'event.create',
+        title: 'Conference',
+        allDay: true,
+        start: '2036-04-02',
+        end: '2036-04-03',
+      }),
+      context,
+      'America/Denver',
+    ),
+  ).toMatchObject({
+    event: { allDay: true, startDate: '2036-04-02', endDate: '2036-04-04' },
+  });
+  expect(
+    toProposal(
+      action({ type: 'event.create', title: 'Gap', start: '2036-03-09T02:30' }),
+      context,
+      'America/Denver',
+    ),
+  ).toBeNull();
+  // The worst-case bound covers every byte as a token plus all output.
+  expect(
+    worstCaseMicros(
+      { prompt: 0.0000001, completion: 0.0000005, request: 0 },
+      9500,
+      1500,
+    ),
+  ).toBe(Math.ceil((10000 * 0.0000001 + 1500 * 0.0000005) * 1.25 * 1e6));
+});

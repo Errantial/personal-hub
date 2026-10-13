@@ -417,6 +417,47 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 
 ## Change ledger
 
+### 2026-10-13 — Verified mail context gateway (backend)
+
+- Mail list/detail now include `version` for explicit `mail-message` AI context references. Reading Mail still never changes Proton flags or enables model calls.
+- Existing context preview/preflight manifests bind message and connector versions plus all stored/current connector labels. No Mail selection or classification controls are implemented yet.
+- Future selectors must preserve actionable `PROVENANCE_UNAVAILABLE`, stale-version, unavailable-provider and input-limit states. Do not silently certify legacy imported text or fall back from an unavailable approved provider.
+- Show truncation when a selected body is shortened; never imply omitted attachments were analyzed. Attachment counts, filenames, folder names and credentials are excluded from AI projections.
+- Connector revocation stops upload and invalidates pending context bindings. Stored messages remain locally readable; a deliberate new assessment can reference verified stored text. Existing token recovery, paging, detail rendering and offline planner behavior remain unchanged.
+- Main integration also tightens the narrow Today Assistant: source-linked tasks/events, class/topic-linked events and unknown academic label history are withheld along with Personal/Restricted records. The count says "items left out"; contextual Help names these exclusions. No source-linked proposal can be created from this context.
+
+
+### 2026-10-13 — Email: Proton Bridge connector and Inbox › Mail
+
+- **Settings › Connections › Email (Proton Bridge)** panel. The Proton Mail placeholder card is removed. Contract: [email-ingestion.md](email-ingestion.md).
+  - **Add connector**: Name and **Imported mail label** (default Personal). The token is shown once in a read-only field with **I saved it**.
+  - Each connector shows its status (Waiting for first sync / Connected / Revoked), label, import start date, last sync and a folder table: On Bridge, Since start, Imported, with visible "(incomplete)" when Imported is below Since start. Reload connectors refreshes the list, including recovery after a lost token response.
+  - **Revoke connector** asks first.
+- **Inbox › Mail** (`/inbox/mail`, `/inbox/mail/:id`), between Reminders and Email drafts.
+  - Folder filter; newest first, 50 per page with **Load more mail**; a late-cursor message. Rows show the subject link, sender, received time, a 2-line snippet and the attachment count marked "(not imported)".
+  - The detail page shows From/To/Cc/Received/Folders/Attachments/Label, then the body as plain pre-wrapped text, never HTML, with a "Shortened" note when truncated. "Back to mail" link.
+  - With no connector, Mail links to Connections.
+- Tests: `tests/e2e/mail.spec.ts`; `inbox/mail` is added to the accessibility sweep; router tests cover the mail addresses.
+- Known limits: read-only, no search, no flags, no deletion tracking, no AI filtering yet.
+- Creation retries preserve one connector, but cannot reissue its one-time token. Keep the recovery error visible: reload Connections, revoke it, and add a replacement. Revocation is versioned and receipt-backed. Incomplete folder counts remain visible; a shortened message does not imply that 32,000 characters were available (oversized messages can have headers only).
+
+### 2026-10-13 — Today: Assistant (first live AI flow)
+
+- **Assistant** panel at the top of Today. Contract: [ai-assistant.md](ai-assistant.md).
+  - Without a server key it shows "Not set up" and no form.
+  - **Ask** (1–1000 characters, online only) posts `{ text, timeZone }` with a stable operation ID.
+  - Shown: the reply as plain text; model and cost; how many labeled items were left out; how many suggestions could not be used; and the failure reason.
+  - An uncertain outcome says how much stays held and that nothing is resent. `BUDGET_UNSET` and `MONTHLY_BUDGET_EXCEEDED` link to Settings › AI.
+- **Proposed changes** is a checkbox group, all selected by default, with one plain-language line per change.
+  - **Apply n changes** sends the ordinary task and calendar writes one at a time. Updates use the version the model saw.
+  - Each line then shows Applied, or Not applied with the reason. A conflict says "Changed or removed since the assistant read it. Ask again."
+  - **Undo** reverses applied changes newest first. **Discard**/**Done** clears the panel. A retried request shows "already answered" with no proposals.
+- **Settings › AI › Assistant**: On/Not set up status, a **Model** field (OpenRouter ID, default `anthropic/claude-haiku-5.5`), **Save model** and version-conflict reload.
+  - The page header now reads "AI · Assistant only".
+  - The spending-limit chip reads "Used by the Assistant". Routing and request-check panels say they are preview only and not used by the Assistant.
+- Tests: `tests/e2e/assistant.spec.ts` (not set up and model save; apply then undo through the real planner API with stubbed assistant endpoints; conflict) and `apps/web/tests/assistant.test.ts`.
+- Known limits: no request history, no repeating events or deletions, labeled items never included, results not kept after reload.
+
 ### 2026-10-13 — Inbox: Email drafts and exact-message approval
 
 - New **Inbox › Email drafts** (`/inbox/drafts`, `/inbox/drafts/new`, `/inbox/drafts/:id`).

@@ -49,6 +49,7 @@ export const aiContextRefSchema = z
       'canvas-assignment',
       'memory',
       'academic-work',
+      'mail-message',
     ]),
     id: z.string().uuid(),
     expectedVersion: z.number().int().positive(),
@@ -129,6 +130,9 @@ export const aiRoutingPreviewResponseSchema = aiRoutingDecisionSchema.extend({
         .nullable()
         .optional(),
       academicPlanning: academicPlannerSourceSummarySchema.optional(),
+      mailConnector: z
+        .object({ id: z.string().uuid(), version: z.number().int().positive() })
+        .optional(),
     }),
   ),
 });

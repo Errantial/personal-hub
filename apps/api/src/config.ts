@@ -52,6 +52,17 @@ const environmentSchema = z
         .regex(/^[\x21-\x7e]+$/)
         .optional(),
     ),
+    // Planner assistant key (docs/ai-assistant.md). Server memory only; never
+    // returned, logged or exported.
+    AI_SECRET_OPENROUTER: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z
+        .string()
+        .min(1)
+        .max(4096)
+        .regex(/^[\x21-\x7e]+$/)
+        .optional(),
+    ),
     CANVAS_CALENDAR_FEED_URL: z.preprocess(
       (value) => (value === '' ? undefined : value),
       z

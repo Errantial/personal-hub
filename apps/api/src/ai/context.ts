@@ -8,6 +8,7 @@ import {
   canvasLmsAssignmentDataSchema,
   aiContextManifestSchema,
   sensitivitySchema,
+  mailMessageSchema,
 } from '@hub/contracts';
 import type { QueryExecutor } from '../db/database.js';
 import { stamp } from '../features/common.js';
@@ -93,7 +94,39 @@ export async function assembleAITextContext(
   const counts: number[] = [];
   for (const source of sources) {
     let content: Record<string, unknown>;
-    if (source.kind === 'academic-work') {
+    if (source.kind === 'mail-message') {
+      const [row] = await tx.query(
+        `SELECT m.version,m.text_origin,c.version AS "connectorVersion",m.subject,m.from_address AS "from",m.to_addresses AS "to",m.cc_addresses AS cc,${stamp('m.received_at', 'receivedAt')},${stamp('m.sent_at', 'sentAt')},m.body,m.body_truncated AS "bodyTruncated"
+         FROM email_messages m JOIN email_connectors c ON c.id=m.connector_id AND c.owner_id=m.owner_id
+         WHERE m.owner_id=$1 AND m.id=$2`,
+        [owner, source.id],
+      );
+      if (
+        !row ||
+        row.version !== source.version ||
+        row.connectorVersion !== source.mailConnector?.version
+      )
+        throw new ApiError(409, 'VERSION_CONFLICT', 'Reload mail context.');
+      if (row.text_origin !== 'message-body-v1')
+        throw new ApiError(
+          409,
+          'PROVENANCE_UNAVAILABLE',
+          'Mail text origin is not verified for AI context.',
+        );
+      // No folder names, Message-ID, raw MIME, attachment metadata or connector credentials.
+      content = mailMessageSchema
+        .pick({
+          subject: true,
+          from: true,
+          to: true,
+          cc: true,
+          receivedAt: true,
+          sentAt: true,
+          body: true,
+          bodyTruncated: true,
+        })
+        .parse(row);
+    } else if (source.kind === 'academic-work') {
       const [row] = await tx.query(
         `SELECT w.version,c.version AS "courseVersion",w.title,w.kind,w.notes,to_char(w.due_date,'YYYY-MM-DD') AS "dueDate",w.estimated_minutes AS "estimatedMinutes",w.priority,w.status
          FROM academic_work w JOIN courses c ON c.id=w.course_id AND c.owner_id=w.owner_id
@@ -218,6 +251,9 @@ export async function assembleAITextContext(
           : {}),
         ...(source.academicPlanning
           ? { academicPlanning: source.academicPlanning }
+          : {}),
+        ...(source.mailConnector
+          ? { mailConnector: source.mailConnector }
           : {}),
         characters: counts[index],
       })),

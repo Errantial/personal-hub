@@ -101,7 +101,7 @@ export function AIPreflights() {
   return (
     <section className="panel preference-panel" aria-label="AI request checks">
       <h2>Request checks</h2>
-      <StatusChip>AI requests are off · Provider health unchecked</StatusChip>
+      <StatusChip>Preview only · Provider health unchecked</StatusChip>
       <Help label="Request checks">
         This check uses saved routing permissions and current source versions,
         independently of preview simulation. It never calls a provider or queues

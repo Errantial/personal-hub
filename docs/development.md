@@ -2,6 +2,8 @@
 
 ## Current implementation
 
+[Verified mail context](ai-mail-context.md) adds owned/versioned message references to the text-only routing gateway, retaining connector labels and explicit body-origin provenance. Migration 048 leaves legacy imports uncertified. Context preview and synthetic admission revalidation do not enable email classification or paid processing.
+
 [Academic management](academic-management.md) adds owner-only guarded browsing/full counts and atomic selected status/deadline/effort/priority/deletion. [Selected Calendar changes](calendar-management.md) add whole-record deletion and one-time timed study statuses, preserving recurrence/source history. Both use shared contracts, versions, schedule locks and guarded historical receipts. UI/offline integration remains pending.
 
 [Transient context review](ai-context-preview.md) adds owner-authorized POST /api/v1/ai/context/preview in a read-only snapshot. It returns bounded text for local review with no-store/no-persistence semantics and visible execution blockers. Durable submission still rechecks and binds fresh sources; this enables no provider dispatch.
@@ -209,6 +211,8 @@ npm run test:e2e
 ```
 
 `check`: lint, strict type checks, API/client tests, formatting checks and production builds. Tests cover credentials/session handling, owner isolation, origin policy, date/timezone/range validation, mutation retries/conflicts/deletes, migrations and persistence across a restart.
+
+Run `check` and browser verification sequentially. Both build shared contracts, and concurrent builds can restart or reload the browser suite's watched development server while a test is navigating.
 
 Browser tests start separate listeners on web 5180/API 3010, wait for database readiness, and use a unique synthetic database under `.artifacts/e2e/`. They never reuse/reset the owner's database. They exercise account state, appearance persistence, API failure/retry, narrow layout, planner CRUD, and a save whose response is lost. Screenshots/video/traces are disabled. A passing browser test is not proof of Kompakt hardware compatibility.
 
