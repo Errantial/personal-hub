@@ -20,6 +20,8 @@ Integration status (2026-10-13): PR 15 merged Assistant, Mail and verified mail 
 
 Step 5 organization (2026-10-13): [mail categories and explicit rules](mail-organization.md) are implemented with owner corrections, preview/atomic apply, literal matching and retained explanations. This completes the local organization/correction slice; approved-provider AI classification, grounded deadline proposals and live upload/scheduling acceptance remain next work.
 
+Step 5 task capture (2026-10-13): [manual tasks from mail](mail-tasks.md) are implemented with exact supporting quotes, immutable source links/labels, explicit deadline confirmation and owner review before creation. This supplies the manual capture path; automatic AI extraction/proposals and approved-provider classification remain pending. Mail-derived task context stays blocked for AI until its integrity binding is supported.
+
 Canvas access update (2026-10-13): owner token creation is blocked. A [one-course browser DOM proof](canvas-browser.md) passed; a durable, read-only browser collector is proposed and remains separate from the completed calendar-feed adapter. This proof does not reorder the approved milestones or claim a new working connection. Import contracts/provenance, completeness, session expiry and source reconciliation remain required.
 
 ## Deferred Android verification
@@ -52,7 +54,7 @@ The next live execution slice is planned. Profiles, bounded preflight, numeric s
 
 ## Verification still outstanding
 
-The standard PostgreSQL check is opt-in via TEST_DATABASE_URL and configured in CI; CI has not run remotely. Android SDK command-line tools are installed, but actual Kompakt, closed-app native reminders, production TLS and release signing are unverified. T3's Device panel could not attach to the booted emulator; verification used Android instrumentation and adb instead. No production deployment or real provider connection has occurred.
+The standard PostgreSQL check is opt-in via TEST_DATABASE_URL and configured in CI; remote CI acceptance remains unverified. Android SDK command-line tools are installed, but actual Kompakt, closed-app native reminders and release signing are unverified. T3's Device panel could not attach to the booted emulator; verification used Android instrumentation and adb instead. Oracle HTTPS deployment through commit 265a99d is implemented; newer releases, owner daily use and paid provider calls remain unverified.
 
 ## Interface guideline
 

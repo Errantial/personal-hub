@@ -15,6 +15,7 @@ import { Link } from './Link';
 import { StatusChip } from './StatusChip';
 import { MailRules } from './MailRules';
 import { MailCategoryEditor } from './MailCategoryEditor';
+import { MailTaskCapture } from './MailTaskCapture';
 
 type Navigate = (route: Route) => void;
 const mailRoute = (mail?: string): Route => ({
@@ -284,6 +285,7 @@ export function MailView({
           revision={revision}
           onChanged={changed}
           locked={applying}
+          onPending={setApplying}
         />
       )}
     </section>
@@ -296,12 +298,14 @@ function MailDetail({
   revision,
   onChanged,
   locked,
+  onPending,
 }: {
   id: string;
   navigate: Navigate;
   revision: number;
   onChanged: () => void;
   locked: boolean;
+  onPending: (value: boolean) => void;
 }) {
   const [message, setMessage] = useState<MailMessage | null>(null);
   const [error, setError] = useState('');
@@ -344,7 +348,7 @@ function MailDetail({
       controller.abort();
     };
   }, [id, revision, attempt]);
-  if (error)
+  if (error && !message)
     return (
       <div role="alert" className="form-error">
         <p>{error}</p>
@@ -366,6 +370,18 @@ function MailDetail({
       <h3 id="mail-subject" ref={heading} tabIndex={-1}>
         {message.subject || '(No subject)'}
       </h3>
+      {error && (
+        <div role="alert" className="form-error">
+          <p>{error}</p>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => setAttempt((value) => value + 1)}
+          >
+            Retry message
+          </button>
+        </div>
+      )}
       <dl className="email-review">
         <dt>From</dt>
         <dd>{message.from ? addressList([message.from]) : 'Unknown sender'}</dd>
@@ -398,7 +414,13 @@ function MailDetail({
         key={message.version}
         message={message}
         onChanged={onChanged}
-        loading={loading || locked}
+        loading={loading || locked || Boolean(error)}
+      />
+      <MailTaskCapture
+        message={message}
+        navigate={navigate}
+        locked={loading || locked || Boolean(error)}
+        onPending={onPending}
       />
       {/* Plain text only: never rendered as HTML. */}
       <pre className="email-review__body">{message.body || '(Empty)'}</pre>

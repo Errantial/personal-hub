@@ -1,5 +1,13 @@
 # Implementation log
 
+### 2026-10-13 — Owner-reviewed tasks from mail
+
+Added manual task capture from an owned/versioned message with a literal supporting body quote and explicit confirmation for any deadline. Migration 052 stores immutable source captures with message/connector versions and inherited labels; capture creation commits atomically with the task and uses metadata-only idempotency receipts. Ordinary edits preserve retained privacy labels; deletion/restore preserve the capture. Source quotes and message links appear in the task editor/export. Mail-derived tasks are withheld from the Today Assistant even when unlabeled, and general task-context routing stays blocked until derived-mail binding is supported.
+
+The Mail form preserves stale/conflict/offline drafts, keeps its message/form mounted through a failed refresh, requires deliberate source-version review, locks pending mail controls and links to the created task. Direct task links retain multiline/long-quote wrapping without depending on the Inbox stylesheet. Capture drafts remain in memory and creation remains online only. Automatic extraction, AI classification, paid mail execution, live upload/scheduling and deployment of this release remain pending; see [mail task contract](mail-tasks.md).
+
+Validation: `npm run check` passed lint, all workspace types, **559 unit/API/client tests**, formatting and production builds; one optional standard PostgreSQL test was skipped. The four new API tests verify exact quotes, date confirmation, stale/uncertified rejection, labels, receipts, retries, immutable origins, authorization and restore. An injected-adapter Assistant test proves unlabeled mail-derived task text is withheld. Final copy/source-wrap edits passed targeted lint and web types; a final web build verifies the task stylesheet. The complete isolated browser suite passed **103/103**, including all three new capture flows, a failed-refresh draft, lost committed response retry, direct task reload, 320px/e-ink overflow and accessibility checks. Initial verification found a typed fixture omission and a textarea exact-label locator issue; both were corrected before the passing runs. No owner database reset, real mail upload, provider call, paid request or device test occurred.
+
 Completed work and validation receipts moved verbatim from backlog.md on 2026-10-12. Newest backend slices appear first within the core server/site section. backlog.md holds the current work queue.
 
 ## UI validation receipts

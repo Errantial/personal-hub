@@ -24,6 +24,7 @@ const task = (title: string, extra: Partial<Task> = {}): Task => ({
   deletedAt: null,
   canvasSource: null,
   academicSource: null,
+  mailSource: null,
   ...extra,
 });
 

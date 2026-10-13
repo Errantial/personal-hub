@@ -311,6 +311,66 @@ it('withholds source-linked events and unknown label history even when their roo
   expect(JSON.stringify(sent)).not.toContain('EXCLUDED_UNKNOWN_EVENT');
 });
 
+it('withholds mail-derived tasks even when their privacy label is unlabeled', async () => {
+  await start();
+  await setBudget();
+  const created = await call('POST', '/api/v1/email/connectors', {
+    operationId: randomUUID(),
+    name: 'Synthetic mail',
+    sensitivity: 'unlabeled',
+  });
+  const { token, connector } = created.json();
+  const uploaded = await app.inject({
+    method: 'POST',
+    url: '/api/v1/email/connector/batch',
+    headers: { authorization: `Bearer ${token}` },
+    payload: {
+      path: 'INBOX',
+      role: null,
+      uidValidity: '1',
+      exists: 1,
+      inWindow: 1,
+      lastUid: 1,
+      messages: [
+        {
+          uid: 1,
+          textOrigin: 'message-body-v1',
+          messageKey: `<${randomUUID()}@example.test>`,
+          from: null,
+          to: [],
+          cc: [],
+          subject: 'EXCLUDED_MAIL_SUBJECT',
+          sentAt: null,
+          receivedAt: '2026-10-13T12:00:00.000Z',
+          body: 'EXCLUDED_MAIL_QUOTE',
+          bodyTruncated: false,
+          attachmentCount: 0,
+        },
+      ],
+    },
+  });
+  expect(uploaded.statusCode).toBe(200);
+  const [message] = await database.query(
+    'SELECT id FROM email_messages WHERE connector_id=$1',
+    [connector.id],
+  );
+  const made = await call(
+    'POST',
+    `/api/v1/email/messages/${message!.id}/tasks`,
+    {
+      operationId: randomUUID(),
+      expectedVersion: 1,
+      title: 'EXCLUDED_MAIL_TASK',
+      quote: 'EXCLUDED_MAIL_QUOTE',
+    },
+  );
+  expect(made.statusCode).toBe(201);
+  const result = await ask('Plan my day');
+  expect(result.statusCode).toBe(200);
+  expect(result.json().request.withheld).toBe(1);
+  expect(JSON.stringify(sent)).not.toContain('EXCLUDED_MAIL');
+});
+
 it('releases refused requests and keeps the hold when the outcome is unknown', async () => {
   await start();
   await setBudget();

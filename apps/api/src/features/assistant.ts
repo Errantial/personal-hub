@@ -73,7 +73,8 @@ async function readContext(tx: QueryExecutor, owner: string) {
   const openTask = (task: Task) =>
     task.sensitivity === 'unlabeled' &&
     !task.canvasSource &&
-    !task.academicSource;
+    !task.academicSource &&
+    !task.mailSource;
   const openEvent = (event: CalendarRecord) =>
     event.sensitivity === 'unlabeled' &&
     Array.isArray(event.academicLabels) &&

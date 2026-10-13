@@ -1,5 +1,9 @@
 # UI agent ledger
 
+## Manual tasks from mail (2026-10-13)
+
+Preserve [mail task capture](mail-tasks.md): exact supporting body quote, owner title, optional explicitly confirmed deadline, retained labels/source link and immutable creation capture visible in the task editor. Categories never determine privacy. Keep no-date entry usable, date confirmation cleared on date/source changes, invalid quote visible, pending controls locked, offline state visible and drafts retained after errors and refresh. A changed message requires deliberate source-version review before retry. Failed refresh must keep the existing form mounted. Success links to the task and prevents duplicate submission from that form. Online-only in-memory capture drafts do not survive navigation/restart. Automatic extraction, mail-derived task AI context, paid classification, mail/calendar writes and actual Kompakt acceptance remain pending.
+
 ## Canvas access limitation and browser proof (2026-10-13)
 
 The owner's school blocks personal token creation, so **Canvas API not configured** is an actual access gate. A browser DOM feasibility test passed for one course (27 unique links/titles, 10 valid due timestamps, 17 missing dates). It did not import hub data, prove all-course coverage or add a connector. See [canvas-browser.md](canvas-browser.md). Do not expose browser sync as supported yet. A future UI must distinguish sign-in required, loading/partial/filter-limited snapshot, missing due date, source freshness, conflict and failed import; its contracts do not exist yet. Initial collection must project selected metadata locally because assignment pages also contain scores and other unnecessary text. No whole-page prompt export, screenshot/attachment input, automatic sensitivity inference or provider execution is added.

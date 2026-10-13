@@ -1,5 +1,7 @@
 # Personal Productivity Hub
 
+[Tasks from mail](docs/mail-tasks.md) now support owner-reviewed capture with an exact body quote, retained source labels and explicit deadline confirmation. Automatic extraction remains pending.
+
 Schedule, task, email, and study hub targeting the web, Android, and Windows.
 
 Status: the owner-authenticated planner includes tasks, recurring calendars, class portfolios, study-plan approval, reminders, memory editing and exact-message email-draft approval. Read-only Canvas adapters preserve source facts and labels; the school blocks token creation, and broader live coverage remains unverified. Proton Bridge ingestion and Mail browsing are implemented; live upload and scheduling remain pending. The Today Assistant supports a narrow OpenRouter planner flow with owner review before Apply, an owner-configured server key/model and saved spending limits. General AI gateway dispatch, email classification, sending, MCP and persistent agents remain pending.
