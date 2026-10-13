@@ -1,5 +1,13 @@
 # UI agent ledger
 
+## Canvas access limitation and browser proof (2026-10-13)
+
+The owner's school blocks personal token creation, so **Canvas API not configured** is an actual access gate. A browser DOM feasibility test passed for one course (27 unique links/titles, 10 valid due timestamps, 17 missing dates). It did not import hub data, prove all-course coverage or add a connector. See [canvas-browser.md](canvas-browser.md). Do not expose browser sync as supported yet. A future UI must distinguish sign-in required, loading/partial/filter-limited snapshot, missing due date, source freshness, conflict and failed import; its contracts do not exist yet. Initial collection must project selected metadata locally because assignment pages also contain scores and other unnecessary text. No whole-page prompt export, screenshot/attachment input, automatic sensitivity inference or provider execution is added.
+
+## Deployed web boundary (2026-10-13)
+
+The tested UI through reminder-history commit `265a99d` is served at `https://hub.ecg.name` on the actual Oracle Linux ARM64 VM. Deep links fall back to the shell, `/api` stays same-origin and `/sw.js` uses `Cache-Control: no-cache`. Secure sessions and the setup-token gate remain required. Live unauthenticated setup/deep-link/320px checks passed with no JS errors and private API 401; no synthetic owner was enrolled. Daily use is unverified. Local DNS propagation was incomplete, so the browser check used a hostname/address override. Same-device backups retain private history; off-host protection is deferred by owner choice. Do not promise permanent erasure, migrated development records, live providers or Kompakt acceptance.
+
 ## Final backend-hour verification (2026-10-12)
 
 `npm run check` passed lint, strict types, formatting, builds and 505 API/client tests, with one optional PostgreSQL skip. All 32 new academic/Calendar/session tests passed again after the final error-copy correction; targeted lint/formatting and the refreshed API build passed. Compiled API smoke verified all 45 migrations/new routes/receipts/immutable origins with no network calls.
@@ -657,3 +665,11 @@ Implemented; see [frontend-plan.md](frontend-plan.md) Phase 1.
 
 
 Final verification after the approval-lock read change: all 12 email draft tests passed again; targeted lint/format checks and `git diff --check` passed.
+
+### 2026-10-13 — Inbox: paged reminder history
+
+- Inbox › Reminders adds an expandable **Reminder history** section. Opening it loads the owner-only `/api/v1/reminders/history` endpoint with the shared `reminderHistorySchema`, 25 records per page, creation timestamp/ID ordering and `before` cursors.
+- **History status** filters all/scheduled/delivering/paused/delivered/failed/cancelled. Filter changes reset rows and cursor; delayed reads from an old filter or unmounted view cannot replace current rows. **Reload history** starts a fresh first page; new arrivals are not silently added to the loaded pages.
+- **Load more reminders** appends unique IDs. A page failure preserves loaded rows/cursor and offers retry or a fresh reload. Loading, empty and actionable error states remain visible. History is online and read-only; it does not expose mutation controls or cached/outbox writes. Current reminder editing, controls, snooze, earlier reminders and notification behavior are preserved.
+- Help explains creation ordering, changing status across pages and the boundary between durable inbox delivery and device alerts. Closed-app native delivery, permanent purge, offline history and frozen cross-page snapshots remain unavailable. No provider execution or backend changes.
+- Focused browser checks passed all nine Inbox tests, including real synthetic records paged across 25 rows, failed-page retry without duplicates, delayed filter response and expanded-view axe/overflow/target checks at 1280px standard and 320px e-ink. Broader validation is recorded in implementation-log.md.

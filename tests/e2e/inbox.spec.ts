@@ -220,6 +220,99 @@ test('loaded notifications can be marked read together', async ({ page }) => {
   ).toBeVisible();
 });
 
+test('reminder history pages and retries without duplicates, and ignores an older filter response', async ({
+  page,
+}) => {
+  const created = await Promise.all(
+    Array.from({ length: 26 }, (_, index) =>
+      createReminder(
+        page,
+        uniqueTitle(`History ${index}`),
+        '2036-06-06T12:00:00Z',
+      ),
+    ),
+  );
+  for (const item of created) {
+    const reply = await page.request.post(
+      `/api/v1/reminders/${item.id}/control`,
+      {
+        headers,
+        data: {
+          action: 'cancel',
+          expectedVersion: item.version,
+          operationId: crypto.randomUUID(),
+        },
+      },
+    );
+    expect(reply.status()).toBe(200);
+  }
+  await page.goto('/inbox/reminders');
+  await page.getByText('Reminder history', { exact: true }).click();
+  const history = page.getByRole('region', { name: 'Reminder history' });
+  await expect(history.getByRole('listitem')).toHaveCount(25);
+  await history
+    .getByRole('combobox', { name: 'History status' })
+    .selectOption('cancelled');
+  await expect(history.getByRole('listitem')).toHaveCount(25);
+  let failed = false;
+  await page.route('**/api/v1/reminders/history?*', async (route) => {
+    if (new URL(route.request().url()).searchParams.has('before') && !failed) {
+      failed = true;
+      return route.abort();
+    }
+    return route.continue();
+  });
+  await history.getByRole('button', { name: 'Load more reminders' }).click();
+  await expect(history.getByRole('alert')).toContainText('Retry online');
+  await expect(history.getByRole('listitem')).toHaveCount(25);
+  await history
+    .getByRole('button', { name: 'Retry loading more reminders' })
+    .click();
+  for (const item of created)
+    await expect(history.getByText(item.title, { exact: true })).toHaveCount(1);
+  await expect(history.getByRole('listitem').getByRole('button')).toHaveCount(
+    0,
+  );
+  await expect(history.getByRole('listitem').getByRole('link')).toHaveCount(0);
+  await page.unroute('**/api/v1/reminders/history?*');
+
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/v1/reminders/history?*', async (route) => {
+    if (new URL(route.request().url()).searchParams.get('status') !== 'queued')
+      return route.continue();
+    const response = await route.fetch();
+    await held;
+    await route.fulfill({ response });
+  });
+  const pending = page.waitForRequest(
+    (request) => new URL(request.url()).searchParams.get('status') === 'queued',
+  );
+  await history
+    .getByRole('combobox', { name: 'History status' })
+    .selectOption('queued');
+  await pending;
+  await history
+    .getByRole('combobox', { name: 'History status' })
+    .selectOption('cancelled');
+  await expect(history.getByRole('listitem')).toHaveCount(25);
+  const oldResponse = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).searchParams.get('status') === 'queued',
+  );
+  release();
+  await oldResponse;
+  await expect(history.getByRole('listitem')).toHaveCount(25);
+  await expect(history.getByRole('listitem').first()).toContainText(
+    'Cancelled',
+  );
+  await page.unroute('**/api/v1/reminders/history?*');
+  await history.getByRole('button', { name: 'Reload history' }).click();
+  await expect(history.getByRole('listitem')).toHaveCount(25);
+});
+
 for (const { theme, width, target } of [
   { theme: 'standard', width: 1280, target: 44 },
   { theme: 'eink', width: 320, target: 48 },
@@ -251,6 +344,12 @@ for (const { theme, width, target } of [
         page.getByRole('heading', { level: 1, name: 'Inbox' }),
       ).toBeVisible();
       await expect(page.getByText('Loading…', { exact: true })).toHaveCount(0);
+      if (path === '/inbox/reminders') {
+        await page.getByText('Reminder history', { exact: true }).click();
+        await expect(
+          page.getByText('Loading history…', { exact: true }),
+        ).toHaveCount(0);
+      }
       const { violations } = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
         .analyze();

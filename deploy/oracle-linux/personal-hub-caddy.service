@@ -1,0 +1,28 @@
+[Unit]
+Description=Personal Hub HTTPS
+After=network-online.target personal-hub.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=hub-caddy
+Group=hub-caddy
+EnvironmentFile=/etc/personal-hub/caddy.env
+Environment=XDG_DATA_HOME=/var/lib/personal-hub-caddy
+Environment=XDG_CONFIG_HOME=/var/lib/personal-hub-caddy
+ExecStart=/opt/personal-hub/caddy run --config /etc/personal-hub/Caddyfile --adapter caddyfile
+ExecReload=/opt/personal-hub/caddy reload --config /etc/personal-hub/Caddyfile --adapter caddyfile
+Restart=on-failure
+RestartSec=5
+StateDirectory=personal-hub-caddy
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+MemoryMax=192M
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

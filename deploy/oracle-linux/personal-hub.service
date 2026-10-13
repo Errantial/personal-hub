@@ -1,0 +1,29 @@
+[Unit]
+Description=Personal Hub API
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=hub
+Group=hub
+WorkingDirectory=/srv/personal-hub/current
+EnvironmentFile=/etc/personal-hub/hub.env
+Environment=PATH=/opt/personal-hub/node/bin:/usr/bin:/bin
+ExecStart=/opt/personal-hub/node/bin/node --max-old-space-size=384 apps/api/dist/server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+MemoryMax=640M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
