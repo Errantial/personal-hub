@@ -17,8 +17,8 @@ import {
   countByFilter,
   groupTasks,
   matchesFilter,
-  maxSelection,
 } from '../lib/tasks';
+import { maxSelection } from '../lib/selection';
 import { useConfirm } from './ConfirmDialog';
 import { DeletedItems } from './DeletedItems';
 import { Help } from './Help';
@@ -236,7 +236,7 @@ export function TasksView({
           className="panel tasks-list-pane"
           aria-labelledby="task-list-title"
         >
-          <div className="tasks-list-pane__header">
+          <div className="list-header">
             <h2 id="task-list-title" ref={heading} tabIndex={-1}>
               {taskFilterLabels[filter]}
               {tasks.data ? ` (${visible.length})` : ''}

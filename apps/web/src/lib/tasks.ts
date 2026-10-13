@@ -1,6 +1,8 @@
 import { Temporal } from '@hub/contracts';
 import type { Task } from '@hub/contracts';
 import type { TaskFilter } from './router';
+import { selectionItems } from './selection';
+import type { Selection } from './selection';
 
 /* Pure task filtering and grouping for the Tasks screen. Dates are
    date-only local deadlines; none of this changes a task's own deadline. */
@@ -86,13 +88,8 @@ export function groupTasks(
     .filter((group) => group.tasks.length > 0);
 }
 
-/* Selected changes (POST /api/v1/tasks/batch). A selection maps task IDs to
-   the versions seen when they were selected, in selection order, so a change
-   made elsewhere afterwards makes the whole batch conflict instead of being
-   overwritten. */
+/* Selected changes (POST /api/v1/tasks/batch); see ./selection. */
 
-export const maxSelection = 100;
-export type TaskSelection = ReadonlyMap<string, number>;
 export type BatchChange =
   | { kind: 'complete' }
   | { kind: 'reopen' }
@@ -102,11 +99,8 @@ export type BatchChange =
   | { kind: 'delete' };
 
 /** Request body without operationId, which the mutation hook adds. */
-export function batchBody(selection: TaskSelection, change: BatchChange) {
-  const items = [...selection].map(([id, expectedVersion]) => ({
-    id,
-    expectedVersion,
-  }));
+export function batchBody(selection: Selection, change: BatchChange) {
+  const items = selectionItems(selection);
   const changes =
     change.kind === 'complete'
       ? { completed: true }
@@ -124,20 +118,4 @@ export function batchBody(selection: TaskSelection, change: BatchChange) {
         ? { kind: 'delete' }
         : { kind: 'update', changes },
   };
-}
-
-/** A deliberate refresh after a conflict: keeps selected tasks that are still
- *  listed and selectable, at their latest versions. */
-export function refreshSelection(
-  selection: TaskSelection,
-  tasks: readonly Task[],
-  selectable: (task: Task) => boolean,
-): Map<string, number> {
-  const latest = new Map(tasks.map((task) => [task.id, task]));
-  const next = new Map<string, number>();
-  for (const id of selection.keys()) {
-    const task = latest.get(id);
-    if (task && selectable(task)) next.set(id, task.version);
-  }
-  return next;
 }

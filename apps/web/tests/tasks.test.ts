@@ -5,8 +5,8 @@ import {
   countByFilter,
   groupTasks,
   matchesFilter,
-  refreshSelection,
 } from '../src/lib/tasks';
+import { refreshSelection } from '../src/lib/selection';
 
 const today = '2026-10-12';
 let counter = 0;

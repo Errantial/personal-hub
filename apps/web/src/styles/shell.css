@@ -407,3 +407,42 @@ main:focus {
   color: var(--text-muted);
   font-size: var(--text-small);
 }
+
+/* A list heading with its Select toggle, and the bar for selected changes. */
+.list-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+.list-header h2 {
+  margin: 0;
+}
+.list-header [aria-pressed='true'] {
+  font-weight: var(--weight-strong);
+  text-decoration: underline;
+}
+.batch-bar {
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--border-subtle);
+}
+.batch-bar__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: end;
+}
+.batch-bar__row + .batch-bar__row,
+.batch-bar > p {
+  margin-top: var(--space-2);
+}
+.batch-bar__row p {
+  margin: 0;
+  flex: 1 1 auto;
+}
+.batch-bar label {
+  display: grid;
+  gap: var(--space-1);
+}
