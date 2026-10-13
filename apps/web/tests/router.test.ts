@@ -19,6 +19,7 @@ it('addresses each settings section and defaults to Account', () => {
   for (const section of [
     'account',
     'appearance',
+    'study',
     'connections',
     'ai',
   ] as const) {

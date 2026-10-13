@@ -15,6 +15,7 @@ export type View = (typeof views)[number];
 export const settingsSections = [
   'account',
   'appearance',
+  'study',
   'connections',
   'ai',
 ] as const;
@@ -110,6 +111,7 @@ export const viewLabels: Record<View, string> = {
 export const sectionLabels: Record<SettingsSection, string> = {
   account: 'Account',
   appearance: 'Appearance',
+  study: 'Study',
   connections: 'Connections',
   ai: 'AI',
 };
