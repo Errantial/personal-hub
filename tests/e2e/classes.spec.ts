@@ -171,6 +171,115 @@ test('a class lists its study blocks and explains what progress means', async ({
   );
 });
 
+/** Creates academic work through the API. */
+async function createWork(
+  page: Page,
+  courseId: string,
+  title: string,
+  extra: Record<string, unknown> = {},
+) {
+  const reply = await page.request.post('/api/v1/academic-work', {
+    headers,
+    data: { courseId, title, operationId: crypto.randomUUID(), ...extra },
+  });
+  expect(reply.status()).toBe(200);
+  return (await reply.json()).work as { id: string; version: number };
+}
+
+test('class work can be added, scored, changed together and restored', async ({
+  page,
+}) => {
+  const course = await createClass(page, 'Work class');
+  const current = async (id: string) =>
+    (
+      (await (
+        await page.request.get(`/api/v1/academic-work/${id}`)
+      ).json()) as {
+        work: { priority: number; status: string; deletedAt: string | null };
+      }
+    ).work;
+  await page.goto(`/classes/${course.id}?section=work`);
+  const work = page.getByRole('region', { name: 'Work', exact: true });
+  await expect(work.getByText('No work yet.')).toBeVisible();
+
+  // Add one through the form; the list shows its estimate.
+  const add = work.getByRole('form', { name: 'Add work' });
+  await add.getByLabel('Title').fill('Essay');
+  await add.getByLabel('Deadline').fill('2028-02-01');
+  await add.getByLabel('Estimate (minutes)').fill('90');
+  await add.getByRole('button', { name: 'Add work' }).click();
+  await expect(work.getByText('1 h 30 min', { exact: true })).toBeVisible();
+  const lab = await createWork(page, course.id, 'Lab report');
+  const quiz = await createWork(page, course.id, 'Quiz prep');
+  await page.reload();
+  await expect(work.getByRole('heading', { name: 'Work (3)' })).toBeVisible();
+
+  // Record a score through the individual editor.
+  await work.getByRole('button', { name: 'Edit Essay' }).click();
+  const edit = work.getByRole('form', { name: 'Edit work' });
+  await edit.getByLabel('Status').selectOption('Submitted');
+  await edit.getByLabel('Points earned').fill('18');
+  await edit.getByLabel('Points possible').fill('20');
+  await edit.getByRole('button', { name: 'Save work changes' }).click();
+  await expect(work.getByText('Score 18 / 20 (90%)')).toBeVisible();
+
+  // Reopening scored work is refused for the whole selection.
+  const bar = work.getByRole('region', { name: 'Selected work' });
+  await work.getByRole('button', { name: 'Select', exact: true }).click();
+  await work.getByRole('checkbox', { name: 'Select Essay' }).check();
+  await work.getByRole('checkbox', { name: 'Select Lab report' }).check();
+  await bar.getByRole('combobox', { name: 'Status' }).selectOption('Planned');
+  await bar.getByRole('button', { name: 'Apply to 2 work items' }).click();
+  await expect(bar.getByRole('alert')).toContainText(
+    'Review and clear the recorded score individually',
+  );
+  expect((await current(lab.id)).status).toBe('planned');
+
+  // One change applies to exactly the selected work.
+  await work.getByRole('checkbox', { name: 'Select Essay' }).uncheck();
+  await work.getByRole('checkbox', { name: 'Select Quiz prep' }).check();
+  await bar
+    .getByRole('combobox', { name: /^Change/ })
+    .selectOption('Set priority');
+  await bar.getByRole('combobox', { name: 'Priority' }).selectOption('5');
+  await bar.getByRole('button', { name: 'Apply to 2 work items' }).click();
+  await expect(
+    work.getByText('Set priority: 2 work items updated.', { exact: true }),
+  ).toBeVisible();
+  expect((await current(lab.id)).priority).toBe(5);
+  expect((await current(quiz.id)).priority).toBe(5);
+
+  // Batch deletion confirms, then restores one at a time.
+  await work.getByRole('button', { name: 'Select', exact: true }).click();
+  await work.getByRole('checkbox', { name: 'Select Quiz prep' }).check();
+  await bar.getByRole('combobox', { name: /^Change/ }).selectOption('Delete');
+  await bar.getByRole('button', { name: 'Apply to 1 work item' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Delete 1 work item?' });
+  await dialog.getByRole('button', { name: 'Delete 1 work item' }).click();
+  await expect(
+    work.getByText('Deleted 1 work item. Restore from Recently deleted.'),
+  ).toBeVisible();
+  expect((await current(quiz.id)).deletedAt).not.toBeNull();
+  await work.getByText('Recently deleted', { exact: true }).click();
+  await work.getByRole('button', { name: 'Restore Quiz prep' }).click();
+  await expect(work.getByText(/^Restored “Quiz prep”\./)).toBeVisible();
+  await expect(
+    work.getByRole('button', { name: 'Edit Quiz prep' }),
+  ).toBeVisible();
+
+  // An individual deletion offers Undo.
+  await work.getByRole('button', { name: 'Edit Lab report' }).click();
+  await edit.getByRole('button', { name: 'Delete work' }).click();
+  await page
+    .getByRole('dialog', { name: 'Delete “Lab report”?' })
+    .getByRole('button', { name: 'Delete work' })
+    .click();
+  await expect(work.getByText('Deleted “Lab report”.')).toBeVisible();
+  await work.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(work.getByText('Restored “Lab report”.')).toBeVisible();
+  expect((await current(lab.id)).deletedAt).toBeNull();
+});
+
 for (const { theme, width, target } of [
   { theme: 'standard', width: 1280, target: 44 },
   { theme: 'eink', width: 320, target: 48 },
@@ -185,19 +294,34 @@ for (const { theme, width, target } of [
       (value) => localStorage.setItem('hub:eink', String(value === 'eink')),
       theme,
     );
-    for (const path of [
-      '/classes',
-      '/classes/new',
-      `/classes/${course.id}`,
-      `/classes/${course.id}?section=study`,
-      `/classes/${course.id}?section=canvas`,
-      `/classes/${course.id}?section=details`,
-    ]) {
+    await createWork(page, course.id, 'Layout work', {
+      dueDate: '2028-02-01',
+      estimatedMinutes: 45,
+    });
+    // [path, whether Select mode is open]
+    for (const [path, selecting] of [
+      ['/classes', false],
+      ['/classes/new', false],
+      [`/classes/${course.id}`, false],
+      [`/classes/${course.id}?section=work`, false],
+      [`/classes/${course.id}?section=work`, true],
+      [`/classes/${course.id}?section=study`, false],
+      [`/classes/${course.id}?section=canvas`, false],
+      [`/classes/${course.id}?section=details`, false],
+    ] as const) {
       await page.goto(path);
       await expect(
         page.getByRole('heading', { level: 1, name: 'Classes' }),
       ).toBeVisible();
       await expect(page.getByText('Loading…', { exact: true })).toHaveCount(0);
+      if (path.endsWith('work'))
+        await expect(page.getByText('Layout work')).toBeVisible();
+      if (selecting) {
+        await page.getByRole('button', { name: 'Select', exact: true }).click();
+        await page
+          .getByRole('checkbox', { name: 'Select Layout work' })
+          .check();
+      }
       const { violations } = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
         .analyze();

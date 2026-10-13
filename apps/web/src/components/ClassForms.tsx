@@ -8,7 +8,7 @@ import { Help } from './Help';
 type Sensitivity = Course['sensitivity'];
 
 /** Shown when the record changed on the server after the draft was made. */
-function ChangedElsewhere({
+export function ChangedElsewhere({
   loading,
   onLoad,
 }: {
@@ -30,7 +30,7 @@ function ChangedElsewhere({
   );
 }
 
-function LabelSelect({
+export function LabelSelect({
   label,
   value,
   onChange,

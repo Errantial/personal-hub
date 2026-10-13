@@ -3,7 +3,11 @@ import type { CalendarRecord } from '@hub/contracts';
 import {
   assessmentLabel,
   averageProgress,
+  minutesLabel,
+  priorityLabel,
+  scoreLabel,
   splitStudyBlocks,
+  workBatchBody,
 } from '../src/lib/classes';
 
 const block = (extra: Partial<CalendarRecord> = {}): CalendarRecord => ({
@@ -95,4 +99,47 @@ it('splits study blocks by class into upcoming and earlier', () => {
   );
   expect(result.upcoming.map((item) => item.id)).toEqual(['e', 'a', 'b']);
   expect(result.earlier.map((item) => item.id)).toEqual(['c', 'd']);
+});
+
+it('labels academic estimates, priorities and scores', () => {
+  expect(minutesLabel(null)).toBe('No estimate');
+  expect(minutesLabel(0)).toBe('0 min');
+  expect(minutesLabel(120)).toBe('2 h');
+  expect(minutesLabel(150)).toBe('2 h 30 min');
+  expect(priorityLabel(5)).toBe('5 (highest)');
+  expect(priorityLabel(1)).toBe('1 (lowest)');
+  expect(priorityLabel(3)).toBe('3');
+  expect(scoreLabel({ earned: 18, possible: 20 })).toBe('18 / 20 (90%)');
+});
+
+it('builds academic batch bodies with class versions and explicit clears', () => {
+  const selection = new Map([
+    ['b', 2],
+    ['a', 5],
+  ]);
+  expect(workBatchBody(selection, 7, { kind: 'delete' })).toEqual({
+    items: [
+      { id: 'b', expectedVersion: 2, expectedCourseVersion: 7 },
+      { id: 'a', expectedVersion: 5, expectedCourseVersion: 7 },
+    ],
+    action: { kind: 'delete' },
+  });
+  const action = (change: Parameters<typeof workBatchBody>[2]) =>
+    workBatchBody(selection, 7, change).action;
+  expect(action({ kind: 'status', status: 'submitted' })).toEqual({
+    kind: 'update',
+    changes: { status: 'submitted' },
+  });
+  expect(action({ kind: 'priority', priority: 5 })).toEqual({
+    kind: 'update',
+    changes: { priority: 5 },
+  });
+  expect(action({ kind: 'due', dueDate: null })).toEqual({
+    kind: 'update',
+    changes: { dueDate: null },
+  });
+  expect(action({ kind: 'estimate', estimatedMinutes: 0 })).toEqual({
+    kind: 'update',
+    changes: { estimatedMinutes: 0 },
+  });
 });

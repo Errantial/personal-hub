@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
+  academicWorkListSchema,
+  academicWorkResponseSchema,
   calendarResponseSchema,
   deletedPlannerResponseSchema,
   taskResponseSchema,
@@ -12,7 +14,7 @@ import './DeletedItems.css';
 
 const limit = 20;
 
-type Kind = 'task' | 'calendar';
+type Kind = 'task' | 'calendar' | 'work';
 type Item = {
   id: string;
   title: string;
@@ -20,7 +22,7 @@ type Item = {
   deletedAt?: string | null;
 };
 
-/* Wording and endpoints that differ between the two deletable record kinds. */
+/* Wording and endpoints that differ between deletable record kinds. */
 const kinds = {
   task: {
     noun: 'task',
@@ -36,16 +38,26 @@ const kinds = {
     help: 'Restoring an event brings back its whole series, notes, labels and sources. Restoring needs a connection.',
     note: '',
   },
+  work: {
+    noun: 'work item',
+    nouns: 'work items',
+    path: 'academic-work',
+    help: 'Restoring work keeps its notes, score and labels. Reminders cancelled by the deletion stay cancelled. Restoring needs a connection.',
+    note: ' Reminders cancelled by the deletion stay cancelled.',
+  },
 } as const;
 
 /** Deleted records, newest first, restorable while online. Opening the section
  *  loads the first page; deleted records are never cached for offline use. */
 export function DeletedItems({
   kind,
+  courseId,
   refreshKey,
   onRestored,
 }: {
   kind: Kind;
+  /** Required for work: deleted work is listed per class. */
+  courseId?: string;
   refreshKey: number;
   onRestored: () => Promise<unknown>;
 }) {
@@ -59,6 +71,7 @@ export function DeletedItems({
       {open && (
         <DeletedList
           kind={kind}
+          courseId={courseId}
           refreshKey={refreshKey}
           onRestored={onRestored}
         />
@@ -69,10 +82,12 @@ export function DeletedItems({
 
 function DeletedList({
   kind,
+  courseId,
   refreshKey,
   onRestored,
 }: {
   kind: Kind;
+  courseId: string | undefined;
   refreshKey: number;
   onRestored: () => Promise<unknown>;
 }) {
@@ -89,13 +104,29 @@ function DeletedList({
       setLoading(true);
       setError('');
       try {
-        const query = new URLSearchParams({ kind, limit: String(limit) });
+        const query = new URLSearchParams({ limit: String(limit) });
         if (before) query.set('before', before);
-        const page = await requestJson(
-          `/api/v1/planner/deleted?${query}`,
-          deletedPlannerResponseSchema,
-        );
-        const records: Item[] = kind === 'task' ? page.tasks : page.events;
+        let page: { records: Item[]; nextBefore: string | null };
+        if (kind === 'work') {
+          query.set('courseId', courseId ?? '');
+          query.set('deleted', 'true');
+          const result = await requestJson(
+            `/api/v1/academic-work?${query}`,
+            academicWorkListSchema,
+          );
+          page = { records: result.work, nextBefore: result.nextBefore };
+        } else {
+          query.set('kind', kind);
+          const result = await requestJson(
+            `/api/v1/planner/deleted?${query}`,
+            deletedPlannerResponseSchema,
+          );
+          page = {
+            records: kind === 'task' ? result.tasks : result.events,
+            nextBefore: result.nextBefore,
+          };
+        }
+        const { records } = page;
         setItems((previous) =>
           before ? [...(previous ?? []), ...records] : records,
         );
@@ -108,7 +139,7 @@ function DeletedList({
         setLoading(false);
       }
     },
-    [kind, words.nouns],
+    [kind, courseId, words.nouns],
   );
   useEffect(() => {
     void load();
@@ -123,15 +154,25 @@ function DeletedList({
       kind === 'task'
         ? (await restore.run(taskResponseSchema, 'POST', path, body, failure))
             ?.task.title
-        : (
-            await restore.run(
-              calendarResponseSchema,
-              'POST',
-              path,
-              body,
-              failure,
-            )
-          )?.event.title;
+        : kind === 'work'
+          ? (
+              await restore.run(
+                academicWorkResponseSchema,
+                'POST',
+                path,
+                body,
+                failure,
+              )
+            )?.work.title
+          : (
+              await restore.run(
+                calendarResponseSchema,
+                'POST',
+                path,
+                body,
+                failure,
+              )
+            )?.event.title;
     if (title === undefined) return;
     setMessage(`Restored “${title}”.${words.note}`);
     await Promise.all([load(), onRestored()]);

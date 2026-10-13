@@ -409,6 +409,18 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 
 ## Change ledger
 
+### 2026-10-12 — Classes: Work section and selected changes
+
+- New class section **Work** (`/classes/:id?section=work`). It reads `GET /api/v1/academic-work/browse` with `courseState=all`, a **Status** filter (All, Open, Planned, In progress, Submitted, Cancelled) and 50-item pages. **Load more** passes the cursor ID and the work and class versions. A changed or removed cursor shows "The list changed. Reload to see the latest." Changing the filter resets paging and selection; delayed reads are ignored.
+- Heading "Work (total)". A summary line shows open, submitted and cancelled counts, the open estimate and missing deadlines/estimates, all from the server summary rather than loaded rows. Help explains that the records are owner-entered, that submitted is self-reported, that scores are not a class grade, and that estimates are full effort.
+- Rows show type, deadline or "No deadline", status, priority (1-5, where 5 is highest, matching the study planner's ranking), estimate ("No estimate" for null; 0 is a known value), score and label. There is an **Edit <title>** button on each row.
+- **Add work / Edit work** form fields: Title, Type, Deadline, Estimate (minutes), Priority, Status (edit only), Score (points earned and possible, only for Submitted), Notes and **Work content label**. PUT sends every field, so the label and score are never reset by defaults. Choosing a non-submitted status on scored work shows "Saving clears the recorded score (…)". Saving after a change elsewhere offers "Changed elsewhere" with **Load latest version**. Delete has a confirmation and an **Undo** notice. **Recently deleted** lists this class's deleted work (`GET /api/v1/academic-work?deleted=true`) for per-item restore.
+- **Select** opens the **Selected work** bar, built on the shared `SelectionBar`. Its changes are Set status, Set priority, Set deadline, Clear deadline, Set estimate, Clear estimate and Delete, sent through one atomic `POST /api/v1/academic-work/batch`. Each item carries the class version the list was read with.
+- `ACADEMIC_SCORE_REVIEW_REQUIRED` blocks the whole selection with a visible message. The score must be cleared in the individual editor first.
+- The client now maps `ACADEMIC_SCORE_REVIEW_REQUIRED`, `ACADEMIC_CLASS_ARCHIVED` and `CALENDAR_STUDY_SELECTION_REQUIRED` to specific messages. Before this, they showed the generic server error.
+- Tests: `apps/web/tests/classes.test.ts` (labels, batch bodies). The e2e test in `tests/e2e/classes.spec.ts` covers add, scoring, a score-blocked batch, a priority batch, batch delete then restore, and individual delete then Undo. The Work section, including Select mode, is added to the axe, overflow and target checks at 1280 px and 320 px e-ink.
+- Known limits: no Type or deadline filters in the UI, and no cross-class view. Archived classes are not reachable from the class list. There are no offline reads or writes.
+
 ### 2026-10-12 — Calendar: selected changes
 
 - **Select** in the Calendar list header adds a checkbox to each event row ("Select <title>", "(series)" for repeating events) and shows the **Selected events** bar. Selection is per record: checking any occurrence of a series selects the whole series. It belongs to the shown range (changing date/view or leaving Select clears it). Canvas entries are read-only and not selectable.

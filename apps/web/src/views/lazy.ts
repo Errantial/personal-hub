@@ -33,11 +33,12 @@ export const SettingsView = lazy(() =>
   loaders.settings().then((module) => ({ default: module.SettingsView })),
 );
 
+/** Loads every view module (and its imports); resolves when all settle. */
+export const loadViews = () =>
+  Promise.allSettled(Object.values(loaders).map((load) => load()));
+
 export function preloadViews() {
-  const run = () => {
-    for (const load of Object.values(loaders))
-      void load().catch(() => undefined);
-  };
+  const run = () => void loadViews();
   if ('requestIdleCallback' in window) window.requestIdleCallback(run);
   else setTimeout(run, 1000);
 }

@@ -21,6 +21,7 @@ import type { ClassSection, Route } from '../lib/router';
 import { ClassCanvasAssignments } from './ClassCanvasAssignments';
 import { ClassCanvasEntries } from './ClassCanvasEntries';
 import { ClassForm, TopicForm } from './ClassForms';
+import { ClassWork } from './ClassWork';
 import { useConfirm } from './ConfirmDialog';
 import { Help } from './Help';
 import { Link } from './Link';
@@ -280,6 +281,9 @@ function ClassDetail({
           onSchedule={onSchedule}
           confirm={confirm}
         />
+      )}
+      {section === 'work' && (
+        <ClassWork key={course.id} course={course} confirm={confirm} />
       )}
       {section === 'study' && (
         <StudySection
