@@ -10,6 +10,8 @@ Backend responsibility reviews now support [local daily/weekly schedules](docs/r
 
 [Verified mail context](docs/ai-mail-context.md) now resolves explicitly selected imported messages through the text-only routing gateway, with label inheritance and message/connector integrity binding. Email classification and paid processing remain pending.
 
+[Mail categories and explicit rules](docs/mail-organization.md) now provide local organization, protected owner corrections and previewed selected applies. Categories remain separate from privacy labels; AI classification and provider-side mail changes remain pending.
+
 [Read-only email ingestion](docs/email-ingestion.md) now includes a local Proton Bridge connector, owner-managed upload tokens and Inbox mail browsing. Headers and bounded plain-text bodies are imported; attachments and provider writes remain excluded. The observed Bridge snapshot was checked read-only, but live hub upload, scheduling, Gmail delivery completeness and AI filtering remain pending.
 
 The backend also has [verified AI context binding and explicit memory selection](docs/ai-verified-context.md), plus an internal fake-adapter text-result flow. Dispatch remains disabled on this general gateway; the [narrow planner assistant](docs/ai-assistant.md) is a separate implemented flow.

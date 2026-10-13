@@ -4,6 +4,16 @@ Completed work and validation receipts moved verbatim from backlog.md on 2026-10
 
 ## UI validation receipts
 
+### 2026-10-13 — Local mail categories and explicit rules
+
+Implemented Inbox category filtering, protected owner corrections (including explicit Uncategorized), literal sender/subject rules and write-free preview with explicit selected apply. Apply checks the rule revision and all selected message versions atomically, preserves overrides and retries only rolled-back serialization/deadlock conflicts. Metadata-only receipts preserve lost-response retry identity; collector refreshes preserve categories. Rule changes use versions, a shared revision and deletion tombstones. Captured rule ID/version/name/criteria preserve the explanation after edits/deletion. Migrations 049–051 add the records, captures and strict SQL guard without changing applied migrations.
+
+The UI distinguishes privacy labels from categories, including visible Unlabeled state. It preserves failed drafts, rejects late previews, invalidates previews on rule editing and locks selection/filter/category controls while apply is pending. Long rule names/criteria wrap at 320px. Classification operates only in the hub; no sensitivity inference, provider action, AI request, email send or automatic ingestion processing is enabled.
+
+Validation: `npm run check` passed with 554 unit tests (one optional PostgreSQL test skipped), lint, strict types, formatting and production builds. Twenty focused organization/ingestion/mail-context tests passed; the final seven organization tests passed after snapshot-isolation hardening. The complete browser suite passed all 100 tests sequentially after build checks, including 320px rule editing, captured explanation retention, category correction/filtering, accessibility, stale atomic applies, late-preview rejection and pending-apply control locking. The initial focused browser run had a locator mismatch for an embedded select; using its accessible combobox name fixed the test. Final web types, targeted lint and formatting also passed.
+
+All data and listeners were isolated/synthetic. No owner database reset, real mail upload, provider call, paid AI, deployment or device test occurred. Online-only writes, export, rule reordering/restoration, deadline extraction, live upload/scheduling and approved-provider AI classification remain pending. See [operating contract](mail-organization.md).
+
 ### 2026-10-13 — Verified mail context and direct main integration
 
 Added owned `mail-message` references to the verified text gateway, with message/connector versions, inherited labels, bounded header/body projection and exact integrity binding. Migration 048 preserves legacy mail with unknown text provenance; retries cannot certify or replace old text. Updated collectors declare message-body origin after excluding attachments. Context preview, admission and final synthetic callback revalidation preserve the existing routing, budget and no-resend boundaries. Classification, selection UI, paid mail dispatch and mailbox writes remain pending.

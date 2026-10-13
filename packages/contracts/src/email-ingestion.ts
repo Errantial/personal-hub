@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import {
+  mailCategoryFieldsSchema,
+  mailRuleCaptureSchema,
+} from './mail-organization.js';
 
 /**
  * Read-only mail ingestion from a local Proton Bridge connector
@@ -56,10 +60,11 @@ export const emailConnectorRevokeSchema = z.strictObject({
 });
 
 // Owner: messages.
-export const mailSummarySchema = z.object({
+export const mailSummarySchema = mailCategoryFieldsSchema.extend({
   id: z.string().uuid(),
   version: z.number().int().positive(),
   connectorId: z.string().uuid(),
+  categoryRuleCapture: mailRuleCaptureSchema.nullable().default(null),
   from: address.nullable(),
   subject: z.string(),
   receivedAt: z.string().datetime(),

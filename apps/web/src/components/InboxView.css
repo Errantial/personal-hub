@@ -165,6 +165,10 @@
   max-width: 24rem;
   margin: var(--space-3) 0;
 }
+.mail-view {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .mail-view a {
   display: inline-flex;
   align-items: center;

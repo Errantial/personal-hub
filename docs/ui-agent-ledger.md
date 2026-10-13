@@ -417,6 +417,17 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 
 ## Change ledger
 
+### 2026-10-13 — Mail categories and explicit rules
+
+- Inbox Mail adds Category filtering, per-message selection (maximum 100), Clear selection and an always-available Reload mail control. Paging, owned cursors and plain-text detail remain intact.
+- Mail rules is expandable, with literal sender/subject rules, enabled state, editable drafts and confirmed deletion. The oldest enabled matching rule wins. Captured rule explanations survive edits/tombstones. See [contracts](mail-organization.md).
+- Preview is write-free. Apply guards the rule revision and every selected message version atomically; owner categories, including Uncategorized, stay protected. Selection/revision changes invalidate previews and abort/ignore late responses.
+- Selection/filter/category controls lock during apply. Starting a rule edit invalidates an existing preview; save or cancel before previewing again. Long rule names and captured criteria wrap at narrow widths.
+- Message detail adds Category, Save category, Use rules and Reload latest message. Privacy label is named separately. Categories never change sensitivity, inherited labels or provider permissions. Connector refreshes preserve owner corrections.
+- Keep pending, offline/error, version-conflict and protected-origin states visible. Failed writes retain drafts and retry identity; deliberate reload/cancel/reopen adopts current versions. Rule/editor changes do not perform provider-side mail actions.
+- Known limits: online-only, no rule reordering/restoration, automatic classification, paid AI, portable export or deadline extraction. Browser 320px results are not Kompakt hardware proof.
+
+
 ### 2026-10-13 — Verified mail context gateway (backend)
 
 - Mail list/detail now include `version` for explicit `mail-message` AI context references. Reading Mail still never changes Proton flags or enables model calls.
