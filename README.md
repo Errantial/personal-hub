@@ -2,15 +2,19 @@
 
 Schedule, task, email, and study hub targeting the web, Android, and Windows.
 
-Status: authenticated web/API planner implemented, including tasks, day/week calendar, all-day and recurring events, individual occurrence edits, class/topic portfolios, manual study blocks, and durable reminders with an in-app inbox. Preferences includes password changes, session revocation and versioned planner JSON export. Read-only Canvas calendar entries appear in Calendar and linked class portfolios; Connections creates source-linked tasks and study blocks with inspectable provenance. A separate Canvas API adapter imports course and assignment metadata, retaining personal notes, labels and explicit class links through durable refreshes. Connections also creates tasks and study blocks from API assignments with captured/current provenance and version checks. Live school access/completeness remains unverified; grades remain pending. Explicit feed/API reconciliation retains separate facts while sharing labels and provenance. Preferences includes AI routing permissions, server profiles, spending limits, and metadata-only preflights; model dispatch remains disabled. Includes SQL migrations, shared TypeScript/Zod contracts, conflict checks and retry deduplication. Browser and provisional Android prototypes cache loaded views and queue task edits offline; APK process-restart/replay checks pass on an AOSP emulator. Email integrations, AI execution, MCP, persistent agents and server deployment remain upcoming. Kompakt hardware verification is deferred while core server/site development continues. Browser alerts require an open Inbox view; closed-app native alerts remain future work.
+Status: the owner-authenticated planner includes tasks, recurring calendars, class portfolios, study-plan approval, reminders, memory editing and exact-message email-draft approval. Read-only Canvas adapters preserve source facts and labels; the school blocks token creation, and broader live coverage remains unverified. Proton Bridge ingestion and Mail browsing are implemented; live upload and scheduling remain pending. The Today Assistant supports a narrow OpenRouter planner flow with owner review before Apply, an owner-configured server key/model and saved spending limits. General AI gateway dispatch, email classification, sending, MCP and persistent agents remain pending.
+
+SQL migrations, shared contracts, optimistic versions, retry receipts and tombstones protect durable operations. Browser and provisional Android clients cache loaded views and queue task edits offline; emulator checks passed, while actual Kompakt hardware and closed-app native reminders remain unverified. HTTPS deployment and same-device backup/restore are implemented; release integration and owner daily-use acceptance are tracked in [the backlog](docs/backlog.md).
 
 Backend responsibility reviews now support [local daily/weekly schedules](docs/responsibility-local-schedules.md), preserving wall-clock cadence across DST with explicit missed-slot admission. Review records remain blocked placeholders; UI and agent execution are pending.
 
+[Verified mail context](docs/ai-mail-context.md) now resolves explicitly selected imported messages through the text-only routing gateway, with label inheritance and message/connector integrity binding. Email classification and paid processing remain pending.
+
 [Read-only email ingestion](docs/email-ingestion.md) now includes a local Proton Bridge connector, owner-managed upload tokens and Inbox mail browsing. Headers and bounded plain-text bodies are imported; attachments and provider writes remain excluded. The observed Bridge snapshot was checked read-only, but live hub upload, scheduling, Gmail delivery completeness and AI filtering remain pending.
 
-The backend also has [verified AI context binding and explicit memory selection](docs/ai-verified-context.md), plus an internal fake-adapter text-result flow. Live model calls and public result delivery remain disabled.
+The backend also has [verified AI context binding and explicit memory selection](docs/ai-verified-context.md), plus an internal fake-adapter text-result flow. Dispatch remains disabled on this general gateway; the [narrow planner assistant](docs/ai-assistant.md) is a separate implemented flow.
 
-Owner-confirmed AI policy now has a $50 monthly ceiling, a $0.25 initial request allowance and [explicit per-request saved answers](docs/ai-provider-setup.md). Actual subscription/API provider execution remains pending.
+Owner-confirmed AI policy has a $50 monthly ceiling, a $0.25 initial request allowance and [explicit per-request saved answers](docs/ai-provider-setup.md). Subscription execution and general gateway provider execution remain pending.
 
 [Offline Claude response inspection](docs/ai-claude-response.md) now validates bounded native JSON guidance and source references. Usage remains an unverified estimate; the decoder enables neither inference nor accounting settlement.
 
@@ -34,7 +38,7 @@ Confirmed: personal use first with future expansion; school Canvas/calendar, sch
 
 Priority: Windows website and Mudita Kompakt Android APK first. Dedicated Windows app and Kindle Scribe are deferred. Hosted AI API initially, with a later self-hosting option. Paid Proton Bridge access and prior feed/browser automation routes are established; app-specific validation remains.
 
-Planned server: Oracle Cloud Ubuntu, 24 GB RAM and 4 OCPUs. MCP is planned in both directions. Hosted AI receives relevant text only, excluding screenshots and attachments. Keep routine costs low and meter stronger-model features within the owner-confirmed $50 monthly ceiling and $0.25 initial request allowance.
+Current server: Oracle Cloud, Oracle Linux ARM64, 10 GiB RAM and two CPUs. MCP is planned in both directions. Hosted AI receives relevant text only, excluding screenshots, attachments and attachment-derived text. Keep routine costs low within the owner-confirmed $50 monthly ceiling and $0.25 initial request allowance.
 
 AI permissions include provider-routing rules based only on sources/content explicitly labeled by the owner. Derived context inherits labels; unlabeled content uses the default route. Labeled sensitive context goes to an approved provider with no silent fallback.
 

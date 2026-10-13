@@ -4,6 +4,8 @@ Implemented 2026-10-11. This adds context integrity binding, explicitly selected
 
 ## Exact context binding
 
+[Verified mail context](ai-mail-context.md) adds owned `mail-message` references with message-body provenance and connector-version binding. This is the foundation for later email classification; dispatch and automatic mail selection remain disabled on this gateway.
+
 Preflight and request assessment now include nullable contextManifest. An assembled manifest declares formatVersion=1, boundary=text-only, projection=owned-text-v1, owner-entered request sensitivity/character count, and each source's kind, owned ID, current version, complete resolved labels, attachmentDerived=false, memorySettingsVersion and projected character count. payloadCharacters counts the full JSON envelope. Blocked/unavailable routes and oversized envelopes have no assembled manifest.
 
 The existing allowlisted task/event/class/topic/Canvas projections are preserved. Direct archived class/topic references are now rejected for text assembly; routing-only simulation preserves inspection of their retained labels. File-derived and incomplete academic provenance still block. Suggestions and sources cannot add attachments, screenshots, arbitrary source content or execution authority. Case variants of the same kind/UUID are duplicate context references.

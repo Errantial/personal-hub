@@ -178,9 +178,9 @@ export function AssistantBox({
         Describe tasks or events to add or change. The assistant proposes
         changes and nothing is saved until you apply them. It sees the titles
         and times of your open tasks and one-time events in the next 30 days,
-        not notes, repeating events or anything you labeled Personal or
-        Restricted. Requests go to OpenRouter and count against your AI spending
-        limits.
+        not notes, repeating events, source-linked items, unknown label history,
+        or anything you labeled Personal or Restricted. Requests go to
+        OpenRouter and count against your AI spending limits.
       </Help>
       {settings.error && (
         <p role="alert" className="form-error">
@@ -253,7 +253,7 @@ export function AssistantBox({
             {request.costMicros !== null &&
               ` · ${formatCost(request.costMicros)}`}
             {request.withheld > 0 &&
-              ` · ${request.withheld} labeled item${request.withheld === 1 ? '' : 's'} left out`}
+              ` · ${request.withheld} item${request.withheld === 1 ? '' : 's'} left out`}
             {request.dropped > 0 &&
               ` · ${request.dropped} suggestion${request.dropped === 1 ? '' : 's'} could not be used`}
           </p>

@@ -5,7 +5,7 @@ Implemented 2026-10-13 (plan step 4, D47). The **Assistant** box on Today turns 
 ## Owner decisions (2026-10-13)
 
 - Review, then Apply: the model only proposes; the owner selects and applies.
-- Personal/Restricted items are left out of the context (no confidential provider exists yet); the response reports how many were withheld. The model cannot change them.
+- Personal/Restricted items, source-linked records and unknown label history are left out of this initial context; the response reports how many were withheld. The model cannot change them. Richer source processing belongs to the verified context gateway.
 - The assistant lives on Today; the model is chosen in Settings › AI › Assistant (default `anthropic/claude-haiku-5.5`).
 - Spending: the existing $50 monthly ceiling and per-request limit (owner-set, $0.25 planned) apply.
 
@@ -32,7 +32,7 @@ Set an upstream credit limit on the OpenRouter key as a second boundary.
 
 1. A repeated `operationId` with the same text/timezone returns the stored receipt (`resultAvailable: false`) and never calls the model again; a changed payload returns `OPERATION_CONFLICT`.
 2. The model's price comes from OpenRouter's public catalog (cached for an hour, no key or owner data sent). Missing, non-text or variable-price models return `ASSISTANT_MODEL_UNAVAILABLE`; a failed catalog read returns `ASSISTANT_CATALOG_UNAVAILABLE`. Nothing is held or sent in either case.
-3. Context: up to 150 open tasks (title, due date, priority) and up to 150 one-time events from one day ago to 30 days ahead (title, local start/end), with refs (`t1`, `e1`) instead of IDs. Notes, repeating events, completed tasks and labeled items are excluded.
+3. Context: up to 150 open tasks (title, due date, priority) and up to 150 one-time events from one day ago to 30 days ahead (title, local start/end), with refs (`t1`, `e1`) instead of IDs. Notes, repeating events, completed tasks, labeled items, source-linked records and unknown academic label history are excluded.
 4. A worst-case charge is computed (every request byte as a prompt token + 500, the full 1,500-token output allowance, any per-request fee, +25%) and reserved in the existing budget ledger. Per-request and monthly limits apply (`REQUEST_BUDGET_EXCEEDED`, `MONTHLY_BUDGET_EXCEEDED`). The reservation is marked uncertain and the request row inserted in the same transaction, before transmission.
 5. One request: pinned to the author's first-party upstream (`only`/`order`), `allow_fallbacks: false`, `require_parameters: true`, `data_collection: deny`, `zdr: true`, response caching disabled, strict JSON-schema output, `usage.include`. No tools, no retries, no redirects, 45-second timeout, 256 KiB response limit.
 6. Settlement:

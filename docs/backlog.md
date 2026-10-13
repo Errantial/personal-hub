@@ -14,6 +14,10 @@ New backend features are frozen until steps 2–3 are done (D49); fixes and back
 
 Later: bidirectional MCP, persistent agents, Kompakt hardware verification, Outlook mailbox, Windows app.
 
+Step 5 gateway foundation (2026-10-13): [verified mail context](ai-mail-context.md) is implemented with owned message references, bounded text projections, retained labels and exact message/connector integrity binding. Older imports without body-origin declarations remain blocked for AI context. Classification, corrections, selection UI and approved live provider execution remain next work; this does not complete live upload/scheduling acceptance.
+
+Integration status (2026-10-13): PRs 13 and 14 merged into their feature-parent branches after the earlier stack reached main. Assistant and Mail still require a direct main integration; the verified-mail-context branch includes both reviewed implementations for that integration. Do not treat those parent-branch merges as a deployment or main release.
+
 Canvas access update (2026-10-13): owner token creation is blocked. A [one-course browser DOM proof](canvas-browser.md) passed; a durable, read-only browser collector is proposed and remains separate from the completed calendar-feed adapter. This proof does not reorder the approved milestones or claim a new working connection. Import contracts/provenance, completeness, session expiry and source reconciliation remain required.
 
 ## Deferred Android verification

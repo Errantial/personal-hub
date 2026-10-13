@@ -16,6 +16,7 @@ const origin = 'http://127.0.0.1:5173';
 const model = 'anthropic/claude-haiku-5.5';
 const base = { NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' };
 let app: Awaited<ReturnType<typeof buildApp>>;
+let database: Awaited<ReturnType<typeof openDatabase>>;
 let cookie: string;
 let chat: (body: Record<string, unknown>) => Promise<Response> | Response;
 let sent: Record<string, unknown>[];
@@ -63,7 +64,7 @@ async function start(key: string | null = 'sk-or-synthetic-test') {
     ...base,
     ...(key ? { AI_SECRET_OPENROUTER: key } : {}),
   });
-  const database = await openDatabase(config);
+  database = await openDatabase(config);
   sent = [];
   const fetcher = vi.fn(async (url: string, init: RequestInit) => {
     if (url === modelsUrl) return catalog();
@@ -260,6 +261,54 @@ it('never resends a retried operation and rejects a changed one', async () => {
     'OPERATION_CONFLICT',
   );
   expect(sent).toHaveLength(1);
+});
+
+it('withholds source-linked events and unknown label history even when their root labels are unlabeled', async () => {
+  await start();
+  await setBudget();
+  const instant = Temporal.Now.instant().add({ hours: 48 }).round('minute');
+  const course = (
+    await call('POST', '/api/v1/courses', {
+      operationId: randomUUID(),
+      name: 'Synthetic private class',
+      sensitivity: 'unlabeled',
+    })
+  ).json().course;
+  const linked = (
+    await call('POST', '/api/v1/calendar', {
+      operationId: randomUUID(),
+      title: 'EXCLUDED_CLASS_EVENT',
+      startsAt: instant.toString(),
+      endsAt: instant.add({ hours: 1 }).toString(),
+      timeZone: 'UTC',
+      courseId: course.id,
+      sensitivity: 'unlabeled',
+    })
+  ).json().event;
+  const legacy = (
+    await call('POST', '/api/v1/calendar', {
+      operationId: randomUUID(),
+      title: 'EXCLUDED_UNKNOWN_EVENT',
+      startsAt: instant.add({ hours: 2 }).toString(),
+      endsAt: instant.add({ hours: 3 }).toString(),
+      timeZone: 'UTC',
+      sensitivity: 'unlabeled',
+    })
+  ).json().event;
+  expect(linked.id).toBeDefined();
+  expect(legacy.id).toBeDefined();
+  await database.query(
+    "UPDATE courses SET sensitivity='personal',version=version+1 WHERE id=$1",
+    [course.id],
+  );
+  await database.query('UPDATE events SET academic_labels=NULL WHERE id=$1', [
+    legacy.id,
+  ]);
+  const result = await ask('Plan my day');
+  expect(result.statusCode).toBe(200);
+  expect(result.json().request.withheld).toBe(2);
+  expect(JSON.stringify(sent)).not.toContain('EXCLUDED_CLASS_EVENT');
+  expect(JSON.stringify(sent)).not.toContain('EXCLUDED_UNKNOWN_EVENT');
 });
 
 it('releases refused requests and keeps the hold when the outcome is unknown', async () => {

@@ -4,6 +4,16 @@ Completed work and validation receipts moved verbatim from backlog.md on 2026-10
 
 ## UI validation receipts
 
+### 2026-10-13 — Verified mail context and direct main integration
+
+Added owned `mail-message` references to the verified text gateway, with message/connector versions, inherited labels, bounded header/body projection and exact integrity binding. Migration 048 preserves legacy mail with unknown text provenance; retries cannot certify or replace old text. Updated collectors declare message-body origin after excluding attachments. Context preview, admission and final synthetic callback revalidation preserve the existing routing, budget and no-resend boundaries. Classification, selection UI, paid mail dispatch and mailbox writes remain pending.
+
+The main integration also retains the reviewed Assistant/Mail work from PRs 13/14, whose feature-parent merges did not reach main. The narrow planner assistant now withholds source-linked records, class/topic-linked events and unknown academic label history, preventing root-only label checks from releasing inherited context. Help and withheld-count wording reflect that scope.
+
+Validation: `npm run check` passed with 546 unit tests and one optional PostgreSQL test skipped, including production builds. Nine focused mail-context tests passed (projection, ownership, stale/duplicate refs, legacy provenance, unavailable-provider blocking, byte changes, connector revocation, input bounds, post-admission rejection and populated upgrade). The updated MIME test excluded text-attachment content/filenames, and all eight focused planner-assistant tests passed. Final API/web types, targeted lint and repository formatting passed. An overlapping-build browser run passed 97/98 tests with a first-Mail-visit sign-in failure. The sequential run passed 97/98, including both accessibility widths and Mail; its only failure was an outdated Assistant count-text assertion. After correcting that assertion, all three Assistant browser tests passed on a fresh isolated database. Every browser case was verified across these runs; no single clean full 98-test run is claimed for this slice.
+
+No real mailbox upload, paid provider call, owner database change, deployment or device test occurred. See [mail context contract](ai-mail-context.md) and [current integration status](backlog.md).
+
 ### 2026-10-13 — Read-only Proton Bridge ingestion
 
 Implemented a local Windows Bridge connector and owner-authorized Mail list/detail views. Migration 047 stores hash-only connector credentials, per-folder UIDVALIDITY/high-water marks and de-duplicated plain-text messages with owner-selected labels. Connector tokens can upload and inspect cursor state but cannot read mail; session cookies cannot use connector routes. Attachments are counted, never uploaded. Creation/revocation have durable metadata-only receipts and optimistic revocation versions; a lost one-time token response produces explicit replacement instructions without creating a duplicate. Uploads serialize with revocation, and missing IMAP fetch results stop before cursor advancement.

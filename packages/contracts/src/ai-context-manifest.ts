@@ -32,9 +32,23 @@ export const aiContextManifestSchema = z.strictObject({
           academicPlanning: academicPlannerSourceSummarySchema
             .strict()
             .optional(),
+          mailConnector: z
+            .strictObject({
+              id: z.string().uuid(),
+              version: z.number().int().positive(),
+            })
+            .optional(),
           characters: z.number().int().nonnegative().max(48000),
         })
         .superRefine((source, ctx) => {
+          if (
+            (source.kind === 'mail-message') !==
+            (source.mailConnector !== undefined)
+          )
+            ctx.addIssue({
+              code: 'custom',
+              message: 'Bind the connector only for mail context.',
+            });
           if (
             (source.kind === 'academic-work') !==
             (source.academicCourse !== undefined)

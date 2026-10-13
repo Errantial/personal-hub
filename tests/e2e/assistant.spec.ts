@@ -118,7 +118,7 @@ test('proposed changes apply through the planner and can be undone', async ({
   await form.getByRole('button', { name: 'Ask', exact: true }).click();
   await expect(box).toContainText('Added a task and moved the lab report.');
   await expect(box).toContainText('$0.0001');
-  await expect(box).toContainText('2 labeled items left out');
+  await expect(box).toContainText('2 items left out');
   expect(asked.text).toBe('Add buy notebook and push the lab report');
   const changes = box.getByRole('group', { name: 'Proposed changes' });
   await expect(

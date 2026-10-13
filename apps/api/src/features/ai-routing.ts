@@ -44,11 +44,39 @@ export async function resolveAIContext(
   let currentVersion: number;
   let labels: ('unlabeled' | 'personal' | 'restricted')[] = [];
   let memorySettingsVersion: number | null = null;
+  let mailConnector: { id: string; version: number } | null = null;
   let academicCourse: { id: string; version: number } | null = null;
   let academicPlanning: z.infer<
     typeof academicPlannerSourceSummarySchema
   > | null = null;
-  if (ref.kind === 'academic-work') {
+  if (ref.kind === 'mail-message') {
+    const [row] = await tx.query(
+      `SELECT m.version,m.text_origin,m.sensitivity,c.sensitivity AS "connectorSensitivity",c.id AS "connectorId",c.version AS "connectorVersion"
+       FROM email_messages m JOIN email_connectors c ON c.id=m.connector_id AND c.owner_id=m.owner_id
+       WHERE m.owner_id=$1 AND m.id=$2`,
+      [owner, ref.id],
+    );
+    if (!row)
+      throw new ApiError(404, 'NOT_FOUND', 'Context source not available.');
+    version(row, ref.expectedVersion);
+    if (row.text_origin !== 'message-body-v1')
+      throw new ApiError(
+        409,
+        'PROVENANCE_UNAVAILABLE',
+        'Mail text origin is not verified for AI context.',
+      );
+    labels = [
+      sensitivitySchema.parse(row.sensitivity),
+      sensitivitySchema.parse(row.connectorSensitivity),
+    ];
+    sensitivity = strongest(...labels);
+    attachmentDerived = false;
+    currentVersion = Number(row.version);
+    mailConnector = {
+      id: String(row.connectorId),
+      version: Number(row.connectorVersion),
+    };
+  } else if (ref.kind === 'academic-work') {
     const [row] = await tx.query(
       `SELECT w.version,w.course_id AS "courseId",c.version AS "courseVersion",w.sensitivity,w.academic_labels AS "academicLabels",c.sensitivity AS "courseSensitivity"
        FROM academic_work w JOIN courses c ON c.id=w.course_id AND c.owner_id=w.owner_id
@@ -270,6 +298,7 @@ export async function resolveAIContext(
     memorySettingsVersion,
     ...(academicCourse ? { academicCourse } : {}),
     ...(academicPlanning ? { academicPlanning } : {}),
+    ...(mailConnector ? { mailConnector } : {}),
   };
 }
 export function registerAIRouting(

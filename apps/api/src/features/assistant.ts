@@ -70,9 +70,18 @@ async function readContext(tx: QueryExecutor, owner: string) {
     .map((row) => calendarRecordSchema.parse(row))
     // Repeating series are not offered yet: one change would move every occurrence.
     .filter((event) => event.recurrence === null);
-  const openTask = (task: Task) => task.sensitivity === 'unlabeled';
+  const openTask = (task: Task) =>
+    task.sensitivity === 'unlabeled' &&
+    !task.canvasSource &&
+    !task.academicSource;
   const openEvent = (event: CalendarRecord) =>
-    event.sensitivity === 'unlabeled' && !event.academicLabels?.length;
+    event.sensitivity === 'unlabeled' &&
+    Array.isArray(event.academicLabels) &&
+    event.academicLabels.length === 0 &&
+    !event.canvasSource &&
+    !event.academicSource &&
+    !event.courseId &&
+    !event.topicId;
   return {
     tasks: tasks.filter(openTask),
     events: events.filter(openEvent),

@@ -417,6 +417,16 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 
 ## Change ledger
 
+### 2026-10-13 — Verified mail context gateway (backend)
+
+- Mail list/detail now include `version` for explicit `mail-message` AI context references. Reading Mail still never changes Proton flags or enables model calls.
+- Existing context preview/preflight manifests bind message and connector versions plus all stored/current connector labels. No Mail selection or classification controls are implemented yet.
+- Future selectors must preserve actionable `PROVENANCE_UNAVAILABLE`, stale-version, unavailable-provider and input-limit states. Do not silently certify legacy imported text or fall back from an unavailable approved provider.
+- Show truncation when a selected body is shortened; never imply omitted attachments were analyzed. Attachment counts, filenames, folder names and credentials are excluded from AI projections.
+- Connector revocation stops upload and invalidates pending context bindings. Stored messages remain locally readable; a deliberate new assessment can reference verified stored text. Existing token recovery, paging, detail rendering and offline planner behavior remain unchanged.
+- Main integration also tightens the narrow Today Assistant: source-linked tasks/events, class/topic-linked events and unknown academic label history are withheld along with Personal/Restricted records. The count says "items left out"; contextual Help names these exclusions. No source-linked proposal can be created from this context.
+
+
 ### 2026-10-13 — Email: Proton Bridge connector and Inbox › Mail
 
 - **Settings › Connections › Email (Proton Bridge)** panel. The Proton Mail placeholder card is removed. Contract: [email-ingestion.md](email-ingestion.md).

@@ -69,4 +69,6 @@ API tests: one-time token and hash-only storage, cookie/token separation, de-dup
 
 ## Known limits
 
+The [verified mail context gateway](ai-mail-context.md) now accepts explicitly selected message references. Updated collectors declare message-body origin; older imported text remains unavailable for AI context. This foundation enables no classification or paid calls. Mail list/detail now expose a source `version`.
+
 No deletion or move tracking (folder membership only grows), no flags/read state, no attachments, not in the portable export, no AI filtering yet, no automatic scheduling installed, and the Gmail completeness gap above.

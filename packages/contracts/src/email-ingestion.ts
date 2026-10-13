@@ -58,6 +58,7 @@ export const emailConnectorRevokeSchema = z.strictObject({
 // Owner: messages.
 export const mailSummarySchema = z.object({
   id: z.string().uuid(),
+  version: z.number().int().positive(),
   connectorId: z.string().uuid(),
   from: address.nullable(),
   subject: z.string(),
@@ -99,6 +100,8 @@ export const emailConnectorStateSchema = z.object({
 });
 export const emailUploadMessageSchema = z.strictObject({
   uid: z.number().int().positive(),
+  /** Declared by the authenticated collector; legacy imports remain unknown. */
+  textOrigin: z.literal('message-body-v1').optional(),
   /** Lower-case Message-ID, or a content hash when it is missing. */
   messageKey: z.string().min(3).max(1000),
   from: address.nullable(),

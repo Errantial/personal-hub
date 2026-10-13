@@ -170,7 +170,7 @@ export function registerEmailIngestion(
           throw new ApiError(404, 'NOT_FOUND', 'Mail cursor not available.');
       }
       const rows = await tx.query(
-        `SELECT id,connector_id AS "connectorId",from_address AS "from",subject,${stamp('received_at', 'receivedAt')},folders,left(body,200) AS snippet,attachment_count AS "attachmentCount",sensitivity
+        `SELECT id,version,connector_id AS "connectorId",from_address AS "from",subject,${stamp('received_at', 'receivedAt')},folders,left(body,200) AS snippet,attachment_count AS "attachmentCount",sensitivity
          FROM email_messages WHERE owner_id=$1
          AND ($3::text IS NULL OR $3=ANY(folders))
          ${anchor ? 'AND (received_at,id)<($4::timestamptz,$5::uuid)' : ''}
@@ -194,7 +194,7 @@ export function registerEmailIngestion(
     const owner = await auth.requireUser(request);
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const [row] = await database.query(
-      `SELECT id,connector_id AS "connectorId",from_address AS "from",to_addresses AS "to",cc_addresses AS cc,subject,${stamp('sent_at', 'sentAt')},${stamp('received_at', 'receivedAt')},folders,body,body_truncated AS "bodyTruncated",attachment_count AS "attachmentCount",sensitivity
+      `SELECT id,version,connector_id AS "connectorId",from_address AS "from",to_addresses AS "to",cc_addresses AS cc,subject,${stamp('sent_at', 'sentAt')},${stamp('received_at', 'receivedAt')},folders,body,body_truncated AS "bodyTruncated",attachment_count AS "attachmentCount",sensitivity
        FROM email_messages WHERE owner_id=$1 AND id=$2`,
       [owner.id, id],
     );
@@ -263,8 +263,8 @@ export function registerEmailIngestion(
         );
         for (const message of input.messages)
           await tx.query(
-            `INSERT INTO email_messages(id,owner_id,connector_id,message_key,from_address,to_addresses,cc_addresses,subject,sent_at,received_at,body,body_truncated,attachment_count,folders,sensitivity)
-             VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9,$10,$11,$12,$13,ARRAY[$14::text],$15)
+            `INSERT INTO email_messages(id,owner_id,connector_id,message_key,from_address,to_addresses,cc_addresses,subject,sent_at,received_at,body,body_truncated,attachment_count,folders,sensitivity,text_origin)
+             VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9,$10,$11,$12,$13,ARRAY[$14::text],$15,$16)
              ON CONFLICT(owner_id,connector_id,message_key) DO UPDATE SET
                folders=CASE WHEN $14=ANY(email_messages.folders) THEN email_messages.folders ELSE array_append(email_messages.folders,$14) END,
                updated_at=CURRENT_TIMESTAMP`,
@@ -284,6 +284,7 @@ export function registerEmailIngestion(
               message.attachmentCount,
               input.path,
               connector.sensitivity,
+              message.textOrigin ?? null,
             ],
           );
         await tx.query(

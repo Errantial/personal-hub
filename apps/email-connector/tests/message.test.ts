@@ -61,3 +61,33 @@ it('truncates long bodies and hashes mail without a Message-ID', async () => {
   expect(upload.messageKey).toMatch(/^sha256:[0-9a-f]{64}$/);
   expect(upload.from).toBeNull();
 });
+
+it('declares message-body origin without importing text attachments or their filenames', async () => {
+  const upload = await toUpload(
+    mime([
+      'MIME-Version: 1.0',
+      'Content-Type: multipart/mixed; boundary="c"',
+      '',
+      '--c',
+      'Content-Type: text/plain',
+      '',
+      'Actual message body',
+      '--c',
+      'Content-Type: text/plain; name="EXCLUDED_FILENAME.txt"',
+      'Content-Disposition: attachment; filename="EXCLUDED_FILENAME.txt"',
+      '',
+      'EXCLUDED_ATTACHMENT_ONLY',
+      '--c--',
+      '',
+    ]),
+    1,
+    received,
+  );
+  expect(upload).toMatchObject({
+    textOrigin: 'message-body-v1',
+    body: 'Actual message body',
+    attachmentCount: 1,
+  });
+  expect(JSON.stringify(upload)).not.toContain('EXCLUDED_ATTACHMENT_ONLY');
+  expect(JSON.stringify(upload)).not.toContain('EXCLUDED_FILENAME');
+});

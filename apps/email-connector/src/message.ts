@@ -9,6 +9,7 @@ export const bodyLimit = 32000;
 type Address = { name: string | null; address: string };
 export type Upload = {
   uid: number;
+  textOrigin: 'message-body-v1';
   messageKey: string;
   from: Address | null;
   to: Address[];
@@ -64,6 +65,7 @@ export async function toUpload(
   const messageId = parsed.messageId?.trim().toLowerCase();
   return {
     uid,
+    textOrigin: 'message-body-v1',
     messageKey:
       messageId && messageId.length >= 3 && messageId.length <= 1000
         ? messageId
