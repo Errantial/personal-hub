@@ -20,7 +20,11 @@ Enter it in the site's setup form; keep it out of chat, commits and logs. After 
 - `personal-hub.service`: unprivileged API, 384 MiB JS heap / 640 MiB service memory limit, supervised restart and filesystem restrictions.
 - `personal-hub-caddy.service`: separate user, managed HTTPS, HTTP redirect, static deep-link fallback and same-origin `/api` proxy. `/sw.js` uses `Cache-Control: no-cache`. Access logging is not enabled; its admin port stays on loopback.
 
-The host firewall and owner-configured Oracle Cloud rules allow TCP 80/443. SSH and the existing port-25565 service are preserved. Provider execution remains disabled.
+The host firewall and owner-configured Oracle Cloud rules allow TCP 80/443. SSH and the existing port-25565 service are preserved.
+
+## Assistant key
+
+The Today Assistant needs an OpenRouter key ([details](../../docs/ai-assistant.md)). In your own SSH session, add `AI_SECRET_OPENROUTER=<key>` with `sudoedit /etc/personal-hub/hub.env`, then `sudo systemctl restart personal-hub`. Keep the key out of chat, commits and logs, and give it a credit limit in OpenRouter. Also save spending limits in Settings › AI. Without the key, the assistant shows "Not set up" and no provider is contacted.
 
 ## Reproduce or update
 

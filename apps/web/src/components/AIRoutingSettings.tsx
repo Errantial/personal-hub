@@ -118,7 +118,7 @@ export function AIRoutingSettings() {
       aria-label="AI routing permissions"
     >
       <h2>Permissions</h2>
-      <StatusChip>Preview only · AI requests are off</StatusChip>
+      <StatusChip>Preview only · Not used by the Assistant</StatusChip>
       <Help label="AI permissions">
         Provider aliases name destinations you may connect later; they are not
         credentials, endpoints or model names. Use lowercase names, numbers,
