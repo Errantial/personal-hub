@@ -13,11 +13,7 @@ import type { OfflineStatus } from '../lib/hooks';
 import { offlineStatus } from '../lib/offline';
 import { taskFilterLabels, taskFilters } from '../lib/router';
 import type { Route, TaskFilter } from '../lib/router';
-import {
-  countByFilter,
-  groupTasks,
-  matchesFilter,
-} from '../lib/tasks';
+import { countByFilter, groupTasks, matchesFilter } from '../lib/tasks';
 import { maxSelection } from '../lib/selection';
 import { useConfirm } from './ConfirmDialog';
 import { DeletedItems } from './DeletedItems';
