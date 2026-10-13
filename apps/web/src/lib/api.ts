@@ -110,6 +110,22 @@ export async function liveRequestJson<T>(
         'Edit this event in Calendar to preserve its schedule and class links.',
       CALENDAR_STUDY_SELECTION_REQUIRED:
         'Study status applies only to one-time timed study blocks. Nothing was changed.',
+      STUDY_CONTEXT_CONFLICT:
+        'Your calendar, goals or classes changed since this plan was made. Recheck the draft or preview again.',
+      STUDY_PLAN_STATE:
+        'This plan’s status changed. Reload plans before trying again.',
+      STUDY_EMPTY: 'Add study blocks before approval.',
+      STUDY_PAST:
+        'Some blocks are now in the past. Remove them or preview a new plan.',
+      STUDY_WORKLOAD_UNCAPTURED:
+        'Recheck this draft to record the work it was ranked by, then approve.',
+      STUDY_SOURCE_UNAVAILABLE:
+        'A class or topic in this plan was removed. Preview a new plan.',
+      STUDY_RANGE: 'Keep blocks within the plan dates.',
+      STUDY_AVAILABILITY: 'A block is outside your study availability.',
+      STUDY_CONFLICT: 'A block now conflicts with your calendar.',
+      STUDY_DAILY_LIMIT: 'The plan exceeds your daily study limit.',
+      STUDY_TOO_LARGE: 'Study planning data exceeds its supported size.',
       ACADEMIC_CLASS_ARCHIVED:
         'This class is archived. Its work and study blocks cannot be edited.',
       ACADEMIC_SCORE_REVIEW_REQUIRED:

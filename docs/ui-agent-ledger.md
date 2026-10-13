@@ -409,6 +409,19 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 
 ## Change ledger
 
+### 2026-10-12 — Classes: Study plan (preview, draft, approval)
+
+- **Study plan** link in the Classes list opens `/classes/plan`. Controls: **Starting** date and **Length** (7 or 14 days). **Preview plan** calls `POST /api/v1/study/preview` with no operation ID; it is read-only. The preview shows warnings as visible text, "Why this order" (remaining/target minutes and ranking reasons in words), and blocks grouped by local day in the plan timezone with the total time.
+- **Save as draft** sends `POST /plans` with the preview's `contextRevision`. `STUDY_CONTEXT_CONFLICT` asks the owner to preview again.
+- **Plans** lists history (20 per page, **Load more plans**) with status, block count, total and saved time. Opening a plan shows its blocks.
+  - Draft blocks have **Remove** buttons. **Save draft changes** fetches a fresh preview for the plan's dates and sends `PUT` with the remaining slots and that `contextRevision`; the server revalidates conflicts, availability and limits. **Approve plan** is hidden while removals are unsaved.
+  - When approval returns `STUDY_CONTEXT_CONFLICT` or `STUDY_WORKLOAD_UNCAPTURED`, **Recheck draft** saves the unchanged slots against current data. Conflicts or past blocks then surface as errors, and the owner removes those blocks.
+- Approved plans show "Added n study blocks to Calendar" and **Cancel plan**. The confirmation explains that edited, completed or deleted blocks are kept. Cancelled plans report how many blocks were kept versus cancelled (`preservedEventIds`). Draft and cancelled plans can be hidden with **Hide plan**; approved plans must be cancelled first.
+- **Progress for these dates** (`GET /study/progress`) shows target, planned, completed and cancelled minutes and the percentage done for each class with a goal or study time. Help states that completed is self-recorded and is not mastery.
+- The client now maps the `STUDY_*` error codes to specific messages.
+- Tests: `apps/web/tests/study.test.ts` (day grouping across timezones, times, totals, range end) and `tests/e2e/study.spec.ts` (preview, save draft, remove a block and save, approve into Calendar, cancel, hide, progress). `/classes/plan` with a preview shown is added to the class accessibility, overflow and target checks.
+- Known limits: blocks cannot be moved or resized (remove only), plans have no deep link, and there is no AI involvement.
+
 ### 2026-10-12 — Study settings and class weekly goals
 
 - New **Settings › Study** (`/settings/study`) reads and writes `GET/PUT /api/v1/study/preferences`. Fields: Study timezone, Session, Break and Daily limit (minutes), and **Weekly availability** rows (Window n day/start/end, Remove, Add window, up to 28). An end of 00:00 is stored as 1440 (midnight at the end of the day). The client rejects missing times, end-before-start and same-day overlaps, naming the weekday, before sending. A "n h available each week" total is shown. A version conflict shows "Changed elsewhere" with **Load latest version**, which keeps the edits and adopts the new version.

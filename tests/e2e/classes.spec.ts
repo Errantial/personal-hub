@@ -302,6 +302,7 @@ for (const { theme, width, target } of [
     for (const [path, selecting] of [
       ['/classes', false],
       ['/classes/new', false],
+      ['/classes/plan', false],
       [`/classes/${course.id}`, false],
       [`/classes/${course.id}?section=work`, false],
       [`/classes/${course.id}?section=work`, true],
@@ -314,6 +315,12 @@ for (const { theme, width, target } of [
         page.getByRole('heading', { level: 1, name: 'Classes' }),
       ).toBeVisible();
       await expect(page.getByText('Loading…', { exact: true })).toHaveCount(0);
+      if (path.endsWith('plan')) {
+        await page.getByRole('button', { name: 'Preview plan' }).click();
+        await expect(
+          page.getByRole('button', { name: 'Preview again' }),
+        ).toBeVisible();
+      }
       if (path.endsWith('work'))
         await expect(page.getByText('Layout work')).toBeVisible();
       if (selecting) {

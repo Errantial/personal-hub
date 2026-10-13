@@ -1,6 +1,10 @@
 import { expect, it } from 'vitest';
 import {
   minutesOfTime,
+  rangeEnd,
+  slotMinutes,
+  slotTime,
+  slotsByDay,
   timeOfMinutes,
   weeklyMinutes,
   windowDrafts,
@@ -46,4 +50,27 @@ it('reports the first invalid or overlapping window', () => {
     { day: 1, start: '10:00', end: '11:00' },
   ]);
   expect('windows' in touching && weeklyMinutes(touching.windows)).toBe(120);
+});
+
+const slot = (startsAt: string, endsAt: string) => ({
+  courseId: '00000000-0000-4000-8000-000000000001',
+  topicId: null,
+  startsAt,
+  endsAt,
+});
+
+it('groups plan slots by local day in the plan timezone', () => {
+  const late = slot('2028-03-07T04:30:00Z', '2028-03-07T05:00:00Z');
+  const early = slot('2028-03-06T14:00:00Z', '2028-03-06T14:30:00Z');
+  // 04:30 UTC on Mar 7 is still Mar 6 in New York.
+  expect(slotsByDay([late, early], 'America/New_York')).toEqual([
+    { day: '2028-03-06', slots: [early, late] },
+  ]);
+  expect(slotsByDay([late, early], 'UTC').map((group) => group.day)).toEqual([
+    '2028-03-06',
+    '2028-03-07',
+  ]);
+  expect(slotTime(early, 'UTC')).toBe('14:00–14:30');
+  expect(slotMinutes([late, early])).toBe(60);
+  expect(rangeEnd('2028-02-25', 7)).toBe('2028-03-03');
 });

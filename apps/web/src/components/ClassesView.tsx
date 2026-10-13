@@ -28,6 +28,7 @@ import { Link } from './Link';
 import { ReadState } from './ReadState';
 import { StatusChip } from './StatusChip';
 import { StudyGoal } from './StudyGoal';
+import { StudyPlanView } from './StudyPlanView';
 import './ClassesView.css';
 
 type ClassesRoute = Extract<Route, { name: 'classes' }>;
@@ -105,14 +106,24 @@ export function ClassesView({
             mastered.
           </Help>
           <ReadState resource={courses} label="classes" />
-          <Link
-            className="classes-add"
-            route={{ name: 'classes', id: 'new' }}
-            navigate={navigate}
-            current={route.id === 'new'}
-          >
-            Add class
-          </Link>
+          <div className="classes-actions">
+            <Link
+              className="classes-add"
+              route={{ name: 'classes', id: 'new' }}
+              navigate={navigate}
+              current={route.id === 'new'}
+            >
+              Add class
+            </Link>
+            <Link
+              className="classes-plan"
+              route={{ name: 'classes', id: 'plan' }}
+              navigate={navigate}
+              current={route.id === 'plan'}
+            >
+              Study plan
+            </Link>
+          </div>
           {courses.data && !all.length && <p>No classes yet.</p>}
           <ul className="class-list">
             {all.map((course) => {
@@ -166,7 +177,8 @@ export function ClassesView({
             />
           </section>
         )}
-        {route.id && route.id !== 'new' && (
+        {route.id === 'plan' && <StudyPlanView navigate={navigate} />}
+        {route.id && route.id !== 'new' && route.id !== 'plan' && (
           <ClassDetail
             key={route.id}
             route={route}

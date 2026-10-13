@@ -81,7 +81,7 @@ export type Route =
     }
   | {
       name: 'classes';
-      /** A class, or `'new'` for the add-class form. */
+      /** A class, `'new'` for the add-class form or `'plan'` for the study plan. */
       id?: string;
       section?: ClassSection;
     }
@@ -179,7 +179,9 @@ export function parseRoute(pathname: string, search: string): Route {
     const section = query.get('section');
     return {
       name,
-      ...(detail === 'new' || isUuid(detail) ? { id: detail } : {}),
+      ...(detail === 'new' || detail === 'plan' || isUuid(detail)
+        ? { id: detail }
+        : {}),
       ...(isClassSection(section) && section !== 'topics' ? { section } : {}),
     };
   }
