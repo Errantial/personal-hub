@@ -1,4 +1,5 @@
-import type { StudyPreferences } from '@hub/contracts';
+import { Temporal } from '@hub/contracts';
+import type { StudyPreferences, StudyPreview, StudySlot } from '@hub/contracts';
 
 /* Study planning helpers. Availability windows use ISO weekdays (1 = Monday)
    and minutes from local midnight; an end of 1440 means the next midnight. */
@@ -88,3 +89,76 @@ export const weeklyMinutes = (windows: readonly Window[]) =>
     (sum, window) => sum + window.endMinute - window.startMinute,
     0,
   );
+
+/* Study plans: previews, drafts and approval. */
+
+type Preview = StudyPreview;
+type Priority = Preview['priorities'][number];
+
+export const warningText: Record<Preview['warnings'][number], string> = {
+  NO_AVAILABILITY:
+    'No study availability. Add weekly windows in Settings › Study.',
+  NO_GOALS:
+    'No class has a weekly goal yet. Set one in a class’s Study blocks.',
+  INSUFFICIENT_TIME: 'Not enough available time to meet every goal.',
+  DST_WINDOW_SKIPPED:
+    'Some times were skipped because of a daylight saving change.',
+  EXTERNAL_CALENDARS_NOT_CHECKED:
+    'Only your planner calendar was checked, not external calendars.',
+  ACADEMIC_DEADLINES_MISSING: 'Some open work has no deadline.',
+  ACADEMIC_ESTIMATES_MISSING: 'Some open work has no time estimate.',
+  ACADEMIC_WORK_PROVENANCE_INCOMPLETE:
+    'Blocks ranked by academic work cannot be shared with AI.',
+};
+
+export const reasonText: Record<Priority['reasons'][number], string> = {
+  OWNER_PRIORITY: 'your priority',
+  TARGET_DATE: 'target date within 14 days',
+  LOW_CONFIDENCE: 'low confidence',
+  UNKNOWN_CONFIDENCE: 'confidence not assessed',
+  INCOMPLETE_PROGRESS: 'topic not finished',
+  NO_TOPICS: 'no topics',
+  ACADEMIC_WORK_OVERDUE: 'overdue work',
+  ACADEMIC_WORK_DUE_SOON: 'work due within 14 days',
+  WORK_IMPORTANCE: 'work priority',
+  ESTIMATED_WORKLOAD: 'estimated workload',
+};
+
+/** The exclusive end date of a range starting at `from`. */
+export const rangeEnd = (from: string, days: number) =>
+  Temporal.PlainDate.from(from).add({ days }).toString();
+
+/** Slots grouped by local date in the plan's timezone, in time order. */
+export function slotsByDay(slots: readonly StudySlot[], timeZone: string) {
+  const days = new Map<string, StudySlot[]>();
+  for (const slot of [...slots].sort((a, b) =>
+    a.startsAt.localeCompare(b.startsAt),
+  )) {
+    const day = Temporal.Instant.from(slot.startsAt)
+      .toZonedDateTimeISO(timeZone)
+      .toPlainDate()
+      .toString();
+    days.set(day, [...(days.get(day) ?? []), slot]);
+  }
+  return [...days].map(([day, items]) => ({ day, slots: items }));
+}
+
+/** "14:00–14:30" in the plan's timezone. */
+export function slotTime(slot: StudySlot, timeZone: string) {
+  const time = (instant: string) =>
+    Temporal.Instant.from(instant)
+      .toZonedDateTimeISO(timeZone)
+      .toPlainTime()
+      .toString({ smallestUnit: 'minute' });
+  return `${time(slot.startsAt)}–${time(slot.endsAt)}`;
+}
+
+export const slotMinutes = (slots: readonly StudySlot[]) =>
+  slots.reduce(
+    (sum, slot) =>
+      sum + (+new Date(slot.endsAt) - +new Date(slot.startsAt)) / 60000,
+    0,
+  );
+
+/** A stable key for a slot within one plan. */
+export const slotKey = (slot: StudySlot) => `${slot.courseId}:${slot.startsAt}`;

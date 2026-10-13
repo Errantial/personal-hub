@@ -112,6 +112,10 @@ it('addresses a class, its section and the add-class form', () => {
     id,
     section: 'canvas',
   });
+  expect(parseRoute('/classes/plan', '')).toEqual({
+    name: 'classes',
+    id: 'plan',
+  });
   expect(parseRoute('/classes/new', '')).toEqual({
     name: 'classes',
     id: 'new',
