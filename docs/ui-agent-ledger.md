@@ -1,5 +1,9 @@
 # UI agent ledger
 
+## Canvas access limitation and browser proof (2026-10-13)
+
+The owner's school blocks personal token creation, so **Canvas API not configured** is an actual access gate. A browser DOM feasibility test passed for one course (27 unique links/titles, 10 valid due timestamps, 17 missing dates). It did not import hub data, prove all-course coverage or add a connector. See [canvas-browser.md](canvas-browser.md). Do not expose browser sync as supported yet. A future UI must distinguish sign-in required, loading/partial/filter-limited snapshot, missing due date, source freshness, conflict and failed import; its contracts do not exist yet. Initial collection must project selected metadata locally because assignment pages also contain scores and other unnecessary text. No whole-page prompt export, screenshot/attachment input, automatic sensitivity inference or provider execution is added.
+
 ## Deployed web boundary (2026-10-13)
 
 The tested UI through reminder-history commit `265a99d` is served at `https://hub.ecg.name` on the actual Oracle Linux ARM64 VM. Deep links fall back to the shell, `/api` stays same-origin and `/sw.js` uses `Cache-Control: no-cache`. Secure sessions and the setup-token gate remain required. Live unauthenticated setup/deep-link/320px checks passed with no JS errors and private API 401; no synthetic owner was enrolled. Daily use is unverified. Local DNS propagation was incomplete, so the browser check used a hostname/address override. Same-device backups retain private history; off-host protection is deferred by owner choice. Do not promise permanent erasure, migrated development records, live providers or Kompakt acceptance.
