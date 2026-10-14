@@ -121,8 +121,10 @@ export async function liveRequestJson<T>(
         'Choose a model from Anthropic, OpenAI, Google, Mistral, xAI or DeepSeek.',
       ASSISTANT_MODEL_UNAVAILABLE:
         'OpenRouter does not list this model as a text model. Choose another in Settings › AI.',
+      ASSISTANT_MODEL_NOT_PRIVATE:
+        'No allowed host serves this model with zero data retention. Choose another in Settings › AI. Nothing was sent.',
       ASSISTANT_CATALOG_UNAVAILABLE:
-        'Model prices could not be checked. Nothing was sent; try again.',
+        'Model availability could not be checked. Nothing was sent; try again.',
       BUDGET_UNSET:
         'Set AI spending limits in Settings › AI before asking. Nothing was sent.',
       REQUEST_BUDGET_EXCEEDED:

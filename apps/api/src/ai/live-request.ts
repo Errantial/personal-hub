@@ -4,7 +4,7 @@ import type { Database, QueryExecutor } from '../db/database.js';
 import { ApiError } from '../errors.js';
 import { stamp } from '../features/common.js';
 import { lockBudget, reserveAIBudgetInTransaction } from './budget.js';
-import { modelPrice, upstreamFor } from './openrouter-live.js';
+import { hasPrivateHost, hostsFor, modelPrice } from './openrouter-live.js';
 import type {
   ExchangeResult,
   ModelPrice,
@@ -15,7 +15,7 @@ import type {
 // replay by operation ID, budget hold marked uncertain before sending,
 // settlement from reported usage. Request rows hold metadata only.
 
-export type LiveKind = 'planner' | 'mail-classify';
+export type LiveKind = 'planner' | 'mail-classify' | 'mail-tasks';
 export type LiveReason =
   | 'invalid'
   | 'provider-error'
@@ -105,22 +105,33 @@ export async function prepareLive(
       'The server has no OpenRouter key.',
     );
   const settings = await readAssistantSettings(database, owner);
-  if (!upstreamFor(settings.model))
+  if (!hostsFor(settings.model))
     throw new ApiError(
       409,
       'ASSISTANT_MODEL_UNSUPPORTED',
       'Use a model from a supported provider.',
     );
-  let cost;
+  let cost, privateHost;
   try {
-    cost = await modelPrice(fetcher, settings.model);
+    [cost, privateHost] = await Promise.all([
+      modelPrice(fetcher, settings.model),
+      hasPrivateHost(fetcher, settings.model),
+    ]);
   } catch {
     throw new ApiError(
       503,
       'ASSISTANT_CATALOG_UNAVAILABLE',
-      'Model prices could not be checked.',
+      'Model availability could not be checked.',
     );
   }
+  // Checked before any hold: a model without an allowed zero-retention host
+  // could only fail at OpenRouter.
+  if (!privateHost)
+    throw new ApiError(
+      409,
+      'ASSISTANT_MODEL_NOT_PRIVATE',
+      'No allowed host serves this model with zero data retention. Choose another model in Settings › AI › Assistant.',
+    );
   if (!cost)
     throw new ApiError(
       409,

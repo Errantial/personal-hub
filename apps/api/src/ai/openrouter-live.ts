@@ -11,21 +11,37 @@ export type OpenRouterFetch = (
 ) => Promise<Response>;
 export const chatUrl = 'https://openrouter.ai/api/v1/chat/completions';
 export const modelsUrl = 'https://openrouter.ai/api/v1/models';
+export const zdrUrl = 'https://openrouter.ai/api/v1/endpoints/zdr';
 
 /**
- * The first-party upstream each model author is pinned to. Requests never
- * fall back to another upstream; other authors are not supported.
+ * The hosts allowed to serve each model author: the author itself, plus the
+ * major clouds that host its models under their own terms (Claude on Vertex
+ * and Bedrock, OpenAI on Azure). Every request still requires zero data
+ * retention, so only hosts with a ZDR endpoint ever serve it. Requests never
+ * leave this list; other authors are not supported.
  */
-const upstreams: Record<string, string> = {
-  anthropic: 'anthropic',
-  openai: 'openai',
-  google: 'google-vertex',
-  mistralai: 'mistral',
-  'x-ai': 'xai',
-  deepseek: 'deepseek',
+const hosts: Record<string, string[]> = {
+  anthropic: ['anthropic', 'google-vertex', 'amazon-bedrock'],
+  openai: ['openai', 'azure'],
+  google: ['google-vertex'],
+  mistralai: ['mistral'],
+  'x-ai': ['xai'],
+  deepseek: ['deepseek'],
 };
-export const upstreamFor = (model: string) =>
-  upstreams[model.split('/')[0]!] ?? null;
+export const hostsFor = (model: string) => hosts[model.split('/')[0]!] ?? null;
+
+/** OpenRouter routing for a supported model: allowed hosts only, ZDR only. */
+export function providerRouting(model: string) {
+  const allowed = hostsFor(model)!;
+  return {
+    only: allowed,
+    order: allowed,
+    allow_fallbacks: false,
+    require_parameters: true,
+    data_collection: 'deny',
+    zdr: true,
+  };
+}
 
 /** Dollars per token or per request, as OpenRouter publishes them. */
 export type ModelPrice = {
@@ -132,6 +148,54 @@ export async function modelPrice(
     catalogs.set(fetcher, catalog);
   }
   return catalog.prices.get(model) ?? null;
+}
+
+const zdrSchema = z.object({
+  data: z.array(
+    z.object({
+      model_id: z.string(),
+      tag: z.string(),
+      supported_parameters: z.array(z.string()).optional(),
+    }),
+  ),
+});
+const zdrLists = new WeakMap<
+  OpenRouterFetch,
+  { at: number; models: Set<string> }
+>();
+
+/**
+ * Whether an allowed host serves the model with zero data retention and
+ * strict JSON output, from OpenRouter's public ZDR endpoint list (cached for
+ * an hour). The request carries no key and no owner data.
+ */
+export async function hasPrivateHost(
+  fetcher: OpenRouterFetch,
+  model: string,
+  now = Date.now(),
+) {
+  let list = zdrLists.get(fetcher);
+  if (!list || now - list.at > 3600000) {
+    const response = await fetcher(zdrUrl, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      redirect: 'error',
+      signal: AbortSignal.timeout(15000),
+    });
+    if (response.status !== 200) throw new Error('ZDR list unavailable');
+    const raw = await readBody(response, 32 * 1024 * 1024);
+    if (raw === null) throw new Error('ZDR list too large');
+    const models = new Set<string>();
+    for (const endpoint of zdrSchema.parse(JSON.parse(raw)).data)
+      if (
+        hostsFor(endpoint.model_id)?.includes(endpoint.tag.split('/')[0]!) &&
+        endpoint.supported_parameters?.includes('structured_outputs')
+      )
+        models.add(endpoint.model_id);
+    list = { at: now, models };
+    zdrLists.set(fetcher, list);
+  }
+  return list.models.has(model);
 }
 
 /**

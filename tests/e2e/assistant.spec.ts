@@ -208,10 +208,13 @@ test('a change made elsewhere is a conflict, not an overwrite', async ({
   );
   await page.goto('/');
   const box = page.getByRole('region', { name: 'Assistant' });
-  await box
-    .getByRole('textbox', { name: 'Ask', exact: true })
-    .fill('Mark the essay done');
-  await box.getByRole('button', { name: 'Ask', exact: true }).click();
+  const ask = box.getByRole('textbox', { name: 'Ask', exact: true });
+  // Shift+Enter adds a line; Enter asks.
+  await ask.fill('Mark the essay');
+  await ask.press('Shift+Enter');
+  await expect(ask).toHaveValue('Mark the essay\n');
+  await ask.fill('Mark the essay done');
+  await ask.press('Enter');
   await box.getByRole('button', { name: 'Apply 1 change' }).click();
   await expect(
     box.getByText(/Changed or removed since the assistant read it/),
