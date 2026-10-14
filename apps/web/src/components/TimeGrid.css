@@ -1,0 +1,195 @@
+/* Week and Day grid (TimeGrid). One hour is --hour tall; positions are set
+   inline from elapsed minutes. */
+.time-grid {
+  --hour: 3rem;
+  --gutter: 3.5rem;
+  --columns: var(--gutter) repeat(var(--days), minmax(0, 1fr));
+  min-width: 0;
+}
+[data-theme='eink'] .time-grid {
+  --hour: 3.5rem;
+}
+.time-grid__head,
+.time-grid__strip,
+.time-grid__body {
+  display: grid;
+  grid-template-columns: var(--columns);
+}
+.time-grid__head {
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+.time-grid__date {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-1);
+  align-items: baseline;
+  justify-content: center;
+  min-height: var(--target);
+  padding: var(--space-1) 0;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: var(--text-small);
+}
+.time-grid__daynum {
+  color: var(--text);
+  font-size: var(--text-title-small);
+}
+.time-grid__daynum--today {
+  min-width: 2rem;
+  border-radius: var(--radius-control);
+  background: var(--accent);
+  color: var(--on-accent);
+  text-align: center;
+}
+.time-grid__strip {
+  border-bottom: var(--border-width) solid var(--border);
+}
+.time-grid__allday {
+  align-self: center;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+}
+.time-grid__chips {
+  display: grid;
+  gap: 2px;
+  align-content: start;
+  min-width: 0;
+  margin: 0;
+  padding: 2px;
+  list-style: none;
+  border-left: var(--border-width) solid var(--border-subtle);
+}
+.time-grid__scroll {
+  max-height: max(24rem, calc(100dvh - 18rem));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.time-grid__body {
+  position: relative;
+  height: calc(var(--minutes) * var(--hour) / 60);
+}
+.time-grid__gutter {
+  position: relative;
+}
+.time-grid__hour {
+  position: absolute;
+  right: var(--space-2);
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+}
+.time-grid__day {
+  position: relative;
+  height: calc(var(--length) * var(--hour) / 60);
+  border-left: var(--border-width) solid var(--border-subtle);
+}
+.time-grid__slot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--hour);
+  padding: 0;
+  border: 0;
+  border-top: var(--border-width) solid var(--border-subtle);
+  background: transparent;
+  cursor: pointer;
+}
+.time-grid__slot:hover {
+  background: var(--surface-subtle);
+}
+.time-grid__block {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 1.5rem;
+  padding: 1px var(--space-1);
+  overflow: hidden;
+  border: 1px solid var(--surface);
+  border-radius: calc(var(--radius-control) / 2);
+  background: var(--chip-bg);
+  color: var(--chip-text);
+  font-size: var(--text-caption);
+  line-height: 1.25;
+  text-decoration: none;
+}
+.time-grid__block:hover,
+.time-grid__block:focus-visible {
+  z-index: 2;
+}
+.time-grid__title {
+  font-weight: var(--weight-strong);
+  overflow-wrap: anywhere;
+}
+.time-grid__time {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.time-grid__block--cancelled .time-grid__title {
+  text-decoration: line-through;
+}
+.time-grid__now {
+  position: absolute;
+  z-index: 3;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--danger);
+  pointer-events: none;
+}
+
+/* Chips: strip, month and block colors per source. */
+.calendar-chip {
+  position: relative;
+  display: block;
+  min-height: 1.5rem;
+  line-height: 1.5rem;
+  min-width: 0;
+  padding: 1px var(--space-1);
+  overflow: hidden;
+  border-radius: calc(var(--radius-control) / 2);
+  background: var(--chip-bg);
+  color: var(--chip-text);
+  font-size: var(--text-caption);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.calendar-chip--event {
+  --chip-bg: var(--kind-event);
+  --chip-text: var(--kind-event-text);
+}
+.calendar-chip--study {
+  --chip-bg: var(--kind-study);
+  --chip-text: var(--kind-study-text);
+}
+.calendar-chip--canvas {
+  --chip-bg: var(--kind-deadline);
+  --chip-text: var(--kind-deadline-text);
+}
+.calendar-chip--task {
+  --chip-bg: var(--kind-task);
+  --chip-text: var(--kind-task-text);
+}
+/* Type names stand in for color in e-ink mode only. */
+.calendar-chip__type {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+[data-theme='eink'] .calendar-chip,
+[data-theme='eink'] .time-grid__block {
+  border: 1px solid #000;
+}
+[data-theme='eink'] .calendar-chip__type {
+  position: static;
+  width: auto;
+  height: auto;
+  clip-path: none;
+  font-weight: var(--weight-strong);
+}
