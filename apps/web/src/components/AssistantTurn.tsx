@@ -61,13 +61,11 @@ const failure = (error: unknown) =>
  */
 export function AssistantTurnView({
   turn,
-  showAsk,
   onTurn,
   onApplied,
   onStale,
 }: {
   turn: AssistantTurn;
-  showAsk: boolean;
   /** The turn after its applied state was saved. */
   onTurn: (turn: AssistantTurn) => void;
   /** Reloads planner lists after changes. */
@@ -156,10 +154,27 @@ export function AssistantTurnView({
     (item, index) => item.state === 'proposed' && selected[index],
   ).length;
   const applied = turn.items.some((item) => item.state === 'applied');
+  const plural = (count: number, word: string) =>
+    `${count} ${word}${count === 1 ? '' : 's'}`;
+  const leftOut = request.withheld + turn.mailWithheld;
+  // Model, cost and what was sent, in one muted line that opens the list.
+  const summary = [
+    request.model,
+    request.costMicros !== null ? formatCost(request.costMicros) : '',
+    turn.mail.length ? `${plural(turn.mail.length, 'message')} sent` : '',
+    leftOut ? `${leftOut} left out` : '',
+    request.dropped
+      ? `${plural(request.dropped, 'suggestion')} could not be used`
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
   return (
-    <article className="assistant-turn">
-      {showAsk && <p className="assistant-turn__ask">{turn.ask}</p>}
-      <div className="assistant__result">
+    <div className="assistant-turn">
+      <article aria-label="You" className="bubble bubble--me">
+        {turn.ask}
+      </article>
+      <article aria-label="Assistant" className="bubble bubble--ai">
         {request.reason && (
           <p role="alert" className="form-error">
             {reasons[request.reason]}
@@ -168,48 +183,17 @@ export function AssistantTurnView({
           </p>
         )}
         {request.reply && <p className="assistant__reply">{request.reply}</p>}
-        <p className="meta">
-          {request.model}
-          {request.costMicros !== null &&
-            ` · ${formatCost(request.costMicros)}`}
-          {request.withheld > 0 &&
-            ` · ${request.withheld} item${request.withheld === 1 ? '' : 's'} left out`}
-          {request.dropped > 0 &&
-            ` · ${request.dropped} suggestion${request.dropped === 1 ? '' : 's'} could not be used`}
-        </p>
         {turn.mailNote && (
           <p role="alert" className="form-error">
             {turn.mailNote}
           </p>
-        )}
-        {(turn.mail.length > 0 || turn.mailWithheld > 0) && (
-          <details className="assistant-turn__mail">
-            <summary>
-              {turn.mail.length} message{turn.mail.length === 1 ? '' : 's'} sent
-              ({turn.mail.filter((item) => item.read).length} read)
-              {turn.mailWithheld > 0 &&
-                ` · ${turn.mailWithheld} left out by labels`}
-            </summary>
-            <ul>
-              {turn.mail.map((item) => (
-                <li key={item.id}>
-                  <strong>{item.subject || '(no subject)'}</strong>
-                  <span className="meta">
-                    {item.from ?? 'Unknown sender'} ·{' '}
-                    {formatInstant(item.receivedAt)} ·{' '}
-                    {item.read ? 'Body sent' : 'Subject and sender only'}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </details>
         )}
         {request.resultAvailable &&
           !turn.items.length &&
           !request.reason &&
           !request.reply && <p>No changes proposed.</p>}
         {turn.items.length > 0 && (
-          <fieldset className="assistant__changes" disabled={busy}>
+          <fieldset className="assistant__changes turn-changes" disabled={busy}>
             <legend>Proposed changes</legend>
             <ul>
               {turn.items.map((item, index) => (
@@ -272,8 +256,35 @@ export function AssistantTurnView({
             </div>
           </fieldset>
         )}
+        <details className="turn-details">
+          <summary>{summary}</summary>
+          {turn.mail.length > 0 && (
+            <ul>
+              {turn.mail.map((item) => (
+                <li key={item.id}>
+                  <strong>{item.subject || '(no subject)'}</strong>
+                  <span className="meta">
+                    {item.from ?? 'Unknown sender'} ·{' '}
+                    {formatInstant(item.receivedAt)} ·{' '}
+                    {item.read ? 'Body sent' : 'Subject and sender only'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {request.withheld > 0 && (
+            <p className="meta">
+              {plural(request.withheld, 'planner item')} left out by labels.
+            </p>
+          )}
+          {turn.mailWithheld > 0 && (
+            <p className="meta">
+              {plural(turn.mailWithheld, 'message')} left out by labels.
+            </p>
+          )}
+        </details>
         <p role="status">{notice}</p>
-      </div>
-    </article>
+      </article>
+    </div>
   );
 }

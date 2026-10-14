@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   aiBudgetLiveSettingsSchema,
   assistantConversationDeletedSchema,
@@ -17,7 +17,7 @@ import { AssistantTurnView } from './AssistantTurn';
 import { useConfirm } from './ConfirmDialog';
 import { Help } from './Help';
 import { Link } from './Link';
-import './AssistantBox.css';
+import './Assistant.css';
 
 /**
  * Assistant page (D55): conversations kept on the owner's server, so every
@@ -65,7 +65,26 @@ export function AssistantView({
   );
   const [turns, setTurns] = useState<AssistantTurn[]>([]);
   useEffect(() => setTurns(thread.data?.turns ?? []), [thread.data]);
-  useEffect(() => setDeleteError(''), [route.id]);
+  const [listOpen, setListOpen] = useState(false);
+  useEffect(() => {
+    setDeleteError('');
+    setListOpen(false);
+  }, [route.id]);
+  // After an answer, bring the newest turn above the composer and return
+  // focus to the Ask field.
+  const lastTurn = useRef<HTMLLIElement>(null);
+  const composer = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const scrollNext = useRef(false);
+  useEffect(() => {
+    if (!scrollNext.current || !lastTurn.current) return;
+    scrollNext.current = false;
+    lastTurn.current.style.scrollMarginBottom = `${
+      (composer.current?.offsetHeight ?? 0) + 16
+    }px`;
+    lastTurn.current.scrollIntoView({ block: 'end' });
+    input.current?.focus();
+  }, [turns]);
 
   const configured = settings.data?.settings.configured;
   const usage = budget.data?.usage;
@@ -110,23 +129,33 @@ export function AssistantView({
     }
   }
 
+  const spend = [
+    settings.data?.settings.model,
+    usage &&
+      `${formatCost(Number(usage.spentMicros))} this month${
+        limit !== null && limit !== undefined ? ` of ${formatCost(limit)}` : ''
+      }`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
   return (
     <div className="assistant-page">
       {dialog}
-      <div className="assistant-page__summary">
-        <p className="meta">
-          {settings.data?.settings.model}
-          {usage &&
-            ` · ${formatCost(Number(usage.spentMicros))} this month${
-              limit !== null && limit !== undefined
-                ? ` of ${formatCost(limit)}`
-                : ''
-            }`}
-        </p>
-        <Help label="Assistant">{assistantHelp}</Help>
-      </div>
+      <button
+        type="button"
+        className="secondary-button assistant-page__toggle"
+        aria-expanded={listOpen}
+        aria-controls="assistant-conversations"
+        onClick={() => setListOpen(!listOpen)}
+      >
+        Conversations
+      </button>
       <div className="assistant-page__layout">
-        <nav className="panel assistant-page__list" aria-label="Conversations">
+        <nav
+          id="assistant-conversations"
+          className={`panel assistant-page__list${listOpen ? ' is-open' : ''}`}
+          aria-label="Conversations"
+        >
           <Link
             className="secondary-button"
             route={{ name: 'assistant' }}
@@ -161,9 +190,33 @@ export function AssistantView({
           className="panel assistant-page__thread"
           aria-label={conversation ? conversation.title : 'New conversation'}
         >
+          <header className="assistant-page__head">
+            <h2>{conversation?.title ?? 'New conversation'}</h2>
+            {conversation && (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={!online}
+                onClick={() => {
+                  void remove();
+                }}
+              >
+                Delete
+              </button>
+            )}
+            <p className="meta assistant-page__spend">
+              {spend}
+              <Help label="Assistant">{assistantHelp}</Help>
+            </p>
+          </header>
           {settings.error && (
             <p role="alert" className="form-error">
               {settings.error}
+            </p>
+          )}
+          {deleteError && (
+            <p role="alert" className="form-error">
+              {deleteError}
             </p>
           )}
           {missing ? (
@@ -175,26 +228,6 @@ export function AssistantView({
             </p>
           ) : (
             <>
-              {conversation && (
-                <div className="assistant-page__head">
-                  <h2>{conversation.title}</h2>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={!online}
-                    onClick={() => {
-                      void remove();
-                    }}
-                  >
-                    Delete
-                  </button>
-                </div>
-              )}
-              {deleteError && (
-                <p role="alert" className="form-error">
-                  {deleteError}
-                </p>
-              )}
               {!route.id && (
                 <p className="meta">
                   Ask about your tasks and events, or ask for changes. You
@@ -202,11 +235,13 @@ export function AssistantView({
                 </p>
               )}
               <ol className="assistant-page__turns">
-                {turns.map((turn) => (
-                  <li key={turn.id}>
+                {turns.map((turn, index) => (
+                  <li
+                    key={turn.id}
+                    ref={index === turns.length - 1 ? lastTurn : undefined}
+                  >
                     <AssistantTurnView
                       turn={turn}
-                      showAsk
                       onTurn={replace}
                       onApplied={() => undefined}
                       onStale={() => void thread.reload()}
@@ -220,23 +255,30 @@ export function AssistantView({
                   operating guide.
                 </p>
               ) : (
-                <AssistantComposer
-                  conversationId={id}
-                  settings={settings}
-                  placeholder={
-                    turns.length
-                      ? 'Ask a follow-up'
-                      : 'Move my essay to Friday and add a reminder to print it'
-                  }
-                  navigate={navigate}
-                  onAnswered={(turn) => {
-                    replace(turn);
-                    void list.reload();
-                    void budget.reload();
-                    if (!route.id)
-                      navigate({ name: 'assistant', id: turn.conversationId });
-                  }}
-                />
+                <div className="assistant-page__composer" ref={composer}>
+                  <AssistantComposer
+                    conversationId={id}
+                    settings={settings}
+                    inputRef={input}
+                    placeholder={
+                      turns.length
+                        ? 'Ask a follow-up'
+                        : 'Move my essay to Friday and add a reminder to print it'
+                    }
+                    navigate={navigate}
+                    onAnswered={(turn) => {
+                      scrollNext.current = true;
+                      replace(turn);
+                      void list.reload();
+                      void budget.reload();
+                      if (!route.id)
+                        navigate({
+                          name: 'assistant',
+                          id: turn.conversationId,
+                        });
+                    }}
+                  />
+                </div>
               )}
             </>
           )}

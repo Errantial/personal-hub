@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, RefObject } from 'react';
 import {
   assistantRequestResponseSchema,
   assistantSettingsResponseSchema,
@@ -31,19 +31,23 @@ export function AssistantComposer({
   conversationId,
   settings,
   placeholder,
+  inputRef,
   navigate,
   onAnswered,
 }: {
   conversationId: string;
   settings: ReturnType<typeof useAssistantSettings>;
   placeholder: string;
+  /** Lets the page return focus to the Ask field. */
+  inputRef?: RefObject<HTMLTextAreaElement | null>;
   navigate: (route: Route) => void;
   onAnswered: (turn: AssistantTurn) => void;
 }) {
   const online = useOnline();
   const ask = useMutation();
   const [text, setText] = useState('');
-  const field = useRef<HTMLTextAreaElement>(null);
+  const own = useRef<HTMLTextAreaElement>(null);
+  const field = inputRef ?? own;
   const saved = settings.data?.settings;
   const configured = !!saved?.configured;
   const [useMail, setUseMail] = useState(false);
@@ -109,7 +113,7 @@ export function AssistantComposer({
         }}
       >
         <label>
-          Ask
+          <span className="visually-hidden">Ask</span>
           <textarea
             ref={field}
             rows={2}
