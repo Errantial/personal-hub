@@ -12,6 +12,11 @@ New backend features are frozen until steps 2–3 are done (D49); fixes and back
 4. **First live AI flow**: natural-language task/event creation and edits through existing planner operations, via OpenRouter with an owner-configurable model in Settings (initially Claude Haiku 5.5, D47), within the $0.25 request / $50 monthly caps. Implemented 2026-10-13 as the Today Assistant (review, then Apply; labeled items withheld); see [ai-assistant.md](ai-assistant.md). Live use needs the server key, saved spending limits and a first real request.
 5. **Email ingestion**: prove Proton Bridge completeness (Oracle VM if supported, otherwise an always-on local machine, D48), read-only first; then AI filtering through the gateway. Read-only ingestion implemented 2026-10-13 with Bridge on the owner's Windows computer and a local connector; observed Bridge snapshot coverage was verified read-only, while Gmail delivery completeness remains unresolved (latest observed message 2026-09-28). Live upload needs this release deployed, a connector token and a scheduled task. AI filtering is next. See [email-ingestion.md](email-ingestion.md).
 
+Next (approved 2026-10-14, D54–D56), in order:
+1. **Dark theme** following the device by default, with Light/Dark/Match device in Settings › Appearance.
+2. **Assistant page** in the sidebar: an ongoing conversation with history, applied/undone changes, model and monthly cost; Today keeps a quick-ask box that links to it.
+3. **Assistant mail reading**: the assistant searches subjects and senders, then reads only the bodies it needs; each answer lists which messages were sent. Restricted never; Personal only with the existing switch.
+
 Later: bidirectional MCP, persistent agents, Kompakt hardware verification, Outlook mailbox, Windows app.
 
 Step 5 gateway foundation (2026-10-13): [verified mail context](ai-mail-context.md) is implemented with owned message references, bounded text projections, retained labels and exact message/connector integrity binding. Older imports without body-origin declarations remain blocked for AI context. Classification, corrections, selection UI and approved live provider execution remain next work; this does not complete live upload/scheduling acceptance.

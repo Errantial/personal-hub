@@ -35,6 +35,7 @@
   --weight-strong: 600;
 
   /* Color: standard theme */
+  color-scheme: light;
   --bg: #f4f5f0;
   --surface: #fff;
   --surface-subtle: #f8f9f5;
@@ -48,6 +49,23 @@
   --selected-text: var(--text);
   --danger: #a3261b;
   --focus: var(--accent);
+}
+
+/* Dark theme (lib/appearance.ts resolves 'system' from the device). Text
+   pairs meet 4.5:1 and borders/accent 3:1 on both backgrounds. */
+:root[data-scheme='dark'] {
+  color-scheme: dark;
+  --bg: #121714;
+  --surface: #1a211d;
+  --surface-subtle: #1f2723;
+  --text: #e4e9e4;
+  --text-muted: #a7b2ac;
+  --border: #738079;
+  --border-subtle: #2e3833;
+  --accent: #8cc4ab;
+  --on-accent: #0d1f17;
+  --selected-bg: #25392f;
+  --danger: #ff8f84;
 }
 
 /* E-ink: pure black and white, square-ish corners, larger targets. */

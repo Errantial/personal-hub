@@ -6,9 +6,12 @@
 export const textSizes = ['small', 'default', 'large', 'larger'] as const;
 export const densities = ['compact', 'comfortable', 'spacious'] as const;
 export const shapes = ['square', 'rounded', 'round'] as const;
+/** Light or dark palette; 'system' follows the device setting. */
+export const schemes = ['system', 'light', 'dark'] as const;
 export type TextSize = (typeof textSizes)[number];
 export type Density = (typeof densities)[number];
 export type Shape = (typeof shapes)[number];
+export type Scheme = (typeof schemes)[number];
 
 export const colorKeys = ['accent', 'background', 'surface', 'text'] as const;
 export type ColorKey = (typeof colorKeys)[number];
@@ -17,6 +20,7 @@ export type Colors = Partial<Record<ColorKey, string>>;
 
 export type Appearance = {
   eink: boolean;
+  scheme: Scheme;
   colors: Colors;
   textSize: TextSize;
   density: Density;
@@ -33,6 +37,7 @@ export const defaultColors: Record<ColorKey, string> = {
 };
 export const defaultAppearance: Appearance = {
   eink: false,
+  scheme: 'system',
   colors: {},
   textSize: 'default',
   density: 'comfortable',
@@ -77,6 +82,7 @@ export function parseAppearance(value: unknown): Appearance {
   }
   return {
     eink: input.eink === true,
+    scheme: oneOf(schemes, input.scheme, defaultAppearance.scheme),
     colors,
     textSize: oneOf(textSizes, input.textSize, defaultAppearance.textSize),
     density: oneOf(densities, input.density, defaultAppearance.density),
@@ -90,6 +96,7 @@ export function sameAppearance(a: Appearance, b: Appearance) {
     colorKeys.map((key) => appearance.colors[key] ?? defaultColors[key]);
   return (
     a.eink === b.eink &&
+    a.scheme === b.scheme &&
     a.textSize === b.textSize &&
     a.density === b.density &&
     a.shape === b.shape &&
@@ -239,13 +246,36 @@ export function deriveColors(colors: Colors): Derived {
 
 /* ----------------------------------------------------------------- apply */
 
+const darkQuery = '(prefers-color-scheme: dark)';
+
+/** Whether the device asks for dark colors (false where unsupported). */
+export function prefersDark() {
+  return typeof matchMedia === 'function' && matchMedia(darkQuery).matches;
+}
+
+/** Calls back when the device's light/dark setting changes. */
+export function watchScheme(callback: () => void) {
+  if (typeof matchMedia !== 'function') return () => undefined;
+  const query = matchMedia(darkQuery);
+  query.addEventListener('change', callback);
+  return () => query.removeEventListener('change', callback);
+}
+
+/** The palette in use; e-ink has none of its own. */
+export function resolvedScheme(appearance: Appearance) {
+  if (appearance.scheme !== 'system') return appearance.scheme;
+  return prefersDark() ? 'dark' : 'light';
+}
+
 /** Apply to the document. E-ink stays monochrome whatever colors are saved,
- *  and square corners. */
+ *  and square corners. Custom colors replace the light or dark palette. */
 export function applyAppearance(
   appearance: Appearance,
   root: HTMLElement = document.documentElement,
 ) {
   root.dataset.theme = appearance.eink ? 'eink' : 'standard';
+  if (appearance.eink) delete root.dataset.scheme;
+  else root.dataset.scheme = resolvedScheme(appearance);
   root.dataset.textSize = appearance.textSize;
   root.dataset.density = appearance.density;
   if (appearance.eink) delete root.dataset.shape;
@@ -258,8 +288,11 @@ export function applyAppearance(
     root.style.setProperty(name, value);
   }
   // Native widgets (date pickers, scrollbars) follow a dark background.
-  if (tokens['--bg'] && luminance(tokens['--bg']) < 0.18) {
-    root.style.setProperty('color-scheme', 'dark');
+  if (tokens['--bg']) {
+    root.style.setProperty(
+      'color-scheme',
+      luminance(tokens['--bg']) < 0.18 ? 'dark' : 'light',
+    );
   }
 }
 
@@ -309,6 +342,7 @@ export function writeAppearance(appearance: Appearance) {
   write(
     appearanceKey,
     JSON.stringify({
+      scheme: appearance.scheme,
       colors: appearance.colors,
       textSize: appearance.textSize,
       density: appearance.density,

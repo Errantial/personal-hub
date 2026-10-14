@@ -12,6 +12,7 @@ import {
   readProfiles,
   sameAppearance,
   shapes,
+  schemes,
   textSizes,
   writeActiveProfile,
   writeProfiles,
@@ -28,6 +29,7 @@ const colorLabels: Record<ColorKey, string> = {
   surface: 'Surface',
   text: 'Text',
 };
+const schemeLabels = { system: 'Match device', light: 'Light', dark: 'Dark' };
 const textSizeLabels = {
   small: 'Small',
   default: 'Default',
@@ -229,9 +231,19 @@ export function AppearanceSettings({
       <section className="panel preference-panel" aria-label="Display">
         <h2>Display</h2>
         <Help label="Display">
-          Compact spacing and small text never shrink controls below 44 px.
+          Match device switches between light and dark with your phone or
+          computer. Custom colors replace either theme. Compact spacing and
+          small text never shrink controls below 44 px.
         </Help>
         <div className="appearance-fields">
+          <SelectField
+            label="Theme"
+            value={appearance.scheme}
+            options={schemes}
+            labels={schemeLabels}
+            disabled={appearance.eink}
+            onChange={(scheme) => change({ scheme })}
+          />
           <SelectField
             label="Text size"
             value={appearance.textSize}

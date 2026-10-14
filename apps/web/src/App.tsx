@@ -11,6 +11,7 @@ import type { User } from '@hub/contracts';
 import {
   applyAppearance,
   readAppearance,
+  watchScheme,
   writeAppearance,
 } from './lib/appearance';
 import { getJson, loadWorkspace } from './lib/api';
@@ -133,6 +134,9 @@ function Workspace({
   useEffect(() => {
     applyAppearance(appearance);
     writeAppearance(appearance);
+    // 'system' follows the device when its light/dark setting changes.
+    if (appearance.scheme !== 'system' || appearance.eink) return;
+    return watchScheme(() => applyAppearance(appearance));
   }, [appearance]);
 
   const today = new Intl.DateTimeFormat(undefined, {

@@ -475,6 +475,13 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 - Known limits: read-only, no search, no flags, no deletion tracking, no AI filtering yet.
 - Creation retries preserve one connector, but cannot reissue its one-time token. Keep the recovery error visible: reload Connections, revoke it, and add a replacement. Revocation is versioned and receipt-backed. Incomplete folder counts remain visible; a shortened message does not imply that 32,000 characters were available (oversized messages can have headers only).
 
+### 2026-10-14 — Appearance: dark theme (D54)
+
+- **Settings › Appearance › Display › Theme**: Match device (default), Light, Dark. Disabled in e-ink mode; custom colors replace either palette.
+- `:root[data-scheme]` is `light` or `dark` (absent in e-ink); Match device follows live changes of `prefers-color-scheme`. The choice is device-local with the rest of Appearance.
+- Dark tokens live in `styles/tokens.css`; text pairs meet 4.5:1, borders/accent 3:1. New styles must use tokens, never raw colors.
+- Tests: `tests/e2e/appearance.spec.ts` (device following, fixed choice, e-ink; color-contrast sweep of Today, Tasks, Calendar, Inbox and Settings in dark) and `apps/web/tests/appearance.test.ts`.
+
 ### 2026-10-14 — Assistant page (D55)
 
 - **Assistant** (`/assistant`, `/assistant/:conversationId`) is a primary sidebar destination after Today.
