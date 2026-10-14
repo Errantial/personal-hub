@@ -423,6 +423,8 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 
 ### 2026-10-13 — Mail categories and explicit rules
 
+- PR #16 validation follow-up: the standard PostgreSQL driver test now runs synthetic reminder/LMS batches explicitly instead of polling background timers. UI contracts and required states are unchanged; this test does not establish worker cadence or live-provider readiness.
+
 - Inbox Mail adds Category filtering, per-message selection (maximum 100), Clear selection and an always-available Reload mail control. Paging, owned cursors and plain-text detail remain intact.
 - Mail rules is expandable, with literal sender/subject rules, enabled state, editable drafts and confirmed deletion. The oldest enabled matching rule wins. Captured rule explanations survive edits/tombstones. See [contracts](mail-organization.md).
 - Preview is write-free. Apply guards the rule revision and every selected message version atomically; owner categories, including Uncategorized, stay protected. Selection/revision changes invalidate previews and abort/ignore late responses.
