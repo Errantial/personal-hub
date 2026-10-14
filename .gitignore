@@ -21,3 +21,6 @@ apps/android/app/src/main/assets/capacitor.plugins.json
 apps/android/capacitor-cordova-android-plugins/
 *.jks
 *.keystore
+
+# Brainstorming mockups
+.superpowers/

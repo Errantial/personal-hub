@@ -32,3 +32,96 @@
 .today-view .canvas-agenda-entry {
   margin: 0;
 }
+.today-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.today-heading__date {
+  margin-left: var(--space-2);
+  color: var(--text-muted);
+  font-weight: var(--weight-regular);
+}
+.today-overdue {
+  border-left: 4px solid var(--danger);
+}
+.today-rows {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-3) 0;
+}
+.today-row {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  min-height: var(--target);
+  padding: var(--space-2) 0;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+.today-row__time {
+  color: var(--text-muted);
+  font-size: var(--text-small);
+  white-space: nowrap;
+}
+.today-row__title {
+  overflow-wrap: anywhere;
+}
+.today-row__title a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target);
+}
+.today-row__note {
+  color: var(--text-muted);
+}
+@media (max-width: 30rem) {
+  .today-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .today-row__time {
+    grid-column: 1 / -1;
+  }
+}
+.today-more summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--target);
+  font-weight: var(--weight-strong);
+  cursor: pointer;
+}
+.today-more > a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target);
+}
+/* Type tags (also used by the calendar). */
+.kind-tag {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-control);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+  background: var(--kind-bg);
+  color: var(--kind-text);
+}
+.kind-tag--event {
+  --kind-bg: var(--kind-event);
+  --kind-text: var(--kind-event-text);
+}
+.kind-tag--study {
+  --kind-bg: var(--kind-study);
+  --kind-text: var(--kind-study-text);
+}
+.kind-tag--deadline {
+  --kind-bg: var(--kind-deadline);
+  --kind-text: var(--kind-deadline-text);
+}
+.kind-tag--task {
+  --kind-bg: var(--kind-task);
+  --kind-text: var(--kind-task-text);
+}
+[data-theme='eink'] .kind-tag {
+  border: 1px solid #000;
+}

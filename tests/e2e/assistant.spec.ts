@@ -39,11 +39,35 @@ async function stubItems(page: Page) {
     const body = route.request().postDataJSON() as { items: unknown[] };
     version += 1;
     return route.fulfill({
-      json: { turn: { ...lastTurn, version, items: body.items } },
+      json: {
+        turn: (lastTurn = { ...lastTurn, version, items: body.items }),
+      },
     });
   });
 }
 let lastTurn: Record<string, unknown> = {};
+
+/** The stored conversation behind the latest stubbed answer. */
+async function stubThread(page: Page) {
+  const conversation = () => ({
+    id: lastTurn.conversationId,
+    title: lastTurn.ask,
+    turnCount: 1,
+    version: 1,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  await page.route('**/api/v1/assistant/conversations', (route) =>
+    route.fulfill({
+      json: { conversations: lastTurn.id ? [conversation()] : [] },
+    }),
+  );
+  await page.route('**/api/v1/assistant/conversations/*', (route) =>
+    route.fulfill({
+      json: { conversation: conversation(), turns: [lastTurn] },
+    }),
+  );
+}
 
 test.beforeEach(async ({ page }) => {
   await authenticate(page);
@@ -52,8 +76,9 @@ test.beforeEach(async ({ page }) => {
 test('without a server key the assistant says it is not set up, and the model can still be chosen', async ({
   page,
 }) => {
-  await page.goto('/');
-  const box = page.getByRole('region', { name: 'Assistant' });
+  await stubThread(page);
+  await page.goto('/assistant');
+  const box = page.locator('main');
   await expect(box).toContainText('Not set up');
   await expect(
     box.getByRole('form', { name: 'Ask the assistant' }),
@@ -150,8 +175,9 @@ test('proposed changes apply through the planner and can be undone', async ({
   });
 
   await stubItems(page);
-  await page.goto('/');
-  const box = page.getByRole('region', { name: 'Assistant' });
+  await stubThread(page);
+  await page.goto('/assistant');
+  const box = page.locator('main');
   const form = box.getByRole('form', { name: 'Ask the assistant' });
   await form
     .getByRole('textbox', { name: 'Ask', exact: true })
@@ -246,8 +272,9 @@ test('a change made elsewhere is a conflict, not an overwrite', async ({
     }),
   );
   await stubItems(page);
-  await page.goto('/');
-  const box = page.getByRole('region', { name: 'Assistant' });
+  await stubThread(page);
+  await page.goto('/assistant');
+  const box = page.locator('main');
   const ask = box.getByRole('textbox', { name: 'Ask', exact: true });
   // Shift+Enter adds a line; Enter asks.
   await ask.fill('Mark the essay');
@@ -340,7 +367,12 @@ test('the Assistant page keeps a conversation, continues it and deletes it', asy
   await expect(page.getByText('No conversations yet.')).toBeVisible();
   const ask = page.getByRole('textbox', { name: 'Ask', exact: true });
   await ask.fill('What is due this week?');
+  // Asking waits for the assistant settings to load.
+  await expect(
+    page.getByRole('button', { name: 'Ask', exact: true }),
+  ).toBeEnabled();
   await ask.press('Enter');
+  await expect(page.getByText('Answer 1')).toBeVisible();
   await expect(page).toHaveURL(
     new RegExp(`/assistant/${asks[0]!.conversationId}$`),
   );
@@ -428,8 +460,9 @@ test('Use mail is remembered and each answer lists the mail that was sent', asyn
     });
     return route.fulfill({ json: reply });
   });
-  await page.goto('/');
-  const box = page.getByRole('region', { name: 'Assistant' });
+  await stubThread(page);
+  await page.goto('/assistant');
+  const box = page.locator('main');
   const useMail = box.getByRole('checkbox', { name: 'Use mail' });
   await expect(useMail).not.toBeChecked();
   await useMail.check();
