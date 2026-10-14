@@ -321,3 +321,22 @@ it('builds calendar batch bodies in selection order', () => {
       .action,
   ).toEqual({ kind: 'study-status', status: 'cancelled' });
 });
+
+it('month view shows 42 days from the Monday on or before the 1st', () => {
+  const month = viewRange('2026-10-14', 'month');
+  expect(month.from).toBe('2026-09-28');
+  expect(month.days).toHaveLength(42);
+  expect(month.to).toBe('2026-11-09');
+  expect(shiftDate('2026-01-31', 'month', 1)).toBe('2026-02-28');
+  expect(shiftDate('2026-03-31', 'month', -1)).toBe('2026-02-28');
+});
+
+it('a new-event draft can start at a chosen time', () => {
+  expect(
+    toDraft(null, { ...defaults, start: '2026-10-14T13:00' }),
+  ).toMatchObject({
+    startDate: '2026-10-14',
+    startsAt: '2026-10-14T13:00',
+    endsAt: '2026-10-14T14:00',
+  });
+});

@@ -68,7 +68,7 @@ it('keeps only valid calendar date and view parameters', () => {
     date: '2026-10-10',
     view: 'day',
   });
-  expect(parseRoute('/calendar', '?date=2026-13-40&view=month')).toEqual({
+  expect(parseRoute('/calendar', '?date=2026-13-40&view=year')).toEqual({
     name: 'calendar',
   });
   expect(
@@ -243,8 +243,11 @@ it('addresses the calendar editor and keeps the visible window', () => {
       editor: { kind: 'new' },
     }),
   ).toBe('/calendar/new?date=2027-03-08&view=week');
-  // Agenda is the default view and is not written to the address.
-  expect(routePath({ name: 'calendar', view: 'agenda' })).toBe('/calendar');
+  // Week is the default when no view is written; a chosen view is explicit.
+  expect(parseRoute('/calendar', '')).toEqual({ name: 'calendar' });
+  expect(routePath({ name: 'calendar', view: 'agenda' })).toBe(
+    '/calendar?view=agenda',
+  );
   expect(parseRoute('/calendar', '?view=agenda')).toEqual({
     name: 'calendar',
     view: 'agenda',
@@ -254,5 +257,25 @@ it('addresses the calendar editor and keeps the visible window', () => {
   expect(parseRoute(`/calendar/${id}/occurrence/2027-02-31`, '')).toEqual({
     name: 'calendar',
     editor: { kind: 'event', id },
+  });
+});
+
+it('routes month view and a new event at a start time', () => {
+  expect(parseRoute('/calendar', '?view=month&date=2026-10-14')).toEqual({
+    name: 'calendar',
+    date: '2026-10-14',
+    view: 'month',
+  });
+  const editor = { kind: 'new', start: '2026-10-14T13:00' } as const;
+  expect(routePath({ name: 'calendar', editor })).toBe(
+    '/calendar/new?start=2026-10-14T13%3A00',
+  );
+  expect(parseRoute('/calendar/new', '?start=2026-10-14T13:00')).toEqual({
+    name: 'calendar',
+    editor,
+  });
+  expect(parseRoute('/calendar/new', '?start=tomorrow')).toEqual({
+    name: 'calendar',
+    editor: { kind: 'new' },
   });
 });

@@ -49,11 +49,13 @@ const viewLabels: Record<View, string> = {
   agenda: 'Agenda',
   week: 'Week',
   day: 'Day',
+  month: 'Month',
 };
 const stepLabels: Record<View, string> = {
   agenda: '7 days',
   week: 'week',
   day: 'day',
+  month: 'month',
 };
 
 // Dates are plain calendar days; format in UTC so they never shift.
