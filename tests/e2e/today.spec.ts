@@ -57,13 +57,11 @@ test('Today shows failed delivery and the latest three unread reminders without 
       reads.push(request.url());
   });
   await page.goto('/today');
-  await expect(
-    page.getByRole('region', { name: 'Needs attention' }),
-  ).toContainText('Today failed delivery');
-  const unread = page.getByRole('region', {
-    name: 'Unread reminders (4)',
-    exact: true,
-  });
+  await expect(page.getByRole('region', { name: 'Overdue' })).toContainText(
+    'Today failed delivery',
+  );
+  const unread = page.getByRole('group', { name: 'Unread reminders · 4' });
+  await unread.getByText('Unread reminders · 4').click();
   for (const index of [0, 1, 2])
     await expect(
       unread.getByText(`Today notification ${index}`, { exact: true }),
@@ -77,7 +75,7 @@ test('Today shows failed delivery and the latest three unread reminders without 
   expect(reads).toEqual([]);
 });
 
-test('Today groups deadlines without changing them and keeps Canvas separate from study time', async ({
+test('Today lists deadlines, due tasks, events and study in one ordered list', async ({
   page,
 }) => {
   await page.goto('/today');
@@ -143,7 +141,7 @@ test('Today groups deadlines without changing them and keeps Canvas separate fro
     ).ok(),
   ).toBe(true);
   await page.reload();
-  const attention = page.getByRole('region', { name: 'Needs attention' });
+  const attention = page.getByRole('region', { name: 'Overdue' });
   await expect(
     attention.getByText('Today overdue', { exact: true }),
   ).toBeVisible();
@@ -159,19 +157,31 @@ test('Today groups deadlines without changing them and keeps Canvas separate fro
   await expect(page.getByText('Today finished', { exact: true })).toHaveCount(
     0,
   );
-  const due = page.getByRole('region', { name: 'Due today' });
-  await expect(due.getByText('Today due', { exact: true })).toBeVisible();
-  await expect(due.getByText('Today upcoming', { exact: true })).toBeVisible();
-  const schedule = page.getByRole('region', { name: "Today's schedule" });
-  await expect(
-    schedule.locator('article').filter({ hasText: 'Today reserved study' }),
-  ).toContainText('Study time · planned');
-  await expect(
-    schedule.locator('article').filter({ hasText: 'Today Canvas deadline' }),
-  ).toContainText('Deadline');
-  await expect(
-    schedule.locator('article').filter({ hasText: 'Today Canvas deadline' }),
-  ).toContainText('Read only');
+  const list = page.getByRole('region', { name: 'Today' });
+  const rows = list.getByRole('listitem');
+  await expect(rows.filter({ hasText: 'Today reserved study' })).toBeVisible();
+  await expect(rows.filter({ hasText: 'Today Canvas deadline' })).toBeVisible();
+  const titles = ['Today due', 'Today Canvas deadline', 'Today reserved study'];
+  const order = await Promise.all(
+    titles.map(async (title) =>
+      (await rows.allTextContents()).findIndex((text) => text.includes(title)),
+    ),
+  );
+  expect(order.every((index) => index >= 0)).toBe(true);
+  expect([...order].sort((a, b) => a - b)).toEqual(order);
+  await expect(rows.filter({ hasText: 'Today due' })).toContainText('Task');
+  await expect(rows.filter({ hasText: 'Today due' })).toContainText(
+    'Due today',
+  );
+  await expect(rows.filter({ hasText: 'Today Canvas deadline' })).toContainText(
+    'Deadline',
+  );
+  await expect(rows.filter({ hasText: 'Today reserved study' })).toContainText(
+    'Study',
+  );
+  const week = page.getByRole('group', { name: /^Next 7 days · \d+$/ });
+  await week.getByText(/^Next 7 days/).click();
+  await expect(week.getByText('Today upcoming', { exact: true })).toBeVisible();
   const records = (await (await page.request.get('/api/v1/tasks')).json())
     .tasks;
   expect(
@@ -187,14 +197,12 @@ test('a failed Canvas section preserves planner content and retries independentl
     route.fulfill({ status: 503, json: { error: { code: 'UNAVAILABLE' } } }),
   );
   await page.goto('/today');
-  const schedule = page.getByRole('region', { name: "Today's schedule" });
+  const schedule = page.getByRole('region', { name: 'Today' });
   await expect(schedule.getByRole('alert')).toHaveText(
     'Canvas deadlines unavailable. Retry Canvas.',
   );
   await expect(
-    page
-      .getByRole('region', { name: 'Due today' })
-      .getByRole('button', { name: 'Reload tasks' }),
+    schedule.getByRole('button', { name: 'Reload tasks' }),
   ).toBeEnabled();
   await expect(
     page
@@ -329,4 +337,100 @@ test('the Today command bar adds a task, remembers its mode and sends asks to th
       .getByRole('region', { name: 'Add or ask' })
       .getByRole('radio', { name: 'Ask assistant' }),
   ).toBeDisabled();
+});
+
+/** Serves one task list and no reminders, for layout checks. */
+async function stubLists(
+  page: import('@playwright/test').Page,
+  tasks: { title: string; dueDate: string | null }[],
+  unread = 0,
+) {
+  const now = new Date().toISOString();
+  await page.route('**/api/v1/tasks', (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({
+          json: {
+            tasks: tasks.map((task) => ({
+              id: crypto.randomUUID(),
+              title: task.title,
+              notes: '',
+              dueDate: task.dueDate,
+              priority: 'normal',
+              completed: false,
+              sensitivity: 'unlabeled',
+              version: 1,
+              createdAt: now,
+              updatedAt: now,
+              deletedAt: null,
+            })),
+          },
+        })
+      : route.continue(),
+  );
+  await page.route('**/api/v1/reminders', (route) =>
+    route.fulfill({
+      json: {
+        reminders: [],
+        worker: { healthy: true, lastTick: now, errorCode: null },
+      },
+    }),
+  );
+  await page.route('**/api/v1/notifications', (route) =>
+    route.fulfill({
+      json: {
+        notifications: Array.from({ length: unread }, (_, index) => ({
+          id: crypto.randomUUID(),
+          reminderId: crypto.randomUUID(),
+          title: `Unread ${index}`,
+          createdAt: now,
+          readAt: null,
+        })),
+      },
+    }),
+  );
+}
+const localToday = (page: import('@playwright/test').Page) =>
+  page.evaluate(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  });
+
+test('Overdue appears only when something is overdue or failed', async ({
+  page,
+}) => {
+  await page.goto('/today');
+  const date = await localToday(page);
+  await stubLists(page, [{ title: 'Later', dueDate: date }]);
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'Today' })).toContainText(
+    'Later',
+  );
+  await expect(page.getByRole('region', { name: 'Overdue' })).toHaveCount(0);
+  await page.unroute('**/api/v1/tasks');
+  const yesterday = Temporal.PlainDate.from(date)
+    .subtract({ days: 1 })
+    .toString();
+  await stubLists(page, [{ title: 'Late one', dueDate: yesterday }]);
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'Overdue' })).toContainText(
+    'Late one',
+  );
+});
+
+test('Next 7 days and Unread reminders are collapsed with counts', async ({
+  page,
+}) => {
+  await page.goto('/today');
+  const date = await localToday(page);
+  const soon = Temporal.PlainDate.from(date).add({ days: 2 }).toString();
+  await stubLists(page, [{ title: 'Soon task', dueDate: soon }], 3);
+  await page.reload();
+  const week = page.getByRole('group', { name: 'Next 7 days · 1' });
+  await expect(week.getByText('Soon task')).toBeHidden();
+  await week.getByText('Next 7 days · 1').click();
+  await expect(week.getByText('Soon task')).toBeVisible();
+  const unread = page.getByRole('group', { name: 'Unread reminders · 3' });
+  await expect(unread.getByText('Unread 0')).toBeHidden();
+  await unread.getByText('Unread reminders · 3').click();
+  await expect(unread.getByText('Unread 0')).toBeVisible();
 });

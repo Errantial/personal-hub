@@ -133,3 +133,15 @@ it('todayItems keeps a timed Canvas deadline in time order as a deadline', () =>
     ['deadline', 'Quiz'],
   ]);
 });
+
+it('todayItems marks Canvas items that are no longer available as cancelled', () => {
+  const item = canvas('Old quiz', {});
+  const [result] = todayItems({
+    today,
+    timeZone,
+    tasks: [],
+    canvas: [{ ...item, availability: 'cancelled' } as CanvasItem],
+    occurrences: [],
+  });
+  expect(result).toMatchObject({ kind: 'deadline', cancelled: true });
+});

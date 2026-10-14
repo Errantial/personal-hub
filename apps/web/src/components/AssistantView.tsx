@@ -203,7 +203,7 @@ export function AssistantView({
               )}
               <ol className="assistant-page__turns">
                 {turns.map((turn) => (
-                  <li key={`${turn.id}-${turn.version}`}>
+                  <li key={turn.id}>
                     <AssistantTurnView
                       turn={turn}
                       showAsk

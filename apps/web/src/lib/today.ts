@@ -12,6 +12,8 @@ export type TodayItem = {
   /** ISO instant for timed items; null for all-day and due tasks. */
   start: string | null;
   end: string | null;
+  /** A Canvas item the source cancelled or no longer lists. */
+  cancelled: boolean;
   target:
     | { type: 'task'; id: string }
     | { type: 'event'; id: string; date: string | null }
@@ -38,6 +40,8 @@ export function todayItems(input: {
       allDay: item.providerData.allDay,
       start: item.providerData.allDay ? null : item.providerData.startsAt,
       end: item.providerData.allDay ? null : item.providerData.endsAt,
+      cancelled:
+        item.availability !== undefined && item.availability !== 'available',
       target: { type: 'external', url: item.providerData.sourceUrl },
     })),
     ...input.tasks
@@ -49,6 +53,7 @@ export function todayItems(input: {
         allDay: true,
         start: null,
         end: null,
+        cancelled: false,
         target: { type: 'task', id: task.id },
       })),
     ...input.occurrences.map((item): TodayItem => ({
@@ -58,6 +63,7 @@ export function todayItems(input: {
       allDay: item.allDay,
       start: item.allDay ? null : item.startsAt,
       end: item.allDay ? null : item.endsAt,
+      cancelled: false,
       target: { type: 'event', id: item.id, date: item.originalDate },
     })),
   ];

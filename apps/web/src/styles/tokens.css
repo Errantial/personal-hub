@@ -49,6 +49,16 @@
   --selected-text: var(--text);
   --danger: #a3261b;
   --focus: var(--accent);
+
+  /* Item kinds (Today tags, calendar blocks): text on fill ≥ 4.5:1. */
+  --kind-event: #2f6b55;
+  --kind-event-text: #fff;
+  --kind-study: #5a49b8;
+  --kind-study-text: #fff;
+  --kind-deadline: #a84f1c;
+  --kind-deadline-text: #fff;
+  --kind-task: #5c636b;
+  --kind-task-text: #fff;
 }
 
 /* Dark theme (lib/appearance.ts resolves 'system' from the device). Text
@@ -66,6 +76,14 @@
   --on-accent: #0d1f17;
   --selected-bg: #25392f;
   --danger: #ff8f84;
+  --kind-event: #8cc4ab;
+  --kind-event-text: #0d1f17;
+  --kind-study: #b7acf5;
+  --kind-study-text: #1b1240;
+  --kind-deadline: #f2a97c;
+  --kind-deadline-text: #2e1404;
+  --kind-task: #b9c0c7;
+  --kind-task-text: #15191d;
 }
 
 /* E-ink: pure black and white, square-ish corners, larger targets. */
@@ -86,6 +104,14 @@
   --selected-text: #fff;
   --danger: #000;
   --focus: #000;
+  --kind-event: #fff;
+  --kind-event-text: #000;
+  --kind-study: #fff;
+  --kind-study-text: #000;
+  --kind-deadline: #fff;
+  --kind-deadline-text: #000;
+  --kind-task: #fff;
+  --kind-task-text: #000;
 }
 
 @media (prefers-contrast: more) {

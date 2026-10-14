@@ -475,6 +475,15 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 - Known limits: read-only, no search, no flags, no deletion tracking, no AI filtering yet.
 - Creation retries preserve one connector, but cannot reissue its one-time token. Keep the recovery error visible: reload Connections, revoke it, and add a replacement. Revocation is versioned and receipt-backed. Incomplete folder counts remain visible; a shortened message does not imply that 32,000 characters were available (oversized messages can have headers only).
 
+### 2026-10-14 — Today rework (spec: superpowers/specs/2026-10-14-ui-rework-design.md)
+
+- **Add or ask** bar at the top: an Add task / Ask assistant radio pair (remembered per device in `hub:command-mode`), one text field, an optional due date in task mode, and Add/Ask. Add task saves through the task transport (offline: "Task queued for sync."). Ask starts a new conversation (honoring the saved Use mail choice) and opens `/assistant/:id`. Without a server key, Ask assistant is disabled with Help.
+- **Overdue** (red edge) appears only when there are overdue open tasks or failed reminders.
+- **Today · {date}**: one list in the viewing time zone. All-day deadlines and tasks due today come first, then all-day events, then timed items by start. Rows have a time column ("Due today", "All day", "Due 11:59 PM" or a range), a linked title (task, event editor, or Canvas source) with "Cancelled" for withdrawn Canvas items, and a kind tag (Deadline, Task, Event, Study; `--kind-*` tokens with dark and e-ink values). Per-source load or retry messages stay inside this section. The empty state is "Nothing due or scheduled today." The time zone and Canvas import time moved into Help.
+- **Next 7 days · N** and **Unread reminders · N** are collapsed `<details>` groups.
+- Removed from Today: the inline Assistant panel (answers live on the Assistant page) and the separate Due today box.
+- Tests: `tests/e2e/today.spec.ts` (order and tags, Overdue only when relevant, collapsed counts, command bar modes, offline add at 320 px e-ink, per-source failure) and `apps/web/tests/today.test.ts`. Assistant flows formerly on Today are tested on `/assistant`.
+
 ### 2026-10-14 — Assistant: Use mail (D56)
 
 - The composer (Today and the Assistant page) has a **Use mail** checkbox next to Ask. Its state is saved in the assistant settings and restored on every device. If saving fails, the choice still applies now and a quiet note says it was not remembered.
