@@ -50,7 +50,6 @@ const outputSchema = {
   properties: {
     tasks: {
       type: 'array',
-      maxItems: maxTasks,
       items: {
         type: 'object',
         additionalProperties: false,
@@ -58,7 +57,7 @@ const outputSchema = {
         properties: {
           title: { type: 'string' },
           quote: { type: 'string' },
-          dueDate: { type: ['string', 'null'] },
+          dueDate: { anyOf: [{ type: 'string' }, { type: 'null' }] },
           notes: { type: 'string' },
         },
       },
