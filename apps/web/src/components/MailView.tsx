@@ -14,6 +14,8 @@ import { Help } from './Help';
 import { Link } from './Link';
 import { StatusChip } from './StatusChip';
 import { MailRules } from './MailRules';
+import { MailSuggestions } from './MailSuggestions';
+import '../components/AssistantBox.css';
 import { MailCategoryEditor } from './MailCategoryEditor';
 import { MailTaskCapture } from './MailTaskCapture';
 
@@ -175,6 +177,19 @@ export function MailView({
         </select>
       </label>
       <MailRules
+        references={(messages ?? [])
+          .filter((message) => selected.includes(message.id))
+          .map((message) => ({
+            id: message.id,
+            expectedVersion: message.version,
+          }))}
+        subjects={Object.fromEntries(
+          (messages ?? []).map((message) => [message.id, message.subject]),
+        )}
+        onApplied={changed}
+        onApplying={setApplying}
+      />
+      <MailSuggestions
         references={(messages ?? [])
           .filter((message) => selected.includes(message.id))
           .map((message) => ({

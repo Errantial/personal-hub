@@ -37,6 +37,7 @@ import { registerToday } from './features/today.js';
 import { registerTaskManagement } from './features/task-management.js';
 import { registerAIActions } from './features/ai-actions.js';
 import { registerAssistant } from './features/assistant.js';
+import { registerMailClassify } from './features/mail-classify.js';
 import {
   connectorPathPrefix,
   registerEmailIngestion,
@@ -132,6 +133,7 @@ export async function buildApp(
   registerAIRequests(app, database, auth, config);
   registerAIActions(app, database, auth);
   registerAssistant(app, database, auth, config, runtime.openRouterFetch);
+  registerMailClassify(app, database, auth, config, runtime.openRouterFetch);
   registerEmailDrafts(app, database, auth);
   registerEmailIngestion(app, database, auth);
   registerMailOrganization(app, database, auth);

@@ -19,6 +19,11 @@ export const assistantSettingsSchema = z.object({
   version: z.number().int().positive(),
   /** The server has an OpenRouter key. It is never returned. */
   configured: z.boolean(),
+  /**
+   * Owner permission to send Personal-labeled mail to OpenRouter for
+   * category suggestions. Restricted mail is never sent.
+   */
+  allowPersonalMail: z.boolean().default(false),
 });
 export const assistantSettingsResponseSchema = z.object({
   settings: assistantSettingsSchema,
@@ -26,6 +31,7 @@ export const assistantSettingsResponseSchema = z.object({
 export const assistantSettingsUpdateSchema = z.strictObject({
   model: assistantModelSchema,
   expectedVersion: z.number().int().positive(),
+  allowPersonalMail: z.boolean().optional(),
   /** Sent by the shared write helper; saves are already version-guarded. */
   operationId: z.string().uuid().optional(),
 });

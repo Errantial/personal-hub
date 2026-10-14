@@ -40,3 +40,4 @@ export * from './email-ingestion.js';
 export * from './mail-organization.js';
 export * from './mail-source.js';
 export * from './mail-tasks.js';
+export * from './mail-classify.js';

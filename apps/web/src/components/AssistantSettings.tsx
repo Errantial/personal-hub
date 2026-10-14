@@ -56,7 +56,82 @@ export function AssistantSettings() {
           onSaved={() => void settings.reload()}
         />
       )}
+      {current && (
+        <PersonalMailSwitch
+          key={`mail-${current.version}`}
+          model={current.model}
+          version={current.version}
+          allowed={current.allowPersonalMail}
+          onSaved={() => void settings.reload()}
+        />
+      )}
     </section>
+  );
+}
+
+/** Owner permission to send Personal-labeled mail to OpenRouter. */
+function PersonalMailSwitch({
+  model,
+  version,
+  allowed,
+  onSaved,
+}: {
+  model: string;
+  version: number;
+  allowed: boolean;
+  onSaved: () => void;
+}) {
+  const save = useMutation();
+  return (
+    <div className="memory-switch">
+      <label className="checkbox-label">
+        <input
+          type="checkbox"
+          checked={allowed}
+          disabled={save.pending}
+          onChange={(event) => {
+            void save
+              .run(
+                assistantSettingsResponseSchema,
+                'PUT',
+                '/api/v1/assistant/settings',
+                {
+                  model,
+                  expectedVersion: version,
+                  allowPersonalMail: event.target.checked,
+                },
+                'Could not change the mail permission. Try again.',
+              )
+              .then((result) => {
+                if (result) onSaved();
+              });
+          }}
+        />
+        Allow Personal mail for category suggestions
+      </label>
+      <Help label="Personal mail">
+        Mail labeled Personal is sent to OpenRouter only when this is on and
+        only for messages you select in Inbox › Mail. Restricted mail is never
+        sent. Off by default.
+      </Help>
+      {save.error && (
+        <div role="alert" className="form-error">
+          <p>{save.error}</p>
+          {save.conflict && (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                save.reset();
+                onSaved();
+              }}
+            >
+              Reload settings
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

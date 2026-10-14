@@ -120,6 +120,8 @@ it('describes all-day events by their last day and formats small costs', () => {
   expect(describeProposal(proposal, 'UTC')).toBe(
     'Add event “Conference” · Wed, Apr 2, 2036 – Thu, Apr 3, 2036, all day',
   );
-  expect(formatCost(123)).toBe('$0.0001');
+  expect(formatCost(123)).toBe('$0.000123');
+  expect(formatCost(150)).toBe('$0.00015');
+  expect(formatCost(0)).toBe('$0');
   expect(formatCost(250000)).toBe('$0.25');
 });

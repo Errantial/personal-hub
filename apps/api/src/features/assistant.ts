@@ -10,7 +10,6 @@ import {
   calendarInputSchema,
   calendarRecordSchema,
   dateOnly,
-  defaultAssistantModel,
   taskSchema,
 } from '@hub/contracts';
 import type {
@@ -24,16 +23,22 @@ import type { authService } from '../auth/routes.js';
 import type { Config } from '../config.js';
 import type { Database, QueryExecutor } from '../db/database.js';
 import { ApiError } from '../errors.js';
-import { lockBudget, reserveAIBudgetInTransaction } from '../ai/budget.js';
+import {
+  admitLive,
+  findReplay,
+  liveReceipt,
+  prepareLive,
+  readAssistantSettings,
+  settleLive,
+} from '../ai/live-request.js';
 import {
   exchange,
-  modelPrice,
   upstreamFor,
   worstCaseMicros,
 } from '../ai/openrouter-live.js';
-import type { ExchangeResult, OpenRouterFetch } from '../ai/openrouter-live.js';
+import type { OpenRouterFetch } from '../ai/openrouter-live.js';
 import { taskColumns } from '../planner/routes.js';
-import { eventColumns, stamp } from './common.js';
+import { eventColumns } from './common.js';
 
 // Live planner assistant (docs/ai-assistant.md). The model proposes changes
 // to unlabeled tasks and one-time events; the owner applies them through the
@@ -41,17 +46,6 @@ import { eventColumns, stamp } from './common.js';
 
 const maxOutputTokens = 1500;
 const maxActions = 10;
-
-async function readSettings(tx: QueryExecutor, owner: string) {
-  const [row] = await tx.query(
-    'SELECT model,version FROM ai_assistant_settings WHERE owner_id=$1',
-    [owner],
-  );
-  return {
-    model: (row?.model as string | undefined) ?? defaultAssistantModel,
-    version: (row?.version as number | undefined) ?? 1,
-  };
-}
 
 /** Planner items the model may see and change; labeled items are withheld. */
 async function readContext(tx: QueryExecutor, owner: string) {
@@ -425,19 +419,6 @@ export function readAnswer(
   };
 }
 
-const requestColumns = `id,status,reason,model,dropped,withheld,cost_micros AS "costMicros",${stamp('created_at', 'createdAt')}`;
-async function receipt(tx: QueryExecutor, owner: string, id: string) {
-  const [row] = await tx.query(
-    `SELECT ${requestColumns},(SELECT CASE WHEN r.status='uncertain' THEN r.reserved_micros ELSE 0 END FROM ai_budget_reservations r WHERE r.id=a.reservation_id) AS "heldMicros" FROM ai_assistant_requests a WHERE owner_id=$1 AND id=$2`,
-    [owner, id],
-  );
-  return {
-    ...row!,
-    costMicros: row!.costMicros === null ? null : Number(row!.costMicros),
-    heldMicros: Number(row!.heldMicros),
-  };
-}
-
 export function registerAssistant(
   app: FastifyInstance,
   database: Database,
@@ -447,7 +428,7 @@ export function registerAssistant(
 ) {
   app.get('/api/v1/assistant/settings', async (request) => {
     const owner = await auth.requireUser(request);
-    const settings = await readSettings(database, owner.id);
+    const settings = await readAssistantSettings(database, owner.id);
     return assistantSettingsResponseSchema.parse({
       settings: { ...settings, configured: !!config.AI_SECRET_OPENROUTER },
     });
@@ -463,14 +444,15 @@ export function registerAssistant(
         'Use a model from a supported provider.',
       );
     const settings = await database.transaction(async (tx) => {
-      const current = await readSettings(tx, owner.id);
+      const current = await readAssistantSettings(tx, owner.id);
       if (current.version !== input.expectedVersion)
         throw new ApiError(409, 'VERSION_CONFLICT', 'Settings changed.');
+      const allow = input.allowPersonalMail ?? current.allowPersonalMail;
       const [row] = await tx.query(
-        `INSERT INTO ai_assistant_settings(owner_id,model,version) VALUES($1,$2,2)
-         ON CONFLICT(owner_id) DO UPDATE SET model=$2,version=ai_assistant_settings.version+1,updated_at=CURRENT_TIMESTAMP
-         WHERE ai_assistant_settings.version=$3 RETURNING model,version`,
-        [owner.id, input.model, input.expectedVersion],
+        `INSERT INTO ai_assistant_settings(owner_id,model,version,allow_personal_mail) VALUES($1,$2,2,$4)
+         ON CONFLICT(owner_id) DO UPDATE SET model=$2,allow_personal_mail=$4,version=ai_assistant_settings.version+1,updated_at=CURRENT_TIMESTAMP
+         WHERE ai_assistant_settings.version=$3 RETURNING model,version,allow_personal_mail AS "allowPersonalMail"`,
+        [owner.id, input.model, input.expectedVersion, allow],
       );
       if (!row)
         throw new ApiError(409, 'VERSION_CONFLICT', 'Settings changed.');
@@ -487,54 +469,22 @@ export function registerAssistant(
     const hash = createHash('sha256')
       .update(JSON.stringify({ text: input.text, timeZone: input.timeZone }))
       .digest('hex');
-    const replay = async () => {
-      const [row] = await database.query(
-        'SELECT id,request_hash FROM ai_assistant_requests WHERE owner_id=$1 AND operation_id=$2',
-        [owner.id, input.operationId],
-      );
-      if (!row) return null;
-      if (row.request_hash !== hash)
-        throw new ApiError(
-          409,
-          'OPERATION_CONFLICT',
-          'This operation already has a different request.',
-        );
-      // A retried request never calls the model again.
-      return respond(await receipt(database, owner.id, row.id as string), null);
-    };
-    const previous = await replay();
-    if (previous) return previous;
-
-    const key = config.AI_SECRET_OPENROUTER;
-    if (!key)
-      throw new ApiError(
-        409,
-        'ASSISTANT_NOT_CONFIGURED',
-        'The server has no OpenRouter key.',
-      );
-    const { model } = await readSettings(database, owner.id);
-    if (!upstreamFor(model))
-      throw new ApiError(
-        409,
-        'ASSISTANT_MODEL_UNSUPPORTED',
-        'Use a model from a supported provider.',
-      );
-    let cost;
-    try {
-      cost = await modelPrice(fetcher, model);
-    } catch {
-      throw new ApiError(
-        503,
-        'ASSISTANT_CATALOG_UNAVAILABLE',
-        'Model prices could not be checked.',
-      );
-    }
-    if (!cost)
-      throw new ApiError(
-        409,
-        'ASSISTANT_MODEL_UNAVAILABLE',
-        'This model is not available as a text model.',
-      );
+    const previous = await findReplay(
+      database,
+      owner.id,
+      'planner',
+      input.operationId,
+      hash,
+    );
+    // A retried request never calls the model again.
+    if (previous) return respond(previous, null);
+    const { key, settings, cost } = await prepareLive(
+      database,
+      config,
+      fetcher,
+      owner.id,
+    );
+    const model = settings.model;
     const context = await readContext(database, owner.id);
     const body = buildAssistantRequest(
       model,
@@ -542,48 +492,31 @@ export function registerAssistant(
       input.text,
       input.timeZone,
     );
-    const maximum = worstCaseMicros(
-      cost,
-      Buffer.byteLength(JSON.stringify(body)),
-      maxOutputTokens,
-    );
     const id = randomUUID();
     try {
-      await database.transaction(async (tx) => {
-        await lockBudget(tx, owner.id);
-        const [policy] = await tx.query(
-          'SELECT version FROM ai_budget_policies WHERE owner_id=$1',
-          [owner.id],
-        );
-        const reservation = await reserveAIBudgetInTransaction(tx, owner.id, {
-          requestId: id,
-          expectedPolicyVersion: policy!.version as number,
-          provider: 'openrouter',
-          model,
-          maximumChargeMicros: maximum,
-        });
-        // Uncertain before transmission: a crash after this point keeps the hold.
-        await tx.query(
-          "UPDATE ai_budget_reservations SET status='uncertain',version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2 AND status='reserved'",
-          [owner.id, reservation.id],
-        );
-        await tx.query(
-          `INSERT INTO ai_assistant_requests(id,owner_id,operation_id,request_hash,model,reservation_id,status,withheld) VALUES($1,$2,$3,$4,$5,$6,'uncertain',$7)`,
-          [
-            id,
-            owner.id,
-            input.operationId,
-            hash,
-            model,
-            reservation.id,
-            context.withheld,
-          ],
-        );
+      await admitLive(database, owner.id, {
+        id,
+        kind: 'planner',
+        operationId: input.operationId,
+        hash,
+        model,
+        maximumMicros: worstCaseMicros(
+          cost,
+          Buffer.byteLength(JSON.stringify(body)),
+          maxOutputTokens,
+        ),
+        withheld: context.withheld,
       });
     } catch (error) {
       // A concurrent identical operation won the race.
-      const raced = await replay();
-      if (raced) return raced;
+      const raced = await findReplay(
+        database,
+        owner.id,
+        'planner',
+        input.operationId,
+        hash,
+      );
+      if (raced) return respond(raced, null);
       throw error;
     }
 
@@ -597,8 +530,18 @@ export function registerAssistant(
         reason = 'invalid';
       }
     }
-    await settle(database, owner.id, id, result, answer, reason);
-    return respond(await receipt(database, owner.id, id), answer);
+    await settleLive(
+      database,
+      owner.id,
+      id,
+      result,
+      {
+        proposals: answer?.proposals.length ?? 0,
+        dropped: answer?.dropped ?? 0,
+      },
+      reason,
+    );
+    return respond(await liveReceipt(database, owner.id, id), answer);
   });
 }
 
@@ -613,64 +556,5 @@ function respond(
       reply: answer?.reply ?? null,
       proposals: answer?.proposals ?? [],
     },
-  });
-}
-
-async function settle(
-  database: Database,
-  owner: string,
-  id: string,
-  result: ExchangeResult,
-  answer: ReturnType<typeof readAnswer> | null,
-  invalid: AssistantRequest['reason'],
-) {
-  await database.transaction(async (tx) => {
-    await lockBudget(tx, owner);
-    const [row] = await tx.query(
-      'SELECT reservation_id FROM ai_assistant_requests WHERE owner_id=$1 AND id=$2 FOR UPDATE',
-      [owner, id],
-    );
-    const reservation = row!.reservation_id as string;
-    if (result.status === 'uncertain') {
-      await tx.query(
-        'UPDATE ai_assistant_requests SET reason=$3,generation_id=$4,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2',
-        [owner, id, result.reason, result.generationId],
-      );
-      return;
-    }
-    if (result.status === 'rejected') {
-      // Refused before processing: confirmed zero charge.
-      await tx.query(
-        "UPDATE ai_budget_reservations SET status='released',actual_micros=0,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2",
-        [owner, reservation],
-      );
-      await tx.query(
-        "UPDATE ai_assistant_requests SET status='failed',reason=$3,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2",
-        [owner, id, result.reason],
-      );
-      return;
-    }
-    await tx.query(
-      "UPDATE ai_budget_reservations SET status='settled',actual_micros=$3,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2",
-      [owner, reservation, result.usage.actualMicros],
-    );
-    const reason =
-      result.outputState === 'validated'
-        ? invalid
-        : (result.outputState as AssistantRequest['reason']);
-    await tx.query(
-      "UPDATE ai_assistant_requests SET status='completed',reason=$3,generation_id=$4,input_tokens=$5,output_tokens=$6,cost_micros=$7,proposal_count=$8,dropped=$9,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2",
-      [
-        owner,
-        id,
-        reason,
-        result.generationId,
-        result.usage.inputTokens,
-        result.usage.outputTokens,
-        result.usage.actualMicros,
-        answer?.proposals.length ?? 0,
-        answer?.dropped ?? 0,
-      ],
-    );
   });
 }

@@ -215,4 +215,7 @@ export function undoRequest(
 
 /** "$0.0004" for small amounts; microdollars in. */
 export const formatCost = (micros: number) =>
-  `$${(micros / 1e6).toFixed(micros < 10000 ? 4 : 2)}`;
+  // Under a cent, show every microdollar so small charges never round down.
+  micros < 10000
+    ? `$${(micros / 1e6).toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}`
+    : `$${(micros / 1e6).toFixed(2)}`;
