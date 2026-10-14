@@ -6,6 +6,7 @@ import { useMutation, useOnline } from '../lib/hooks';
 import type { Route } from '../lib/router';
 import { Help } from './Help';
 import { Link } from './Link';
+import { MailTaskSuggestions } from './MailTaskSuggestions';
 
 export function MailTaskCapture({
   message,
@@ -55,8 +56,10 @@ export function MailTaskCapture({
       <Help label="Create task from mail">
         Copy exact supporting text from the imported body. The task retains this
         quote, a link to the message and its privacy labels. Enter a date only
-        after checking it; no date is inferred. Creation needs a connection.
-        Mail-derived tasks are currently withheld from AI.
+        after checking it; no date is inferred. Suggest tasks with AI sends this
+        message to OpenRouter (within your AI limits and labels) and only fills
+        this form. Creation needs a connection. Mail-derived tasks are currently
+        withheld from AI.
       </Help>
       {created ? (
         <p role="status">
@@ -70,6 +73,18 @@ export function MailTaskCapture({
         </p>
       ) : (
         <form onSubmit={(event) => void submit(event)}>
+          <MailTaskSuggestions
+            message={message}
+            disabled={disabled}
+            onUse={(suggestion) => {
+              // A suggestion fills the draft; the deadline stays unconfirmed.
+              setTitle(suggestion.title);
+              setQuote(suggestion.quote);
+              setDueDate(suggestion.dueDate ?? '');
+              setConfirmed(false);
+              save.reset();
+            }}
+          />
           {message.version !== expectedVersion && (
             <p role="alert">
               The message changed. Review the supporting quote before

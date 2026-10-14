@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { readConfig } from '../src/config.js';
 import { openDatabase } from '../src/db/database.js';
-import { chatUrl, modelsUrl } from '../src/ai/openrouter-live.js';
+import { chatUrl, modelsUrl, zdrUrl } from '../src/ai/openrouter-live.js';
 
 // Provider exchanges are injected; global fetch is forbidden.
 const origin = 'http://127.0.0.1:5173';
@@ -53,6 +53,19 @@ beforeEach(async () => {
                 {
                   id: model,
                   pricing: { prompt: '0.0000001', completion: '0.0000005' },
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        if (url === zdrUrl)
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  model_id: model,
+                  tag: 'google-vertex/global',
+                  supported_parameters: ['structured_outputs'],
                 },
               ],
             }),
@@ -186,7 +199,11 @@ it('sends only allowed, verified mail and returns suggestions without saving the
     expect(text).not.toContain(hidden);
   expect(text).not.toContain(open!.id);
   expect(sent[0]).toMatchObject({
-    provider: { only: ['anthropic'], allow_fallbacks: false, zdr: true },
+    provider: {
+      only: ['anthropic', 'google-vertex', 'amazon-bedrock'],
+      allow_fallbacks: false,
+      zdr: true,
+    },
   });
   // Nothing is categorized until the owner applies a suggestion.
   const stored = (await call('GET', '/api/v1/email/messages?limit=100')).json();

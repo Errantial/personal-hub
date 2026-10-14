@@ -38,6 +38,7 @@ import { registerTaskManagement } from './features/task-management.js';
 import { registerAIActions } from './features/ai-actions.js';
 import { registerAssistant } from './features/assistant.js';
 import { registerMailClassify } from './features/mail-classify.js';
+import { registerMailTaskSuggest } from './features/mail-task-suggest.js';
 import {
   connectorPathPrefix,
   registerEmailIngestion,
@@ -134,6 +135,7 @@ export async function buildApp(
   registerAIActions(app, database, auth);
   registerAssistant(app, database, auth, config, runtime.openRouterFetch);
   registerMailClassify(app, database, auth, config, runtime.openRouterFetch);
+  registerMailTaskSuggest(app, database, auth, config, runtime.openRouterFetch);
   registerEmailDrafts(app, database, auth);
   registerEmailIngestion(app, database, auth);
   registerMailOrganization(app, database, auth);

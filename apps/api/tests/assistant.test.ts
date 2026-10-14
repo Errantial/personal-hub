@@ -8,6 +8,7 @@ import {
   chatUrl,
   modelsUrl,
   worstCaseMicros,
+  zdrUrl,
 } from '../src/ai/openrouter-live.js';
 import { toProposal } from '../src/features/assistant.js';
 
@@ -32,6 +33,32 @@ const catalog = () =>
             output_modalities: ['text'],
           },
           pricing: { prompt: '0.0000001', completion: '0.0000005' },
+        },
+      ],
+    }),
+    { status: 200 },
+  );
+// Haiku has a ZDR host with strict JSON; the Bedrock-only model lacks strict
+// JSON and the Fireworks one is not an allowed host.
+const bedrockOnly = 'anthropic/claude-bedrock-only';
+const zdr = () =>
+  new Response(
+    JSON.stringify({
+      data: [
+        {
+          model_id: model,
+          tag: 'google-vertex/global',
+          supported_parameters: ['structured_outputs'],
+        },
+        {
+          model_id: bedrockOnly,
+          tag: 'amazon-bedrock',
+          supported_parameters: ['max_tokens'],
+        },
+        {
+          model_id: bedrockOnly,
+          tag: 'fireworks',
+          supported_parameters: ['structured_outputs'],
         },
       ],
     }),
@@ -68,6 +95,7 @@ async function start(key: string | null = 'sk-or-synthetic-test') {
   sent = [];
   const fetcher = vi.fn(async (url: string, init: RequestInit) => {
     if (url === modelsUrl) return catalog();
+    if (url === zdrUrl) return zdr();
     if (url === chatUrl) {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
       sent.push(body);
@@ -227,7 +255,7 @@ it('proposes checked changes, withholds labeled items and settles the reported c
   expect(body).toMatchObject({
     model,
     provider: {
-      only: ['anthropic'],
+      only: ['anthropic', 'google-vertex', 'amazon-bedrock'],
       allow_fallbacks: false,
       data_collection: 'deny',
       zdr: true,
@@ -414,6 +442,23 @@ it('blocks a request whose worst case exceeds the per-request limit', async () =
     'REQUEST_BUDGET_EXCEEDED',
   );
   expect(sent).toHaveLength(0);
+});
+
+it('blocks a model without an allowed zero-retention host before any hold', async () => {
+  await start();
+  await setBudget();
+  await call('PUT', '/api/v1/assistant/settings', {
+    model: bedrockOnly,
+    expectedVersion: 1,
+  });
+  expect((await ask('Plan my week')).json().error.code).toBe(
+    'ASSISTANT_MODEL_NOT_PRIVATE',
+  );
+  expect(sent).toHaveLength(0);
+  const reservations = await database.query(
+    'SELECT id FROM ai_budget_reservations',
+  );
+  expect(reservations).toHaveLength(0);
 });
 
 it('saves a supported model with optimistic versions', async () => {

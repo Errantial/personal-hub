@@ -33,7 +33,8 @@ import {
 } from '../ai/live-request.js';
 import {
   exchange,
-  upstreamFor,
+  hostsFor,
+  providerRouting,
   worstCaseMicros,
 } from '../ai/openrouter-live.js';
 import type { OpenRouterFetch } from '../ai/openrouter-live.js';
@@ -183,7 +184,6 @@ export function buildAssistantRequest(
   timeZone: string,
   now = Temporal.Now.instant(),
 ) {
-  const upstream = upstreamFor(model)!;
   const current = now.toZonedDateTimeISO(timeZone);
   const payload = {
     now: `${current.toPlainDateTime().toString({ smallestUnit: 'minute' })} (${current.toPlainDate().dayOfWeek === 7 ? 'Sunday' : ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][current.toPlainDate().dayOfWeek - 1]})`,
@@ -221,14 +221,7 @@ export function buildAssistantRequest(
       { role: 'system', content: instructions },
       { role: 'user', content: JSON.stringify(payload) },
     ],
-    provider: {
-      only: [upstream],
-      order: [upstream],
-      allow_fallbacks: false,
-      require_parameters: true,
-      data_collection: 'deny',
-      zdr: true,
-    },
+    provider: providerRouting(model),
     response_format: {
       type: 'json_schema',
       json_schema: {
@@ -437,7 +430,7 @@ export function registerAssistant(
   app.put('/api/v1/assistant/settings', async (request) => {
     const owner = await auth.requireUser(request);
     const input = assistantSettingsUpdateSchema.parse(request.body);
-    if (!upstreamFor(input.model))
+    if (!hostsFor(input.model))
       throw new ApiError(
         400,
         'ASSISTANT_MODEL_UNSUPPORTED',

@@ -21,7 +21,7 @@ import {
 import type { LiveReason } from '../ai/live-request.js';
 import {
   exchange,
-  upstreamFor,
+  providerRouting,
   worstCaseMicros,
 } from '../ai/openrouter-live.js';
 import type { OpenRouterFetch } from '../ai/openrouter-live.js';
@@ -74,17 +74,71 @@ const answerSchema = z.object({
     .max(20),
 });
 
-type Eligible = {
+export type Eligible = {
   id: string;
   version: number;
   subject: string;
   from: { name: string | null; address: string } | null;
   receivedAt: string;
+  sentAt: string | null;
   body: string;
 };
+export type MailBlock = {
+  id: string;
+  reason: 'restricted' | 'personal-not-allowed' | 'provenance' | 'changed';
+};
+
+/**
+ * Splits selected mail into what may be sent to OpenRouter and what may not.
+ * The strongest of the message and connector labels decides; Restricted is
+ * never sent, Personal only with the owner's switch, and only text with a
+ * verified body origin is eligible.
+ */
+export async function eligibleMail(
+  database: Database,
+  owner: string,
+  references: { id: string; expectedVersion: number }[],
+  allowPersonalMail: boolean,
+) {
+  const rows = await database.query(
+    `SELECT m.id,m.version,m.subject,m.from_address AS "from",to_char(m.received_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"') AS "receivedAt",to_char(m.sent_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"') AS "sentAt",m.body,m.text_origin,m.sensitivity,c.sensitivity AS "connectorSensitivity"
+     FROM email_messages m JOIN email_connectors c ON c.id=m.connector_id AND c.owner_id=m.owner_id
+     WHERE m.owner_id=$1 AND m.id=ANY($2::uuid[])`,
+    [owner, references.map((item) => item.id)],
+  );
+  const eligible: Eligible[] = [];
+  const blocked: MailBlock[] = [];
+  for (const reference of references) {
+    const row = rows.find((item) => item.id === reference.id);
+    const label = row
+      ? strongest(String(row.sensitivity), String(row.connectorSensitivity))
+      : null;
+    const reason: MailBlock['reason'] | null =
+      !row || row.version !== reference.expectedVersion
+        ? 'changed'
+        : label === 'restricted'
+          ? 'restricted'
+          : label === 'personal' && !allowPersonalMail
+            ? 'personal-not-allowed'
+            : row.text_origin !== 'message-body-v1'
+              ? 'provenance'
+              : null;
+    if (reason) blocked.push({ id: reference.id, reason });
+    else
+      eligible.push({
+        id: row!.id as string,
+        version: row!.version as number,
+        subject: row!.subject as string,
+        from: row!.from as Eligible['from'],
+        receivedAt: row!.receivedAt as string,
+        sentAt: (row!.sentAt as string | null) ?? null,
+        body: row!.body as string,
+      });
+  }
+  return { eligible, blocked };
+}
 
 export function buildClassifyRequest(model: string, messages: Eligible[]) {
-  const upstream = upstreamFor(model)!;
   const payload = messages.map((message, index) => ({
     ref: `m${index + 1}`,
     from: message.from,
@@ -101,14 +155,7 @@ export function buildClassifyRequest(model: string, messages: Eligible[]) {
       { role: 'system', content: instructions },
       { role: 'user', content: JSON.stringify({ messages: payload }) },
     ],
-    provider: {
-      only: [upstream],
-      order: [upstream],
-      allow_fallbacks: false,
-      require_parameters: true,
-      data_collection: 'deny',
-      zdr: true,
-    },
+    provider: providerRouting(model),
     response_format: {
       type: 'json_schema',
       json_schema: {
@@ -186,41 +233,12 @@ export function registerMailClassify(
       owner.id,
     );
 
-    const rows = await database.query(
-      `SELECT m.id,m.version,m.subject,m.from_address AS "from",to_char(m.received_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"') AS "receivedAt",m.body,m.text_origin,m.sensitivity,c.sensitivity AS "connectorSensitivity"
-       FROM email_messages m JOIN email_connectors c ON c.id=m.connector_id AND c.owner_id=m.owner_id
-       WHERE m.owner_id=$1 AND m.id=ANY($2::uuid[])`,
-      [owner.id, input.messages.map((item) => item.id)],
+    const { eligible, blocked } = await eligibleMail(
+      database,
+      owner.id,
+      input.messages,
+      settings.allowPersonalMail,
     );
-    const eligible: Eligible[] = [];
-    const blocked: { id: string; reason: string }[] = [];
-    for (const reference of input.messages) {
-      const row = rows.find((item) => item.id === reference.id);
-      const label = row
-        ? strongest(String(row.sensitivity), String(row.connectorSensitivity))
-        : null;
-      const reason = !row
-        ? 'changed'
-        : row.version !== reference.expectedVersion
-          ? 'changed'
-          : label === 'restricted'
-            ? 'restricted'
-            : label === 'personal' && !settings.allowPersonalMail
-              ? 'personal-not-allowed'
-              : row.text_origin !== 'message-body-v1'
-                ? 'provenance'
-                : null;
-      if (reason) blocked.push({ id: reference.id, reason });
-      else
-        eligible.push({
-          id: row!.id as string,
-          version: row!.version as number,
-          subject: row!.subject as string,
-          from: row!.from as Eligible['from'],
-          receivedAt: row!.receivedAt as string,
-          body: row!.body as string,
-        });
-    }
     // Nothing allowed: no hold, no request, no charge.
     if (!eligible.length) return respond(null, blocked, null);
 

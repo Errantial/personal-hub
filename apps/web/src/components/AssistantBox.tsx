@@ -209,6 +209,18 @@ export function AssistantBox({
               value={text}
               placeholder="Add a task to call the bank on Friday"
               onChange={(event) => setText(event.target.value)}
+              onKeyDown={(event) => {
+                // Enter asks; Shift+Enter adds a line. Not while composing (IME).
+                if (
+                  event.key !== 'Enter' ||
+                  event.shiftKey ||
+                  event.nativeEvent.isComposing
+                )
+                  return;
+                event.preventDefault();
+                if (online && !ask.pending && configured)
+                  event.currentTarget.form?.requestSubmit();
+              }}
             />
           </label>
           <button

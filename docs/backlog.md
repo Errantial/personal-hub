@@ -22,6 +22,8 @@ Step 5 organization (2026-10-13): [mail categories and explicit rules](mail-orga
 
 Step 5 AI suggestions (2026-10-13): [AI mail category suggestions](mail-classification.md) send selected, verified mail to OpenRouter under the owner's labels (Personal by explicit switch, Restricted never) and are applied only by the owner. Deployment (2026-10-13): `main` at `4491762` is live on the VM with migrations through 048 after a verified pre-deploy backup; later PRs need another deploy.
 
+Step 5 AI task suggestions (2026-10-13): [suggestions from one message](mail-task-suggestions.md) must quote the body exactly and only fill the manual capture form; deadlines still need owner confirmation. With category suggestions, this completes step 5's AI filtering scope; live use needs deployment, the server key, spending limits and the connector schedule.
+
 Step 5 task capture (2026-10-13): [manual tasks from mail](mail-tasks.md) are implemented with exact supporting quotes, immutable source links/labels, explicit deadline confirmation and owner review before creation. This supplies the manual capture path; automatic AI extraction/proposals and approved-provider classification remain pending. Mail-derived task context stays blocked for AI until its integrity binding is supported.
 
 Canvas access update (2026-10-13): owner token creation is blocked. A [one-course browser DOM proof](canvas-browser.md) passed; a durable, read-only browser collector is proposed and remains separate from the completed calendar-feed adapter. This proof does not reorder the approved milestones or claim a new working connection. Import contracts/provenance, completeness, session expiry and source reconciliation remain required.

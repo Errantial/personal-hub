@@ -421,6 +421,14 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 
 ## Change ledger
 
+### 2026-10-13 — Mail: AI task suggestions
+
+- **Create task from mail** gains **Suggest tasks with AI** at the top of the form. Contract: [mail-task-suggestions.md](mail-task-suggestions.md).
+  - It shows blocked reasons, model and cost, an outcome-unknown hold, and "n suggestions without an exact quote left out".
+  - **Suggested tasks** list: title, the exact quote as a block quote, "Suggested deadline … (check before confirming)", notes, and **Use** (named "Use suggestion: title").
+- **Use** fills title, quote and deadline, clears the deadline confirmation and resets errors. Creation and quote checks are unchanged.
+- Tests: `tests/e2e/mail-task-suggestions.spec.ts`.
+
 ### 2026-10-13 — Mail: AI suggestions
 
 - **Inbox › Mail › AI suggestions** (under Rules), for the current selection (at most 20). Contract: [mail-classification.md](mail-classification.md).
@@ -471,7 +479,7 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 
 - **Assistant** panel at the top of Today. Contract: [ai-assistant.md](ai-assistant.md).
   - Without a server key it shows "Not set up" and no form.
-  - **Ask** (1–1000 characters, online only) posts `{ text, timeZone }` with a stable operation ID.
+  - **Ask** (1–1000 characters, online only) posts `{ text, timeZone }` with a stable operation ID. Enter asks; Shift+Enter adds a line; Enter during IME composition does neither.
   - Shown: the reply as plain text; model and cost; how many labeled items were left out; how many suggestions could not be used; and the failure reason.
   - An uncertain outcome says how much stays held and that nothing is resent. `BUDGET_UNSET` and `MONTHLY_BUDGET_EXCEEDED` link to Settings › AI.
 - **Proposed changes** is a checkbox group, all selected by default, with one plain-language line per change.
