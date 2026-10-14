@@ -185,7 +185,7 @@ test('proposed changes apply through the planner and can be undone', async ({
   await form.getByRole('button', { name: 'Ask', exact: true }).click();
   await expect(box).toContainText('Added a task and moved the lab report.');
   await expect(box).toContainText('$0.000123');
-  await expect(box).toContainText('2 items left out');
+  await expect(box).toContainText('2 left out');
   expect(asked.text).toBe('Add buy notebook and push the lab report');
   const changes = box.getByRole('group', { name: 'Proposed changes' });
   await expect(
@@ -475,9 +475,92 @@ test('Use mail is remembered and each answer lists the mail that was sent', asyn
   await ask.press('Enter');
   await expect(box).toContainText('The waiver is due Friday.');
   expect(sentUseMail).toBe(true);
-  const mail = box.getByText('2 messages sent (1 read) · 2 left out by labels');
-  await mail.click();
+  await box
+    .getByText(
+      'anthropic/claude-haiku-5.5 · $0.0003 · 2 messages sent · 2 left out',
+    )
+    .click();
   await expect(box).toContainText('Field trip waiver');
   await expect(box).toContainText('Body sent');
   await expect(box).toContainText('Subject and sender only');
+});
+
+test('a turn shows the ask and reply as chat bubbles with a collapsible details line', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/assistant/settings', (route) =>
+    route.fulfill({
+      json: {
+        settings: {
+          model: 'anthropic/claude-haiku-5.5',
+          version: 1,
+          configured: true,
+          allowPersonalMail: false,
+          useMail: true,
+        },
+      },
+    }),
+  );
+  await page.route('**/api/v1/assistant/requests', (route) => {
+    const reply = answer(route, {
+      status: 'completed',
+      reason: null,
+      model: 'anthropic/claude-haiku-5.5',
+      resultAvailable: true,
+      reply: 'Added the waiver task.',
+      proposals: [
+        {
+          kind: 'task.create',
+          task: {
+            title: 'Sign the waiver',
+            notes: '',
+            dueDate: '2036-03-01',
+            priority: 'normal',
+          },
+        },
+      ],
+      dropped: 0,
+      withheld: 0,
+      costMicros: 300,
+      heldMicros: 0,
+      createdAt: new Date().toISOString(),
+    });
+    Object.assign(reply.turn, {
+      useMail: true,
+      mailWithheld: 2,
+      mailNote: null,
+      mail: ['Field trip waiver', 'Lunch menu'].map((subject, index) => ({
+        id: crypto.randomUUID(),
+        subject,
+        from: 'School Office',
+        receivedAt: new Date().toISOString(),
+        read: index === 0,
+      })),
+    });
+    return route.fulfill({ json: reply });
+  });
+  await stubThread(page);
+  await page.goto('/assistant');
+  const box = page.locator('main');
+  const ask = box.getByRole('textbox', { name: 'Ask', exact: true });
+  await expect(ask).toBeEnabled();
+  await ask.fill('Add the waiver');
+  await ask.press('Enter');
+  const mine = box.getByRole('article', { name: 'You' });
+  await expect(mine).toHaveText('Add the waiver');
+  const reply = box.getByRole('article', { name: 'Assistant' });
+  await expect(reply).toContainText('Added the waiver task.');
+  const details = reply.getByText(
+    'anthropic/claude-haiku-5.5 · $0.0003 · 2 messages sent · 2 left out',
+  );
+  await expect(reply.getByText('Field trip waiver')).toBeHidden();
+  await details.click();
+  const sent = reply
+    .getByRole('listitem')
+    .filter({ hasText: 'Field trip waiver' });
+  await expect(sent).toContainText('Body sent');
+  const changes = reply.getByRole('group', { name: 'Proposed changes' });
+  await expect(
+    changes.getByRole('button', { name: 'Apply 1 change' }),
+  ).toBeEnabled();
 });

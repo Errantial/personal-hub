@@ -10,10 +10,6 @@
   flex: 1 1 18rem;
   gap: var(--space-1);
 }
-.assistant__result {
-  margin-top: var(--space-3);
-  overflow-wrap: anywhere;
-}
 .assistant__reply {
   white-space: pre-wrap;
 }
@@ -111,15 +107,6 @@
   padding: var(--space-3) 0;
   border-bottom: var(--border-width) solid var(--border-subtle);
 }
-.assistant-turn__ask {
-  margin: 0;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-control);
-  background: var(--selected-bg);
-  color: var(--selected-text);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
 .assistant-page__list > a.secondary-button {
   display: inline-flex;
   align-items: center;
@@ -134,22 +121,68 @@
   gap: var(--space-2);
   align-items: center;
 }
-.assistant-turn__mail {
-  margin-top: var(--space-2);
+
+/* Chat turn (AssistantTurnView): the ask on the right, the answer on the left. */
+.assistant-turn {
+  display: grid;
+  gap: var(--space-2);
 }
-.assistant-turn__mail summary {
-  min-height: var(--target);
+.bubble {
+  max-width: 80%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-surface);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 30rem) {
+  .bubble {
+    max-width: 100%;
+  }
+}
+.bubble--me {
+  justify-self: end;
+  background: var(--selected-bg);
+  color: var(--selected-text);
+  white-space: pre-wrap;
+}
+.bubble--ai {
+  justify-self: start;
+  background: var(--surface-subtle);
+  border: var(--border-width) solid var(--border-subtle);
+}
+.bubble--ai > :first-child {
+  margin-top: 0;
+}
+.bubble--ai > p[role='status']:empty {
+  display: none;
+}
+.turn-changes {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-control);
+}
+.turn-changes li:last-child {
+  border-bottom: 0;
+}
+.turn-details {
+  margin-top: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-small);
+}
+.turn-details summary {
   display: flex;
   align-items: center;
+  min-height: var(--target);
   cursor: pointer;
 }
-.assistant-turn__mail ul {
+.turn-details ul {
   margin: 0;
   padding: 0;
   list-style: none;
+  color: var(--text);
 }
-.assistant-turn__mail li {
+.turn-details li {
   display: grid;
   padding: var(--space-1) 0;
-  overflow-wrap: anywhere;
 }

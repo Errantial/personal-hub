@@ -17,7 +17,7 @@ import { AssistantTurnView } from './AssistantTurn';
 import { useConfirm } from './ConfirmDialog';
 import { Help } from './Help';
 import { Link } from './Link';
-import './AssistantBox.css';
+import './Assistant.css';
 
 /**
  * Assistant page (D55): conversations kept on the owner's server, so every
@@ -206,7 +206,6 @@ export function AssistantView({
                   <li key={turn.id}>
                     <AssistantTurnView
                       turn={turn}
-                      showAsk
                       onTurn={replace}
                       onApplied={() => undefined}
                       onStale={() => void thread.reload()}
