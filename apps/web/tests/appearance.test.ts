@@ -30,6 +30,18 @@ describe('appearance', () => {
     });
   });
 
+  it('defaults to the device theme and keeps a valid stored choice', () => {
+    expect(defaultAppearance.scheme).toBe('system');
+    expect(parseAppearance({ scheme: 'dark' }).scheme).toBe('dark');
+    expect(parseAppearance({ scheme: 'dim' }).scheme).toBe('system');
+    expect(
+      sameAppearance(defaultAppearance, {
+        ...defaultAppearance,
+        scheme: 'dark',
+      }),
+    ).toBe(false);
+  });
+
   it('leaves the standard theme untouched without custom colors', () => {
     expect(deriveColors({})).toEqual({ tokens: {}, problems: [] });
   });
