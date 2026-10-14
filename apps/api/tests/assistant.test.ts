@@ -262,6 +262,9 @@ it('proposes checked changes, withholds labeled items and settles the reported c
     },
     usage: { include: true },
   });
+  // Vertex and Anthropic don't accept temperature; with require_parameters
+  // it would leave no endpoint (404).
+  expect(body).not.toHaveProperty('temperature');
   const budget = (await call('GET', '/api/v1/ai/budget')).json();
   expect(budget.usage).toMatchObject({ spentMicros: '123', heldMicros: '0' });
   // Nothing was applied: the task is unchanged until the owner applies it.

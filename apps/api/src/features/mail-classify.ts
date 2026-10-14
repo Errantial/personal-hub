@@ -150,7 +150,6 @@ export function buildClassifyRequest(model: string, messages: Eligible[]) {
     model,
     stream: false,
     max_tokens: maxOutputTokens,
-    temperature: 0,
     messages: [
       { role: 'system', content: instructions },
       { role: 'user', content: JSON.stringify({ messages: payload }) },

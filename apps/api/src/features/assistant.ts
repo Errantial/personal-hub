@@ -216,7 +216,6 @@ export function buildAssistantRequest(
     model,
     stream: false,
     max_tokens: maxOutputTokens,
-    temperature: 0,
     messages: [
       { role: 'system', content: instructions },
       { role: 'user', content: JSON.stringify(payload) },

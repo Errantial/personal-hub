@@ -89,7 +89,6 @@ export function buildTaskSuggestRequest(
     model,
     stream: false,
     max_tokens: maxOutputTokens,
-    temperature: 0,
     messages: [
       { role: 'system', content: instructions },
       {
