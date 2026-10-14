@@ -212,6 +212,7 @@ function EditorForm({
     date,
     timeZone: viewingZone,
     study: creating ? study : null,
+    ...(editor.kind === 'new' && editor.start ? { start: editor.start } : {}),
   };
   const [draft, setDraft] = useState<CalendarDraft>(() => ({
     ...toDraft(source, defaults),

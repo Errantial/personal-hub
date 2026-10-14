@@ -140,7 +140,11 @@ test('Canvas planning creates editable tasks and study blocks, retaining provena
   await openTask(page, 'Canvas planned browser task');
   await expect(taskEditor(page)).toContainText('Canvas source · Changed');
   await open(page, 'Calendar');
-  await showCalendar(page, { zone: 'UTC', date: '2027-04-14', view: 'Day' });
+  await showCalendar(page, {
+    zone: 'UTC',
+    date: '2027-04-14',
+    view: 'Agenda',
+  });
   const agenda = calendarDay(page, '2027-04-14');
   const study = agenda.locator('article').filter({
     has: page.getByText('Canvas planned browser study', { exact: true }),
@@ -230,7 +234,7 @@ test('Canvas class links survive refreshes and appear as read-only entries in po
   await showCalendar(page, {
     zone: 'America/Denver',
     date: '2027-03-20',
-    view: 'Day',
+    view: 'Agenda',
   });
   const agenda = calendarDay(page, '2027-03-20');
   const point = agenda.getByRole('article', {
@@ -259,7 +263,7 @@ test('Canvas class links survive refreshes and appear as read-only entries in po
   await showCalendar(page, {
     zone: 'America/Denver',
     date: '2027-03-20',
-    view: 'Day',
+    view: 'Agenda',
   });
   await expect(point).toBeVisible();
   await context.setOffline(false);

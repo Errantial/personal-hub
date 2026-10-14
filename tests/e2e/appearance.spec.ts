@@ -327,6 +327,7 @@ test('the dark theme keeps text contrast across the main pages', async ({
     '/assistant',
     '/tasks',
     '/calendar',
+    '/calendar?view=month',
     '/inbox',
     '/settings',
   ]) {

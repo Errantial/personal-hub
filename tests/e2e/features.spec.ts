@@ -99,7 +99,7 @@ test('calendar navigation preserves a stale draft until the latest version is lo
   await page.goto('/');
   await open(page, 'Calendar');
   const view = calendarRegion(page);
-  await showCalendar(page, { date: '2027-03-08', zone: 'UTC' });
+  await showCalendar(page, { date: '2027-03-08', zone: 'UTC', view: 'Agenda' });
   await view.getByRole('link', { name: original.title, exact: true }).click();
   const editor = eventEditor(page);
   await editor
@@ -118,7 +118,7 @@ test('calendar navigation preserves a stale draft until the latest version is lo
   // Browsing to another view keeps the open draft and refreshes the list.
   await showCalendar(page, { view: 'Day' });
   await expect(
-    view.getByRole('link', { name: 'Calendar changed elsewhere', exact: true }),
+    view.getByRole('link', { name: /^Calendar changed elsewhere, / }),
   ).toBeVisible();
   await expect(editor.getByLabel('Title', { exact: true })).toHaveValue(
     'Calendar preserved draft',
@@ -162,7 +162,7 @@ test('calendar shows agenda, week and day windows and edits an all-day recurring
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
   await open(page, 'Calendar');
-  await showCalendar(page, { date: '2027-03-08' });
+  await showCalendar(page, { date: '2027-03-08', view: 'Agenda' });
   await newEvent(page);
   const editor = eventEditor(page);
   await editor
@@ -203,23 +203,30 @@ test('calendar shows agenda, week and day windows and edits an all-day recurring
       { exact: true },
     ),
   ).toBeVisible();
-  // Week starts on Monday and lists every day, with or without entries (the 11th is empty).
+  // Week starts on Monday; all-day occurrences sit in each day's strip.
+  const strip = (name: RegExp) =>
+    calendarRegion(page).getByRole('list', { name });
   await showCalendar(page, { view: 'Week' });
-  await expect(calendarRegion(page).locator('section[data-date]')).toHaveCount(
-    7,
-  );
   await expect(
-    calendarDay(page, '2027-03-11').getByText('Nothing scheduled.'),
+    calendarRegion(page).getByRole('list', { name: /^All day, / }),
+  ).toHaveCount(7);
+  await expect(
+    strip(/^All day, Wednesday, March 10/).getByText(
+      'Recurring all-day browser event',
+    ),
   ).toBeVisible();
+  await expect(
+    strip(/^All day, Thursday, March 11/).getByRole('listitem'),
+  ).toHaveCount(0);
   await showCalendar(page, { view: 'Day' });
-  await expect(calendarRegion(page).locator('section[data-date]')).toHaveCount(
-    1,
-  );
+  await expect(
+    calendarRegion(page).getByRole('list', { name: /^All day, / }),
+  ).toHaveCount(1);
   await calendarRegion(page)
     .getByRole('link', { name: 'Next day', exact: true })
     .click();
-  await expect(calendarDay(page, '2027-03-09')).toBeVisible();
-  await page.goto('/calendar?date=2027-03-08');
+  await expect(strip(/^All day, Tuesday, March 9/)).toBeVisible();
+  await page.goto('/calendar?date=2027-03-08&view=agenda');
   await expect(
     calendarRegion(page).getByText('Edited one occurrence', { exact: true }),
   ).toBeVisible();
@@ -271,6 +278,7 @@ test('a class portfolio stores progress and schedules a linked study block', asy
   await expect(
     calendar.getByText('Study Atomic structure', { exact: true }),
   ).toBeVisible();
+  await showCalendar(page, { view: 'Agenda' });
   await expect(
     calendar.getByText('Study · Browser chemistry · planned'),
   ).toBeVisible();

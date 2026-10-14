@@ -153,9 +153,21 @@ export const calendarDay = (page: Page, date: string) =>
 /** Sets the viewing timezone (optional), the date and the view, as an owner would. */
 export async function showCalendar(
   page: Page,
-  options: { date?: string; view?: 'Agenda' | 'Week' | 'Day'; zone?: string },
+  options: {
+    date?: string;
+    view?: 'Agenda' | 'Week' | 'Day' | 'Month';
+    zone?: string;
+  },
 ) {
   const region = calendarRegion(page);
+  // Narrow screens keep the date and zone behind the Calendars button.
+  const tools = region.getByRole('button', { name: 'Calendars', exact: true });
+  if (
+    (options.zone || options.date) &&
+    (await tools.isVisible()) &&
+    (await tools.getAttribute('aria-expanded')) === 'false'
+  )
+    await tools.click();
   if (options.zone) {
     const zone = region.getByLabel('Viewing timezone', { exact: true });
     if (!(await zone.isVisible()))
@@ -177,7 +189,7 @@ export async function showCalendar(
 /** Opens the new-event form from the calendar. */
 export async function newEvent(page: Page) {
   await calendarRegion(page)
-    .getByRole('link', { name: 'Add event', exact: true })
+    .getByRole('link', { name: 'New event', exact: true })
     .click();
   await expect(eventEditor(page)).toBeVisible();
 }

@@ -125,7 +125,11 @@ export function allDayStrip(
         source: sourceOf(item),
         title: item.title,
         time: null,
-        target: { type: 'event', id: item.id, date: item.originalDate },
+        target: {
+          type: 'event',
+          id: item.id,
+          date: item.recurrence ? item.originalDate : null,
+        },
       })),
     ...input.canvas
       .filter((item) => canvasItemInRange(item, day, next, input.timeZone))
