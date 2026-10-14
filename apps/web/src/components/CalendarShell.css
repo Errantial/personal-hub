@@ -1,0 +1,207 @@
+/* Calendar frame (CalendarShell): sidebar plus top bar around the view. */
+.calendar-shell {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.calendar-main {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  min-width: 0;
+}
+.calendar-sidebar {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  min-width: 0;
+}
+.calendar-sidebar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.calendar-sidebar__panel {
+  display: grid;
+  gap: var(--space-4);
+}
+.calendar-sources {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.calendar-sources legend {
+  margin-bottom: var(--space-1);
+  font-weight: var(--weight-strong);
+}
+.calendar-sources .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--target);
+}
+.calendar-swatch {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  background: var(--swatch);
+  border: 1px solid var(--swatch);
+}
+.calendar-swatch--event {
+  --swatch: var(--kind-event);
+}
+.calendar-swatch--study {
+  --swatch: var(--kind-study);
+}
+.calendar-swatch--canvas {
+  --swatch: var(--kind-deadline);
+}
+.calendar-swatch--task {
+  --swatch: var(--kind-task);
+}
+[data-theme='eink'] .calendar-swatch {
+  display: none;
+}
+
+/* Top bar: Today, ‹ ›, range title, view switch. */
+.calendar-topbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+}
+.calendar-topbar__steps {
+  display: flex;
+  gap: var(--space-1);
+}
+.calendar-step--icon {
+  justify-content: center;
+  min-width: var(--target);
+  padding: 0;
+  font-size: var(--text-title-small);
+}
+.calendar-topbar__title {
+  flex: 1 1 10rem;
+  margin: 0;
+  font-size: var(--text-title-small);
+}
+.calendar-views {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.calendar-topbar .calendar-views a {
+  border-radius: 0;
+  margin-left: calc(-1 * var(--border-width));
+}
+.calendar-topbar .calendar-views li:first-child a {
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  margin-left: 0;
+}
+.calendar-topbar .calendar-views li:last-child a {
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+}
+
+/* Mini month. */
+.mini-month__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.mini-month__title {
+  font-weight: var(--weight-strong);
+}
+.mini-month__step {
+  min-width: var(--target);
+  min-height: var(--target);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-title-small);
+  cursor: pointer;
+}
+.mini-month__grid {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  text-align: center;
+  font-size: var(--text-small);
+}
+.mini-month__grid th {
+  padding: var(--space-1) 0;
+  color: var(--text-muted);
+  font-weight: var(--weight-regular);
+}
+.mini-month__grid td {
+  padding: 0;
+}
+.mini-month__grid button {
+  width: 100%;
+  min-height: var(--target);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.mini-month__grid button.mini-month__other {
+  color: var(--text-muted);
+}
+.mini-month__grid button[aria-current='date'] {
+  font-weight: var(--weight-strong);
+  text-decoration: underline;
+}
+.mini-month__grid button[aria-pressed='true'] {
+  background: var(--selected-bg);
+  color: var(--selected-text);
+  font-weight: var(--weight-strong);
+}
+.mini-month__step:hover,
+.mini-month__grid button:hover {
+  background: var(--surface-subtle);
+}
+
+/* Narrow screens: the sidebar's tools sit behind Calendars. */
+@media (max-width: 63.99rem) {
+  .calendar-sidebar__panel:not(.is-open) {
+    display: none;
+  }
+  .calendar-sidebar__panel {
+    padding: var(--space-3);
+    border: var(--border-width) solid var(--border-subtle);
+    border-radius: var(--radius-surface);
+    background: var(--surface);
+  }
+  .calendar-topbar__title {
+    order: -1;
+    flex-basis: 100%;
+  }
+}
+@media (min-width: 64rem) {
+  .calendar-shell {
+    grid-template-columns: 15rem minmax(0, 1fr);
+    align-items: start;
+  }
+  .calendar-sidebar__toggle {
+    display: none;
+  }
+  .calendar-sidebar .calendar-add {
+    flex: 1;
+    justify-content: center;
+  }
+  /* While editing, the editor takes the sidebar's room. */
+  .calendar-shell--editing {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .calendar-shell--editing .calendar-sidebar {
+    display: none;
+  }
+}
