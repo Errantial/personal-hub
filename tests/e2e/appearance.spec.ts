@@ -93,6 +93,26 @@ test('e-ink stays monochrome whatever colors are saved', async ({ page }) => {
   expect(await root(page, '--bg')).toBe(darkColors.background);
 });
 
+test('the theme follows the device by default and can be fixed to light or dark', async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await showAppearance(page);
+  expect(await rootData(page, 'scheme')).toBe('dark');
+  expect(await root(page, '--bg')).toBe('#121714');
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect.poll(() => rootData(page, 'scheme')).toBe('light');
+  const display = section(page, 'Display');
+  await display.getByLabel('Theme').selectOption('dark');
+  expect(await rootData(page, 'scheme')).toBe('dark');
+  await page.reload();
+  expect(await rootData(page, 'scheme')).toBe('dark');
+  // E-ink has no light/dark palette and disables the choice.
+  await page.getByRole('checkbox', { name: 'Use e-ink mode' }).check();
+  await expect(display.getByLabel('Theme')).toBeDisabled();
+  expect(await rootData(page, 'scheme')).toBe('');
+});
+
 test('size, spacing and corners apply and never shrink controls below 44 px', async ({
   page,
 }) => {
@@ -297,3 +317,29 @@ for (const { theme, width, target } of [
     expect(undersized).toEqual([]);
   });
 }
+
+test('the dark theme keeps text contrast across the main pages', async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  for (const path of [
+    '/',
+    '/assistant',
+    '/tasks',
+    '/calendar',
+    '/inbox',
+    '/settings',
+  ]) {
+    await page.goto(path);
+    await expect(page.locator('main')).toBeVisible();
+    expect(await rootData(page, 'scheme')).toBe('dark');
+    const { violations } = await new AxeBuilder({ page })
+      .withRules(['color-contrast'])
+      .analyze();
+    expect(
+      violations.flatMap((item) =>
+        item.nodes.map((node) => `${path} ${item.id} ${node.target}`),
+      ),
+    ).toEqual([]);
+  }
+});

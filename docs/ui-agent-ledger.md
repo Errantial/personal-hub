@@ -483,6 +483,13 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 - Help explains the scope: subjects and senders of allowed mail, up to five bodies, never Restricted, Personal only with the Settings › AI switch, up to three calls.
 - Tests: `tests/e2e/assistant.spec.ts` (remembered checkbox across reload; sent-mail list). API tests cover search/read rules, label exclusions, schemas per call, cost totals, a failed later call and the saved setting.
 
+### 2026-10-14 — Appearance: dark theme (D54)
+
+- **Settings › Appearance › Display › Theme**: Match device (default), Light, Dark. Disabled in e-ink mode; custom colors replace either palette.
+- `:root[data-scheme]` is `light` or `dark` (absent in e-ink); Match device follows live changes of `prefers-color-scheme`. The choice is device-local with the rest of Appearance.
+- Dark tokens live in `styles/tokens.css`; text pairs meet 4.5:1, borders/accent 3:1. New styles must use tokens, never raw colors.
+- Tests: `tests/e2e/appearance.spec.ts` (device following, fixed choice, e-ink; color-contrast sweep of Today, Tasks, Calendar, Inbox and Settings in dark) and `apps/web/tests/appearance.test.ts`.
+
 ### 2026-10-14 — Assistant page (D55)
 
 - **Assistant** (`/assistant`, `/assistant/:conversationId`) is a primary sidebar destination after Today.
