@@ -564,3 +564,82 @@ test('a turn shows the ask and reply as chat bubbles with a collapsible details 
     changes.getByRole('button', { name: 'Apply 1 change' }),
   ).toBeEnabled();
 });
+
+/** Configured settings and a plain answer per ask, numbered from 1. */
+async function stubAnswers(page: Page) {
+  await page.route('**/api/v1/assistant/settings', (route) =>
+    route.fulfill({
+      json: {
+        settings: {
+          model: 'anthropic/claude-haiku-5.5',
+          version: 1,
+          configured: true,
+          allowPersonalMail: false,
+          useMail: false,
+        },
+      },
+    }),
+  );
+  let count = 0;
+  await page.route('**/api/v1/assistant/requests', (route) =>
+    route.fulfill({
+      json: answer(route, {
+        status: 'completed',
+        reason: null,
+        model: 'anthropic/claude-haiku-5.5',
+        resultAvailable: true,
+        reply: `Answer ${++count}`,
+        proposals: [],
+        dropped: 0,
+        withheld: 0,
+        costMicros: 100,
+        heldMicros: 0,
+        createdAt: new Date().toISOString(),
+      }),
+    }),
+  );
+  await stubThread(page);
+}
+
+test('the conversation list collapses behind a button on narrow screens', async ({
+  page,
+}) => {
+  await stubAnswers(page);
+  await page.goto('/assistant');
+  const ask = page.getByRole('textbox', { name: 'Ask', exact: true });
+  await expect(ask).toBeEnabled();
+  await ask.fill('Plan my week');
+  await ask.press('Enter');
+  await expect(page.locator('main')).toContainText('Answer 1');
+  await page.goto('/assistant');
+  await page.setViewportSize({ width: 390, height: 800 });
+  const toggle = page.getByRole('button', { name: 'Conversations' });
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  const list = page.getByRole('navigation', { name: 'Conversations' });
+  await expect(list).toBeHidden();
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await list.getByRole('link', { name: 'Plan my week' }).click();
+  await expect(page).toHaveURL(/\/assistant\/[0-9a-f-]{36}$/);
+  await expect(list).toBeHidden();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+});
+
+test('after an answer the newest turn is in view and focus returns to the composer', async ({
+  page,
+}) => {
+  await stubAnswers(page);
+  await page.setViewportSize({ width: 1280, height: 600 });
+  await page.goto('/assistant');
+  const ask = page.getByRole('textbox', { name: 'Ask', exact: true });
+  await expect(ask).toBeEnabled();
+  for (const n of [1, 2, 3]) {
+    await ask.fill(`Question ${n} ${'with a long body '.repeat(20)}`);
+    await ask.press('Enter');
+    await expect(page.locator('main')).toContainText(`Answer ${n}`);
+  }
+  const latest = page.getByRole('article', { name: 'Assistant' }).last();
+  await expect(latest).toContainText('Answer 3');
+  await expect(latest).toBeInViewport();
+  await expect(ask).toBeFocused();
+});

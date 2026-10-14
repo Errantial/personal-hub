@@ -475,6 +475,14 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 - Known limits: read-only, no search, no flags, no deletion tracking, no AI filtering yet.
 - Creation retries preserve one connector, but cannot reissue its one-time token. Keep the recovery error visible: reload Connections, revoke it, and add a replacement. Revocation is versioned and receipt-backed. Incomplete folder counts remain visible; a shortened message does not imply that 32,000 characters were available (oversized messages can have headers only).
 
+### 2026-10-14 — Assistant rework (spec: superpowers/specs/2026-10-14-ui-rework-design.md)
+
+- **Chat layout.** Each turn is two bubbles: the ask (`article` "You", right, selected colors) and the answer (`article` "Assistant", left, subtle surface). The answer holds the failure reason, reply, mail note, the **Proposed changes** card (Apply/Undo unchanged) and one collapsed details line: model · cost · N messages sent · M left out (planner labels plus mail) · unused suggestions. Opening it lists the sent mail ("Body sent" or "Subject and sender only") and the left-out counts. Bubbles are at most 80% wide (100% under 480 px) and wrap long text.
+- **Page shell.** At ≥ 1024 px a 16 rem conversation list sits beside the thread. Below that, a **Conversations** button (`aria-expanded`) shows the list as a panel, which closes when a conversation is chosen. The thread header has the title (or "New conversation"), Delete, and a muted model/spend line with Help (moved from the page summary).
+- **Composer** is sticky at the bottom of the thread (above the mobile bottom bar), with the Ask label visually hidden. After an answer, the newest turn scrolls into view above it and focus returns to the Ask field.
+- The mobile bottom bar now has six columns (five destinations plus More); More no longer wraps to a second row.
+- Tests: `tests/e2e/assistant.spec.ts` (bubbles and details line, narrow conversation list, scroll and focus after an answer).
+
 ### 2026-10-14 — Today rework (spec: superpowers/specs/2026-10-14-ui-rework-design.md)
 
 - **Add or ask** bar at the top: an Add task / Ask assistant radio pair (remembered per device in `hub:command-mode`), one text field, an optional due date in task mode, and Add/Ask. Add task saves through the task transport (offline: "Task queued for sync."). Ask starts a new conversation (honoring the saved Use mail choice) and opens `/assistant/:id`. Without a server key, Ask assistant is disabled with Help.

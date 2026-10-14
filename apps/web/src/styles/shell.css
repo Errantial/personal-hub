@@ -348,7 +348,7 @@ main:focus {
   }
   .nav > .nav__list {
     flex: 1;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 0;
   }
   .nav > .nav__list .nav__link {
