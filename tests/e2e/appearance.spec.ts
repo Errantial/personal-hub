@@ -322,7 +322,14 @@ test('the dark theme keeps text contrast across the main pages', async ({
   page,
 }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
-  for (const path of ['/', '/tasks', '/calendar', '/inbox', '/settings']) {
+  for (const path of [
+    '/',
+    '/assistant',
+    '/tasks',
+    '/calendar',
+    '/inbox',
+    '/settings',
+  ]) {
     await page.goto(path);
     await expect(page.locator('main')).toBeVisible();
     expect(await rootData(page, 'scheme')).toBe('dark');

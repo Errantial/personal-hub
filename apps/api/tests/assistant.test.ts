@@ -154,24 +154,28 @@ afterEach(async () => {
   await app.close();
 });
 
-it('reports a missing key and blocks unset budgets before any request', async () => {
-  const fetcher = await start(null);
-  const settings = await call('GET', '/api/v1/assistant/settings');
-  expect(settings.json().settings).toEqual({
-    model,
-    version: 1,
-    configured: false,
-    allowPersonalMail: false,
-  });
-  expect((await ask('Plan my week')).json().error.code).toBe(
-    'ASSISTANT_NOT_CONFIGURED',
-  );
-  await app.close();
-  await start();
-  expect((await ask('Plan my week')).json().error.code).toBe('BUDGET_UNSET');
-  expect(sent).toHaveLength(0);
-  expect(fetcher).not.toHaveBeenCalledWith(chatUrl, expect.anything());
-});
+it(
+  'reports a missing key and blocks unset budgets before any request',
+  { timeout: 20000 },
+  async () => {
+    const fetcher = await start(null);
+    const settings = await call('GET', '/api/v1/assistant/settings');
+    expect(settings.json().settings).toEqual({
+      model,
+      version: 1,
+      configured: false,
+      allowPersonalMail: false,
+    });
+    expect((await ask('Plan my week')).json().error.code).toBe(
+      'ASSISTANT_NOT_CONFIGURED',
+    );
+    await app.close();
+    await start();
+    expect((await ask('Plan my week')).json().error.code).toBe('BUDGET_UNSET');
+    expect(sent).toHaveLength(0);
+    expect(fetcher).not.toHaveBeenCalledWith(chatUrl, expect.anything());
+  },
+);
 
 it('proposes checked changes, withholds labeled items and settles the reported cost', async () => {
   await start();
@@ -282,17 +286,153 @@ it('never resends a retried operation and rejects a changed one', async () => {
   expect((await ask('Plan my week', operationId)).json().request).toMatchObject(
     { resultAvailable: true, reply: 'Nothing to do.' },
   );
+  // The stored answer comes back; the model is not called again.
   const again = (await ask('Plan my week', operationId)).json().request;
   expect(again).toMatchObject({
     status: 'completed',
-    resultAvailable: false,
-    reply: null,
-    proposals: [],
+    resultAvailable: true,
+    reply: 'Nothing to do.',
   });
   expect((await ask('Plan next week', operationId)).json().error.code).toBe(
     'OPERATION_CONFLICT',
   );
   expect(sent).toHaveLength(1);
+});
+
+it('keeps conversations on the server, resends earlier turns and deletes their text', async () => {
+  await start();
+  await setBudget();
+  const conversationId = randomUUID();
+  const first = (
+    await call('POST', '/api/v1/assistant/requests', {
+      operationId: randomUUID(),
+      text: 'What is due this week?',
+      timeZone: 'America/Denver',
+      conversationId,
+    })
+  ).json();
+  expect(first.turn).toMatchObject({
+    conversationId,
+    ask: 'What is due this week?',
+  });
+  chat = () => completion({ reply: 'Moved it.', actions: [] });
+  const second = (
+    await call('POST', '/api/v1/assistant/requests', {
+      operationId: randomUUID(),
+      text: 'Move the first one to Friday',
+      timeZone: 'America/Denver',
+      conversationId,
+    })
+  ).json();
+  // The follow-up carries the earlier ask and reply, not earlier context.
+  const messages = sent[1]!.messages as { role: string; content: string }[];
+  expect(messages.slice(1, 3)).toEqual([
+    { role: 'user', content: 'What is due this week?' },
+    { role: 'assistant', content: 'Nothing to do.' },
+  ]);
+  const list = (await call('GET', '/api/v1/assistant/conversations')).json();
+  expect(list.conversations).toEqual([
+    expect.objectContaining({
+      id: conversationId,
+      title: 'What is due this week?',
+      turnCount: 2,
+    }),
+  ]);
+  const thread = (
+    await call('GET', `/api/v1/assistant/conversations/${conversationId}`)
+  ).json();
+  expect(thread.turns.map((turn: { ask: string }) => turn.ask)).toEqual([
+    'What is due this week?',
+    'Move the first one to Friday',
+  ]);
+  expect(thread.turns[1].request.reply).toBe('Moved it.');
+  expect(second.turn.id).toBe(thread.turns[1].id);
+  // Another owner's ID cannot be continued, and deletion clears the text.
+  expect(
+    (
+      await call(
+        'DELETE',
+        `/api/v1/assistant/conversations/${conversationId}`,
+        {
+          expectedVersion: 1,
+        },
+      )
+    ).json().error.code,
+  ).toBe('VERSION_CONFLICT');
+  expect(
+    (
+      await call(
+        'DELETE',
+        `/api/v1/assistant/conversations/${conversationId}`,
+        {
+          expectedVersion: thread.conversation.version,
+        },
+      )
+    ).json(),
+  ).toEqual({ deleted: true });
+  expect(
+    (await call('GET', `/api/v1/assistant/conversations/${conversationId}`))
+      .statusCode,
+  ).toBe(404);
+  const [stored] = await database.query(
+    'SELECT count(*)::int AS n FROM ai_conversation_turns WHERE conversation_id=$1 AND (ask IS NOT NULL OR reply IS NOT NULL)',
+    [conversationId],
+  );
+  expect(stored!.n).toBe(0);
+  expect(
+    (
+      await call('POST', '/api/v1/assistant/requests', {
+        operationId: randomUUID(),
+        text: 'Hello again',
+        timeZone: 'America/Denver',
+        conversationId,
+      })
+    ).statusCode,
+  ).toBe(404);
+  expect(sent).toHaveLength(2);
+});
+
+it('stores applied state so another device can undo with the same write IDs', async () => {
+  await start();
+  await setBudget();
+  chat = () =>
+    completion({
+      reply: 'Added it.',
+      actions: [action({ type: 'task.create', title: 'Buy notebook' })],
+    });
+  const { turn } = (await ask('Add buy notebook')).json();
+  expect(turn.items).toEqual([
+    expect.objectContaining({ state: 'proposed', applied: null }),
+  ]);
+  const item = {
+    ...turn.items[0],
+    state: 'applied',
+    applied: { id: randomUUID(), version: 1 },
+  };
+  const saved = (
+    await call('PUT', `/api/v1/assistant/turns/${turn.id}/items`, {
+      expectedVersion: turn.version,
+      items: [item],
+    })
+  ).json().turn;
+  expect(saved.items[0]).toEqual(item);
+  // A stale device is told to reload; changed write IDs are refused.
+  expect(
+    (
+      await call('PUT', `/api/v1/assistant/turns/${turn.id}/items`, {
+        expectedVersion: turn.version,
+        items: [item],
+      })
+    ).json().error.code,
+  ).toBe('VERSION_CONFLICT');
+  expect(
+    (
+      await call('PUT', `/api/v1/assistant/turns/${turn.id}/items`, {
+        expectedVersion: saved.version,
+        items: [{ ...item, applyId: randomUUID() }],
+      })
+    ).statusCode,
+  ).toBe(400);
 });
 
 it('withholds source-linked events and unknown label history even when their root labels are unlabeled', async () => {

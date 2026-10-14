@@ -1,7 +1,49 @@
 import { expect, test } from '@playwright/test';
+import type { Page, Route } from '@playwright/test';
 import { authenticate } from './auth';
 
 const headers = { Origin: 'http://127.0.0.1:5180' };
+
+/** A stubbed answer with its stored turn, as the server returns it. */
+function answer(route: Route, request: { proposals: unknown[] }) {
+  const sent = route.request().postDataJSON() as {
+    text: string;
+    conversationId: string;
+  };
+  const id = crypto.randomUUID();
+  const reply = {
+    request: { ...request, id },
+    turn: {
+      id,
+      conversationId: sent.conversationId,
+      ask: sent.text,
+      version: 1,
+      request: { ...request, id },
+      items: request.proposals.map(() => ({
+        state: 'proposed',
+        applied: null,
+        error: null,
+        applyId: crypto.randomUUID(),
+        undoId: crypto.randomUUID(),
+      })),
+    },
+  };
+  lastTurn = reply.turn;
+  return reply;
+}
+
+/** Saving applied state echoes the items back, as the server does. */
+async function stubItems(page: Page) {
+  let version = 1;
+  await page.route('**/api/v1/assistant/turns/*/items', (route) => {
+    const body = route.request().postDataJSON() as { items: unknown[] };
+    version += 1;
+    return route.fulfill({
+      json: { turn: { ...lastTurn, version, items: body.items } },
+    });
+  });
+}
+let lastTurn: Record<string, unknown> = {};
 
 test.beforeEach(async ({ page }) => {
   await authenticate(page);
@@ -75,40 +117,39 @@ test('proposed changes apply through the planner and can be undone', async ({
   await page.route('**/api/v1/assistant/requests', (route) => {
     asked = route.request().postDataJSON() as { text?: string };
     return route.fulfill({
-      json: {
-        request: {
-          id: crypto.randomUUID(),
-          status: 'completed',
-          reason: null,
-          model: 'anthropic/claude-haiku-5.5',
-          resultAvailable: true,
-          reply: 'Added a task and moved the lab report.',
-          proposals: [
-            {
-              kind: 'task.create',
-              task: {
-                title: newTitle,
-                notes: '',
-                dueDate: '2036-03-01',
-                priority: 'normal',
-              },
+      json: answer(route, {
+        id: crypto.randomUUID(),
+        status: 'completed',
+        reason: null,
+        model: 'anthropic/claude-haiku-5.5',
+        resultAvailable: true,
+        reply: 'Added a task and moved the lab report.',
+        proposals: [
+          {
+            kind: 'task.create',
+            task: {
+              title: newTitle,
+              notes: '',
+              dueDate: '2036-03-01',
+              priority: 'normal',
             },
-            {
-              kind: 'task.update',
-              target: task,
-              changes: { dueDate: '2036-03-12' },
-            },
-          ],
-          dropped: 0,
-          withheld: 2,
-          costMicros: 123,
-          heldMicros: 0,
-          createdAt: new Date().toISOString(),
-        },
-      },
+          },
+          {
+            kind: 'task.update',
+            target: task,
+            changes: { dueDate: '2036-03-12' },
+          },
+        ],
+        dropped: 0,
+        withheld: 2,
+        costMicros: 123,
+        heldMicros: 0,
+        createdAt: new Date().toISOString(),
+      }),
     });
   });
 
+  await stubItems(page);
   await page.goto('/');
   const box = page.getByRole('region', { name: 'Assistant' });
   const form = box.getByRole('form', { name: 'Ask the assistant' });
@@ -186,26 +227,25 @@ test('a change made elsewhere is a conflict, not an overwrite', async ({
   );
   await page.route('**/api/v1/assistant/requests', (route) =>
     route.fulfill({
-      json: {
-        request: {
-          id: crypto.randomUUID(),
-          status: 'completed',
-          reason: null,
-          model: 'anthropic/claude-haiku-5.5',
-          resultAvailable: true,
-          reply: 'Marked the essay done.',
-          proposals: [
-            { kind: 'task.update', target: task, changes: { completed: true } },
-          ],
-          dropped: 0,
-          withheld: 0,
-          costMicros: 80,
-          heldMicros: 0,
-          createdAt: new Date().toISOString(),
-        },
-      },
+      json: answer(route, {
+        id: crypto.randomUUID(),
+        status: 'completed',
+        reason: null,
+        model: 'anthropic/claude-haiku-5.5',
+        resultAvailable: true,
+        reply: 'Marked the essay done.',
+        proposals: [
+          { kind: 'task.update', target: task, changes: { completed: true } },
+        ],
+        dropped: 0,
+        withheld: 0,
+        costMicros: 80,
+        heldMicros: 0,
+        createdAt: new Date().toISOString(),
+      }),
     }),
   );
+  await stubItems(page);
   await page.goto('/');
   const box = page.getByRole('region', { name: 'Assistant' });
   const ask = box.getByRole('textbox', { name: 'Ask', exact: true });
@@ -227,4 +267,102 @@ test('a change made elsewhere is a conflict, not an overwrite', async ({
     completed: false,
     notes: 'edited elsewhere',
   });
+});
+
+test('the Assistant page keeps a conversation, continues it and deletes it', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/assistant/settings', (route) =>
+    route.fulfill({
+      json: {
+        settings: {
+          model: 'anthropic/claude-haiku-5.5',
+          version: 1,
+          configured: true,
+          allowPersonalMail: false,
+        },
+      },
+    }),
+  );
+  const asks: { text: string; conversationId: string }[] = [];
+  const turns: Record<string, unknown>[] = [];
+  await page.route('**/api/v1/assistant/requests', (route) => {
+    const sent = route.request().postDataJSON() as {
+      text: string;
+      conversationId: string;
+    };
+    asks.push(sent);
+    const reply = answer(route, {
+      status: 'completed',
+      reason: null,
+      model: 'anthropic/claude-haiku-5.5',
+      resultAvailable: true,
+      reply: `Answer ${asks.length}`,
+      proposals: [],
+      dropped: 0,
+      withheld: 0,
+      costMicros: 100,
+      heldMicros: 0,
+      createdAt: new Date().toISOString(),
+    });
+    turns.push(reply.turn);
+    return route.fulfill({ json: reply });
+  });
+  const conversation = () => ({
+    id: asks[0]!.conversationId,
+    title: asks[0]!.text,
+    turnCount: turns.length,
+    version: turns.length,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  let deleted = false;
+  await page.route('**/api/v1/assistant/conversations', (route) =>
+    route.fulfill({
+      json: { conversations: asks.length && !deleted ? [conversation()] : [] },
+    }),
+  );
+  await page.route('**/api/v1/assistant/conversations/*', (route) => {
+    if (route.request().method() === 'DELETE') {
+      deleted = true;
+      return route.fulfill({ json: { deleted: true } });
+    }
+    return route.fulfill({ json: { conversation: conversation(), turns } });
+  });
+
+  await page.goto('/');
+  await page
+    .getByRole('navigation', { name: 'Main navigation' })
+    .getByRole('link', { name: 'Assistant' })
+    .first()
+    .click();
+  await expect(page).toHaveURL(/\/assistant$/);
+  await expect(page.getByText('No conversations yet.')).toBeVisible();
+  const ask = page.getByRole('textbox', { name: 'Ask', exact: true });
+  await ask.fill('What is due this week?');
+  await ask.press('Enter');
+  await expect(page).toHaveURL(
+    new RegExp(`/assistant/${asks[0]!.conversationId}$`),
+  );
+  const list = page.getByRole('navigation', { name: 'Conversations' });
+  await expect(
+    list.getByRole('link', { name: 'What is due this week?' }),
+  ).toBeVisible();
+  await expect(page.getByText('Answer 1')).toBeVisible();
+  // A follow-up joins the same conversation.
+  await ask.fill('And next week?');
+  await ask.press('Enter');
+  await expect(page.getByText('Answer 2')).toBeVisible();
+  expect(asks[1]!.conversationId).toBe(asks[0]!.conversationId);
+  // Reloading shows the stored conversation.
+  await page.reload();
+  await expect(page.getByText('And next week?')).toBeVisible();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Delete conversation' })
+    .click();
+  await expect(page).toHaveURL(/\/assistant$/);
+  await expect(page.getByText('No conversations yet.')).toBeVisible();
+  expect(deleted).toBe(true);
 });

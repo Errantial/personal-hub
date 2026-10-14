@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 export const views = [
   'today',
+  'assistant',
   'calendar',
   'tasks',
   'classes',
@@ -70,8 +71,13 @@ export type Route =
   | {
       name: Exclude<
         View,
-        'calendar' | 'settings' | 'tasks' | 'classes' | 'inbox'
+        'calendar' | 'settings' | 'tasks' | 'classes' | 'inbox' | 'assistant'
       >;
+    }
+  | {
+      name: 'assistant';
+      /** A conversation; absent for a new one. */
+      id?: string;
     }
   | {
       name: 'inbox';
@@ -107,6 +113,7 @@ export type Route =
 
 export const viewLabels: Record<View, string> = {
   today: 'Today',
+  assistant: 'Assistant',
   calendar: 'Calendar',
   tasks: 'Tasks',
   classes: 'Classes',
@@ -191,6 +198,8 @@ export function parseRoute(pathname: string, search: string): Route {
       ...(isClassSection(section) && section !== 'topics' ? { section } : {}),
     };
   }
+  if (name === 'assistant')
+    return { name, ...(isUuid(detail) ? { id: detail } : {}) };
   if (name === 'inbox' && detail === 'mail')
     return {
       name,
@@ -249,6 +258,8 @@ export function routePath(route: Route): string {
         ? `?section=${route.section}`
         : ''
     }`;
+  if (route.name === 'assistant')
+    return `/assistant${route.id ? `/${route.id}` : ''}`;
   if (route.name === 'inbox' && route.section === 'mail')
     return `/inbox/mail${route.mail ? `/${route.mail}` : ''}`;
   if (route.name === 'inbox' && route.section === 'drafts')

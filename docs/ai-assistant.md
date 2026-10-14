@@ -26,11 +26,16 @@ Set an upstream credit limit on the OpenRouter key as a second boundary.
 
 - `GET /api/v1/assistant/settings` → `{ settings: { model, version, configured } }`. Unsaved owners get the default model at version 1. `configured` says only whether the key is present.
 - `PUT /api/v1/assistant/settings` `{ model, expectedVersion }` → optimistic save; stale versions return `VERSION_CONFLICT`. Models must be `author/slug` from a supported author (Anthropic, OpenAI, Google, Mistral, xAI, DeepSeek), else `ASSISTANT_MODEL_UNSUPPORTED`. Availability is checked at request time.
-- `POST /api/v1/assistant/requests` `{ operationId, text (1–1000), timeZone }` → `{ request }` (`assistantRequestSchema`).
+- `POST /api/v1/assistant/requests` `{ operationId, text (1–1000), timeZone, conversationId? }` → `{ request, turn }`. `conversationId` continues a conversation or starts one under a client-made ID; omitted, the server makes one. A foreign or deleted conversation returns `NOT_FOUND` before anything is held.
+- `GET /api/v1/assistant/conversations` → newest 100 with at least one turn: `{ id, title (first ask, 80 chars), turnCount, version, createdAt, updatedAt }`.
+- `GET /api/v1/assistant/conversations/:id` → `{ conversation, turns }`; each turn has the ask, the request receipt with reply and proposals, and per-proposal `items` (`proposed`/`applied`/`failed`/`undone`, applied record, error, stored `applyId`/`undoId`).
+- `DELETE /api/v1/assistant/conversations/:id` `{ expectedVersion }` → tombstone; turn text, proposals and items are cleared. Repeats succeed.
+- `PUT /api/v1/assistant/turns/:id/items` `{ expectedVersion, items }` → records Apply/Undo results so every device shows them and reuses the same write IDs. Stale versions return `VERSION_CONFLICT`; changed write IDs are refused.
 
 ## Request lifecycle
 
-1. A repeated `operationId` with the same text/timezone returns the stored receipt (`resultAvailable: false`) and never calls the model again; a changed payload returns `OPERATION_CONFLICT`.
+1. A repeated `operationId` with the same text, time zone and conversation returns the stored turn and never calls the model again; a changed payload returns `OPERATION_CONFLICT`. A retry while the first attempt is still being answered returns `ASSISTANT_REQUEST_PENDING`.
+   Follow-ups resend up to 10 earlier asks and replies (8,000 characters, newest kept) as plain user/assistant messages before the current context. Earlier proposals and context are not resent.
 2. The model's price comes from OpenRouter's public catalog (cached for an hour, no key or owner data sent). Missing, non-text or variable-price models return `ASSISTANT_MODEL_UNAVAILABLE`; OpenRouter's public zero-data-retention endpoint list (same cache and rules) must show an allowed host serving the model with structured outputs, or the request returns `ASSISTANT_MODEL_NOT_PRIVATE`. A failed read of either list returns `ASSISTANT_CATALOG_UNAVAILABLE`. Nothing is held or sent in any of these cases.
 3. Context: up to 150 open tasks (title, due date, priority) and up to 150 one-time events from one day ago to 30 days ahead (title, local start/end), with refs (`t1`, `e1`) instead of IDs. Notes, repeating events, completed tasks, labeled items, source-linked records and unknown academic label history are excluded.
 4. A worst-case charge is computed (every request byte as a prompt token + 500, the full 1,500-token output allowance, any per-request fee, +25%) and reserved in the existing budget ledger. Per-request and monthly limits apply (`REQUEST_BUDGET_EXCEEDED`, `MONTHLY_BUDGET_EXCEEDED`). The reservation is marked uncertain and the request row inserted in the same transaction, before transmission.
@@ -52,7 +57,7 @@ Updates carry the full record the model saw. Apply sends the ordinary `PUT /api/
 
 ## Storage and retention
 
-Migration 046 adds `ai_assistant_settings` and `ai_assistant_requests`. Request rows keep metadata only: operation ID and payload hash, model, reservation, status/reason, generation ID, token counts, cost, proposal/dropped/withheld counts and timestamps. The prompt, reply and proposals are returned once and never stored. These tables are not yet in the portable export.
+Migration 046 adds `ai_assistant_settings` and `ai_assistant_requests`. Request rows keep metadata only: operation ID and payload hash, model, reservation, status/reason, generation ID, token counts, cost, proposal/dropped/withheld counts and timestamps. Since migration 055 (D55), `ai_conversations` and `ai_conversation_turns` keep each ask, reply, the proposals (including the target records as sent) and their applied/undone state on the owner's server, for use across devices, until the owner deletes the conversation; deletion leaves a tombstone and clears the text. Turns are written before transmission (ask only) and completed after settlement. These tables are not yet in the portable export.
 
 ## Validation
 
@@ -60,4 +65,4 @@ API tests inject the provider exchange and forbid global fetch: missing key, uns
 
 ## Known limits
 
-No request history view, no reconciliation of uncertain holds, no repeating-event or delete actions, no labeled-item support, no memory or academic context, and no export of assistant records.
+No conversation rename or search, no reconciliation of uncertain holds, no repeating-event or delete actions, no labeled-item support, no memory or academic context, and no export of assistant records.
