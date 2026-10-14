@@ -104,7 +104,11 @@ Rules:
 - If the request is unclear, impossible or needs something you cannot do, return no actions and say so.
 - reply: one or two short sentences describing the proposed changes. The owner reviews them before anything is applied.`;
 
-const nullable = (type: string) => ({ type: [type, 'null'] });
+// Anthropic's structured outputs reject type arrays with enums and array
+// bounds, so nullable fields use anyOf and counts are checked after parsing.
+const nullable = (type: string) => ({
+  anyOf: [{ type }, { type: 'null' }],
+});
 const outputSchema = {
   type: 'object',
   additionalProperties: false,
@@ -113,7 +117,6 @@ const outputSchema = {
     reply: { type: 'string' },
     actions: {
       type: 'array',
-      maxItems: maxActions,
       items: {
         type: 'object',
         additionalProperties: false,
@@ -145,8 +148,10 @@ const outputSchema = {
           dueDate: nullable('string'),
           clearDueDate: { type: 'boolean' },
           priority: {
-            type: ['string', 'null'],
-            enum: ['low', 'normal', 'high', null],
+            anyOf: [
+              { type: 'string', enum: ['low', 'normal', 'high'] },
+              { type: 'null' },
+            ],
           },
           completed: nullable('boolean'),
           start: nullable('string'),
