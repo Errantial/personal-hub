@@ -475,6 +475,14 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 - Known limits: read-only, no search, no flags, no deletion tracking, no AI filtering yet.
 - Creation retries preserve one connector, but cannot reissue its one-time token. Keep the recovery error visible: reload Connections, revoke it, and add a replacement. Revocation is versioned and receipt-backed. Incomplete folder counts remain visible; a shortened message does not imply that 32,000 characters were available (oversized messages can have headers only).
 
+### 2026-10-14 — Assistant: Use mail (D56)
+
+- The composer (Today and the Assistant page) has a **Use mail** checkbox next to Ask. Its state is saved in the assistant settings and restored on every device. If saving fails, the choice still applies now and a quiet note says it was not remembered.
+- An answer that used mail shows a collapsible "N messages sent (M read) · K left out by labels" list. Each row has subject, sender, received time, and "Body sent" or "Subject and sender only".
+- If mail reading stopped early (a failed call or a spending limit), the reason is shown as an alert above the list; the earlier reply stays.
+- Help explains the scope: subjects and senders of allowed mail, up to five bodies, never Restricted, Personal only with the Settings › AI switch, up to three calls.
+- Tests: `tests/e2e/assistant.spec.ts` (remembered checkbox across reload; sent-mail list). API tests cover search/read rules, label exclusions, schemas per call, cost totals, a failed later call and the saved setting.
+
 ### 2026-10-14 — Assistant page (D55)
 
 - **Assistant** (`/assistant`, `/assistant/:conversationId`) is a primary sidebar destination after Today.

@@ -11,6 +11,7 @@ import {
 } from '@hub/contracts';
 import type {
   AssistantItem,
+  AssistantMailSent,
   AssistantProposal,
   AssistantTurn,
 } from '@hub/contracts';
@@ -81,14 +82,14 @@ export async function readHistory(
 export async function startTurn(
   database: Database,
   owner: string,
-  turn: { id: string; conversationId: string; ask: string },
+  turn: { id: string; conversationId: string; ask: string; useMail: boolean },
 ) {
   await database.transaction(async (tx) => {
     await openConversation(tx, owner, turn.conversationId, turn.ask);
     await tx.query(
-      `INSERT INTO ai_conversation_turns(id,owner_id,conversation_id,position,ask)
-       VALUES($1,$2,$3,(SELECT COALESCE(max(position)+1,0) FROM ai_conversation_turns WHERE conversation_id=$3),$4)`,
-      [turn.id, owner, turn.conversationId, turn.ask],
+      `INSERT INTO ai_conversation_turns(id,owner_id,conversation_id,position,ask,use_mail)
+       VALUES($1,$2,$3,(SELECT COALESCE(max(position)+1,0) FROM ai_conversation_turns WHERE conversation_id=$3),$4,$5)`,
+      [turn.id, owner, turn.conversationId, turn.ask, turn.useMail],
     );
     await tx.query(
       'UPDATE ai_conversations SET updated_at=CURRENT_TIMESTAMP,version=version+1 WHERE id=$1',
@@ -97,12 +98,28 @@ export async function startTurn(
   });
 }
 
+/** Links a later call of a mail-enabled ask to its turn. */
+export async function recordRound(
+  database: Database,
+  round: { requestId: string; turnId: string; round: number },
+) {
+  await database.query(
+    'INSERT INTO ai_conversation_turn_rounds(request_id,turn_id,round) VALUES($1,$2,$3)',
+    [round.requestId, round.turnId, round.round],
+  );
+}
+
 /** Stores the answer; every proposal starts unapplied with fresh write IDs. */
 export async function finishTurn(
   database: Database,
   owner: string,
   id: string,
   answer: { reply: string | null; proposals: AssistantProposal[] } | null,
+  mail: {
+    mail: AssistantMailSent[];
+    mailWithheld: number;
+    mailNote: string | null;
+  } = { mail: [], mailWithheld: 0, mailNote: null },
 ) {
   const items: AssistantItem[] = (answer?.proposals ?? []).map(() => ({
     state: 'proposed',
@@ -112,22 +129,63 @@ export async function finishTurn(
     undoId: randomUUID(),
   }));
   await database.query(
-    `UPDATE ai_conversation_turns SET reply=$3,proposals=$4,items=$5,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2`,
+    `UPDATE ai_conversation_turns SET reply=$3,proposals=$4,items=$5,mail=$6,mail_withheld=$7,mail_note=$8,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2`,
     [
       owner,
       id,
       answer?.reply ?? null,
       JSON.stringify(answer?.proposals ?? []),
       JSON.stringify(items),
+      JSON.stringify(mail.mail),
+      mail.mailWithheld,
+      mail.mailNote,
     ],
   );
 }
 
-const turnColumns = `t.id,t.conversation_id AS "conversationId",t.ask,t.reply,t.proposals,t.items,t.version`;
+const turnColumns = `t.id,t.conversation_id AS "conversationId",t.ask,t.reply,t.proposals,t.items,t.version,t.use_mail AS "useMail",t.mail,t.mail_withheld AS "mailWithheld",t.mail_note AS "mailNote"`;
+const json = (value: unknown) =>
+  typeof value === 'string' ? JSON.parse(value) : value;
+
+type Receipt = Awaited<ReturnType<typeof liveReceipt>> & {
+  status?: string;
+  reason?: string | null;
+};
+/**
+ * The turn's receipt: the first call's, with costs and holds summed over
+ * every call and the status and reason of the last one.
+ */
+async function turnReceipt(database: Database, owner: string, id: string) {
+  const first = (await liveReceipt(database, owner, id)) as Receipt;
+  const rounds = await database.query(
+    'SELECT request_id FROM ai_conversation_turn_rounds WHERE turn_id=$1 ORDER BY round',
+    [id],
+  );
+  if (!rounds.length) return first;
+  const later: Receipt[] = [];
+  for (const row of rounds)
+    later.push(
+      (await liveReceipt(database, owner, row.request_id as string)) as Receipt,
+    );
+  const all = [first, ...later];
+  const last = later[later.length - 1]!;
+  const costs = all
+    .map((item) => item.costMicros)
+    .filter((value): value is number => value !== null);
+  return {
+    ...first,
+    status: last.status,
+    reason: last.reason,
+    costMicros: costs.length
+      ? costs.reduce((sum, value) => sum + value, 0)
+      : null,
+    heldMicros: all.reduce((sum, item) => sum + item.heldMicros, 0),
+  };
+}
 
 function toTurn(
   row: Record<string, unknown>,
-  receipt: Awaited<ReturnType<typeof liveReceipt>>,
+  receipt: Awaited<ReturnType<typeof turnReceipt>>,
 ): AssistantTurn {
   const proposals = z
     .array(assistantProposalSchema)
@@ -146,6 +204,10 @@ function toTurn(
     ask: (row.ask as string | null) ?? '',
     version: row.version as number,
     items,
+    useMail: row.useMail === true,
+    mail: (json(row.mail) ?? []) as AssistantMailSent[],
+    mailWithheld: Number(row.mailWithheld ?? 0),
+    mailNote: (row.mailNote as string | null) ?? null,
     request: {
       ...(receipt as AssistantTurn['request']),
       resultAvailable: answered,
@@ -162,7 +224,7 @@ export async function readTurn(database: Database, owner: string, id: string) {
     [owner, id],
   );
   if (!row) return null;
-  return toTurn(row, await liveReceipt(database, owner, id));
+  return toTurn(row, await turnReceipt(database, owner, id));
 }
 
 export function registerAssistantConversations(
@@ -196,7 +258,7 @@ export function registerAssistantConversations(
     const turns = [];
     for (const row of rows)
       turns.push(
-        toTurn(row, await liveReceipt(database, owner.id, row.id as string)),
+        toTurn(row, await turnReceipt(database, owner.id, row.id as string)),
       );
     return assistantConversationResponseSchema.parse({ conversation, turns });
   });

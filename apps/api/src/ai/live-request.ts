@@ -15,7 +15,8 @@ import type {
 // replay by operation ID, budget hold marked uncertain before sending,
 // settlement from reported usage. Request rows hold metadata only.
 
-export type LiveKind = 'planner' | 'mail-classify' | 'mail-tasks';
+export type LiveKind =
+  'planner' | 'planner-round' | 'mail-classify' | 'mail-tasks';
 export type LiveReason =
   | 'invalid'
   | 'provider-error'
@@ -32,7 +33,7 @@ export type LiveReason =
 
 export async function readAssistantSettings(tx: QueryExecutor, owner: string) {
   const [row] = await tx.query(
-    'SELECT model,version,allow_personal_mail FROM ai_assistant_settings WHERE owner_id=$1',
+    'SELECT model,version,allow_personal_mail,use_mail FROM ai_assistant_settings WHERE owner_id=$1',
     [owner],
   );
   return {
@@ -40,6 +41,7 @@ export async function readAssistantSettings(tx: QueryExecutor, owner: string) {
     version: (row?.version as number | undefined) ?? 1,
     allowPersonalMail:
       (row?.allow_personal_mail as boolean | undefined) ?? false,
+    useMail: (row?.use_mail as boolean | undefined) ?? false,
   };
 }
 

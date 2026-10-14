@@ -45,6 +45,16 @@ Set an upstream credit limit on the OpenRouter key as a second boundary.
    - Reported usage settles the reservation at the exact reported cost (decimal lexeme, rounded up to microdollars). The request is `completed`; `reason` is null, `invalid`, `provider-error` or `blocked` (refusal, truncation, non-text parts, a different model or a cache hit).
    - Timeout, transport failure, unreadable responses or missing cost leave the request `uncertain` and the full hold in place. Nothing is resent; there is no automatic reconciliation yet.
 
+## Mail reading (D56)
+
+With **Use mail** ticked (`useMail: true`; the box's state is saved as `useMail` in the assistant settings so every device shows it), one ask may take up to three calls, each reserved, sent and settled on its own (`planner-round` request rows linked through `ai_conversation_turn_rounds`, with operation IDs derived from the ask's):
+
+1. The planner request plus a mail instruction. The model either answers, or returns 1–3 `mailSearch` terms with no actions.
+2. The server searches subjects and sender name/address (literal, case-insensitive) over the owner's mail, newest first. It keeps up to 20 messages the labels allow: strongest of message and connector label, Restricted never, Personal only with **Allow Personal mail**, and verified body origin only. Matches kept out are counted, not described. Ref, sender, subject and date go to the model, which either answers or returns up to 5 `read` refs.
+3. The chosen messages are re-checked and their bodies sent, cut to 6,000 characters; the model answers.
+
+Unticked asks are a single call and never touch mail. Messages are passed as data with an instruction to ignore instructions inside them. The last usable answer is the turn's answer; its proposals are the only ones offered. If a later call is refused, fails or cannot be admitted (for example the monthly limit), the earlier answer stays and the turn's `mailNote` says why. The turn stores which messages were sent (`mail`: id, subject, sender, received, whether the body was read) and how many were left out (`mailWithheld`). The turn's receipt sums cost and holds across its calls and takes status and reason from the last call. Migration 056 adds these columns and the round table.
+
 ## Proposals
 
 The model may return up to 10 actions; each is checked and converted server-side, invalid ones are counted as `dropped`:
@@ -65,4 +75,4 @@ API tests inject the provider exchange and forbid global fetch: missing key, uns
 
 ## Known limits
 
-No conversation rename or search, no reconciliation of uncertain holds, no repeating-event or delete actions, no labeled-item support, no memory or academic context, and no export of assistant records.
+No mail search by body text or date, no conversation rename or search, no reconciliation of uncertain holds, no repeating-event or delete actions, no labeled-item support, no memory or academic context, and no export of assistant records.

@@ -222,7 +222,7 @@ export function AssistantView({
               ) : (
                 <AssistantComposer
                   conversationId={id}
-                  configured={!!configured}
+                  settings={settings}
                   placeholder={
                     turns.length
                       ? 'Ask a follow-up'

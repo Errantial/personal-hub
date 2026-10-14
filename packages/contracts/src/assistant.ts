@@ -24,6 +24,8 @@ export const assistantSettingsSchema = z.object({
    * category suggestions. Restricted mail is never sent.
    */
   allowPersonalMail: z.boolean().default(false),
+  /** The last state of the composer's "Use mail" box, on every device. */
+  useMail: z.boolean().default(false),
 });
 export const assistantSettingsResponseSchema = z.object({
   settings: assistantSettingsSchema,
@@ -32,6 +34,7 @@ export const assistantSettingsUpdateSchema = z.strictObject({
   model: assistantModelSchema,
   expectedVersion: z.number().int().positive(),
   allowPersonalMail: z.boolean().optional(),
+  useMail: z.boolean().optional(),
   /** Sent by the shared write helper; saves are already version-guarded. */
   operationId: z.string().uuid().optional(),
 });
@@ -45,6 +48,11 @@ export const assistantRequestInputSchema = z.strictObject({
    * Omitted: a new conversation with a server-made ID.
    */
   conversationId: z.string().uuid().optional(),
+  /**
+   * Allow searching eligible mail (D56): up to three model calls, at most
+   * five bodies read. Off: mail is never touched.
+   */
+  useMail: z.boolean().default(false),
 });
 
 const title = z.string().trim().min(1).max(200);
@@ -149,13 +157,34 @@ export const assistantItemSchema = z.object({
 });
 export type AssistantItem = z.infer<typeof assistantItemSchema>;
 
+/** A message whose subject and sender (and body, if read) were sent. */
+export const assistantMailSentSchema = z.object({
+  id: z.string().uuid(),
+  subject: z.string(),
+  from: z.string().nullable(),
+  receivedAt: z.string().datetime(),
+  /** The body was sent too, not only subject and sender. */
+  read: z.boolean(),
+});
+export type AssistantMailSent = z.infer<typeof assistantMailSentSchema>;
+
 export const assistantTurnSchema = z.object({
   id: z.string().uuid(),
   conversationId: z.string().uuid(),
   ask: z.string(),
+  /**
+   * Totals across every model call of this ask; status and reason come from
+   * the last call.
+   */
   request: assistantRequestSchema,
   items: z.array(assistantItemSchema),
   version: z.number().int().positive(),
+  useMail: z.boolean().default(false),
+  mail: z.array(assistantMailSentSchema).default([]),
+  /** Matching messages the owner's labels kept out. */
+  mailWithheld: z.number().int().nonnegative().default(0),
+  /** Why mail reading stopped early, if it did. */
+  mailNote: z.string().nullable().default(null),
 });
 export type AssistantTurn = z.infer<typeof assistantTurnSchema>;
 

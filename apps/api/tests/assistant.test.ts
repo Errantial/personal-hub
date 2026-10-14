@@ -165,6 +165,7 @@ it(
       version: 1,
       configured: false,
       allowPersonalMail: false,
+      useMail: false,
     });
     expect((await ask('Plan my week')).json().error.code).toBe(
       'ASSISTANT_NOT_CONFIGURED',
@@ -435,6 +436,148 @@ it('stores applied state so another device can undo with the same write IDs', as
   ).toBe(400);
 });
 
+/** A connector with the given label and uploaded messages. */
+async function importMail(sensitivity: string, subjects: string[]) {
+  const { token } = (
+    await call('POST', '/api/v1/email/connectors', {
+      name: `Bridge ${sensitivity}`,
+      sensitivity,
+      operationId: randomUUID(),
+    })
+  ).json();
+  await app.inject({
+    method: 'POST',
+    url: '/api/v1/email/connector/batch',
+    headers: { authorization: `Bearer ${token}` },
+    payload: {
+      path: 'INBOX',
+      role: null,
+      uidValidity: '1',
+      exists: subjects.length,
+      inWindow: subjects.length,
+      lastUid: subjects.length,
+      messages: subjects.map((subject, index) => ({
+        uid: index + 1,
+        messageKey: `<${randomUUID()}@example.test>`,
+        from: { name: 'School Office', address: 'office@example.test' },
+        to: [],
+        cc: [],
+        subject,
+        sentAt: null,
+        receivedAt: `2026-10-0${index + 1}T10:00:00.000Z`,
+        body: `Body of ${subject}: return it by Friday.`,
+        bodyTruncated: false,
+        attachmentCount: 0,
+        textOrigin: 'message-body-v1',
+      })),
+    },
+  });
+}
+const askWithMail = (text: string, useMail = true) =>
+  call('POST', '/api/v1/assistant/requests', {
+    operationId: randomUUID(),
+    text,
+    timeZone: 'America/Denver',
+    useMail,
+  });
+
+it('with Use mail, searches, reads only chosen allowed mail and lists what was sent', async () => {
+  await start();
+  await setBudget();
+  await importMail('unlabeled', ['Field trip waiver', 'Lunch menu']);
+  await importMail('restricted', ['Waiver medical form']);
+  await importMail('personal', ['Waiver from family']);
+  const answers = [
+    { reply: 'Checking mail.', actions: [], mailSearch: ['waiver'] },
+    { reply: 'Reading it.', actions: [], read: ['m1', 'm9'] },
+    { reply: 'The field trip waiver is due Friday.', actions: [] },
+  ];
+  chat = () => completion(answers[sent.length - 1]);
+  const { turn } = (await askWithMail('When is the waiver due?')).json();
+  expect(sent).toHaveLength(3);
+  expect(turn.request.reply).toBe('The field trip waiver is due Friday.');
+  // Three calls, one turn: costs add up.
+  expect(turn.request.costMicros).toBe(369);
+  expect(turn.useMail).toBe(true);
+  expect(turn.mailWithheld).toBe(2);
+  expect(turn.mail).toEqual([
+    expect.objectContaining({
+      subject: 'Field trip waiver',
+      from: 'School Office',
+      read: true,
+    }),
+  ]);
+  const text = sent.map((body) => JSON.stringify(body.messages)).join('\n');
+  expect(text).toContain('Field trip waiver');
+  expect(text).toContain('return it by Friday');
+  expect(text).not.toContain('medical');
+  expect(text).not.toContain('family');
+  expect(text).not.toContain('Lunch menu');
+  // Only the first call may ask for a search, only the second for reads.
+  const schema = (index: number) =>
+    (
+      sent[index]!.response_format as {
+        json_schema: { schema: { required: string[] } };
+      }
+    ).json_schema.schema.required;
+  expect(schema(0)).toContain('mailSearch');
+  expect(schema(1)).toContain('read');
+  expect(schema(2)).toEqual(['reply', 'actions']);
+  // The stored conversation shows the same list.
+  const thread = (
+    await call('GET', `/api/v1/assistant/conversations/${turn.conversationId}`)
+  ).json();
+  expect(thread.turns[0].mail).toEqual(turn.mail);
+});
+
+it('without Use mail, mail is never searched or mentioned', async () => {
+  await start();
+  await setBudget();
+  await importMail('unlabeled', ['Field trip waiver']);
+  const { turn } = (await askWithMail('When is the waiver due?', false)).json();
+  expect(sent).toHaveLength(1);
+  expect(JSON.stringify(sent[0])).not.toContain('Mail:');
+  expect(JSON.stringify(sent[0])).not.toContain('mailSearch');
+  expect(turn.mail).toEqual([]);
+});
+
+it('keeps the earlier answer and says why when a later mail call fails', async () => {
+  await start();
+  await setBudget();
+  await importMail('unlabeled', ['Field trip waiver']);
+  chat = () =>
+    sent.length === 1
+      ? completion({
+          reply: 'Checking mail.',
+          actions: [],
+          mailSearch: ['waiver'],
+        })
+      : new Response('{}', { status: 400 });
+  const { turn } = (await askWithMail('When is the waiver due?')).json();
+  expect(sent).toHaveLength(2);
+  expect(turn.request.reply).toBe('Checking mail.');
+  expect(turn.request.reason).toBe('rejected');
+  expect(turn.mailNote).toMatch(/Mail reading stopped/);
+  expect(turn.mail).toEqual([
+    expect.objectContaining({ subject: 'Field trip waiver', read: false }),
+  ]);
+});
+
+it('remembers the Use mail choice in the assistant settings', async () => {
+  await start();
+  const saved = (
+    await call('PUT', '/api/v1/assistant/settings', {
+      model,
+      expectedVersion: 1,
+      useMail: true,
+    })
+  ).json().settings;
+  expect(saved).toMatchObject({ useMail: true, version: 2 });
+  expect(
+    (await call('GET', '/api/v1/assistant/settings')).json().settings.useMail,
+  ).toBe(true);
+});
+
 it('withholds source-linked events and unknown label history even when their root labels are unlabeled', async () => {
   await start();
   await setBudget();
@@ -620,6 +763,7 @@ it('saves a supported model with optimistic versions', async () => {
       version: 2,
       configured: true,
       allowPersonalMail: false,
+      useMail: false,
     },
   );
   expect((await put(model, 1)).json().error.code).toBe('VERSION_CONFLICT');

@@ -17,6 +17,7 @@ import {
   undoRequest,
 } from '../lib/assistant';
 import type { PlannedRequest } from '../lib/assistant';
+import { formatInstant } from '../lib/format';
 import { useOnline } from '../lib/hooks';
 
 export const reasons: Record<
@@ -176,6 +177,33 @@ export function AssistantTurnView({
           {request.dropped > 0 &&
             ` · ${request.dropped} suggestion${request.dropped === 1 ? '' : 's'} could not be used`}
         </p>
+        {turn.mailNote && (
+          <p role="alert" className="form-error">
+            {turn.mailNote}
+          </p>
+        )}
+        {(turn.mail.length > 0 || turn.mailWithheld > 0) && (
+          <details className="assistant-turn__mail">
+            <summary>
+              {turn.mail.length} message{turn.mail.length === 1 ? '' : 's'} sent
+              ({turn.mail.filter((item) => item.read).length} read)
+              {turn.mailWithheld > 0 &&
+                ` · ${turn.mailWithheld} left out by labels`}
+            </summary>
+            <ul>
+              {turn.mail.map((item) => (
+                <li key={item.id}>
+                  <strong>{item.subject || '(no subject)'}</strong>
+                  <span className="meta">
+                    {item.from ?? 'Unknown sender'} ·{' '}
+                    {formatInstant(item.receivedAt)} ·{' '}
+                    {item.read ? 'Body sent' : 'Subject and sender only'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
         {request.resultAvailable &&
           !turn.items.length &&
           !request.reason &&
