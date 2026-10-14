@@ -197,7 +197,9 @@ test('a failed Canvas section preserves planner content and retries independentl
       .getByRole('button', { name: 'Reload tasks' }),
   ).toBeEnabled();
   await expect(
-    page.getByRole('button', { name: 'Add task', exact: true }),
+    page
+      .getByRole('region', { name: 'Add or ask' })
+      .getByRole('textbox', { name: 'Add a task' }),
   ).toBeEnabled();
   await page.unroute('**/api/v1/connections/canvas/calendar?**');
   await schedule
@@ -224,11 +226,11 @@ test('cached Today and quick capture survive offline reload and replay once at 3
   await context.setOffline(true);
   await page.reload();
   await expect(page.getByText(/^Cached schedule:/)).toBeVisible();
-  await page.getByRole('button', { name: 'Add task', exact: true }).click();
-  const capture = page.getByRole('region', { name: 'Quick task capture' });
-  await expect(capture.getByLabel('Task title')).toBeFocused();
-  await capture.getByLabel('Task title').fill('Today offline capture');
-  await capture.getByRole('button', { name: 'Save task', exact: true }).click();
+  const capture = page.getByRole('region', { name: 'Add or ask' });
+  await capture
+    .getByRole('textbox', { name: 'Add a task' })
+    .fill('Today offline capture');
+  await capture.getByRole('button', { name: 'Add', exact: true }).click();
   await expect(capture.getByRole('status')).toHaveText('Task queued for sync.');
   await expect(syncState(page)).toContainText('1 queued');
   expect(
@@ -246,4 +248,85 @@ test('cached Today and quick capture survive offline reload and replay once at 3
   expect(
     records.filter((item) => item.title === 'Today offline capture'),
   ).toHaveLength(1);
+});
+
+test('the Today command bar adds a task, remembers its mode and sends asks to the Assistant page', async ({
+  page,
+}) => {
+  let settings = {
+    model: 'anthropic/claude-haiku-5.5',
+    version: 1,
+    configured: true,
+    allowPersonalMail: false,
+    useMail: true,
+  };
+  await page.route('**/api/v1/assistant/settings', (route) =>
+    route.fulfill({ json: { settings } }),
+  );
+  let sent: { text: string; conversationId: string; useMail: boolean } | null =
+    null;
+  await page.route('**/api/v1/assistant/requests', (route) => {
+    sent = route.request().postDataJSON();
+    const id = crypto.randomUUID();
+    const request = {
+      id,
+      status: 'completed',
+      reason: null,
+      model: settings.model,
+      resultAvailable: true,
+      reply: 'Done.',
+      proposals: [],
+      dropped: 0,
+      withheld: 0,
+      costMicros: 10,
+      heldMicros: 0,
+      createdAt: new Date().toISOString(),
+    };
+    return route.fulfill({
+      json: {
+        request,
+        turn: {
+          id,
+          conversationId: sent!.conversationId,
+          ask: sent!.text,
+          version: 1,
+          request,
+          items: [],
+        },
+      },
+    });
+  });
+  const title = `Buy stamps ${crypto.randomUUID().slice(0, 8)}`;
+  await page.goto('/');
+  const bar = page.getByRole('region', { name: 'Add or ask' });
+  await expect(bar.getByRole('radio', { name: 'Add task' })).toBeChecked();
+  const field = bar.getByRole('textbox', { name: 'Add a task' });
+  await field.fill(title);
+  await field.press('Enter');
+  await expect(bar.getByRole('status')).toHaveText('Task saved.');
+  const tasks = (await (await page.request.get('/api/v1/tasks')).json())
+    .tasks as { title: string }[];
+  expect(tasks.some((task) => task.title === title)).toBe(true);
+
+  await bar.getByRole('radio', { name: 'Ask assistant' }).check();
+  const ask = bar.getByRole('textbox', { name: 'Ask the assistant' });
+  await ask.fill('What is due this week?');
+  await ask.press('Enter');
+  await expect(page).toHaveURL(/\/assistant\/[0-9a-f-]{36}$/);
+  expect(sent).toMatchObject({ text: 'What is due this week?', useMail: true });
+
+  await page.goto('/');
+  await expect(
+    page
+      .getByRole('region', { name: 'Add or ask' })
+      .getByRole('radio', { name: 'Ask assistant' }),
+  ).toBeChecked();
+
+  settings = { ...settings, configured: false };
+  await page.reload();
+  await expect(
+    page
+      .getByRole('region', { name: 'Add or ask' })
+      .getByRole('radio', { name: 'Ask assistant' }),
+  ).toBeDisabled();
 });

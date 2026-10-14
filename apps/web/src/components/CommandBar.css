@@ -1,0 +1,47 @@
+.command-bar__form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.command-bar__modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.command-bar__modes label {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
+  min-height: var(--target);
+  padding: 0 var(--space-2);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.command-bar__modes label:has(input:checked) {
+  background: var(--selected-bg);
+  color: var(--selected-text);
+  font-weight: var(--weight-strong);
+}
+.command-bar__modes label:has(input:disabled) {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+.command-bar__field {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+.command-bar__field input,
+.command-bar__date input {
+  width: 100%;
+  min-height: var(--target);
+}
+.command-bar .meta:empty {
+  display: none;
+}

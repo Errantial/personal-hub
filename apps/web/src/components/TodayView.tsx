@@ -11,10 +11,9 @@ import type { Task } from '@hub/contracts';
 import { getSnapshot } from '../lib/api';
 import { useResource, useToday } from '../lib/hooks';
 import { offlineChanged } from '../lib/offline';
-import { AssistantBox } from './AssistantBox';
+import { CommandBar } from './CommandBar';
 import { CanvasEntry } from './CanvasEntry';
 import { Link } from './Link';
-import { QuickCapture } from './QuickCapture';
 import { ReadState } from './ReadState';
 import type { Route } from '../lib/router';
 import { formatDate, formatInstant } from '../lib/format';
@@ -130,14 +129,7 @@ export function TodayView({ navigate }: { navigate: (route: Route) => void }) {
   );
   return (
     <div className="today-view">
-      <AssistantBox
-        navigate={navigate}
-        onApplied={() => {
-          void reloadTasks();
-          void reloadSchedule();
-        }}
-      />
-      <QuickCapture onSaved={reloadTasks} />
+      <CommandBar navigate={navigate} onTaskSaved={reloadTasks} />
       <section className="panel" aria-labelledby="attention-title">
         <h2 id="attention-title">Needs attention</h2>
         <ReadState resource={tasks} label="tasks" />
