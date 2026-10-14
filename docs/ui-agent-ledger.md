@@ -475,6 +475,17 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 - Known limits: read-only, no search, no flags, no deletion tracking, no AI filtering yet.
 - Creation retries preserve one connector, but cannot reissue its one-time token. Keep the recovery error visible: reload Connections, revoke it, and add a replacement. Revocation is versioned and receipt-backed. Incomplete folder counts remain visible; a shortened message does not imply that 32,000 characters were available (oversized messages can have headers only).
 
+### 2026-10-14 — Assistant page (D55)
+
+- **Assistant** (`/assistant`, `/assistant/:conversationId`) is a primary sidebar destination after Today.
+  - Summary line: model and this month's spending (of the monthly limit), with Help.
+  - **Conversations** list (newest first; title = first ask; updated time) with **New conversation**. Thread: each ask, then reply, cost, left-out/unused counts and proposed changes with Apply/Undo.
+  - The composer (Enter asks, Shift+Enter adds a line) continues the open conversation; on a new conversation the first answer moves to its address. **Delete** confirms, then removes the text from the server; applied changes stay.
+  - Apply/Undo results are saved to the server; another device sees them and reuses the same write IDs. A newer version elsewhere reloads the thread.
+  - Missing or deleted conversations show a recovery link to start a new one.
+- **Today › Assistant** is now a quick ask: asks join one conversation until **New conversation**, with **Continue in Assistant**. The former Discard button is gone because answers are stored.
+- Tests: `tests/e2e/assistant.spec.ts` (page flow with stubbed assistant endpoints; Today apply/undo and conflict); `/assistant` joins the accessibility sweep; API tests cover storage, follow-up history, deletion and item updates.
+
 ### 2026-10-13 — Today: Assistant (first live AI flow)
 
 - **Assistant** panel at the top of Today. Contract: [ai-assistant.md](ai-assistant.md).

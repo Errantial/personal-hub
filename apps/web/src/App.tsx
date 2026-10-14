@@ -31,6 +31,7 @@ import {
 import type { StudyDraft } from './lib/calendar';
 import type { WorkspaceState } from './views/ConnectionsView';
 import {
+  AssistantView,
   ClassesView,
   CalendarView,
   InboxView,
@@ -44,6 +45,7 @@ import {
  *  ones move into More below 1024 px (docs/ui-guidelines.md §3). */
 const primary: { id: View; icon: IconName }[] = [
   { id: 'today', icon: 'today' },
+  { id: 'assistant', icon: 'assistant' },
   { id: 'calendar', icon: 'calendar' },
   { id: 'tasks', icon: 'tasks' },
   { id: 'classes', icon: 'classes' },
@@ -185,6 +187,9 @@ function Workspace({
           <SyncConflicts state={sync} navigate={navigate} />
           <Suspense fallback={<p role="status">Loading…</p>}>
             {view === 'today' && <TodayView navigate={navigate} />}
+            {route.name === 'assistant' && (
+              <AssistantView route={route} navigate={navigate} />
+            )}
             {route.name === 'tasks' && (
               <TasksView route={route} navigate={navigate} />
             )}

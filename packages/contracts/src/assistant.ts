@@ -40,6 +40,11 @@ export const assistantRequestInputSchema = z.strictObject({
   operationId: z.string().uuid(),
   text: z.string().trim().min(1).max(1000),
   timeZone: zone,
+  /**
+   * The conversation to continue, or a new client-made ID to start one.
+   * Omitted: a new conversation with a server-made ID.
+   */
+  conversationId: z.string().uuid().optional(),
 });
 
 const title = z.string().trim().min(1).max(200);
@@ -116,10 +121,7 @@ export const assistantRequestSchema = z.object({
   status: z.enum(['uncertain', 'completed', 'failed']),
   reason: assistantReasonSchema.nullable(),
   model: assistantModelSchema,
-  /**
-   * False when this is a stored receipt (a retried operation): the reply and
-   * proposals are returned once and never stored.
-   */
+  /** False when the request produced no usable answer. */
   resultAvailable: z.boolean(),
   reply: z.string().nullable(),
   proposals: z.array(assistantProposalSchema),
@@ -132,6 +134,64 @@ export const assistantRequestSchema = z.object({
   createdAt: z.string().datetime(),
 });
 export type AssistantRequest = z.infer<typeof assistantRequestSchema>;
+
+/** What happened to one proposal; stored so every device sees it. */
+export const assistantItemSchema = z.object({
+  state: z.enum(['proposed', 'applied', 'failed', 'undone']),
+  /** The written record, for Undo. */
+  applied: z
+    .object({ id: z.string().uuid(), version: z.number().int().positive() })
+    .nullable(),
+  error: z.string().max(300).nullable(),
+  /** Stable per write so a retry from any device is not doubled. */
+  applyId: z.string().uuid(),
+  undoId: z.string().uuid(),
+});
+export type AssistantItem = z.infer<typeof assistantItemSchema>;
+
+export const assistantTurnSchema = z.object({
+  id: z.string().uuid(),
+  conversationId: z.string().uuid(),
+  ask: z.string(),
+  request: assistantRequestSchema,
+  items: z.array(assistantItemSchema),
+  version: z.number().int().positive(),
+});
+export type AssistantTurn = z.infer<typeof assistantTurnSchema>;
+
 export const assistantRequestResponseSchema = z.object({
   request: assistantRequestSchema,
+  turn: assistantTurnSchema,
+});
+
+export const assistantConversationSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string(),
+  turnCount: z.number().int().nonnegative(),
+  version: z.number().int().positive(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type AssistantConversation = z.infer<typeof assistantConversationSchema>;
+export const assistantConversationListSchema = z.object({
+  conversations: z.array(assistantConversationSchema),
+});
+export const assistantConversationResponseSchema = z.object({
+  conversation: assistantConversationSchema,
+  turns: z.array(assistantTurnSchema),
+});
+export const assistantConversationDeleteSchema = z.strictObject({
+  expectedVersion: z.number().int().positive(),
+  operationId: z.string().uuid().optional(),
+});
+export const assistantConversationDeletedSchema = z.object({
+  deleted: z.literal(true),
+});
+export const assistantItemsUpdateSchema = z.strictObject({
+  expectedVersion: z.number().int().positive(),
+  items: z.array(assistantItemSchema).max(10),
+  operationId: z.string().uuid().optional(),
+});
+export const assistantTurnResponseSchema = z.object({
+  turn: assistantTurnSchema,
 });
