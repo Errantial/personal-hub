@@ -1,0 +1,71 @@
+/* Month view (MonthGrid): six weeks of days with chips. */
+.month-grid {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.month-grid th {
+  padding: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--text-small);
+  font-weight: var(--weight-regular);
+  text-align: left;
+}
+.month-grid abbr {
+  text-decoration: none;
+}
+.month-grid td {
+  height: 8rem;
+  padding: 2px;
+  vertical-align: top;
+  border: var(--border-width) solid var(--border-subtle);
+  overflow: hidden;
+}
+.month-grid td.month-grid__other {
+  background: var(--surface-subtle);
+}
+.month-grid td.month-grid__other .month-grid__date {
+  color: var(--text-muted);
+}
+.month-grid__date {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: min(var(--target), 100%);
+  min-height: var(--target);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  font-size: var(--text-small);
+  text-decoration: none;
+}
+.month-grid td[aria-current='date'] .month-grid__date {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: var(--weight-strong);
+}
+.month-grid__chips {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.month-grid__more {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target);
+  padding: 0 var(--space-1);
+  color: var(--text);
+  font-size: var(--text-caption);
+}
+@media (max-width: 39.99rem) {
+  .month-grid td {
+    height: 4.5rem;
+  }
+  .month-grid th {
+    text-align: center;
+  }
+  .month-grid .calendar-chip {
+    padding: 0 2px;
+  }
+}
