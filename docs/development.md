@@ -2,6 +2,10 @@
 
 ## Current implementation
 
+[Tasks from mail](mail-tasks.md) add an owner-authorized atomic capture endpoint, metadata-only retry receipts and immutable source quotes through migration 052. Deadline entry requires explicit confirmation; mail-derived tasks stay excluded from AI until their context binding is implemented. Capture and message refresh preserve conflict drafts in the UI.
+
+[Mail organization](mail-organization.md) adds versioned owner categories and explicit literal rules, write-free previews and atomic selected apply. Migrations 049–051 preserve corrections, captures, receipts and rule tombstones. Categories never determine sensitivity or enable provider calls.
+
 [Verified mail context](ai-mail-context.md) adds owned/versioned message references to the text-only routing gateway, retaining connector labels and explicit body-origin provenance. Migration 048 leaves legacy imports uncertified. Context preview and synthetic admission revalidation do not enable email classification or paid processing.
 
 [Academic management](academic-management.md) adds owner-only guarded browsing/full counts and atomic selected status/deadline/effort/priority/deletion. [Selected Calendar changes](calendar-management.md) add whole-record deletion and one-time timed study statuses, preserving recurrence/source history. Both use shared contracts, versions, schedule locks and guarded historical receipts. UI/offline integration remains pending.

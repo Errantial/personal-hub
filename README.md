@@ -1,5 +1,7 @@
 # Personal Productivity Hub
 
+[Tasks from mail](docs/mail-tasks.md) now support owner-reviewed capture with an exact body quote, retained source labels and explicit deadline confirmation. Automatic extraction remains pending.
+
 Schedule, task, email, and study hub targeting the web, Android, and Windows.
 
 Status: the owner-authenticated planner includes tasks, recurring calendars, class portfolios, study-plan approval, reminders, memory editing and exact-message email-draft approval. Read-only Canvas adapters preserve source facts and labels; the school blocks token creation, and broader live coverage remains unverified. Proton Bridge ingestion and Mail browsing are implemented; live upload and scheduling remain pending. The Today Assistant supports a narrow OpenRouter planner flow with owner review before Apply, an owner-configured server key/model and saved spending limits. General AI gateway dispatch, email classification, sending, MCP and persistent agents remain pending.
@@ -9,6 +11,8 @@ SQL migrations, shared contracts, optimistic versions, retry receipts and tombst
 Backend responsibility reviews now support [local daily/weekly schedules](docs/responsibility-local-schedules.md), preserving wall-clock cadence across DST with explicit missed-slot admission. Review records remain blocked placeholders; UI and agent execution are pending.
 
 [Verified mail context](docs/ai-mail-context.md) now resolves explicitly selected imported messages through the text-only routing gateway, with label inheritance and message/connector integrity binding. Email classification and paid processing remain pending.
+
+[Mail categories and explicit rules](docs/mail-organization.md) now provide local organization, protected owner corrections and previewed selected applies. Categories remain separate from privacy labels; AI classification and provider-side mail changes remain pending.
 
 [Read-only email ingestion](docs/email-ingestion.md) now includes a local Proton Bridge connector, owner-managed upload tokens and Inbox mail browsing. Headers and bounded plain-text bodies are imported; attachments and provider writes remain excluded. The observed Bridge snapshot was checked read-only, but live hub upload, scheduling, Gmail delivery completeness and AI filtering remain pending.
 

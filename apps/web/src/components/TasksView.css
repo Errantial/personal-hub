@@ -3,6 +3,12 @@
   gap: var(--space-4);
   min-width: 0;
 }
+.task-mail-quote {
+  margin: 0;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .tasks-filters {
   display: flex;
   flex-wrap: wrap;

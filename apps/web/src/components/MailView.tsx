@@ -3,6 +3,8 @@ import {
   emailConnectorsResponseSchema,
   mailMessageResponseSchema,
   mailPageSchema,
+  mailCategoryLabels,
+  mailCategorySchema,
 } from '@hub/contracts';
 import type { MailMessage, MailSummary } from '@hub/contracts';
 import { RequestError, getJson } from '../lib/api';
@@ -11,6 +13,9 @@ import type { Route } from '../lib/router';
 import { Help } from './Help';
 import { Link } from './Link';
 import { StatusChip } from './StatusChip';
+import { MailRules } from './MailRules';
+import { MailCategoryEditor } from './MailCategoryEditor';
+import { MailTaskCapture } from './MailTaskCapture';
 
 type Navigate = (route: Route) => void;
 const mailRoute = (mail?: string): Route => ({
@@ -41,6 +46,10 @@ export function MailView({
   navigate: Navigate;
 }) {
   const [folder, setFolder] = useState('');
+  const [category, setCategory] = useState('');
+  const [selected, setSelected] = useState<string[]>([]);
+  const [revision, setRevision] = useState(0);
+  const [applying, setApplying] = useState(false);
   const [folders, setFolders] = useState<string[]>([]);
   const [connected, setConnected] = useState<boolean | null>(null);
   const [messages, setMessages] = useState<MailSummary[] | null>(null);
@@ -69,6 +78,7 @@ export function MailView({
       setError('');
       const query = new URLSearchParams({ limit: '50' });
       if (folder) query.set('folder', folder);
+      if (category) query.set('category', category);
       if (before) query.set('before', before);
       try {
         const page = await getJson(
@@ -93,11 +103,22 @@ export function MailView({
         if (current === generation.current) setLoading(false);
       }
     },
-    [folder],
+    [folder, category],
   );
   useEffect(() => {
+    setMessages(null);
+    setSelected([]);
+    setNext(null);
     void load();
+    return () => {
+      generation.current++;
+    };
   }, [load]);
+  const changed = () => {
+    setSelected([]);
+    setRevision((value) => value + 1);
+    void load();
+  };
 
   return (
     <section aria-labelledby="mail-title" className="mail-view">
@@ -125,6 +146,7 @@ export function MailView({
           Folder
           <select
             value={folder}
+            disabled={applying}
             onChange={(event) => setFolder(event.target.value)}
           >
             <option value="">All folders</option>
@@ -136,20 +158,63 @@ export function MailView({
           </select>
         </label>
       )}
+      <label className="mail-filter">
+        Category
+        <select
+          value={category}
+          disabled={applying}
+          onChange={(event) => setCategory(event.target.value)}
+        >
+          <option value="">All categories</option>
+          <option value="uncategorized">Uncategorized</option>
+          {mailCategorySchema.options.map((value) => (
+            <option key={value} value={value}>
+              {mailCategoryLabels[value]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <MailRules
+        references={(messages ?? [])
+          .filter((message) => selected.includes(message.id))
+          .map((message) => ({
+            id: message.id,
+            expectedVersion: message.version,
+          }))}
+        subjects={Object.fromEntries(
+          (messages ?? []).map((message) => [message.id, message.subject]),
+        )}
+        onApplied={changed}
+        onApplying={setApplying}
+      />
       {error && (
         <div role="alert" className="form-error">
           <p>{error}</p>
+        </div>
+      )}
+      <button
+        type="button"
+        className="secondary-button"
+        disabled={loading || applying}
+        onClick={changed}
+      >
+        Reload mail
+      </button>
+      {selected.length > 0 && (
+        <div className="form-actions">
+          <span>{selected.length}/100 selected</span>
           <button
             type="button"
             className="secondary-button"
-            disabled={loading}
-            onClick={() => void load()}
+            disabled={applying}
+            onClick={() => setSelected([])}
           >
-            Reload mail
+            Clear selection
           </button>
         </div>
       )}
       {loading && !messages && <p role="status">Loading…</p>}
+      {loading && messages && <p role="status">Refreshing mail…</p>}
       {messages && !messages.length && <p>No mail here.</p>}
       <ul className="inbox-list">
         {(messages ?? []).map((message) => (
@@ -158,6 +223,27 @@ export function MailView({
             aria-current={message.id === mail ? 'true' : undefined}
           >
             <div className="inbox-list__body">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={selected.includes(message.id)}
+                  disabled={
+                    applying ||
+                    (!selected.includes(message.id) && selected.length >= 100)
+                  }
+                  onChange={(event) =>
+                    setSelected((previous) =>
+                      event.target.checked
+                        ? [...previous, message.id]
+                        : previous.filter((id) => id !== message.id),
+                    )
+                  }
+                />
+                Select{' '}
+                <span className="visually-hidden">
+                  {message.subject || '(No subject)'}
+                </span>
+              </label>
               <Link route={mailRoute(message.id)} navigate={navigate}>
                 {message.subject || '(No subject)'}
               </Link>
@@ -165,6 +251,12 @@ export function MailView({
                 {sender(message)} · {formatInstant(message.receivedAt)}
               </span>
               <span className="mail-snippet">{message.snippet}</span>
+              <span className="inbox-list__meta">
+                {message.category
+                  ? mailCategoryLabels[message.category]
+                  : 'Uncategorized'}
+                {message.categorySource === 'owner' && ' · Owner choice'}
+              </span>
               {message.attachmentCount > 0 && (
                 <span className="inbox-list__meta">
                   {message.attachmentCount} attachment
@@ -185,41 +277,89 @@ export function MailView({
           {loading ? 'Loading…' : 'Load more mail'}
         </button>
       )}
-      {mail && <MailDetail key={mail} id={mail} navigate={navigate} />}
+      {mail && (
+        <MailDetail
+          key={mail}
+          id={mail}
+          navigate={navigate}
+          revision={revision}
+          onChanged={changed}
+          locked={applying}
+          onPending={setApplying}
+        />
+      )}
     </section>
   );
 }
 
-function MailDetail({ id, navigate }: { id: string; navigate: Navigate }) {
+function MailDetail({
+  id,
+  navigate,
+  revision,
+  onChanged,
+  locked,
+  onPending,
+}: {
+  id: string;
+  navigate: Navigate;
+  revision: number;
+  onChanged: () => void;
+  locked: boolean;
+  onPending: (value: boolean) => void;
+}) {
   const [message, setMessage] = useState<MailMessage | null>(null);
   const [error, setError] = useState('');
   const heading = useRef<HTMLHeadingElement>(null);
+  const focused = useRef(false);
+  const [loading, setLoading] = useState(false),
+    [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let active = true;
-    getJson(`/api/v1/email/messages/${id}`, mailMessageResponseSchema).then(
+    const controller = new AbortController();
+    setLoading(true);
+    setError('');
+    getJson(
+      `/api/v1/email/messages/${id}`,
+      mailMessageResponseSchema,
+      controller.signal,
+    ).then(
       (result) => {
         if (!active) return;
         setMessage(result.message);
-        requestAnimationFrame(() => heading.current?.focus());
+        setLoading(false);
+        if (!focused.current) {
+          focused.current = true;
+          requestAnimationFrame(() => heading.current?.focus());
+        }
       },
       (caught: unknown) => {
-        if (active)
+        if (active) {
+          setLoading(false);
           setError(
             caught instanceof RequestError && caught.code === 'NOT_FOUND'
               ? 'This message is not available.'
               : 'This message needs a connection. Try again.',
           );
+        }
       },
     );
     return () => {
       active = false;
+      controller.abort();
     };
-  }, [id]);
-  if (error)
+  }, [id, revision, attempt]);
+  if (error && !message)
     return (
-      <p role="alert" className="form-error">
-        {error}
-      </p>
+      <div role="alert" className="form-error">
+        <p>{error}</p>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => setAttempt((value) => value + 1)}
+        >
+          Retry message
+        </button>
+      </div>
     );
   if (!message) return <p role="status">Loading…</p>;
   return (
@@ -230,6 +370,18 @@ function MailDetail({ id, navigate }: { id: string; navigate: Navigate }) {
       <h3 id="mail-subject" ref={heading} tabIndex={-1}>
         {message.subject || '(No subject)'}
       </h3>
+      {error && (
+        <div role="alert" className="form-error">
+          <p>{error}</p>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => setAttempt((value) => value + 1)}
+          >
+            Retry message
+          </button>
+        </div>
+      )}
       <dl className="email-review">
         <dt>From</dt>
         <dd>{message.from ? addressList([message.from]) : 'Unknown sender'}</dd>
@@ -247,17 +399,29 @@ function MailDetail({ id, navigate }: { id: string; navigate: Navigate }) {
             ? `${message.attachmentCount} (not imported)`
             : 'None'}
         </dd>
-        {message.sensitivity !== 'unlabeled' && (
-          <>
-            <dt>Label</dt>
-            <dd>
-              <StatusChip>
-                {message.sensitivity === 'personal' ? 'Personal' : 'Restricted'}
-              </StatusChip>
-            </dd>
-          </>
-        )}
+        <dt>Privacy label</dt>
+        <dd>
+          <StatusChip>
+            {message.sensitivity === 'unlabeled'
+              ? 'Unlabeled'
+              : message.sensitivity === 'personal'
+                ? 'Personal'
+                : 'Restricted'}
+          </StatusChip>
+        </dd>
       </dl>
+      <MailCategoryEditor
+        key={message.version}
+        message={message}
+        onChanged={onChanged}
+        loading={loading || locked || Boolean(error)}
+      />
+      <MailTaskCapture
+        message={message}
+        navigate={navigate}
+        locked={loading || locked || Boolean(error)}
+        onPending={onPending}
+      />
       {/* Plain text only: never rendered as HTML. */}
       <pre className="email-review__body">{message.body || '(Empty)'}</pre>
       {message.bodyTruncated && (

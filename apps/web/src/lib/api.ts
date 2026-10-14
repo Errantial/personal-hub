@@ -167,6 +167,7 @@ export async function liveRequestJson<T>(
       INVALID_INPUT: 'Check the entered values and try again.',
       VERSION_CONFLICT:
         'This item changed elsewhere. Your edits are still in the form. Reload the list before trying again.',
+      MAIL_RULE_LIMIT: 'Remove a mail rule before adding more.',
       OPERATION_CONFLICT:
         'This operation already has a different saved result. Reload before trying again.',
     };

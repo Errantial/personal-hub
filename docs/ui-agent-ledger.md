@@ -1,5 +1,9 @@
 # UI agent ledger
 
+## Manual tasks from mail (2026-10-13)
+
+Preserve [mail task capture](mail-tasks.md): exact supporting body quote, owner title, optional explicitly confirmed deadline, retained labels/source link and immutable creation capture visible in the task editor. Categories never determine privacy. Keep no-date entry usable, date confirmation cleared on date/source changes, invalid quote visible, pending controls locked, offline state visible and drafts retained after errors and refresh. A changed message requires deliberate source-version review before retry. Failed refresh must keep the existing form mounted. Success links to the task and prevents duplicate submission from that form. Online-only in-memory capture drafts do not survive navigation/restart. Automatic extraction, mail-derived task AI context, paid classification, mail/calendar writes and actual Kompakt acceptance remain pending.
+
 ## Canvas access limitation and browser proof (2026-10-13)
 
 The owner's school blocks personal token creation, so **Canvas API not configured** is an actual access gate. A browser DOM feasibility test passed for one course (27 unique links/titles, 10 valid due timestamps, 17 missing dates). It did not import hub data, prove all-course coverage or add a connector. See [canvas-browser.md](canvas-browser.md). Do not expose browser sync as supported yet. A future UI must distinguish sign-in required, loading/partial/filter-limited snapshot, missing due date, source freshness, conflict and failed import; its contracts do not exist yet. Initial collection must project selected metadata locally because assignment pages also contain scores and other unnecessary text. No whole-page prompt export, screenshot/attachment input, automatic sensitivity inference or provider execution is added.
@@ -416,6 +420,19 @@ Actual Mudita Kompakt verification, Kindle Scribe, and a dedicated Windows app a
 Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authentication changes. Browser tests own their ports and synthetic database. Keep API/provider fixtures synthetic; never reset the owner's database or send real provider/paid requests for routine verification. Update locators when layout changes without weakening state, privacy, offline, conflict, or retry assertions.
 
 ## Change ledger
+
+### 2026-10-13 — Mail categories and explicit rules
+
+- PR #16 validation follow-up: the standard PostgreSQL driver test now runs synthetic reminder/LMS batches explicitly instead of polling background timers. UI contracts and required states are unchanged; this test does not establish worker cadence or live-provider readiness.
+
+- Inbox Mail adds Category filtering, per-message selection (maximum 100), Clear selection and an always-available Reload mail control. Paging, owned cursors and plain-text detail remain intact.
+- Mail rules is expandable, with literal sender/subject rules, enabled state, editable drafts and confirmed deletion. The oldest enabled matching rule wins. Captured rule explanations survive edits/tombstones. See [contracts](mail-organization.md).
+- Preview is write-free. Apply guards the rule revision and every selected message version atomically; owner categories, including Uncategorized, stay protected. Selection/revision changes invalidate previews and abort/ignore late responses.
+- Selection/filter/category controls lock during apply. Starting a rule edit invalidates an existing preview; save or cancel before previewing again. Long rule names and captured criteria wrap at narrow widths.
+- Message detail adds Category, Save category, Use rules and Reload latest message. Privacy label is named separately. Categories never change sensitivity, inherited labels or provider permissions. Connector refreshes preserve owner corrections.
+- Keep pending, offline/error, version-conflict and protected-origin states visible. Failed writes retain drafts and retry identity; deliberate reload/cancel/reopen adopts current versions. Rule/editor changes do not perform provider-side mail actions.
+- Known limits: online-only, no rule reordering/restoration, automatic classification, paid AI, portable export or deadline extraction. Browser 320px results are not Kompakt hardware proof.
+
 
 ### 2026-10-13 — Verified mail context gateway (backend)
 

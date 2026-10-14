@@ -11,6 +11,7 @@ import { buildApp } from '../src/app.js';
 import { readConfig } from '../src/config.js';
 import { openDatabase } from '../src/db/database.js';
 import { runReminderBatch } from '../src/features/reminders.js';
+import { runCanvasLmsSync } from '../src/connections/canvas-lms.js';
 import { resolveAIContext } from '../src/features/ai-routing.js';
 import {
   beginSyntheticEmailAttempt,
@@ -40,6 +41,9 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
     try {
       await administrator.query(`CREATE SCHEMA ${schema}`);
       connection.searchParams.set('options', `-c search_path=${schema}`);
+      accounting = await openDatabase(
+        readConfig({ NODE_ENV: 'test', DATABASE_URL: connection.toString() }),
+      );
       const origin = 'http://127.0.0.1:5173';
       app = await buildApp(
         { logger: false },
@@ -63,34 +67,6 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
                 },
               },
             ]),
-          }),
-          runWorker: true,
-          canvasApiFetcher: async () => ({
-            accountProviderId: '30',
-            courses: [
-              {
-                providerId: '10',
-                data: {
-                  name: 'Postgres API course',
-                  code: 'PG',
-                  term: 'Test',
-                  timeZone: 'UTC',
-                },
-              },
-            ],
-            assignments: [
-              {
-                providerId: '20',
-                courseProviderId: '10',
-                data: {
-                  title: 'Postgres API assignment',
-                  dueAt: '2027-03-01T17:00:00.000Z',
-                  pointsPossible: 25,
-                  published: true,
-                  locked: false,
-                },
-              },
-            ],
           }),
         },
       );
@@ -219,18 +195,12 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
         },
       });
       expect(reminder.statusCode).toBe(200);
-      await expect
-        .poll(
-          async () => {
-            const inbox = await app!.inject({
-              url: '/api/v1/notifications',
-              headers,
-            });
-            return inbox.json().notifications.length;
-          },
-          { timeout: 10000 },
-        )
-        .toBe(1);
+      await runReminderBatch(accounting);
+      const inbox = await app.inject({
+        url: '/api/v1/notifications',
+        headers,
+      });
+      expect(inbox.json().notifications).toHaveLength(1);
       const account = await app.inject({
         url: '/api/v1/auth/account',
         headers,
@@ -378,21 +348,56 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
         ),
       ).toBe(true);
       const lmsBase = '/api/v1/connections/canvas/lms';
-      await app.inject({
+      const lmsSync = await app.inject({
         method: 'POST',
         url: `${lmsBase}/sync`,
         headers,
         payload: { operationId: randomUUID() },
       });
-      await expect
-        .poll(
-          async () =>
-            (await app!.inject({ url: lmsBase, headers })).json().assignments
-              .length,
-          { timeout: 10000 },
-        )
-        .toBe(1);
+      expect(lmsSync.statusCode).toBe(200);
+      // Run the batch directly: polling the read endpoint locks the source row,
+      // which can make the timer worker's SKIP LOCKED claim miss its test window.
+      await runCanvasLmsSync(
+        accounting,
+        readConfig({
+          NODE_ENV: 'test',
+          CANVAS_API_TOKEN: 'synthetic-postgres-only',
+        }),
+        async () => ({
+          accountProviderId: '30',
+          courses: [
+            {
+              providerId: '10',
+              data: {
+                name: 'Postgres API course',
+                code: 'PG',
+                term: 'Test',
+                timeZone: 'UTC',
+              },
+            },
+          ],
+          assignments: [
+            {
+              providerId: '20',
+              courseProviderId: '10',
+              data: {
+                title: 'Postgres API assignment',
+                dueAt: '2027-03-01T17:00:00.000Z',
+                pointsPossible: 25,
+                published: true,
+                locked: false,
+              },
+            },
+          ],
+        }),
+      );
       const lms = (await app.inject({ url: lmsBase, headers })).json();
+      expect(
+        lms.jobs.find(
+          (job: { id: string }) => job.id === lmsSync.json().job.id,
+        ),
+      ).toMatchObject({ status: 'succeeded', errorCode: null });
+      expect(lms.assignments).toHaveLength(1);
       expect(lms.accountProviderId).toBe('30');
       const annotation = await app.inject({
         method: 'PUT',
@@ -788,9 +793,6 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
         },
       });
       expect(budgetWrite.statusCode).toBe(200);
-      accounting = await openDatabase(
-        readConfig({ NODE_ENV: 'test', DATABASE_URL: connection.toString() }),
-      );
       const owner = setup.json().user.id;
       const reserve = () =>
         reserveAIBudget(accounting!, owner, {

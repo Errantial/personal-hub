@@ -24,13 +24,17 @@ import {
 } from '../features/academic-provenance.js';
 import { strongest } from '../features/common.js';
 import {
+  mailTaskSourceColumns,
+  mailTaskLabels,
+} from '../features/mail-provenance.js';
+import {
   captureCanvasSource,
   plannerSourceColumns,
 } from '../connections/canvas-provenance.js';
 
 const idSchema = z.object({ id: z.string().uuid() });
 // SQL aliases and to_char preserve date-only deadlines and normalize timestamps on both drivers.
-export const taskColumns = `${academicSourceColumns('tasks')}, ${plannerSourceColumns('tasks')}, id, title, notes, to_char(due_date, 'YYYY-MM-DD') AS "dueDate", priority, completed, sensitivity, version,
+export const taskColumns = `${mailTaskSourceColumns}, ${academicSourceColumns('tasks')}, ${plannerSourceColumns('tasks')}, id, title, notes, to_char(due_date, 'YYYY-MM-DD') AS "dueDate", priority, completed, sensitivity, version,
   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
   to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
   to_char(deleted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "deletedAt"`;
@@ -163,6 +167,7 @@ export function registerPlanner(
           'task',
           id,
         );
+        labels.push(...(await mailTaskLabels(transaction, user.id, id)));
         const [task] = await transaction.query(
           `UPDATE tasks SET title = $3, notes = $4, due_date = $5, priority = $6, completed = $7, sensitivity = COALESCE($8, sensitivity), version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE owner_id = $1 AND id = $2 AND version = $9 AND deleted_at IS NULL RETURNING ${taskColumns}`,
           [

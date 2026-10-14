@@ -135,6 +135,12 @@ export async function resolveAIContext(
       ref.kind === 'task'
         ? taskSchema.parse(row)
         : calendarRecordSchema.parse(row);
+    if ('mailSource' in record && record.mailSource)
+      throw new ApiError(
+        409,
+        'PROVENANCE_UNAVAILABLE',
+        'Mail-derived task context is not yet supported. Select the original message instead.',
+      );
     if (record.academicSource) {
       if (
         record.academicSource.sourceDeleted ||

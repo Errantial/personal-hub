@@ -11,6 +11,7 @@ import {
   emailUploadResultSchema,
   mailMessageResponseSchema,
   mailPageSchema,
+  mailCategorySchema,
 } from '@hub/contracts';
 import { z } from 'zod';
 import type { authService } from '../auth/routes.js';
@@ -157,6 +158,9 @@ export function registerEmailIngestion(
         limit: z.coerce.number().int().min(1).max(100).default(50),
         before: z.string().uuid().optional(),
         folder: z.string().min(1).max(1000).optional(),
+        category: z
+          .union([mailCategorySchema, z.literal('uncategorized')])
+          .optional(),
       })
       .parse(request.query);
     return database.transaction(async (tx) => {
@@ -170,15 +174,17 @@ export function registerEmailIngestion(
           throw new ApiError(404, 'NOT_FOUND', 'Mail cursor not available.');
       }
       const rows = await tx.query(
-        `SELECT id,version,connector_id AS "connectorId",from_address AS "from",subject,${stamp('received_at', 'receivedAt')},folders,left(body,200) AS snippet,attachment_count AS "attachmentCount",sensitivity
+        `SELECT id,version,category,category_source AS "categorySource",category_rule_id AS "categoryRuleId",category_rule_capture AS "categoryRuleCapture",connector_id AS "connectorId",from_address AS "from",subject,${stamp('received_at', 'receivedAt')},folders,left(body,200) AS snippet,attachment_count AS "attachmentCount",sensitivity
          FROM email_messages WHERE owner_id=$1
          AND ($3::text IS NULL OR $3=ANY(folders))
-         ${anchor ? 'AND (received_at,id)<($4::timestamptz,$5::uuid)' : ''}
+         AND ($4::text IS NULL OR ($4='uncategorized' AND category IS NULL) OR category=$4)
+         ${anchor ? 'AND (received_at,id)<($5::timestamptz,$6::uuid)' : ''}
          ORDER BY received_at DESC,id DESC LIMIT $2`,
         [
           owner.id,
           query.limit + 1,
           query.folder ?? null,
+          query.category ?? null,
           ...(anchor ? [anchor.received_at, anchor.id] : []),
         ],
       );
@@ -194,7 +200,7 @@ export function registerEmailIngestion(
     const owner = await auth.requireUser(request);
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const [row] = await database.query(
-      `SELECT id,version,connector_id AS "connectorId",from_address AS "from",to_addresses AS "to",cc_addresses AS cc,subject,${stamp('sent_at', 'sentAt')},${stamp('received_at', 'receivedAt')},folders,body,body_truncated AS "bodyTruncated",attachment_count AS "attachmentCount",sensitivity
+      `SELECT id,version,category,category_source AS "categorySource",category_rule_id AS "categoryRuleId",category_rule_capture AS "categoryRuleCapture",connector_id AS "connectorId",from_address AS "from",to_addresses AS "to",cc_addresses AS cc,subject,${stamp('sent_at', 'sentAt')},${stamp('received_at', 'receivedAt')},folders,body,body_truncated AS "bodyTruncated",attachment_count AS "attachmentCount",sensitivity
        FROM email_messages WHERE owner_id=$1 AND id=$2`,
       [owner.id, id],
     );
