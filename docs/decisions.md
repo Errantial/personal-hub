@@ -55,6 +55,7 @@ Status: pending unless explicitly confirmed. These entries prevent draft recomme
 | D49 | Backend feature freeze | Confirmed 2026-10-12: no new backend features until existing endpoints have UI and the app is deployed; fixes and work required by those steps are allowed | Converts existing backend work into usable features |
 | D50 | First assistant flow | Confirmed 2026-10-13: proposals are reviewed then applied by the owner through ordinary versioned writes (with Undo); Personal/Restricted items are withheld from OpenRouter context; the assistant lives on Today | Keeps the first paid flow reversible and within the no-fallback labeling rules |
 | D51 | Mail ingestion scope | Confirmed 2026-10-13: Bridge runs on the owner's Windows computer (the VM is ARM64); upload headers and plain-text bodies (no attachments) from all folders/labels except Spam/Trash, starting 30 days back | Gives later AI filtering useful text while keeping attachments and Bridge local |
+| D52 | Mail AI permission | Confirmed 2026-10-13: OpenRouter may receive Personal-labeled mail for category suggestions, through an explicit owner switch (default off); Restricted mail is never sent; suggestions are applied only by the owner | Enables useful filtering without silently widening label routing |
 
 ## Implemented local review cadence policy (2026-10-11)
 

@@ -133,6 +133,7 @@ it('reports a missing key and blocks unset budgets before any request', async ()
     model,
     version: 1,
     configured: false,
+    allowPersonalMail: false,
   });
   expect((await ask('Plan my week')).json().error.code).toBe(
     'ASSISTANT_NOT_CONFIGURED',
@@ -426,7 +427,12 @@ it('saves a supported model with optimistic versions', async () => {
     'ASSISTANT_MODEL_UNSUPPORTED',
   );
   expect((await put('anthropic/claude-sonnet-5.5', 1)).json().settings).toEqual(
-    { model: 'anthropic/claude-sonnet-5.5', version: 2, configured: true },
+    {
+      model: 'anthropic/claude-sonnet-5.5',
+      version: 2,
+      configured: true,
+      allowPersonalMail: false,
+    },
   );
   expect((await put(model, 1)).json().error.code).toBe('VERSION_CONFLICT');
 });
