@@ -1,28 +1,15 @@
 import { useState } from 'react';
-import { assistantSettingsResponseSchema } from '@hub/contracts';
 import type { AssistantTurn } from '@hub/contracts';
-import { getJson } from '../lib/api';
-import { useResource } from '../lib/hooks';
 import type { Route } from '../lib/router';
-import { AssistantComposer } from './AssistantComposer';
+import { AssistantComposer, useAssistantSettings } from './AssistantComposer';
 import { AssistantTurnView } from './AssistantTurn';
 import { Help } from './Help';
 import { Link } from './Link';
 import './AssistantBox.css';
 
-export const assistantHelp = `Describe tasks or events to add or change. The assistant proposes changes and nothing is saved until you apply them. It sees the titles and times of your open tasks and one-time events in the next 30 days, not notes, repeating events, source-linked items, unknown label history, or anything you labeled Personal or Restricted. Follow-ups also resend your earlier asks and replies in the conversation. Requests go to OpenRouter and count against your AI spending limits. Conversations are kept on your server until you delete them.`;
+export const assistantHelp = `Describe tasks or events to add or change. The assistant proposes changes and nothing is saved until you apply them. It sees the titles and times of your open tasks and one-time events in the next 30 days, not notes, repeating events, source-linked items, unknown label history, or anything you labeled Personal or Restricted. Follow-ups also resend your earlier asks and replies in the conversation. With Use mail ticked, the assistant may search the subjects and senders of mail you allow and read up to five messages; each answer lists what was sent. Restricted mail is never sent, and Personal mail only if allowed in Settings › AI. Such asks can take up to three calls. Requests go to OpenRouter and count against your AI spending limits. Conversations are kept on your server until you delete them.`;
 
-export function useAssistantSettings() {
-  return useResource(
-    (signal) =>
-      getJson(
-        '/api/v1/assistant/settings',
-        assistantSettingsResponseSchema,
-        signal,
-      ),
-    { failure: 'Assistant status unavailable.' },
-  );
-}
+export { useAssistantSettings };
 
 /**
  * Today › Assistant: a quick ask. Asks here start a conversation that
@@ -58,7 +45,7 @@ export function AssistantBox({
       ) : (
         <AssistantComposer
           conversationId={conversationId}
-          configured={!!configured}
+          settings={settings}
           placeholder="Add a task to call the bank on Friday"
           navigate={navigate}
           onAnswered={setTurn}

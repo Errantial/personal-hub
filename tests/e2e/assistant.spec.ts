@@ -366,3 +366,85 @@ test('the Assistant page keeps a conversation, continues it and deletes it', asy
   await expect(page.getByText('No conversations yet.')).toBeVisible();
   expect(deleted).toBe(true);
 });
+
+test('Use mail is remembered and each answer lists the mail that was sent', async ({
+  page,
+}) => {
+  let settings = {
+    model: 'anthropic/claude-haiku-5.5',
+    version: 1,
+    configured: true,
+    allowPersonalMail: false,
+    useMail: false,
+  };
+  await page.route('**/api/v1/assistant/settings', (route) => {
+    if (route.request().method() === 'PUT') {
+      const body = route.request().postDataJSON() as { useMail: boolean };
+      settings = {
+        ...settings,
+        useMail: body.useMail,
+        version: settings.version + 1,
+      };
+    }
+    return route.fulfill({ json: { settings } });
+  });
+  let sentUseMail: boolean | undefined;
+  await page.route('**/api/v1/assistant/requests', (route) => {
+    sentUseMail = (route.request().postDataJSON() as { useMail: boolean })
+      .useMail;
+    const reply = answer(route, {
+      status: 'completed',
+      reason: null,
+      model: 'anthropic/claude-haiku-5.5',
+      resultAvailable: true,
+      reply: 'The waiver is due Friday.',
+      proposals: [],
+      dropped: 0,
+      withheld: 0,
+      costMicros: 300,
+      heldMicros: 0,
+      createdAt: new Date().toISOString(),
+    });
+    Object.assign(reply.turn, {
+      useMail: true,
+      mailWithheld: 2,
+      mailNote: null,
+      mail: [
+        {
+          id: crypto.randomUUID(),
+          subject: 'Field trip waiver',
+          from: 'School Office',
+          receivedAt: new Date().toISOString(),
+          read: true,
+        },
+        {
+          id: crypto.randomUUID(),
+          subject: 'Lunch menu',
+          from: 'School Office',
+          receivedAt: new Date().toISOString(),
+          read: false,
+        },
+      ],
+    });
+    return route.fulfill({ json: reply });
+  });
+  await page.goto('/');
+  const box = page.getByRole('region', { name: 'Assistant' });
+  const useMail = box.getByRole('checkbox', { name: 'Use mail' });
+  await expect(useMail).not.toBeChecked();
+  await useMail.check();
+  await expect.poll(() => settings.useMail).toBe(true);
+  // The choice comes back after a reload, as on another device.
+  await page.reload();
+  await expect(useMail).toBeChecked();
+  const ask = box.getByRole('textbox', { name: 'Ask', exact: true });
+  await ask.fill('When is the waiver due?');
+  await ask.press('Enter');
+  await expect(box).toContainText('The waiver is due Friday.');
+  expect(sentUseMail).toBe(true);
+  const mail = box.getByText('2 messages sent (1 read) · 2 left out by labels');
+  await mail.click();
+  await expect(box).toContainText('Field trip waiver');
+  await expect(box).toContainText('Body sent');
+  await expect(box).toContainText('Subject and sender only');
+});
