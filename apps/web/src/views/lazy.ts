@@ -5,6 +5,7 @@ import { lazy } from 'react';
    before the owner opens each view. */
 const loaders = {
   today: () => import('../components/TodayView'),
+  assistant: () => import('../components/AssistantView'),
   tasks: () => import('../components/TasksView'),
   calendar: () => import('../components/CalendarView'),
   classes: () => import('../components/ClassesView'),
@@ -14,6 +15,10 @@ const loaders = {
 
 export const TodayView = lazy(() =>
   loaders.today().then((module) => ({ default: module.TodayView })),
+);
+
+export const AssistantView = lazy(() =>
+  loaders.assistant().then((module) => ({ default: module.AssistantView })),
 );
 
 export const TasksView = lazy(() =>

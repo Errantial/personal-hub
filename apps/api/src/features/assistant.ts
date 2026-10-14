@@ -26,7 +26,6 @@ import { ApiError } from '../errors.js';
 import {
   admitLive,
   findReplay,
-  liveReceipt,
   prepareLive,
   readAssistantSettings,
   settleLive,
@@ -39,11 +38,19 @@ import {
 } from '../ai/openrouter-live.js';
 import type { OpenRouterFetch } from '../ai/openrouter-live.js';
 import { taskColumns } from '../planner/routes.js';
+import {
+  finishTurn,
+  openConversation,
+  readHistory,
+  readTurn,
+  startTurn,
+} from './assistant-conversations.js';
 import { eventColumns } from './common.js';
 
 // Live planner assistant (docs/ai-assistant.md). The model proposes changes
 // to unlabeled tasks and one-time events; the owner applies them through the
-// ordinary versioned endpoints. Only metadata is stored.
+// ordinary versioned endpoints. Request rows hold metadata; the ask, reply
+// and proposals are kept in the conversation (assistant-conversations.ts).
 
 const maxOutputTokens = 1500;
 const maxActions = 10;
@@ -188,6 +195,8 @@ export function buildAssistantRequest(
   text: string,
   timeZone: string,
   now = Temporal.Now.instant(),
+  /** Earlier asks and replies in this conversation, oldest first. */
+  history: { ask: string; reply: string }[] = [],
 ) {
   const current = now.toZonedDateTimeISO(timeZone);
   const payload = {
@@ -223,6 +232,10 @@ export function buildAssistantRequest(
     max_tokens: maxOutputTokens,
     messages: [
       { role: 'system', content: instructions },
+      ...history.flatMap((turn) => [
+        { role: 'user', content: turn.ask },
+        { role: 'assistant', content: turn.reply },
+      ]),
       { role: 'user', content: JSON.stringify(payload) },
     ],
     provider: providerRouting(model),
@@ -464,17 +477,47 @@ export function registerAssistant(
     const owner = await auth.requireUser(request);
     const input = assistantRequestInputSchema.parse(request.body);
     const hash = createHash('sha256')
-      .update(JSON.stringify({ text: input.text, timeZone: input.timeZone }))
+      .update(
+        JSON.stringify({
+          text: input.text,
+          timeZone: input.timeZone,
+          conversationId: input.conversationId ?? null,
+        }),
+      )
       .digest('hex');
-    const previous = await findReplay(
-      database,
-      owner.id,
-      'planner',
-      input.operationId,
-      hash,
-    );
+    const replay = async () => {
+      const previous = await findReplay(
+        database,
+        owner.id,
+        'planner',
+        input.operationId,
+        hash,
+      );
+      if (!previous) return null;
+      const turn = await readTurn(
+        database,
+        owner.id,
+        (previous as unknown as { id: string }).id,
+      );
+      if (!turn)
+        throw new ApiError(
+          409,
+          'ASSISTANT_REQUEST_PENDING',
+          'This request is still being answered. Try again in a moment.',
+        );
+      return assistantRequestResponseSchema.parse({
+        request: turn.request,
+        turn,
+      });
+    };
     // A retried request never calls the model again.
-    if (previous) return respond(previous, null);
+    const previous = await replay();
+    if (previous) return previous;
+    const conversationId = input.conversationId ?? randomUUID();
+    // A foreign or deleted conversation fails before anything is held.
+    await database.transaction((tx) =>
+      openConversation(tx, owner.id, conversationId, input.text),
+    );
     const { key, settings, cost } = await prepareLive(
       database,
       config,
@@ -483,11 +526,14 @@ export function registerAssistant(
     );
     const model = settings.model;
     const context = await readContext(database, owner.id);
+    const history = await readHistory(database, owner.id, conversationId);
     const body = buildAssistantRequest(
       model,
       context,
       input.text,
       input.timeZone,
+      undefined,
+      history,
     );
     const id = randomUUID();
     try {
@@ -513,9 +559,17 @@ export function registerAssistant(
         input.operationId,
         hash,
       );
-      if (raced) return respond(raced, null);
+      if (raced) {
+        const again = await replay();
+        if (again) return again;
+      }
       throw error;
     }
+    await startTurn(database, owner.id, {
+      id,
+      conversationId,
+      ask: input.text,
+    });
 
     const result = await exchange(fetcher, key, body);
     let answer: ReturnType<typeof readAnswer> | null = null;
@@ -538,20 +592,11 @@ export function registerAssistant(
       },
       reason,
     );
-    return respond(await liveReceipt(database, owner.id, id), answer);
-  });
-}
-
-function respond(
-  row: Record<string, unknown>,
-  answer: ReturnType<typeof readAnswer> | null,
-) {
-  return assistantRequestResponseSchema.parse({
-    request: {
-      ...row,
-      resultAvailable: answer !== null,
-      reply: answer?.reply ?? null,
-      proposals: answer?.proposals ?? [],
-    },
+    await finishTurn(database, owner.id, id, answer);
+    const turn = (await readTurn(database, owner.id, id))!;
+    return assistantRequestResponseSchema.parse({
+      request: turn.request,
+      turn,
+    });
   });
 }
