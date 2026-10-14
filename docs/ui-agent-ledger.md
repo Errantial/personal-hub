@@ -421,6 +421,15 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 
 ## Change ledger
 
+### 2026-10-13 — Mail: AI suggestions
+
+- **Inbox › Mail › AI suggestions** (under Rules), for the current selection (at most 20). Contract: [mail-classification.md](mail-classification.md).
+  - **Suggest categories for n** shows "Not sent:" with reasons (Restricted / Personal not allowed / older import / changed), then model, cost and outcome.
+  - **Suggested categories** checkboxes ("Subject → Category" plus the model's reason), then **Apply n categories** using owner category writes with the seen version. Each line shows Applied or Not applied; a conflict says "Changed since the suggestion. Ask again."
+- **Settings › AI › Assistant**: **Allow Personal mail for category suggestions** switch (versioned, default off) with Help.
+- Costs under one cent show every microdollar (`$0.00015`) instead of rounding down.
+- Tests: `tests/e2e/mail-suggestions.spec.ts`.
+
 ### 2026-10-13 — Mail categories and explicit rules
 
 - PR #16 validation follow-up: the standard PostgreSQL driver test now runs synthetic reminder/LMS batches explicitly instead of polling background timers. UI contracts and required states are unchanged; this test does not establish worker cadence or live-provider readiness.
