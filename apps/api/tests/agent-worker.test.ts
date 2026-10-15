@@ -294,6 +294,7 @@ it('finishes a running run after the owner pauses the agent', async () => {
     id: finished.turn_id,
     trigger: 'agent',
     ask: 'Run now',
+    academic: [],
   });
 });
 
