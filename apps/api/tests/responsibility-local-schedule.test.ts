@@ -15,6 +15,7 @@ import { migrate } from '../src/db/migrate.js';
 import {
   localReviewSlot,
   advanceLocalReview,
+  firstSlotAfter,
 } from '../src/features/responsibility-local-cadence.js';
 const base = '/api/v1/responsibilities',
   origin = 'http://127.0.0.1:5173';
@@ -501,4 +502,83 @@ it('preserves local rules/position and exact admission retries across persisted 
     expect(dirname(path)).toBe(root);
     await rm(path, { recursive: true, force: true });
   }
+});
+
+const fourTimes = () =>
+  responsibilityLocalRuleSchema.parse({
+    startDate: '2026-11-01',
+    localTime: '08:00',
+    times: ['08:00', '12:00', '16:00', '20:00'],
+    timeZone: 'America/Denver',
+    frequency: 'daily',
+  });
+const denver = (value: string) =>
+  new Date(
+    Temporal.PlainDateTime.from(value)
+      .toZonedDateTime('America/Denver')
+      .toInstant().epochMilliseconds,
+  ).toISOString();
+
+it('lists each local time once per day for multi-time daily rules across the fall-back day', () => {
+  const slots = Array.from({ length: 8 }, (_, index) =>
+    localReviewSlot(fourTimes(), index),
+  );
+  expect(slots).toEqual([
+    denver('2026-11-01T08:00'),
+    denver('2026-11-01T12:00'),
+    denver('2026-11-01T16:00'),
+    denver('2026-11-01T20:00'),
+    denver('2026-11-02T08:00'),
+    denver('2026-11-02T12:00'),
+    denver('2026-11-02T16:00'),
+    denver('2026-11-02T20:00'),
+  ]);
+  expect(new Set(slots).size).toBe(8);
+});
+
+it('coalesces missed multi-time slots to the next future time', () => {
+  const now = Date.parse(denver('2026-11-02T13:00'));
+  expect(
+    advanceLocalReview(fourTimes(), 0, denver('2026-11-01T08:00'), now),
+  ).toEqual({
+    next: denver('2026-11-02T16:00'),
+    nextLocalIndex: 6,
+    skippedIntervals: 5,
+  });
+});
+
+it("starts new schedules at the first future slot, skipping today's past times", () => {
+  expect(
+    firstSlotAfter(fourTimes(), Date.parse(denver('2026-11-01T13:00'))),
+  ).toEqual({ index: 2, at: denver('2026-11-01T16:00') });
+  const single = responsibilityLocalRuleSchema.parse({
+    startDate: '2026-11-01',
+    localTime: '07:00',
+    timeZone: 'America/Denver',
+    frequency: 'daily',
+  });
+  expect(
+    firstSlotAfter(single, Date.parse(denver('2026-11-01T15:00'))),
+  ).toEqual({ index: 1, at: denver('2026-11-02T07:00') });
+  expect(
+    firstSlotAfter(single, Date.parse(denver('2026-10-30T15:00'))),
+  ).toEqual({ index: 0, at: denver('2026-11-01T07:00') });
+});
+
+it('rejects unordered or duplicate times and times not starting with localTime', () => {
+  for (const times of [
+    ['12:00', '08:00'],
+    ['08:00', '08:00'],
+    ['09:00'],
+    Array.from({ length: 7 }, (_, index) => `0${index + 1}:00`),
+  ])
+    expect(
+      responsibilityLocalRuleSchema.safeParse({
+        startDate: '2026-11-01',
+        localTime: '08:00',
+        times,
+        timeZone: 'America/Denver',
+        frequency: 'daily',
+      }).success,
+    ).toBe(false);
 });
