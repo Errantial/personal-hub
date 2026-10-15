@@ -219,3 +219,7 @@ Current backend checks additionally cover exact-URL reconciliation, stable assoc
 The prior dependency audit reported zero production vulnerabilities; dependencies are unchanged in this slice. The web bundle emits a size advisory (about 603 kB minified); actual Kompakt performance still needs measurement. Tests used separate synthetic databases and never enrolled or reset the owner's workspace. Standard PostgreSQL and remote CI results remain unverified.
 
 Final verification after the approval-lock read change: all 12 email draft tests passed again; targeted lint/format checks and `git diff --check` passed.
+
+## Persistent agents backend (D57, PR 1, 2026-10-14)
+
+Migration 057, `/api/v1/agents`, the in-process agent worker, the shared `answerTurn` and planner-write paths, multi-time local schedules, and agent notifications. Task changes now default to ask-first for owners without saved action settings. Validation: `npm run check` passed lint, types, formatting, builds and 624 tests (1 PostgreSQL test skipped, TEST_DATABASE_URL unset). All agent tests use a synthetic OpenRouter fetcher with global fetch forbidden. UI and Inbox links follow in PRs 2–3.
