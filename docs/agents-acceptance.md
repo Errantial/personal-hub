@@ -10,7 +10,7 @@ Baseline reconciled 2026-10-14: deployed release `519054d`, migration 057, D57 s
 - Server-side worker heartbeat was healthy with zero configured agents at deployment. An authenticated HTTP health read, first owner-created agent/run and live usefulness remained unverified.
 - Windows mail sync was recorded as operating every ten minutes. Its existence does not prove required Gmail coverage, freshness during outages or move/deletion reconciliation.
 
-Sources: [implementation log](implementation-log.md), [operating receipt](../deploy/oracle-linux/README.md#current-release-2026-10-14), [backlog](backlog.md). No new live audit is claimed by this document.
+Sources: [implementation log](implementation-log.md), [operating receipt](../deploy/oracle-linux/README.md#release-519054d-2026-10-14), [backlog](backlog.md). No new live audit is claimed by this document.
 
 ## Synthetic development gates
 

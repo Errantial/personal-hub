@@ -2,9 +2,13 @@
 
 Deployed 2026-10-13 at https://hub.ecg.name from application commit `265a99d`. Updated the same day to `main` at `4491762` (Assistant, Mail ingestion, verified mail context; migrations through 048) after a verified backup/restore check; release `265a99d` is kept for rollback. The inspected host is Oracle Linux 9.7 / ARM64, with two CPUs, 10 GiB RAM and a 30 GiB root filesystem. The existing Java service was preserved. The server has a fresh database; development records have not been transferred. Planner JSON exports are not supported imports.
 
-## Current release (2026-10-14)
+## Current release (2026-10-15)
 
-Release `519054d` is live at https://hub.ecg.name with persistent agent backend, Assistant controls, action settings and linked Inbox/Today notifications. PRs 30–32 are merged; integration PR 33 brought the notification layer from its merged stack base into main. The release tree matches the code validated by 628 tests and all 144 browser cases. The first owner-created agent/run and live acceptance remain pending; see the [approved exclusions](../../docs/superpowers/specs/2026-10-14-persistent-agents-design.md#out-of-scope-recorded-for-future-work).
+Release `ed37f74` ([PR #35](https://github.com/Errantial/personal-hub/pull/35), reliability foundation, migration 058) is live. It passed the staged-release preflight on the host and a fresh isolated restore (`20261015T074651Z`) before activation; see the [implementation log](../../docs/implementation-log.md). The 2026-10-14 receipt below covers the earlier release.
+
+## Release 519054d (2026-10-14)
+
+Release `519054d` was deployed at https://hub.ecg.name with persistent agent backend, Assistant controls, action settings and linked Inbox/Today notifications. PRs 30–32 are merged; integration PR 33 brought the notification layer from its merged stack base into main. The release tree matches the code validated by 628 tests and all 144 browser cases. The first owner-created agent/run and live acceptance remain pending; see the [approved exclusions](../../docs/superpowers/specs/2026-10-14-persistent-agents-design.md#out-of-scope-recorded-for-future-work).
 
 The artifact checksum and all 56 previously applied migration files matched before activation. Fresh backups were restored into isolated verification databases before activation (`20261015T050757Z`) and after migration 057 (`20261015T050919Z`), including the manifest and synthetic receipt checks. API/Caddy are active; HTTPS readiness passes, and live HTML, entry bundle and service worker match the staged build. `/sw.js` retains `Cache-Control: no-cache`. Agent endpoints return 401 without an owner session; the server-side worker heartbeat is healthy, with zero agents configured. An authenticated HTTP worker-health read was not performed because this verification browser had no owner session. No paid request or agent was created for verification.
 
@@ -52,7 +56,7 @@ Transfer over SSH, extract into a **new** directory under `/srv/personal-hub/rel
 
 Take a backup and review migration compatibility before changing the release symlink. Restart the API, check `/api/ready`, then reload Caddy. Keep the previous release until verification. A code rollback does not roll back migrations; never silently restore an older database over current owner data.
 
-### Staged-release preflight (implemented, not yet exercised on the host)
+### Staged-release preflight (first host run 2026-10-15, release ed37f74)
 
 `release-check.mjs` and `preflight.sh` add offline artifact and migration gates. They do not deploy, migrate, load production configuration, start a server/worker or contact a provider. Run the normal application checks from a clean, reviewed checkout first. Record the **full** tested commit and tree (`git rev-parse HEAD` and `git rev-parse 'HEAD^{tree}'`); verify any stacked changes are present on the release branch. The manifest records this operator-supplied identity; it does not independently prove that a build came from that tree, replace review/CI, or authenticate a downloaded artifact.
 
