@@ -170,7 +170,8 @@ export function plannerSources(
 
 /** What one mail source looked like when sent: header, or header and body. */
 export type MailProjected = {
-  projection: 'mail-header-v1' | 'mail-body-v1' | 'mail-classify-v1' | 'mail-task-v1';
+  projection:
+    'mail-header-v1' | 'mail-body-v1' | 'mail-classify-v1' | 'mail-task-v1';
   id: string;
   ref: string;
   projected: unknown;

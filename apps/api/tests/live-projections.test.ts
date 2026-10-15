@@ -106,7 +106,9 @@ describe('live planner context', () => {
           id,
           harness!.owner,
           conversation,
-          JSON.stringify([{ state: 'applied', applied: { id: task!.id, version: 1 } }]),
+          JSON.stringify([
+            { state: 'applied', applied: { id: task!.id, version: 1 } },
+          ]),
           mail,
         ],
       );
@@ -189,7 +191,14 @@ describe('live mail sources', () => {
       harness.database,
       harness.owner,
       randomUUID(),
-      [{ projection: 'mail-header-v1', id: verified, ref: 'm1', projected: {} }],
+      [
+        {
+          projection: 'mail-header-v1',
+          id: verified,
+          ref: 'm1',
+          projected: {},
+        },
+      ],
     );
     expect(source).toMatchObject({
       kind: 'mail-message',
@@ -198,7 +207,12 @@ describe('live mail sources', () => {
     });
     await expect(
       mailSources(harness.database, harness.owner, randomUUID(), [
-        { projection: 'mail-header-v1', id: unverified, ref: 'm1', projected: {} },
+        {
+          projection: 'mail-header-v1',
+          id: unverified,
+          ref: 'm1',
+          projected: {},
+        },
       ]),
     ).rejects.toMatchObject({ code: 'PROVENANCE_UNAVAILABLE' });
   });

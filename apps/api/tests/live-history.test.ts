@@ -145,16 +145,14 @@ describe('bound history', () => {
       .fn()
       .mockResolvedValueOnce([recent, older])
       .mockResolvedValue(
-        refs
-          .slice(0, 600)
-          .map((ref) => ({
-            id: ref.id,
-            sensitivity: 'unlabeled',
-            text_origin: 'message-body-v1',
-            connectorId: connector.id,
-            connectorVersion: 1,
-            connectorSensitivity: 'unlabeled',
-          })),
+        refs.slice(0, 600).map((ref) => ({
+          id: ref.id,
+          sensitivity: 'unlabeled',
+          text_origin: 'message-body-v1',
+          connectorId: connector.id,
+          connectorVersion: 1,
+          connectorSensitivity: 'unlabeled',
+        })),
       );
     const result = await readBoundHistory(
       { query } as unknown as QueryExecutor,
