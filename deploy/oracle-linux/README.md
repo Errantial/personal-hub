@@ -39,7 +39,7 @@ tar -czf release.tar.gz package.json package-lock.json \
   packages/contracts/package.json packages/contracts/dist
 ```
 
-Transfer over SSH, extract into a **new** directory under `/srv/personal-hub/releases`, install as `hub` with the bundled runtime and `npm ci --omit=dev --ignore-scripts`, then make the release root-owned. This release needs no production install scripts; review dependencies that change that assumption.
+Transfer over SSH, extract into a **new** directory under `/srv/personal-hub/releases`, install as `hub` with the bundled runtime and `npm ci --omit=dev --ignore-scripts`, then make the release root-owned. The home directory stays root-owned, so provisioning points npm at `/var/cache/personal-hub/npm` through a root-owned `/srv/personal-hub/.npmrc`. This release needs no production install scripts; review dependencies that change that assumption.
 
 Take a backup and review migration compatibility before changing the release symlink. Restart the API, check `/api/ready`, then reload Caddy. Keep the previous release until verification. A code rollback does not roll back migrations; never silently restore an older database over current owner data.
 
