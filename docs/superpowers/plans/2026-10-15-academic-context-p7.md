@@ -98,7 +98,7 @@
 
 **Files:**
 
-- Modify: `apps/api/src/ai/live-guard.ts`, `apps/api/src/features/assistant.ts` (pass the callback)
+- Modify: `apps/api/src/ai/live-guard.ts`, `apps/api/src/ai/live-manifest.ts` (`historyRefs` keeps `academicCourse`), `apps/api/src/ai/live-history.ts` (`historySourcesEligible` handles `academic-work`), `apps/api/src/features/assistant.ts` (pass the callback)
 - Test: `apps/api/tests/live-admission.test.ts`
 
 **Interfaces:**
@@ -107,12 +107,15 @@
 - Produces:
   - `GuardContext` adds `reprojectAcademic?: (tx, sources: LiveSource[]) => Promise<LiveSource[]>`. It re-reads each academic source, requires active work and class, equal `version`, equal `academicCourse.version` and equal `labels`, and re-digests `projectAcademic`. A vanished or changed item omits it from the result.
   - `verifyLive` step: every academic source re-projects to an equal digest; a mismatch returns `context-changed`.
+  - `historyRefs` carries the optional `academicCourse` on history refs.
+  - `historySourcesEligible` adds an `academic-work` branch: the work and its class exist (not deleted) with equal labels and equal `academicCourse.version`; a missing/edited/relabelled/archived item makes history ineligible (stops the resent history, never silently drops a ref).
   - `answerTurn` passes `reprojectAcademic` in the `transmitLive` context, built on `academicContext` for the bound refs (labels resolved the same way).
 
 - [ ] **Step 1: Write failing tests**
   - `rejects an academic edit without a version change`: `UPDATE academic_work SET title=…` (no version bump) gives `withheld/context-changed`, no fetch, reservation `released`.
   - `rejects a class relabel`: relabeling the class between prepare and transmit gives `context-changed`.
   - `rejects a deleted selected work item`: soft-deleting the work gives `context-changed`.
+  - `a bound academic turn stays resendable`: a follow-up after an academic turn keeps the earlier turn in history; deleting or relabelling the work instead withholds it (and every older turn).
 - [ ] **Step 2: Run** `npx vitest run live-admission`. Expected: FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run the tests, then `npm run check`.** Expected: PASS.
