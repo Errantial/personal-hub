@@ -1,15 +1,12 @@
 import { expect, it } from 'vitest';
 import {
+  applyRequest,
   assistantProposalSchema,
   calendarRecordSchema,
   taskSchema,
-} from '@hub/contracts';
-import {
-  applyRequest,
-  describeProposal,
-  formatCost,
   undoRequest,
-} from '../src/lib/assistant';
+} from '@hub/contracts';
+import { describeProposal, formatCost } from '../src/lib/assistant';
 
 const task = taskSchema.parse({
   id: '00000000-0000-4000-8000-000000000001',

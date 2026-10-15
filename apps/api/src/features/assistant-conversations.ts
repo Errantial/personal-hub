@@ -34,7 +34,16 @@ const idSchema = z.object({ id: z.string().uuid() });
 const notFound = () =>
   new ApiError(404, 'NOT_FOUND', 'This conversation no longer exists.');
 
-const conversationColumns = `c.id,c.title,c.version,${stamp('c.created_at', 'createdAt')},${stamp('c.updated_at', 'updatedAt')},(SELECT count(*)::int FROM ai_conversation_turns t WHERE t.conversation_id=c.id) AS "turnCount"`;
+const utc = (column: string) =>
+  `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+/** The pinned agent's state for its thread (D57); null for ordinary threads. */
+const agentSummary = `(SELECT json_build_object('id',r.id,'title',r.title,'status',r.status,'pauseReason',r.pause_reason,
+  'nextRunAt',CASE WHEN r.status='active' THEN ${utc('s.next_due_at')} END,
+  'lastOutcome',(SELECT outcome FROM responsibility_runs x WHERE x.responsibility_id=r.id AND x.finished_at IS NOT NULL ORDER BY x.finished_at DESC LIMIT 1),
+  'lastRunAt',(SELECT ${utc('max(x.finished_at)')} FROM responsibility_runs x WHERE x.responsibility_id=r.id))
+  FROM responsibilities r LEFT JOIN responsibility_schedules s ON s.owner_id=r.owner_id AND s.responsibility_id=r.id AND s.deleted_at IS NULL
+  WHERE r.id=c.responsibility_id AND r.deleted_at IS NULL AND r.status<>'cancelled') AS agent`;
+const conversationColumns = `c.id,c.title,c.version,${stamp('c.created_at', 'createdAt')},${stamp('c.updated_at', 'updatedAt')},(SELECT count(*)::int FROM ai_conversation_turns t WHERE t.conversation_id=c.id) AS "turnCount",${agentSummary}`;
 
 /**
  * Creates the conversation on its first ask (the first ask is its title), or
@@ -82,14 +91,27 @@ export async function readHistory(
 export async function startTurn(
   database: Database,
   owner: string,
-  turn: { id: string; conversationId: string; ask: string; useMail: boolean },
+  turn: {
+    id: string;
+    conversationId: string;
+    ask: string;
+    useMail: boolean;
+    trigger: 'owner' | 'agent';
+  },
 ) {
   await database.transaction(async (tx) => {
     await openConversation(tx, owner, turn.conversationId, turn.ask);
     await tx.query(
-      `INSERT INTO ai_conversation_turns(id,owner_id,conversation_id,position,ask,use_mail)
-       VALUES($1,$2,$3,(SELECT COALESCE(max(position)+1,0) FROM ai_conversation_turns WHERE conversation_id=$3),$4,$5)`,
-      [turn.id, owner, turn.conversationId, turn.ask, turn.useMail],
+      `INSERT INTO ai_conversation_turns(id,owner_id,conversation_id,position,ask,use_mail,trigger)
+       VALUES($1,$2,$3,(SELECT COALESCE(max(position)+1,0) FROM ai_conversation_turns WHERE conversation_id=$3),$4,$5,$6)`,
+      [
+        turn.id,
+        owner,
+        turn.conversationId,
+        turn.ask,
+        turn.useMail,
+        turn.trigger,
+      ],
     );
     await tx.query(
       'UPDATE ai_conversations SET updated_at=CURRENT_TIMESTAMP,version=version+1 WHERE id=$1',
@@ -143,7 +165,7 @@ export async function finishTurn(
   );
 }
 
-const turnColumns = `t.id,t.conversation_id AS "conversationId",t.ask,t.reply,t.proposals,t.items,t.version,t.use_mail AS "useMail",t.mail,t.mail_withheld AS "mailWithheld",t.mail_note AS "mailNote"`;
+const turnColumns = `t.id,t.conversation_id AS "conversationId",t.ask,t.reply,t.proposals,t.items,t.version,t.use_mail AS "useMail",t.mail,t.mail_withheld AS "mailWithheld",t.mail_note AS "mailNote",t.trigger,t.not_allowed AS "notAllowed"`;
 const json = (value: unknown) =>
   typeof value === 'string' ? JSON.parse(value) : value;
 
@@ -205,6 +227,8 @@ function toTurn(
     version: row.version as number,
     items,
     useMail: row.useMail === true,
+    trigger: row.trigger === 'agent' ? 'agent' : 'owner',
+    notAllowed: Number(row.notAllowed ?? 0),
     mail: (json(row.mail) ?? []) as AssistantMailSent[],
     mailWithheld: Number(row.mailWithheld ?? 0),
     mailNote: (row.mailNote as string | null) ?? null,
@@ -237,7 +261,7 @@ export function registerAssistantConversations(
   app.get(base, async (request) => {
     const owner = await auth.requireUser(request);
     const conversations = await database.query(
-      `SELECT ${conversationColumns} FROM ai_conversations c WHERE c.owner_id=$1 AND c.deleted_at IS NULL AND EXISTS (SELECT 1 FROM ai_conversation_turns t WHERE t.conversation_id=c.id) ORDER BY c.updated_at DESC LIMIT 100`,
+      `SELECT ${conversationColumns} FROM ai_conversations c WHERE c.owner_id=$1 AND c.deleted_at IS NULL AND (c.responsibility_id IS NOT NULL OR EXISTS (SELECT 1 FROM ai_conversation_turns t WHERE t.conversation_id=c.id)) ORDER BY c.updated_at DESC LIMIT 100`,
       [owner.id],
     );
     return assistantConversationListSchema.parse({ conversations });
@@ -269,12 +293,18 @@ export function registerAssistantConversations(
     const input = assistantConversationDeleteSchema.parse(request.body ?? {});
     await database.transaction(async (tx) => {
       const [row] = await tx.query(
-        'SELECT version,deleted_at FROM ai_conversations WHERE owner_id=$1 AND id=$2 FOR UPDATE',
+        'SELECT version,deleted_at,responsibility_id FROM ai_conversations WHERE owner_id=$1 AND id=$2 FOR UPDATE',
         [owner.id, id],
       );
       if (!row) throw notFound();
       // Repeating a delete is harmless.
       if (row.deleted_at !== null) return;
+      if (row.responsibility_id !== null)
+        throw new ApiError(
+          409,
+          'AGENT_CONVERSATION',
+          "This is an agent's conversation. Delete the agent instead.",
+        );
       if (row.version !== input.expectedVersion)
         throw new ApiError(
           409,
