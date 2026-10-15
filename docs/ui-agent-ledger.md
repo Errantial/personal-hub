@@ -842,6 +842,8 @@ Settings > AI > Assistant exposes Destination: server-declared hosts for the dra
 
 Assistant and Today Ask disable sending until a fresh successful destination read says Ready. Offline, loading and failed status reads block asks; Settings approval/revoke and Personal consent writes are disabled offline. The mounted Destination panel warns that offline status can be stale; it has no offline write queue.
 
+Blocked-destination Settings links in Assistant and Today Ask use the shared control target: at least 44px in standard mode and 48px in e-ink. Preserve keyboard activation and navigation to Settings > AI without enabling Ask or adding an offline approval queue.
+
 Answered turns marked unbound remain readable, with an earlier-messages note, keyboard/tap Help and New conversation. Read-only mail proposals show From mail / read only and omit proposal checkboxes and Apply; the apply-selection helper independently refuses them. Existing applied items retain Undo. Turn details distinguish Body sent (cut), while actionable source/destination guard errors remain visible. Agent details map missing approval, unavailable destination and changed context into concise reasons.
 
 Known limits: owner Apply for applicable non-mail turns remains client-composed until boundary 2; the UI does not establish derived-output lineage. A bound marker describes saved eligibility, not a promise that the next ask will reuse a turn: current source/consent checks may withhold it. Production deployment, real providers, owner acceptance and Kompakt hardware remain separate gates.

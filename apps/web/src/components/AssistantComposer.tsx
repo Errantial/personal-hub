@@ -130,7 +130,11 @@ export function AssistantComposer({
             : route?.reason
               ? destinationReason[route.reason]
               : 'Checking destination'}{' '}
-          <Link route={{ name: 'settings', section: 'ai' }} navigate={navigate}>
+          <Link
+            className="link-button"
+            route={{ name: 'settings', section: 'ai' }}
+            navigate={navigate}
+          >
             Settings
           </Link>
           {destination.error && (

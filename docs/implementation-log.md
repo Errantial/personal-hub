@@ -1,5 +1,11 @@
 # Implementation log
 
+## 2026-10-15 — PR #37 blocked-destination link targets
+
+Verified the Linux check failure: the Assistant's blocked-destination Settings link rendered at 21px, below both standard and e-ink target requirements. Assistant and Today Ask now use the existing shared link-button control styling. Expanded the blocked-destination browser regression across both views at 1280px standard and 320px e-ink, checking rendered target size, overflow, disabled Ask and keyboard navigation to Settings > AI. No destination authority, provider behavior or migrations changed.
+
+Validation: `npm run check` passed lint, workspace types, 731 tests (three optional PostgreSQL tests skipped), formatting and production builds. `npm run test:e2e` passed all 155 isolated Chromium tests, including both previously failing accessibility checks and all four blocked-destination target/keyboard cases. GitHub returned no review comments for this PR. No owner database, real provider requests, deployment or hardware tests were used; Linux CI must rerun on the fix.
+
 ## 2026-10-15 — Live admission boundary 1 (development, validation pending)
 
 Implemented exact serialized live envelopes, per-exchange private source manifests, an owner-approved single OpenRouter upstream, final snapshot verification and release of provably unsent holds. Assistant/agent and selected-message suggestion paths use this boundary; the general gateway remains disabled. New history carries bounded transitive source references and text integrity bindings; legacy history stays readable but is withheld from inference. Source/connector labels, eligibility, approval versions, owner authority and agent leases are rechecked before transmission. Approval revocation retains a monotonic version (migration 061); migration 060 adds exchange, destination and turn-binding records.

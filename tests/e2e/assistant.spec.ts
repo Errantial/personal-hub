@@ -711,30 +711,51 @@ async function stubDestination(
   );
 }
 
-test('blocked destination disables Ask and links to Settings at 320px', async ({
-  page,
-}) => {
-  await stubAnswers(page);
-  await stubDestination(page, {
-    status: 'blocked',
-    reason: 'approval-required',
-    approved: null,
-    version: 0,
-  });
-  await page.setViewportSize({ width: 320, height: 800 });
-  await page.goto('/assistant');
-  await expect(page.locator('main')).toContainText(
-    'Assistant blocked: Not approved',
-  );
-  await expect(
-    page.getByRole('button', { name: 'Ask', exact: true }),
-  ).toBeDisabled();
-  await page
-    .locator('main')
-    .getByRole('link', { name: 'Settings', exact: true })
-    .click();
-  await expect(page).toHaveURL(/settings\/ai$/);
-});
+for (const { theme, width, target } of [
+  { theme: 'standard', width: 1280, target: 44 },
+  { theme: 'eink', width: 320, target: 48 },
+]) {
+  for (const view of ['assistant', 'today']) {
+    test(`blocked destination offers an accessible Settings target (${view}, ${theme})`, async ({
+      page,
+    }) => {
+      await stubAnswers(page);
+      await stubDestination(page, {
+        status: 'blocked',
+        reason: 'approval-required',
+        approved: null,
+        version: 0,
+      });
+      await page.setViewportSize({ width, height: 800 });
+      await page.addInitScript((eink) => {
+        localStorage.setItem('hub:eink', String(eink));
+        localStorage.setItem('hub:command-mode', 'ask');
+      }, theme === 'eink');
+      await page.goto(`/${view}`);
+      await expect(page.locator('main')).toContainText(
+        'Assistant blocked: Not approved',
+      );
+      await expect(
+        page.getByRole('button', { name: 'Ask', exact: true }),
+      ).toBeDisabled();
+      const settings = page
+        .locator('main')
+        .getByRole('link', { name: 'Settings', exact: true });
+      await expect(settings).toBeVisible();
+      const box = (await settings.boundingBox())!;
+      expect(box.height).toBeGreaterThanOrEqual(target);
+      expect(box.width).toBeGreaterThanOrEqual(target);
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+      await settings.focus();
+      await settings.press('Enter');
+      await expect(page).toHaveURL(/settings\/ai$/);
+    });
+  }
+}
 
 test('earlier-messages note offers a new conversation and keyboard Help at 320px', async ({
   page,
