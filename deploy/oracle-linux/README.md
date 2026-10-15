@@ -2,6 +2,14 @@
 
 Deployed 2026-10-13 at https://hub.ecg.name from application commit `265a99d`. Updated the same day to `main` at `4491762` (Assistant, Mail ingestion, verified mail context; migrations through 048) after a verified backup/restore check; release `265a99d` is kept for rollback. The inspected host is Oracle Linux 9.7 / ARM64, with two CPUs, 10 GiB RAM and a 30 GiB root filesystem. The existing Java service was preserved. The server has a fresh database; development records have not been transferred. Planner JSON exports are not supported imports.
 
+## Current release (2026-10-14)
+
+Release `519054d` is live at https://hub.ecg.name with persistent agent backend, Assistant controls, action settings and linked Inbox/Today notifications. PRs 30–32 are merged; integration PR 33 brought the notification layer from its merged stack base into main. The release tree matches the code validated by 628 tests and all 144 browser cases. The first owner-created agent/run and live acceptance remain pending; see the [approved exclusions](../../docs/superpowers/specs/2026-10-14-persistent-agents-design.md#out-of-scope-recorded-for-future-work).
+
+The artifact checksum and all 56 previously applied migration files matched before activation. Fresh backups were restored into isolated verification databases before activation (`20261015T050757Z`) and after migration 057 (`20261015T050919Z`), including the manifest and synthetic receipt checks. API/Caddy are active; HTTPS readiness passes, and live HTML, entry bundle and service worker match the staged build. `/sw.js` retains `Cache-Control: no-cache`. Agent endpoints return 401 without an owner session; the server-side worker heartbeat is healthy, with zero agents configured. An authenticated HTTP worker-health read was not performed because this verification browser had no owner session. No paid request or agent was created for verification.
+
+The first activation failed because the staging directory inherited restrictive permissions; readiness triggered a code rollback to `b7f7af1`. Public release files were made readable/traversable by the service user, runtime imports were checked as `hub`, and the second activation succeeded. The private environment remains root-owned mode 0600. Keep release directories service-readable when making staged files root-owned. Previous release `b7f7af1` is retained for code rollback; rollback never restores an older database automatically.
+
 ## Owner setup
 
 Open https://hub.ecg.name and create the owner account with your own email/password. In your own SSH terminal, retrieve the server setup token:

@@ -6,7 +6,7 @@ Persistent agents (D57, 2026-10-14, [design](superpowers/specs/2026-10-14-persis
 
 ## Milestone 1: owned responsibility lifecycle
 
-D57 UI is implemented locally (rollout pending): pinned Assistant conversations, create/edit, Pause/Resume, Run now, cap controls, results and Undo. Non-quiet run notifications link from Inbox and Today; opening a retained conversation reads its own notifications. Legacy responsibility UI remains pending. See the [explicit exclusions](superpowers/specs/2026-10-14-persistent-agents-design.md#out-of-scope-recorded-for-future-work).
+D57 UI is deployed in release `519054d` (2026-10-14; live owner acceptance pending): pinned Assistant conversations, create/edit, Pause/Resume, Run now, cap controls, results and Undo. Non-quiet run notifications link from Inbox and Today; opening a retained conversation reads its own notifications. Legacy responsibility UI remains pending. See the [explicit exclusions](superpowers/specs/2026-10-14-persistent-agents-design.md#out-of-scope-recorded-for-future-work).
 
 POST `/api/v1/responsibilities` takes operationId, title (trimmed 1–160), goal (trimmed 1–4000) and optional owner sensitivity (unlabeled default). Source is server-assigned owner-entered; status starts paused/version 1. Labels retain the complete unique history of owner-applied labels. Attachments, refs/source manifests, providers, tools, budgets, client status/source/labels and arbitrary execution settings are rejected. Goal text is data, never executable code or an instruction granting authority.
 

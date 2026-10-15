@@ -1,6 +1,6 @@
 # Typed action permissions
 
-Backend settings and authority preview implemented 2026-10-11. D57 adds Settings > AI > Actions and enforcement in scheduled agent runs (implemented locally 2026-10-14; rollout pending): automatic categories apply hub planner changes with Undo, ask-first waits for Apply, and blocked categories are dropped and counted. Owner Assistant requests always ask first. The authority preview remains non-executing and never grants approval. [Exact-message email approval records](email-drafts.md) remain separate; email sending is unavailable. See the [agent scope and exclusions](superpowers/specs/2026-10-14-persistent-agents-design.md#out-of-scope-recorded-for-future-work).
+Backend settings and authority preview implemented 2026-10-11. D57 adds Settings > AI > Actions and enforcement in scheduled agent runs (deployed 2026-10-14 as release 519054d): automatic categories apply hub planner changes with Undo, ask-first waits for Apply, and blocked categories are dropped and counted. Owner Assistant requests always ask first. The authority preview remains non-executing and never grants approval. [Exact-message email approval records](email-drafts.md) remain separate; email sending is unavailable. See the [agent scope and exclusions](superpowers/specs/2026-10-14-persistent-agents-design.md#out-of-scope-recorded-for-future-work).
 
 ## Owner settings
 
