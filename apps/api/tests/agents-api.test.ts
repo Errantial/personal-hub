@@ -312,3 +312,35 @@ it('reports worker health', async () => {
     healthy: true,
   });
 });
+
+it('refuses legacy responsibility edits on agents so their rules hold', async () => {
+  h = await startHarness();
+  const agent = await create();
+  const change = { operationId: randomUUID(), expectedVersion: agent.version };
+  const responses = [
+    await h.call('PUT', `/api/v1/responsibilities/${agent.id}`, {
+      ...change,
+      title: agent.title,
+      goal: agent.goal,
+      sensitivity: 'restricted',
+    }),
+    await h.call('PUT', `/api/v1/responsibilities/${agent.id}/schedule`, {
+      ...change,
+      operationId: randomUUID(),
+      schedule: null,
+    }),
+    await h.call('PUT', `/api/v1/responsibilities/${agent.id}/local-schedule`, {
+      ...change,
+      operationId: randomUUID(),
+      rule: {
+        startDate: '2020-01-01',
+        localTime: '07:00',
+        timeZone: zone,
+        frequency: 'daily',
+      },
+    }),
+  ];
+  for (const response of responses)
+    expect(response.json().error.code).toBe('AGENT_USE_AGENT_API');
+  expect((await h.call('GET', '/api/v1/agents')).json().agents).toHaveLength(1);
+});

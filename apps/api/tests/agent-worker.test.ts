@@ -351,3 +351,20 @@ it('keeps queued runs across a restart', async () => {
     await rm(dataDir, { recursive: true, force: true });
   }
 });
+
+it('never sends a labeled agent goal', async () => {
+  h = await startHarness();
+  const agent = await seedAgent({ daysAgo: -1 });
+  await h.database.query(
+    "UPDATE responsibilities SET sensitivity='restricted',labels=ARRAY['unlabeled','restricted'] WHERE id=$1",
+    [agent.id],
+  );
+  const id = await queueRun(agent);
+  await tick();
+  expect(await run(id)).toMatchObject({
+    status: 'failed',
+    error_code: 'AGENT_LABELED',
+  });
+  expect(h.chatCalls()).toBe(0);
+  expect(await reservations()).toHaveLength(0);
+});

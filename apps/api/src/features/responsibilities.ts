@@ -236,6 +236,19 @@ export async function admitSlot(
   );
   return run;
 }
+/** Agents (D57) are edited through /api/v1/agents so their rules hold. */
+async function refuseAgent(tx: QueryExecutor, owner: string, id: string) {
+  const [row] = await tx.query(
+    'SELECT template FROM responsibilities WHERE owner_id=$1 AND id=$2',
+    [owner, id],
+  );
+  if (row?.template)
+    throw new ApiError(
+      409,
+      'AGENT_USE_AGENT_API',
+      'Edit this agent from the Assistant page.',
+    );
+}
 /** Points a resumed agent's local schedule at its first future slot. */
 async function restartAgentSchedule(
   tx: QueryExecutor,
@@ -439,6 +452,7 @@ export function registerResponsibilities(
         const before = await read(tx, user.id, id, true);
         version(before, input.expectedVersion);
         available(before);
+        await refuseAgent(tx, user.id, id);
         const [row] = await tx.query(
           `UPDATE responsibilities SET title=$3,goal=$4,sensitivity=$5,labels=$6,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2 RETURNING ${responsibilityColumns}`,
           [
@@ -555,6 +569,7 @@ export function registerResponsibilities(
         const before = await read(tx, user.id, id, true);
         version(before, input.expectedVersion);
         available(before);
+        await refuseAgent(tx, user.id, id);
         if (input.schedule) {
           await tx.query(
             `INSERT INTO responsibility_schedules(owner_id,responsibility_id,starts_at,interval_minutes,next_due_at) VALUES($1,$2,$3,$4,$3) ON CONFLICT(owner_id,responsibility_id) DO UPDATE SET starts_at=$3,interval_minutes=$4,next_due_at=$3,local_rule=NULL,next_local_index=NULL,deleted_at=NULL,version=responsibility_schedules.version+1,updated_at=CURRENT_TIMESTAMP`,
@@ -614,6 +629,7 @@ export function registerResponsibilities(
         const before = await read(tx, user.id, id, true);
         version(before, input.expectedVersion);
         available(before);
+        await refuseAgent(tx, user.id, id);
         await tx.query(
           `INSERT INTO responsibility_schedules(owner_id,responsibility_id,starts_at,interval_minutes,next_due_at,local_rule,next_local_index) VALUES($1,$2,$3,NULL,$3,$4::jsonb,0) ON CONFLICT(owner_id,responsibility_id) DO UPDATE SET starts_at=$3,interval_minutes=NULL,next_due_at=$3,local_rule=$4::jsonb,next_local_index=0,deleted_at=NULL,version=responsibility_schedules.version+1,updated_at=CURRENT_TIMESTAMP`,
           [user.id, id, first, JSON.stringify(input.rule)],

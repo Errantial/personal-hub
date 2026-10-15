@@ -46,8 +46,9 @@ type AgentRow = {
   useMail: boolean;
   capMicros: number;
   pauseReason: string | null;
+  sensitivity: string;
 };
-const agentColumns = `id,owner_id AS "ownerId",version,status,title,goal,template,conversation_id AS "conversationId",time_zone AS "timeZone",use_mail AS "useMail",monthly_cap_micros::text AS "capMicros",pause_reason AS "pauseReason"`;
+const agentColumns = `id,owner_id AS "ownerId",version,status,title,goal,template,conversation_id AS "conversationId",time_zone AS "timeZone",use_mail AS "useMail",monthly_cap_micros::text AS "capMicros",pause_reason AS "pauseReason",sensitivity`;
 
 /** Agent fields of one responsibility; null when it is not an agent. */
 export async function readAgentRow(
@@ -285,6 +286,9 @@ async function execute(
     return failRun(database, run, agent, 'AGENT_PAUSED', now);
   if (agent.version !== run.responsibilityVersion)
     return failRun(database, run, agent, 'AGENT_CHANGED', now);
+  // Goals are sent to OpenRouter: only unlabeled agents run.
+  if (agent.sensitivity !== 'unlabeled')
+    return failRun(database, run, agent, 'AGENT_LABELED', now);
   if (
     (await agentSpend(database, run.ownerId, agent.id, now)) >= agent.capMicros
   ) {
