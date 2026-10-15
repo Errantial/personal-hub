@@ -47,12 +47,6 @@
   border: 0;
   padding-left: 0;
 }
-.calendar-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  align-items: end;
-}
 .calendar-date {
   display: grid;
   gap: var(--space-1);
@@ -100,19 +94,6 @@
   gap: var(--space-2);
   margin: var(--space-4) 0 var(--space-1);
   font-size: var(--text-body);
-}
-/* A day with nothing on it is one quiet line, not a block. */
-.calendar-day--empty {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  column-gap: var(--space-3);
-}
-.calendar-day--empty h3 {
-  margin-bottom: var(--space-1);
-}
-.calendar-day--empty p {
-  margin: var(--space-4) 0 var(--space-1);
 }
 .calendar-entries {
   list-style: none;
@@ -213,4 +194,19 @@
   .calendar-editor__back:not(.calendar-editor__back--always) {
     display: none;
   }
+}
+/* Pane header: Help, read state and Select on one line. */
+.calendar-pane-head {
+  justify-content: flex-start;
+  margin-bottom: var(--space-2);
+}
+.calendar-pane-state {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.calendar-pane-state p {
+  margin: 0;
 }

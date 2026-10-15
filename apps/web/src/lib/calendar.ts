@@ -16,14 +16,23 @@ const windowDays: Record<CalendarView, number> = {
   agenda: 7,
   week: 7,
   day: 1,
+  month: 42,
 };
 
+const mondayOf = (date: Temporal.PlainDate) =>
+  date.subtract({ days: date.dayOfWeek - 1 });
+
 /** Dates shown for a view: Agenda starts at the chosen date, Week at its
- *  Monday, Day is the date itself. `to` is exclusive. */
+ *  Monday, Day is the date itself, and Month is six weeks from the Monday on
+ *  or before the 1st. `to` is exclusive. */
 export function viewRange(date: string, view: CalendarView) {
   const chosen = Temporal.PlainDate.from(date);
   const first =
-    view === 'week' ? chosen.subtract({ days: chosen.dayOfWeek - 1 }) : chosen;
+    view === 'week'
+      ? mondayOf(chosen)
+      : view === 'month'
+        ? mondayOf(chosen.with({ day: 1 }))
+        : chosen;
   const days = Array.from({ length: windowDays[view] }, (_, index) =>
     first.add({ days: index }).toString(),
   );
@@ -34,14 +43,19 @@ export function viewRange(date: string, view: CalendarView) {
   };
 }
 
-/** The date one window before (-1) or after (1) `date`. */
+/** The date one window before (-1) or after (1) `date`; Month moves by
+ *  calendar month, clamping the day to the month's length. */
 export const shiftDate = (
   date: string,
   view: CalendarView,
   direction: 1 | -1,
 ) =>
   Temporal.PlainDate.from(date)
-    .add({ days: direction * windowDays[view] })
+    .add(
+      view === 'month'
+        ? { months: direction }
+        : { days: direction * windowDays[view] },
+    )
     .toString();
 
 /** Whether an occurrence overlaps a calendar day in the viewing timezone.
@@ -132,6 +146,8 @@ export type DraftDefaults = {
   date: string;
   timeZone: string;
   study?: StudyDraft | null;
+  /** Local start (`YYYY-MM-DDTHH:MM`) chosen from a grid slot; one hour long. */
+  start?: string;
 };
 
 /** Which offset the stored instant uses, when its wall time occurs twice;
@@ -161,15 +177,21 @@ export function toDraft(
   defaults: DraftDefaults,
 ): CalendarDraft {
   if (!event) {
+    const start = defaults.start
+      ? Temporal.PlainDateTime.from(defaults.start)
+      : Temporal.PlainDate.from(defaults.date).toPlainDateTime({ hour: 10 });
+    const wall = (time: Temporal.PlainDateTime) =>
+      time.toString({ smallestUnit: 'minute' });
+    const day = start.toPlainDate().toString();
     return {
       title: defaults.study?.title ?? '',
       notes: '',
       allDay: false,
       timeZone: defaults.timeZone,
-      startDate: defaults.date,
-      lastDate: defaults.date,
-      startsAt: `${defaults.date}T10:00`,
-      endsAt: `${defaults.date}T11:00`,
+      startDate: day,
+      lastDate: day,
+      startsAt: wall(start),
+      endsAt: wall(start.add({ hours: 1 })),
       startOffset: '',
       endOffset: '',
       frequency: 'none',

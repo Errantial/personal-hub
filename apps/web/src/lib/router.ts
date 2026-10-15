@@ -44,12 +44,17 @@ export const taskFilterLabels: Record<TaskFilter, string> = {
   'no-date': 'No date',
   done: 'Done',
 };
-export const calendarViews = ['agenda', 'week', 'day'] as const;
+/** Week is the default when the address has no view. */
+export const calendarViews = ['day', 'week', 'month', 'agenda'] as const;
 export type CalendarView = (typeof calendarViews)[number];
 /** What the calendar editor is open on: a new event, a whole event/series,
  *  or one occurrence of a repeating event (by its original date). */
 export type CalendarEditorRoute =
-  | { kind: 'new' }
+  | {
+      kind: 'new';
+      /** Local start chosen from a grid slot, `YYYY-MM-DDTHH:MM`. */
+      start?: string;
+    }
   | { kind: 'event'; id: string }
   | { kind: 'occurrence'; id: string; date: string };
 export const classSections = [
@@ -147,6 +152,12 @@ function isDate(value: string | null): value is string {
   return date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
+/** A local wall time `YYYY-MM-DDTHH:MM` on a real date. */
+const isLocalTime = (value: string | null): value is string =>
+  !!value &&
+  /^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/.test(value) &&
+  isDate(value.slice(0, 10));
+
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
 const isClassSection = (value: string | null): value is ClassSection =>
@@ -221,9 +232,10 @@ export function parseRoute(pathname: string, search: string): Route {
   if (name !== 'calendar') return { name };
   const date = query.get('date');
   const view = query.get('view');
+  const start = query.get('start');
   const editor: CalendarEditorRoute | null =
     detail === 'new'
-      ? { kind: 'new' }
+      ? { kind: 'new', ...(isLocalTime(start) ? { start } : {}) }
       : isUuid(detail)
         ? extra === 'occurrence' && isDate(occurrence)
           ? { kind: 'occurrence', id: detail, date: occurrence }
@@ -271,7 +283,9 @@ export function routePath(route: Route): string {
   if (route.name !== 'calendar') return `/${route.name}`;
   const query = new URLSearchParams();
   if (route.date) query.set('date', route.date);
-  if (route.view && route.view !== 'agenda') query.set('view', route.view);
+  if (route.view) query.set('view', route.view);
+  if (route.editor?.kind === 'new' && route.editor.start)
+    query.set('start', route.editor.start);
   const search = query.toString();
   const editor = route.editor;
   const detail = !editor

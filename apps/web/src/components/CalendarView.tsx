@@ -9,32 +9,30 @@ import {
   coursesSchema,
   occurrencesResponseSchema,
   plannerSensitivity,
+  tasksResponseSchema,
   topicsSchema,
   zone as zoneSchema,
 } from '@hub/contracts';
 import type { CalendarRecord, Occurrence } from '@hub/contracts';
 import { getJson, getSnapshot } from '../lib/api';
-import {
-  dayOccurrences,
-  shiftDate,
-  timeLabel,
-  viewRange,
-} from '../lib/calendar';
+import { dayOccurrences, timeLabel, viewRange } from '../lib/calendar';
 import type { StudyDraft } from '../lib/calendar';
 import { useMutation, useResource, useToday } from '../lib/hooks';
-import { calendarViews } from '../lib/router';
 import type { CalendarView as View, Route } from '../lib/router';
 import { maxSelection } from '../lib/selection';
 import { CalendarBatchBar } from './CalendarBatch';
 import { CalendarEditor } from './CalendarEditor';
+import { CalendarShell, useSourceVisibility } from './CalendarShell';
 import { CanvasEntry } from './CanvasEntry';
 import { useChoice } from './ConfirmDialog';
 import { DeletedItems } from './DeletedItems';
 import { Help } from './Help';
 import { Link } from './Link';
+import { MonthGrid } from './MonthGrid';
 import { PlannerSource } from './PlannerSource';
 import { ReadState } from './ReadState';
 import { StatusChip } from './StatusChip';
+import { TimeGrid, editorRoute } from './TimeGrid';
 import { TimeZoneInput } from './TimeZoneInput';
 import { formatInstant } from '../lib/format';
 import './CalendarView.css';
@@ -45,17 +43,6 @@ type Notice = {
   undo?: { id: string; version: number; title: string };
 };
 
-const viewLabels: Record<View, string> = {
-  agenda: 'Agenda',
-  week: 'Week',
-  day: 'Day',
-};
-const stepLabels: Record<View, string> = {
-  agenda: '7 days',
-  week: 'week',
-  day: 'day',
-};
-
 // Dates are plain calendar days; format in UTC so they never shift.
 const dayFormat = new Intl.DateTimeFormat(undefined, {
   weekday: 'short',
@@ -63,20 +50,23 @@ const dayFormat = new Intl.DateTimeFormat(undefined, {
   day: 'numeric',
   timeZone: 'UTC',
 });
-const rangeFormat = new Intl.DateTimeFormat(undefined, {
-  month: 'short',
-  day: 'numeric',
-  year: 'numeric',
-  timeZone: 'UTC',
-});
 const formatDay = (day: string) =>
   dayFormat.format(new Date(`${day}T12:00:00Z`));
-const formatRange = (from: string, last: string) =>
-  `${rangeFormat.format(new Date(`${from}T12:00:00Z`))}${
-    from === last
-      ? ''
-      : ` – ${rangeFormat.format(new Date(`${last}T12:00:00Z`))}`
-  }`;
+/** Day view is the default on phone-width screens, Week otherwise. */
+const narrowQuery = '(max-width: 639.98px)';
+function useNarrow() {
+  const [narrow, setNarrow] = useState(
+    () => typeof matchMedia === 'function' && matchMedia(narrowQuery).matches,
+  );
+  useEffect(() => {
+    if (typeof matchMedia !== 'function') return;
+    const query = matchMedia(narrowQuery);
+    const change = () => setNarrow(query.matches);
+    query.addEventListener('change', change);
+    return () => query.removeEventListener('change', change);
+  }, []);
+  return narrow;
+}
 
 export function CalendarView({
   route,
@@ -93,10 +83,11 @@ export function CalendarView({
     Intl.DateTimeFormat().resolvedOptions().timeZone,
   );
   const today = useToday(viewingZone);
-  const view = route.view ?? 'agenda';
+  const narrow = useNarrow();
+  const view: View = route.view ?? (narrow ? 'day' : 'week');
   const date = route.date ?? today;
   const { from, to, days } = viewRange(date, view);
-  const last = days[days.length - 1]!;
+  const [sources, setSources] = useSourceVisibility();
   const rangeKey = `${from}:${to}:${viewingZone}`;
   const query = new URLSearchParams({ from, to, timeZone: viewingZone });
 
@@ -124,6 +115,10 @@ export function CalendarView({
       failure: 'Canvas entries unavailable. Reload calendar to retry.',
       key: rangeKey,
     },
+  );
+  const tasks = useResource(
+    (signal) => getSnapshot('/api/v1/tasks', tasksResponseSchema, signal),
+    { failure: 'Tasks unavailable. Reload calendar to retry.' },
   );
   const courses = useResource(
     (signal) => getJson('/api/v1/courses', coursesSchema, signal),
@@ -162,11 +157,14 @@ export function CalendarView({
     ...(route.date ? { date: route.date } : {}),
     ...(route.view ? { view: route.view } : {}),
   };
-  // Changing the window keeps an open editor, so a draft survives browsing.
-  const keep = route.editor ? { editor: route.editor } : {};
   const reloadEvents = async () => (await events.reload())?.data.events;
   const reloadAll = async () => {
-    await Promise.all([events.reload(), occurrences.reload(), canvas.reload()]);
+    await Promise.all([
+      events.reload(),
+      occurrences.reload(),
+      canvas.reload(),
+      tasks.reload(),
+    ]);
   };
 
   async function deleteEvent(
@@ -258,7 +256,10 @@ export function CalendarView({
     void reloadAll();
   }
 
-  const items = occurrences.data?.data.occurrences ?? [];
+  const allItems = occurrences.data?.data.occurrences ?? [];
+  const items = allItems.filter(
+    (item) => sources[item.courseId ? 'study' : 'event'],
+  );
   // Selection works on whole records; prefer the record over an edited
   // occurrence's replacement fields.
   const records = new Map(
@@ -270,7 +271,8 @@ export function CalendarView({
     else next.set(record.id, record.version);
     select(next);
   }
-  const canvasItems = canvas.data?.items ?? [];
+  const canvasItems = sources.canvas ? (canvas.data?.items ?? []) : [];
+  const taskItems = tasks.data?.data.tasks ?? [];
   const sections = days.map((day) => {
     const entries: Entry[] = [
       ...dayOccurrences(items, day, viewingZone).map((item) => ({
@@ -296,12 +298,7 @@ export function CalendarView({
                   }
                 : null
             }
-            route={{
-              ...listRoute,
-              editor: item.recurrence
-                ? { kind: 'occurrence', id: item.id, date: item.originalDate }
-                : { kind: 'event', id: item.id },
-            }}
+            route={editorRoute(listRoute, item)}
             navigate={navigate}
           />
         ),
@@ -327,8 +324,7 @@ export function CalendarView({
     );
     return { day, entries };
   });
-  const shown =
-    view === 'agenda' ? sections.filter((s) => s.entries.length) : sections;
+  const shown = sections.filter((section) => section.entries.length);
   // Records with an occurrence in range, in display order, once each.
   const visibleRecords = [
     ...new Map(
@@ -345,194 +341,174 @@ export function CalendarView({
     reload: reloadAll,
   };
 
+  const agenda = view === 'agenda';
   return (
     <section className="calendar-view" aria-label="Calendar">
-      <nav aria-label="Calendar views">
-        <ul className="calendar-views">
-          {calendarViews.map((value) => (
-            <li key={value}>
-              <Link
-                route={{
-                  name: 'calendar',
-                  ...(route.date ? { date: route.date } : {}),
-                  ...(value === 'agenda' ? {} : { view: value }),
-                  ...keep,
-                }}
-                navigate={navigate}
-                current={value === view}
-              >
-                {viewLabels[value]}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </nav>
-      <div className="calendar-controls">
-        <Link
-          className="calendar-step"
-          route={{ ...listRoute, ...keep, date: shiftDate(date, view, -1) }}
-          navigate={navigate}
-        >
-          Previous {stepLabels[view]}
-        </Link>
-        <Link
-          className="calendar-step"
-          route={{ ...listRoute, ...keep, date: today }}
-          navigate={navigate}
-        >
-          Today
-        </Link>
-        <Link
-          className="calendar-step"
-          route={{ ...listRoute, ...keep, date: shiftDate(date, view, 1) }}
-          navigate={navigate}
-        >
-          Next {stepLabels[view]}
-        </Link>
-        <label className="calendar-date">
-          Date
-          <input
-            type="date"
-            value={date}
-            onChange={(event) => {
-              if (event.target.value)
-                navigate({ ...listRoute, ...keep, date: event.target.value });
-            }}
-          />
-        </label>
-        <Link
-          className="calendar-add"
-          route={{ ...listRoute, editor: { kind: 'new' } }}
-          navigate={navigate}
-        >
-          Add event
-        </Link>
-      </div>
-      <ViewingZone zone={viewingZone} onChange={setViewingZone} />
-      <div className="calendar-notice" role="status">
-        {notice && <p>{notice.text}</p>}
-        {notice?.undo && (
-          <button
-            type="button"
-            className="secondary-button"
-            disabled={restore.pending}
-            onClick={() => {
-              void undoDelete(notice.undo!);
-            }}
-          >
-            Undo
-          </button>
-        )}
-      </div>
-      {(remove.error || restore.error) && (
-        <p role="alert" className="form-error">
-          {remove.error || restore.error}
-        </p>
-      )}
-      <div
-        className={`calendar-layout ${route.editor ? 'calendar-layout--editing' : ''}`}
+      <CalendarShell
+        route={route}
+        view={view}
+        date={date}
+        today={today}
+        navigate={navigate}
+        sources={sources}
+        onSources={setSources}
+        zone={<ViewingZone zone={viewingZone} onChange={setViewingZone} />}
       >
-        <section
-          className="panel calendar-list-pane"
-          aria-labelledby="calendar-list-title"
-        >
-          <div className="list-header">
-            <h2 id="calendar-list-title">
-              {viewLabels[view]} · {formatRange(from, last)}
-            </h2>
-            {visibleRecords.length > 0 && (
-              <button
-                type="button"
-                className="secondary-button"
-                aria-pressed={selecting}
-                onClick={() => {
-                  setSelecting(!selecting);
-                  select(new Map());
-                }}
-              >
-                Select
-              </button>
-            )}
-          </div>
-          <Help label="Calendar">
-            Times are shown in {viewingZone}. Task deadlines are separate from
-            reserved calendar time. Canvas entries are read-only; deadlines are
-            single moments, and cancelled or missing entries stay visible
-            without reserving time.
-          </Help>
-          {selecting && (
-            <CalendarBatchBar
-              selection={selected}
-              visible={visibleRecords}
-              latest={async () => {
-                void occurrences.reload();
-                return reloadEvents();
+        <div className="calendar-notice" role="status">
+          {notice && <p>{notice.text}</p>}
+          {notice?.undo && (
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={restore.pending}
+              onClick={() => {
+                void undoDelete(notice.undo!);
               }}
-              onSelect={select}
-              onApplied={batchApplied}
+            >
+              Undo
+            </button>
+          )}
+        </div>
+        {(remove.error || restore.error) && (
+          <p role="alert" className="form-error">
+            {remove.error || restore.error}
+          </p>
+        )}
+        <div
+          className={`calendar-layout ${route.editor ? 'calendar-layout--editing' : ''}`}
+        >
+          <section
+            className={`panel calendar-list-pane calendar-list-pane--${view}`}
+            aria-labelledby="calendar-range-title"
+          >
+            <div className="list-header calendar-pane-head">
+              <Help label="Calendar">
+                Times are shown in {viewingZone}. Task deadlines are separate
+                from reserved calendar time. Canvas entries are read-only;
+                deadlines are single moments, and cancelled or missing entries
+                stay visible without reserving time.
+                {canvas.data?.lastImportedAt &&
+                  ` Canvas last import: ${formatInstant(canvas.data.lastImportedAt)}.`}
+              </Help>
+              <div className="calendar-pane-state">
+                <ReadState resource={readState} label="calendar" />
+              </div>
+              {agenda && visibleRecords.length > 0 && (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  aria-pressed={selecting}
+                  onClick={() => {
+                    setSelecting(!selecting);
+                    select(new Map());
+                  }}
+                >
+                  Select
+                </button>
+              )}
+            </div>
+            {agenda && selecting && (
+              <CalendarBatchBar
+                selection={selected}
+                visible={visibleRecords}
+                latest={async () => {
+                  void occurrences.reload();
+                  return reloadEvents();
+                }}
+                onSelect={select}
+                onApplied={batchApplied}
+              />
+            )}
+            {canvas.error && (
+              <p role="alert" className="form-error">
+                {canvas.error}
+              </p>
+            )}
+            {!agenda && tasks.error && (
+              <p role="alert" className="form-error">
+                {tasks.error}
+              </p>
+            )}
+            {view === 'month' ? (
+              <MonthGrid
+                date={date}
+                today={today}
+                timeZone={viewingZone}
+                occurrences={allItems}
+                canvas={canvas.data?.items ?? []}
+                tasks={taskItems}
+                sources={sources}
+                base={listRoute}
+                navigate={navigate}
+              />
+            ) : !agenda ? (
+              <TimeGrid
+                days={days}
+                today={today}
+                timeZone={viewingZone}
+                occurrences={allItems}
+                canvas={canvas.data?.items ?? []}
+                tasks={taskItems}
+                sources={sources}
+                base={listRoute}
+                navigate={navigate}
+              />
+            ) : (
+              <>
+                {ready && !shown.length && (
+                  <p>Nothing scheduled in the next 7 days.</p>
+                )}
+                {shown.map(({ day, entries }) => (
+                  <section
+                    key={day}
+                    className="calendar-day"
+                    data-date={day}
+                    aria-labelledby={`calendar-day-${day}`}
+                  >
+                    <h3 id={`calendar-day-${day}`}>
+                      {formatDay(day)}
+                      {day === today && <StatusChip>Today</StatusChip>}
+                    </h3>
+                    <ul className="calendar-entries">
+                      {entries.map((entry) => (
+                        <li key={entry.id}>{entry.node}</li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </>
+            )}
+          </section>
+          {route.editor && (
+            <CalendarEditor
+              key={
+                route.editor.kind === 'new'
+                  ? `new:${route.editor.start ?? ''}`
+                  : undefined
+              }
+              editor={route.editor}
+              events={events.data?.data.events ?? []}
+              loaded={!!events.data}
+              courses={courses.data?.courses ?? []}
+              topics={topics.data?.topics ?? []}
+              date={date}
+              viewingZone={viewingZone}
+              study={studyDraft}
+              listRoute={listRoute}
+              navigate={navigate}
+              reload={reloadEvents}
+              onSaved={saved}
+              onDelete={deleteEvent}
+              deleting={remove.pending}
             />
           )}
-          <ReadState resource={readState} label="calendar" />
-          {canvas.error && (
-            <p role="alert" className="form-error">
-              {canvas.error}
-            </p>
-          )}
-          {canvas.data?.lastImportedAt && (
-            <p className="meta">
-              Canvas last import: {formatInstant(canvas.data.lastImportedAt)}
-            </p>
-          )}
-          {ready && !shown.length && (
-            <p>Nothing scheduled in the next 7 days.</p>
-          )}
-          {shown.map(({ day, entries }) => (
-            <section
-              key={day}
-              className={`calendar-day${entries.length ? '' : ' calendar-day--empty'}`}
-              data-date={day}
-              aria-labelledby={`calendar-day-${day}`}
-            >
-              <h3 id={`calendar-day-${day}`}>
-                {formatDay(day)}
-                {day === today && <StatusChip>Today</StatusChip>}
-              </h3>
-              {entries.length ? (
-                <ul className="calendar-entries">
-                  {entries.map((entry) => (
-                    <li key={entry.id}>{entry.node}</li>
-                  ))}
-                </ul>
-              ) : (
-                ready && <p className="meta">Nothing scheduled.</p>
-              )}
-            </section>
-          ))}
-        </section>
-        {route.editor && (
-          <CalendarEditor
-            editor={route.editor}
-            events={events.data?.data.events ?? []}
-            loaded={!!events.data}
-            courses={courses.data?.courses ?? []}
-            topics={topics.data?.topics ?? []}
-            date={date}
-            viewingZone={viewingZone}
-            study={studyDraft}
-            listRoute={listRoute}
-            navigate={navigate}
-            reload={reloadEvents}
-            onSaved={saved}
-            onDelete={deleteEvent}
-            deleting={remove.pending}
-          />
-        )}
-      </div>
-      <DeletedItems
-        kind="calendar"
-        refreshKey={deletedKey}
-        onRestored={reloadAll}
-      />
+        </div>
+        <DeletedItems
+          kind="calendar"
+          refreshKey={deletedKey}
+          onRestored={reloadAll}
+        />
+      </CalendarShell>
       {dialog}
     </section>
   );

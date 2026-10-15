@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { routePath } from '../lib/router';
 import type { Route } from '../lib/router';
 
@@ -9,6 +9,8 @@ export function Link({
   navigate,
   current = false,
   className,
+  label,
+  style,
   children,
   onNavigate,
 }: {
@@ -16,6 +18,9 @@ export function Link({
   navigate: (route: Route) => void;
   current?: boolean;
   className?: string;
+  /** Accessible name when the visible text is not enough. */
+  label?: string;
+  style?: CSSProperties;
   children: ReactNode;
   onNavigate?: () => void;
 }) {
@@ -23,6 +28,8 @@ export function Link({
     <a
       href={routePath(route)}
       className={className}
+      aria-label={label}
+      style={style}
       aria-current={current ? 'page' : undefined}
       onClick={(event) => {
         if (

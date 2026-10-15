@@ -182,7 +182,7 @@ test('events reject reversed times and persist valid times with their display ti
   page,
 }) => {
   await page.goto('/calendar');
-  await showCalendar(page, { date: '2026-11-05' });
+  await showCalendar(page, { date: '2026-11-05', view: 'Agenda' });
   await newEvent(page);
   const editor = eventEditor(page);
   await editor.getByLabel('Title', { exact: true }).fill('Browser study time');
@@ -203,7 +203,7 @@ test('events reject reversed times and persist valid times with their display ti
     panel.getByRole('link', { name: 'Browser study time', exact: true }),
   ).toBeVisible();
   await page.reload();
-  await showCalendar(page, { date: '2026-11-05' });
+  await showCalendar(page, { date: '2026-11-05', view: 'Agenda' });
   await panel
     .getByRole('link', { name: 'Browser study time', exact: true })
     .click();

@@ -62,7 +62,7 @@ test('agenda groups days, lists all-day first and has addressable windows', asyn
     startsAt: '2028-01-05T16:00:00Z',
     endsAt: '2028-01-05T17:00:00Z',
   });
-  await page.goto('/calendar?date=2028-01-03');
+  await page.goto('/calendar?date=2028-01-03&view=agenda');
   await showCalendar(page, { zone: 'UTC' });
   const view = calendarRegion(page);
   await expect(calendarDay(page, '2028-01-03')).toBeVisible();
@@ -71,7 +71,7 @@ test('agenda groups days, lists all-day first and has addressable windows', asyn
     calendarDay(page, '2028-01-03').locator('.calendar-row__title'),
   ).toHaveText(['Agenda all-day', 'Agenda morning']);
   await expect(calendarDay(page, '2028-01-05')).toBeVisible();
-  // Agenda skips days with nothing on them; Week lists every day.
+  // Agenda skips days with nothing on them.
   await expect(calendarDay(page, '2028-01-04')).toHaveCount(0);
   await expect(
     view.getByRole('navigation', { name: 'Calendar views' }).getByRole('link', {
@@ -80,33 +80,33 @@ test('agenda groups days, lists all-day first and has addressable windows', asyn
   ).toHaveAttribute('aria-current', 'page');
 
   await view.getByRole('link', { name: 'Next 7 days', exact: true }).click();
-  await expect(page).toHaveURL(/\/calendar\?date=2028-01-10$/);
+  await expect(page).toHaveURL(/\/calendar\?date=2028-01-10&view=agenda$/);
   await expect(calendarDay(page, '2028-01-03')).toHaveCount(0);
   await page.goBack();
-  await expect(page).toHaveURL(/\/calendar\?date=2028-01-03$/);
+  await expect(page).toHaveURL(/\/calendar\?date=2028-01-03&view=agenda$/);
   await expect(calendarDay(page, '2028-01-03')).toBeVisible();
 
   await showCalendar(page, { view: 'Week' });
   await expect(page).toHaveURL(/date=2028-01-03&view=week$/);
-  await expect(view.locator('section[data-date]')).toHaveCount(7);
-  await expect(
-    calendarDay(page, '2028-01-04').getByText('Nothing scheduled.'),
-  ).toBeVisible();
+  await expect(view.getByRole('heading', { level: 2 }).first()).toHaveText(
+    'Jan 3 – 9, 2028',
+  );
   await view.getByRole('link', { name: 'Next week', exact: true }).click();
-  await expect(calendarDay(page, '2028-01-10')).toBeVisible();
+  await expect(view.getByRole('heading', { level: 2 }).first()).toHaveText(
+    'Jan 10 – 16, 2028',
+  );
   await view.getByRole('link', { name: 'Today', exact: true }).click();
   await expect(page).toHaveURL(/date=\d{4}-\d{2}-\d{2}&view=week$/);
 
   await page.goto('/calendar?date=2028-01-05&view=day');
-  await expect(view.locator('section[data-date]')).toHaveCount(1);
   await expect(
-    view.getByRole('link', { name: 'Agenda later', exact: true }),
+    view.getByRole('link', { name: /^Agenda later, / }),
   ).toBeVisible();
-  // An invalid date or view falls back to today's agenda.
-  await page.goto('/calendar?date=2028-13-40&view=month');
+  // An invalid date or view falls back to this week.
+  await page.goto('/calendar?date=2028-13-40&view=year');
   await expect(
     view.getByRole('navigation', { name: 'Calendar views' }).getByRole('link', {
-      name: 'Agenda',
+      name: 'Week',
     }),
   ).toHaveAttribute('aria-current', 'page');
 });
@@ -208,9 +208,9 @@ test('a repeated time needs an earlier or later choice, and it is remembered', a
 test('an event can be created and edited with the keyboard alone', async ({
   page,
 }) => {
-  await page.goto('/calendar?date=2028-02-07');
+  await page.goto('/calendar?date=2028-02-07&view=agenda');
   const view = calendarRegion(page);
-  await view.getByRole('link', { name: 'Add event', exact: true }).focus();
+  await view.getByRole('link', { name: 'New event', exact: true }).focus();
   await page.keyboard.press('Enter');
   const editor = eventEditor(page);
   await expect(editor).toBeVisible();
@@ -220,7 +220,7 @@ test('an event can be created and edited with the keyboard alone', async ({
   await page.keyboard.press('Enter');
   const row = view.getByRole('link', { name: 'Keyboard event', exact: true });
   await expect(row).toBeVisible();
-  await expect(page).toHaveURL(/\/calendar\?date=2028-02-07$/);
+  await expect(page).toHaveURL(/\/calendar\?date=2028-02-07&view=agenda$/);
 
   await row.focus();
   await page.keyboard.press('Enter');
@@ -250,7 +250,7 @@ test('deleting a recurring event asks for the scope and a series can be undone',
     endsAt: '2028-03-06T11:00:00Z',
     recurrence: { frequency: 'daily', interval: 1, count: 3, until: null },
   });
-  await page.goto('/calendar?date=2028-03-06');
+  await page.goto('/calendar?date=2028-03-06&view=agenda');
   await showCalendar(page, { zone: 'UTC' });
   const view = calendarRegion(page);
   await calendarDay(page, '2028-03-07')
@@ -283,7 +283,7 @@ test('deleting a recurring event asks for the scope and a series can be undone',
   await expect(calendarDay(page, '2028-03-08')).toBeVisible();
 
   // The whole series can be deleted from its own editor and undone.
-  await page.goto(`/calendar/${series.id}?date=2028-03-06`);
+  await page.goto(`/calendar/${series.id}?date=2028-03-06&view=agenda`);
   await expect(
     editor.getByRole('heading', { name: 'Edit series' }),
   ).toBeVisible();
@@ -291,7 +291,7 @@ test('deleting a recurring event asks for the scope and a series can be undone',
   await expect(
     view.getByText('Deleted “Scope series”.', { exact: true }),
   ).toBeVisible();
-  await expect(page).toHaveURL(/\/calendar\?date=2028-03-06$/);
+  await expect(page).toHaveURL(/\/calendar\?date=2028-03-06&view=agenda$/);
   await expect(calendarDay(page, '2028-03-06')).toHaveCount(0);
   await view.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(view.getByText('Restored “Scope series”.')).toBeVisible();
@@ -346,12 +346,16 @@ test('selected events change together; study status is limited and series deleti
         events: { id: string; version: number; studyStatus: string }[];
       }
     ).events.find((event) => event.id === id);
-  await page.goto('/calendar?date=2028-07-03&view=day');
+  await page.goto('/calendar?date=2028-07-03&view=agenda');
   await showCalendar(page, { zone: 'UTC' });
   const view = calendarRegion(page);
   const bar = view.getByRole('region', { name: 'Selected events' });
+  // Agenda lists a series once per day; any of its boxes selects it.
   const select = (name: string) =>
-    view.getByRole('checkbox', { name: `Select ${name}` }).check();
+    view
+      .getByRole('checkbox', { name: `Select ${name}` })
+      .first()
+      .check();
 
   // Study status changes exactly the selected one-time study blocks.
   await view.getByRole('button', { name: 'Select', exact: true }).click();
@@ -483,9 +487,11 @@ for (const { theme, width, target } of [
   { theme: 'standard', width: 1280, target: 44 },
   { theme: 'eink', width: 320, target: 48 },
 ] as const) {
-  test(`agenda and editor pass accessibility, overflow and target checks (${theme}, ${width}px)`, async ({
+  test(`calendar views and editor pass accessibility, overflow and target checks (${theme}, ${width}px)`, async ({
     page,
   }) => {
+    // Eight addresses, each with an axe run.
+    test.setTimeout(120_000);
     await page.setViewportSize({ width, height: 800 });
     await page.addInitScript(
       (value) => localStorage.setItem('hub:eink', String(value === 'eink')),
@@ -508,9 +514,11 @@ for (const { theme, width, target } of [
     });
     // [path, whether Select mode is open with a series deletion pending]
     const paths = [
+      ['/calendar?date=2028-05-01&view=agenda', false],
+      ['/calendar?date=2028-05-01&view=agenda', true],
       ['/calendar?date=2028-05-01', false],
-      ['/calendar?date=2028-05-01', true],
-      ['/calendar?date=2028-05-01&view=week', false],
+      ['/calendar?date=2028-05-01&view=day', false],
+      ['/calendar?date=2028-05-01&view=month', false],
       ['/calendar/new?date=2028-05-01', false],
       [`/calendar/${event.id}?date=2028-05-01`, false],
       [`/calendar/${event.id}/occurrence/2028-05-01?date=2028-05-01`, false],
@@ -564,7 +572,12 @@ for (const { theme, width, target } of [
             )
             .filter((element) => {
               const box = element.getBoundingClientRect();
-              return box.height < minimum - 0.5 || box.width < 24;
+              // Grid chips and event blocks have full-size equivalents in
+              // Agenda (WCAG 2.5.8 equivalent exception); they keep 24px.
+              const floor = element.matches('.calendar-chip, .time-grid__block')
+                ? 24
+                : minimum;
+              return box.height < floor - 0.5 || box.width < 24;
             })
             .map(
               (element) =>
@@ -574,14 +587,14 @@ for (const { theme, width, target } of [
       );
       expect(undersized, `${path} controls below ${target}px`).toEqual([]);
     }
-    await page.goto('/calendar?date=2028-05-01');
+    await page.goto('/calendar?date=2028-05-01&view=agenda');
     await expect(calendarDay(page, '2028-05-01')).toBeVisible();
     await page.getByRole('link', { name: title, exact: true }).first().click();
     if (width < 1024) {
       // Narrow screens show the editor alone, with a way back.
       await expect(calendarDay(page, '2028-05-01')).toBeHidden();
       await page.getByRole('link', { name: 'Back to calendar' }).click();
-      await expect(page).toHaveURL(/\/calendar\?date=2028-05-01$/);
+      await expect(page).toHaveURL(/\/calendar\?date=2028-05-01&view=agenda$/);
       await expect(calendarDay(page, '2028-05-01')).toBeVisible();
     } else {
       // Wide screens keep the agenda beside the editor.
@@ -589,3 +602,190 @@ for (const { theme, width, target } of [
     }
   });
 }
+
+/* Week, Day and Month grids (docs/superpowers/specs/2026-10-14-ui-rework-design.md). */
+
+async function createTask(page: Page, title: string, dueDate: string) {
+  const reply = await page.request.post('/api/v1/tasks', {
+    headers,
+    data: {
+      title,
+      dueDate,
+      notes: '',
+      priority: 'normal',
+      completed: false,
+      sensitivity: 'unlabeled',
+      operationId: crypto.randomUUID(),
+    },
+  });
+  expect(reply.status()).toBe(200);
+}
+
+test('the sidebar mini month moves to a date and keeps the view', async ({
+  page,
+}) => {
+  await page.goto('/calendar?date=2029-01-10');
+  const view = calendarRegion(page);
+  await view
+    .getByRole('button', { name: 'Wednesday, January 17, 2029', exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/calendar\?date=2029-01-17$/);
+  await expect(view.getByRole('heading', { level: 2 }).first()).toHaveText(
+    'Jan 15 – 21, 2029',
+  );
+});
+
+test('the all-day strip shows task due dates, and Show toggles hide a source and are remembered', async ({
+  page,
+}) => {
+  const title = `Strip task ${crypto.randomUUID().slice(0, 8)}`;
+  await createTask(page, title, '2029-01-24');
+  await page.goto('/calendar?date=2029-01-24');
+  const view = calendarRegion(page);
+  const strip = view.getByRole('list', { name: /^All day, Wednesday/ });
+  await expect(
+    strip.getByRole('link', { name: new RegExp(title) }),
+  ).toBeVisible();
+  const toggle = view.getByRole('checkbox', { name: 'Task due dates' });
+  await toggle.uncheck();
+  await expect(
+    strip.getByRole('link', { name: new RegExp(title) }),
+  ).toHaveCount(0);
+  await page.reload();
+  await expect(toggle).not.toBeChecked();
+  await expect(
+    strip.getByRole('link', { name: new RegExp(title) }),
+  ).toHaveCount(0);
+  await toggle.check();
+  await expect(
+    strip.getByRole('link', { name: new RegExp(title) }),
+  ).toBeVisible();
+});
+
+test('below 1024 px the sidebar is behind a Calendars button', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 800, height: 900 });
+  await page.goto('/calendar?date=2029-01-10');
+  const view = calendarRegion(page);
+  const tools = view.getByRole('button', { name: 'Calendars', exact: true });
+  const day = view.getByRole('button', {
+    name: 'Wednesday, January 17, 2029',
+    exact: true,
+  });
+  await expect(tools).toHaveAttribute('aria-expanded', 'false');
+  await expect(day).toBeHidden();
+  await expect(view.getByRole('link', { name: 'New event' })).toBeVisible();
+  await tools.click();
+  await expect(tools).toHaveAttribute('aria-expanded', 'true');
+  await expect(day).toBeVisible();
+});
+
+test('week grid shows a timed event as a block at its time and opens the editor', async ({
+  page,
+}) => {
+  const title = `Calculus ${crypto.randomUUID().slice(0, 8)}`;
+  const event = await createEvent(page, title, {
+    startsAt: '2029-02-07T09:00:00Z',
+    endsAt: '2029-02-07T10:00:00Z',
+  });
+  await page.goto('/calendar?date=2029-02-07');
+  await showCalendar(page, { zone: 'UTC' });
+  const view = calendarRegion(page);
+  const block = view.getByRole('link', { name: new RegExp(`^${title}, `) });
+  await expect(block).toBeVisible();
+  // Under the Wednesday column…
+  const header = await view
+    .getByRole('link', { name: 'Wednesday, February 7', exact: true })
+    .boundingBox();
+  const box = await block.boundingBox();
+  const middle = box!.x + box!.width / 2;
+  expect(middle).toBeGreaterThan(header!.x);
+  expect(middle).toBeLessThan(header!.x + header!.width);
+  // …starting at 9 of 24 hours down the day.
+  const hour = await block.evaluate(
+    (element) => element.offsetTop / (element.parentElement!.offsetHeight / 24),
+  );
+  expect(hour).toBeCloseTo(9, 1);
+  await block.click();
+  await expect(page).toHaveURL(new RegExp(`/calendar/${event.id}[?]`));
+  await expect(eventEditor(page)).toBeVisible();
+});
+
+test('clicking an empty slot starts a new event at that hour', async ({
+  page,
+}) => {
+  await page.goto('/calendar?date=2029-02-07');
+  await showCalendar(page, { zone: 'UTC' });
+  await calendarRegion(page)
+    .getByRole('button', { name: 'New event Thu 1 PM', exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/calendar\/new\?.*start=2029-02-08T13%3A00/);
+  await expect(
+    eventEditor(page).getByLabel('Starts', { exact: true }),
+  ).toHaveValue('2029-02-08T13:00');
+  await expect(
+    eventEditor(page).getByLabel('Ends', { exact: true }),
+  ).toHaveValue('2029-02-08T14:00');
+});
+
+test('day view is the default below 640 px, and the now line is on today only', async ({
+  page,
+}) => {
+  await page.goto('/calendar');
+  const view = calendarRegion(page);
+  const views = view.getByRole('navigation', { name: 'Calendar views' });
+  await expect(views.getByRole('link', { name: 'Week' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  // One now line, in the column whose date is marked as today.
+  const columns = view.locator('.time-grid__day');
+  await expect(view.locator('.time-grid__now')).toHaveCount(1);
+  const nowColumn = await columns.evaluateAll((items) =>
+    items.findIndex((item) => item.querySelector('.time-grid__now')),
+  );
+  const todayColumn = await view
+    .locator('.time-grid__date')
+    .evaluateAll((items) =>
+      items.findIndex((item) =>
+        item.querySelector('.time-grid__daynum--today'),
+      ),
+    );
+  expect(nowColumn).toBe(todayColumn);
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.reload();
+  await expect(views.getByRole('link', { name: 'Day' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(columns).toHaveCount(1);
+});
+
+test('month view shows up to three chips per day and +N more opens Day view', async ({
+  page,
+}) => {
+  const suffix = crypto.randomUUID().slice(0, 8);
+  for (const hour of [9, 10, 11, 12, 13])
+    await createEvent(page, `Month ${hour} ${suffix}`, {
+      startsAt: `2029-03-14T${String(hour).padStart(2, '0')}:00:00Z`,
+      endsAt: `2029-03-14T${String(hour).padStart(2, '0')}:30:00Z`,
+    });
+  await page.goto('/calendar?date=2029-03-14&view=month');
+  await showCalendar(page, { zone: 'UTC' });
+  const view = calendarRegion(page);
+  await expect(view.getByRole('heading', { level: 2 }).first()).toHaveText(
+    'March 2029',
+  );
+  const cell = view.getByRole('cell').filter({
+    has: page.getByRole('link', { name: 'Wednesday, March 14', exact: true }),
+  });
+  await expect(cell.getByRole('listitem')).toHaveCount(3);
+  await cell.getByText('+2 more').click();
+  await expect(page).toHaveURL(/\/calendar\?date=2029-03-14&view=day$/);
+  await expect(
+    view.getByRole('link', { name: new RegExp(`^Month 13 ${suffix}, `) }),
+  ).toBeVisible();
+  await page.goto('/calendar?view=month');
+  await expect(view.locator('td[aria-current="date"]')).toHaveCount(1);
+});
