@@ -36,6 +36,8 @@ export * from './responsibilities.js';
 export * from './responsibility-inbox.js';
 export * from './responsibility-local-schedule.js';
 export * from './assistant.js';
+export * from './agents.js';
+export * from './assistant-writes.js';
 export * from './email-ingestion.js';
 export * from './mail-organization.js';
 export * from './mail-source.js';

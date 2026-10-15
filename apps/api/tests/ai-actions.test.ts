@@ -80,10 +80,14 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   await app?.close();
 });
-it('exposes confirmed calendar authority with blocked task defaults without enabling or persisting execution', async () => {
+it('exposes confirmed calendar authority with ask-first task defaults without enabling or persisting execution', async () => {
   expect(aiActionSettingsSchema.parse((await get()).json())).toEqual({
     version: 1,
-    policy: defaultAIActionPolicy,
+    policy: {
+      tasks: 'approval-required',
+      calendar: 'automatic',
+      email: 'approval-required',
+    },
   });
   const receipts = await db.query('SELECT * FROM mutation_receipts');
   for (const operation of ['create', 'update', 'delete', 'restore']) {
@@ -93,10 +97,10 @@ it('exposes confirmed calendar authority with blocked task defaults without enab
     });
     expect(task.statusCode).toBe(200);
     expect(aiActionPreviewResponseSchema.parse(task.json())).toMatchObject({
-      policyDecision: 'blocked',
+      policyDecision: 'approval-required',
       writeCapability: 'local',
       executionEnabled: false,
-      blockers: ['POLICY_BLOCKED', 'ACTION_EXECUTION_UNAVAILABLE'],
+      blockers: ['OWNER_APPROVAL_REQUIRED', 'ACTION_EXECUTION_UNAVAILABLE'],
       emailApprovalRequired: false,
     });
     const calendar = await preview({

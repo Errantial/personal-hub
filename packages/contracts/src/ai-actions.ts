@@ -10,8 +10,9 @@ export const aiActionPolicySchema = z.strictObject({
   calendar: aiActionModeSchema,
   email: z.literal('approval-required'),
 });
+/** For owners who never saved action settings (D57: tasks ask first). */
 export const defaultAIActionPolicy = aiActionPolicySchema.parse({
-  tasks: 'blocked',
+  tasks: 'approval-required',
   calendar: 'automatic',
   email: 'approval-required',
 });

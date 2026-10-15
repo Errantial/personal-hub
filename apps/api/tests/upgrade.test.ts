@@ -166,3 +166,98 @@ it('upgrades a populated pre-reconciliation database without rewriting annotatio
     await db.close();
   }
 });
+
+it('upgrades populated responsibilities, notifications and action policies through 057 without rewriting them', async () => {
+  const db = await openDatabase(
+    readConfig({ NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' }),
+  );
+  try {
+    const directory = new URL('../migrations/', import.meta.url);
+    const names = (await readdir(directory))
+      .filter((name) => /^\d+_.+\.sql$/.test(name))
+      .sort();
+    await db.exec(
+      'CREATE TABLE schema_migrations (name TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)',
+    );
+    for (const name of names.filter((name) => Number(name.slice(0, 3)) <= 56)) {
+      const sql = await readFile(new URL(name, directory), 'utf8');
+      await db.exec(sql);
+      await db.query(
+        'INSERT INTO schema_migrations(name,checksum) VALUES($1,$2)',
+        [name, createHash('sha256').update(sql).digest('hex')],
+      );
+    }
+    const owner = randomUUID();
+    const responsibility = randomUUID();
+    const run = randomUUID();
+    const reminder = randomUUID();
+    await db.query(
+      'INSERT INTO users(id,email,password_hash) VALUES($1,$2,$3)',
+      [owner, 'agents-upgrade@example.test', 'unused'],
+    );
+    await db.query(
+      "INSERT INTO responsibilities(id,owner_id,title,goal,sensitivity,labels) VALUES($1,$2,'Legacy review','Review weekly','unlabeled',ARRAY['unlabeled'])",
+      [responsibility, owner],
+    );
+    await db.query(
+      "INSERT INTO responsibility_runs(id,owner_id,responsibility_id,responsibility_version,trigger,input_hash,labels) VALUES($1,$2,$3,1,'manual',$4,ARRAY['unlabeled'])",
+      [run, owner, responsibility, 'a'.repeat(64)],
+    );
+    await db.query(
+      "INSERT INTO reminders(id,owner_id,title,scheduled_at) VALUES($1,$2,'Legacy reminder',CURRENT_TIMESTAMP)",
+      [reminder, owner],
+    );
+    await db.query(
+      "INSERT INTO notifications(id,reminder_id,owner_id,title) VALUES($1,$2,$3,'Legacy reminder')",
+      [randomUUID(), reminder, owner],
+    );
+    await db.query(
+      `INSERT INTO ai_action_policies(owner_id,policy) VALUES($1,'{"tasks":"blocked","calendar":"automatic","email":"approval-required"}'::jsonb)`,
+      [owner],
+    );
+    const retained = () =>
+      Promise.all(
+        [
+          'responsibilities',
+          'responsibility_runs',
+          'notifications',
+          'ai_action_policies',
+        ].map((table) =>
+          db.query(`SELECT * FROM ${table} WHERE owner_id=$1 ORDER BY 1`, [
+            owner,
+          ]),
+        ),
+      );
+    const before = await retained();
+    await migrate(db);
+    const after = await retained();
+    // New columns appear with defaults; every existing value is unchanged.
+    after.forEach((rows, index) =>
+      rows.forEach((row, at) => expect(row).toMatchObject(before[index]![at]!)),
+    );
+    expect(after[1]![0]).toMatchObject({ status: 'blocked', outcome: null });
+    expect(after[3]![0]!.policy).toEqual({
+      tasks: 'blocked',
+      calendar: 'automatic',
+      email: 'approval-required',
+    });
+    // An agent notification needs both its run and its conversation.
+    await expect(
+      db.query(
+        "INSERT INTO notifications(id,run_id,owner_id,title) VALUES($1,$2,$3,'Run')",
+        [randomUUID(), run, owner],
+      ),
+    ).rejects.toThrow();
+    await expect(
+      db.query(
+        "INSERT INTO notifications(id,owner_id,title) VALUES($1,$2,'Nothing')",
+        [randomUUID(), owner],
+      ),
+    ).rejects.toThrow();
+    expect(await db.query('SELECT name FROM schema_migrations')).toHaveLength(
+      names.length,
+    );
+  } finally {
+    await db.close();
+  }
+});
