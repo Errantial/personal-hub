@@ -1454,3 +1454,345 @@ it('rejects malformed destination preview models before response parsing', async
       .statusCode,
   ).toBe(400);
 });
+
+async function seedAcademic(
+  options: {
+    owner?: string;
+    courseSensitivity?: string;
+    workSensitivity?: string;
+    academicLabels?: string[];
+    title?: string;
+    kind?: string;
+    notes?: string;
+    dueDate?: string | null;
+    estimatedMinutes?: number | null;
+    status?: string;
+    priority?: number;
+    workVersion?: number;
+    courseVersion?: number;
+    workDeleted?: boolean;
+    courseArchived?: boolean;
+  } = {},
+) {
+  const owner = options.owner ?? (await ownerId());
+  const courseId = randomUUID();
+  const workId = randomUUID();
+  await database.query(
+    'INSERT INTO courses(id,owner_id,name,sensitivity,version,deleted_at) VALUES($1,$2,$3,$4,$5,$6)',
+    [
+      courseId,
+      owner,
+      'Synthetic class',
+      options.courseSensitivity ?? 'unlabeled',
+      options.courseVersion ?? 1,
+      options.courseArchived ? '2026-10-01T00:00:00Z' : null,
+    ],
+  );
+  await database.query(
+    `INSERT INTO academic_work(id,owner_id,course_id,title,kind,notes,due_date,estimated_minutes,priority,status,sensitivity,academic_labels,version,deleted_at)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      workId,
+      owner,
+      courseId,
+      options.title ?? 'Synthetic work',
+      options.kind ?? 'assignment',
+      options.notes ?? 'Private working note',
+      options.dueDate ?? null,
+      options.estimatedMinutes ?? null,
+      options.priority ?? 3,
+      options.status ?? 'planned',
+      options.workSensitivity ?? 'unlabeled',
+      options.academicLabels ?? [],
+      options.workVersion ?? 1,
+      options.workDeleted ? '2026-10-01T00:00:00Z' : null,
+    ],
+  );
+  return { courseId, workId };
+}
+
+const askAcademic = (text: string, academic: unknown[]) =>
+  call('POST', '/api/v1/assistant/requests', {
+    operationId: randomUUID(),
+    text,
+    timeZone: 'America/Denver',
+    academic,
+  });
+
+const lastPayload = (body: Record<string, unknown>) =>
+  JSON.parse(
+    (body.messages as { content: string }[]).at(-1)!.content,
+  ) as Record<string, unknown>;
+
+it('sends selected academic work, projects only planning fields and replays the ask', async () => {
+  await start();
+  await setBudget();
+  const owner = await ownerId();
+  const { courseId, workId } = await seedAcademic({
+    title: 'Final essay',
+    kind: 'exam',
+    notes: 'SECRET working notes',
+    dueDate: '2026-11-01',
+    estimatedMinutes: 90,
+    priority: 2,
+  });
+  chat = () => completion({ reply: 'Planned it.', actions: [] });
+  const operationId = randomUUID();
+  const selection = [
+    { id: workId, expectedVersion: 1, expectedCourseVersion: 1 },
+  ];
+  const { request, turn } = (
+    await call('POST', '/api/v1/assistant/requests', {
+      operationId,
+      text: 'Plan my essay',
+      timeZone: 'America/Denver',
+      academic: selection,
+    })
+  ).json();
+  expect(request).toMatchObject({ status: 'completed', withheld: 0 });
+  const sentWork = {
+    id: workId,
+    ref: 'w1',
+    title: 'Final essay',
+    kind: 'exam',
+    dueDate: '2026-11-01',
+    estimatedMinutes: 90,
+    status: 'planned',
+    priority: 2,
+  };
+  expect(turn.academic).toEqual([sentWork]);
+  expect(lastPayload(sent[0]!).academic).toEqual([
+    {
+      ref: 'w1',
+      title: 'Final essay',
+      kind: 'exam',
+      dueDate: '2026-11-01',
+      estimatedMinutes: 90,
+      status: 'planned',
+      priority: 2,
+    },
+  ]);
+  // Notes never leave the server.
+  expect(JSON.stringify(sent[0])).not.toContain('SECRET');
+  const [exchange] = await database.query<{
+    manifest: { sources: Record<string, unknown>[] };
+  }>(
+    'SELECT manifest FROM ai_live_exchanges WHERE owner_id=$1 AND request_id=$2',
+    [owner, request.id],
+  );
+  expect(
+    exchange!.manifest.sources.find((s) => s.kind === 'academic-work'),
+  ).toMatchObject({
+    projection: 'academic-work-v1',
+    id: workId,
+    version: 1,
+    ref: 'w1',
+    labels: ['unlabeled'],
+    academicCourse: { id: courseId, version: 1 },
+  });
+  // Retrying the same selection again replays the recorded turn.
+  const retried = (
+    await call('POST', '/api/v1/assistant/requests', {
+      operationId,
+      text: 'Plan my essay',
+      timeZone: 'America/Denver',
+      academic: selection,
+    })
+  ).json().turn;
+  expect(retried.id).toBe(turn.id);
+  expect(sent).toHaveLength(1);
+});
+
+it('withholds restricted and disallowed personal work until personal mail is allowed', async () => {
+  await start();
+  await setBudget();
+  const restricted = await seedAcademic({
+    title: 'Restricted essay',
+    academicLabels: ['restricted'],
+  });
+  const personal = await seedAcademic({
+    title: 'Personal reading',
+    academicLabels: ['personal'],
+  });
+  const plain = await seedAcademic({ title: 'Open lab' });
+  chat = () => completion({ reply: 'Ok.', actions: [] });
+  const selection = [restricted, personal, plain].map((s) => ({
+    id: s.workId,
+    expectedVersion: 1,
+    expectedCourseVersion: 1,
+  }));
+  const { request, turn } = (
+    await call('POST', '/api/v1/assistant/requests', {
+      operationId: randomUUID(),
+      text: 'Plan my week',
+      timeZone: 'America/Denver',
+      academic: selection,
+    })
+  ).json();
+  expect(request).toMatchObject({ status: 'completed', withheld: 2 });
+  expect(turn.academic.map((a: { ref: string }) => a.ref)).toEqual(['w1']);
+  expect(turn.academic[0]).toMatchObject({ id: plain.workId });
+  expect(lastPayload(sent[0]!).academic).toHaveLength(1);
+  const wire = JSON.stringify(sent[0]);
+  expect(wire).not.toContain('Restricted essay');
+  expect(wire).not.toContain('Personal reading');
+
+  const settings = (await call('GET', '/api/v1/assistant/settings')).json()
+    .settings;
+  await call('PUT', '/api/v1/assistant/settings', {
+    model,
+    expectedVersion: settings.version,
+    allowPersonalMail: true,
+  });
+  const second = (
+    await call('POST', '/api/v1/assistant/requests', {
+      operationId: randomUUID(),
+      text: 'Plan again',
+      timeZone: 'America/Denver',
+      academic: [restricted, personal].map((s) => ({
+        id: s.workId,
+        expectedVersion: 1,
+        expectedCourseVersion: 1,
+      })),
+    })
+  ).json();
+  expect(second.request).toMatchObject({ withheld: 1 });
+  expect(second.turn.academic.map((a: { title: string }) => a.title)).toEqual([
+    'Personal reading',
+  ]);
+  expect(sent).toHaveLength(2);
+});
+
+it('blocks a stale, deleted or archived academic selection before any hold', async () => {
+  await start();
+  await setBudget();
+  const stale = await seedAcademic({ title: 'Moved on', workVersion: 3 });
+  const archived = await seedAcademic({ courseArchived: true });
+  const deleted = await seedAcademic({ workDeleted: true });
+  const select = (id: string) => [
+    { id, expectedVersion: 1, expectedCourseVersion: 1 },
+  ];
+  expect(
+    (await askAcademic('Plan', select(stale.workId))).json().error.code,
+  ).toBe('VERSION_CONFLICT');
+  expect(
+    (await askAcademic('Plan', select(archived.workId))).json().error.code,
+  ).toBe('ACADEMIC_CLASS_ARCHIVED');
+  expect(
+    (await askAcademic('Plan', select(deleted.workId))).json().error.code,
+  ).toBe('NOT_FOUND');
+  expect(sent).toHaveLength(0);
+  expect(
+    await database.query('SELECT 1 FROM ai_assistant_requests'),
+  ).toHaveLength(0);
+});
+
+it('treats an omitted academic selection as an empty one', async () => {
+  await start();
+  await setBudget();
+  chat = () => completion({ reply: 'Ok.', actions: [] });
+  const operationId = randomUUID();
+  const first = (
+    await call('POST', '/api/v1/assistant/requests', {
+      operationId,
+      text: 'Plan my week',
+      timeZone: 'America/Denver',
+      academic: [],
+    })
+  ).json().turn;
+  const second = (
+    await call('POST', '/api/v1/assistant/requests', {
+      operationId,
+      text: 'Plan my week',
+      timeZone: 'America/Denver',
+    })
+  ).json().turn;
+  expect(second.id).toBe(first.id);
+  expect(second.academic).toEqual([]);
+  expect(sent).toHaveLength(1);
+});
+
+it('binds academic labels onto a proposal applied from the turn', async () => {
+  await start();
+  await setBudget();
+  const { workId } = await seedAcademic({ title: 'Term paper' });
+  chat = () =>
+    completion({
+      reply: 'Added it.',
+      actions: [action({ title: 'Draft outline' })],
+    });
+  const { turn } = (
+    await call('POST', '/api/v1/assistant/requests', {
+      operationId: randomUUID(),
+      text: 'Break it down',
+      timeZone: 'America/Denver',
+      academic: [{ id: workId, expectedVersion: 1, expectedCourseVersion: 1 }],
+    })
+  ).json();
+  expect(turn.proposalAccess).toBe('applicable');
+  const applied = (
+    await call('POST', `/api/v1/assistant/turns/${turn.id}/apply`, {
+      expectedVersion: turn.version,
+      indexes: [0],
+      operationId: randomUUID(),
+    })
+  ).json().turn;
+  expect(applied.items[0]).toMatchObject({ state: 'applied' });
+  const [row] = await database.query<{
+    ai_origin: string;
+    ai_labels: string[];
+  }>('SELECT ai_origin,ai_labels FROM tasks WHERE owner_id=$1 AND id=$2', [
+    await ownerId(),
+    applied.items[0].applied.id,
+  ]);
+  expect(row).toMatchObject({ ai_origin: 'bound-derived' });
+  expect(row!.ai_labels).toEqual(['unlabeled']);
+});
+
+it('refuses an academic selection owned by someone else', async () => {
+  await start();
+  await setBudget();
+  const other = randomUUID();
+  await database.query(
+    "INSERT INTO users(id,email,password_hash) VALUES($1,'intruder@example.test','unused')",
+    [other],
+  );
+  const foreign = await seedAcademic({ owner: other, title: 'Not mine' });
+  const result = (
+    await askAcademic('Plan', [
+      { id: foreign.workId, expectedVersion: 1, expectedCourseVersion: 1 },
+    ])
+  ).json();
+  expect(result.error.code).toBe('NOT_FOUND');
+  expect(sent).toHaveLength(0);
+  expect(
+    await database.query('SELECT 1 FROM ai_assistant_requests'),
+  ).toHaveLength(0);
+});
+
+it('never sends academic sources on an agent run', async () => {
+  await start();
+  await setBudget();
+  await seedAcademic({ title: 'Should not leave' });
+  const owner = await ownerId();
+  const turn = await answerTurn(database, config, fetcherInUse, owner, {
+    operationId: randomUUID(),
+    prompt: 'GOAL-TEXT',
+    ask: 'Scheduled run',
+    timeZone: 'America/Denver',
+    conversationId: randomUUID(),
+    useMail: false,
+    trigger: 'agent',
+  });
+  expect(turn.academic).toEqual([]);
+  expect(lastPayload(sent[0]!).academic).toEqual([]);
+  const [exchange] = await database.query<{
+    manifest: { sources: { kind: string }[] };
+  }>(
+    'SELECT manifest FROM ai_live_exchanges WHERE owner_id=$1 AND request_id=$2',
+    [owner, turn.id],
+  );
+  expect(
+    exchange!.manifest.sources.some((s) => s.kind === 'academic-work'),
+  ).toBe(false);
+});
