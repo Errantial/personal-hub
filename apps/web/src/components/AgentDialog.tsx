@@ -13,6 +13,7 @@ import { useOnline } from '../lib/hooks';
 import { operationTracker } from '../lib/operations';
 import { useConfirm } from './ConfirmDialog';
 import { Help } from './Help';
+import { AgentAllowance } from './AgentActivity';
 import { TimeZoneInput } from './TimeZoneInput';
 import './AgentDialog.css';
 
@@ -471,11 +472,7 @@ export function AgentDialog({
               onChange={(event) => set({ cap: event.target.value })}
             />
           </label>
-          {current && (
-            <p className="meta">
-              Spend this month: {formatCost(current.spentMicros)}
-            </p>
-          )}
+          {current && <AgentAllowance agent={current} />}
           {error && (
             <p role="alert" className="form-error">
               {error}

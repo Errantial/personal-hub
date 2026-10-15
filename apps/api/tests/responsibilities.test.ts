@@ -829,9 +829,14 @@ it('upgrades populated storage through all three new migrations without changing
     'ALTER TABLE ai_assistant_requests DROP COLUMN agent_id; ALTER TABLE notifications DROP CONSTRAINT notifications_source, DROP COLUMN run_id, DROP COLUMN conversation_id; ALTER TABLE ai_conversations DROP COLUMN responsibility_id; ALTER TABLE ai_conversation_turns DROP COLUMN trigger, DROP COLUMN not_allowed; DROP TABLE responsibility_activities; DROP TABLE responsibility_runs; DROP TABLE responsibility_schedules; DROP TABLE responsibilities; DROP FUNCTION hub_valid_local_times;',
   );
   await db.query(
-    "DELETE FROM schema_migrations WHERE name IN ('034_responsibilities.sql','035_responsibility_schedules.sql','036_responsibility_runs.sql','037_responsibility_local_schedules.sql','057_persistent_agents.sql','058_agent_request_budget.sql')",
+    "DELETE FROM schema_migrations WHERE name IN ('034_responsibilities.sql','035_responsibility_schedules.sql','036_responsibility_runs.sql','037_responsibility_local_schedules.sql','057_persistent_agents.sql','058_agent_request_budget.sql','059_agent_run_visibility.sql')",
   );
   await migrate(db);
+  expect(
+    await db.query(
+      'SELECT started_at,progress_at,progress_stage FROM responsibility_runs',
+    ),
+  ).toEqual([]);
   expect((await get(`/api/v1/tasks/${task.json().task.id}`)).json()).toEqual(
     task.json(),
   );

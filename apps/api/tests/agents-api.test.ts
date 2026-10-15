@@ -301,7 +301,7 @@ it('exports agent fields and run outcomes, and lists agent notifications', async
 
 it('reports worker health', async () => {
   h = await startHarness();
-  expect((await h.call('GET', '/api/v1/agents/worker')).json()).toEqual({
+  expect((await h.call('GET', '/api/v1/agents/worker')).json()).toMatchObject({
     lastTick: null,
     errorCode: null,
     healthy: false,

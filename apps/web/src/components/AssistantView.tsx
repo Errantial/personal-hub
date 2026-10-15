@@ -20,6 +20,7 @@ import { assistantHelp, useAssistantSettings } from './AssistantBox';
 import { AssistantComposer } from './AssistantComposer';
 import { AssistantTurnView } from './AssistantTurn';
 import { AgentDialog } from './AgentDialog';
+import { AgentActivity, AgentWorkerStatus } from './AgentActivity';
 import { useConfirm } from './ConfirmDialog';
 import { Help } from './Help';
 import { Link } from './Link';
@@ -133,12 +134,7 @@ export function AssistantView({
       void budget.reload();
     }
   }, [latestRun, latestFinish, thread.reload, budget.reload]);
-  const canRun =
-    !!agent &&
-    agent.status === 'active' &&
-    !agent.pauseReason &&
-    !retrying &&
-    !['queued', 'running'].includes(agent.lastRun?.status ?? '');
+  const canRetry = !!agent?.lastRun?.canRetry && online && !retrying;
   const runFailure =
     agent?.lastRun?.status === 'failed' && !agent.lastRun.turnId;
   const failureReason =
@@ -152,7 +148,7 @@ export function AssistantView({
 
   /** Retry a failed run: queue a Run now. */
   async function retry() {
-    if (!agent || retrying) return;
+    if (!agent || !canRetry) return;
     setRetrying(true);
     setRunError('');
     try {
@@ -262,6 +258,7 @@ export function AssistantView({
         >
           <nav aria-label="Agents" className="assistant-page__agents">
             <h2>Agents</h2>
+            <AgentWorkerStatus />
             <button
               type="button"
               className="secondary-button"
@@ -386,6 +383,7 @@ export function AssistantView({
               <Help label="Assistant">{assistantHelp}</Help>
             </p>
           </header>
+          {agent && <AgentActivity key={agent.id} agent={agent} />}
           {settings.error && (
             <p role="alert" className="form-error">
               {settings.error}
@@ -416,17 +414,16 @@ export function AssistantView({
               <p role="alert" className="form-error">
                 {failureReason}
               </p>
-              {canRun &&
-                agent?.lastRun?.errorCode !== 'LEASE_EXPIRED' &&
-                agent?.lastRun?.errorCode !== 'AGENT_RUN_ERROR' && (
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => void retry()}
-                  >
-                    Retry
-                  </button>
-                )}
+              {agent?.lastRun?.canRetry && (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={!canRetry}
+                  onClick={() => void retry()}
+                >
+                  Retry
+                </button>
+              )}
             </div>
           )}
           {deleteError && (
@@ -461,7 +458,9 @@ export function AssistantView({
                       onApplied={() => undefined}
                       onStale={() => void thread.reload()}
                       onRetry={
-                        canRun && turn.trigger === 'agent'
+                        canRetry &&
+                        turn.trigger === 'agent' &&
+                        agent?.lastRun?.turnId === turn.id
                           ? () => void retry()
                           : undefined
                       }

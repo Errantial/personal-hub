@@ -73,6 +73,89 @@ export const agentRunRequestSchema = z.strictObject({
   expectedVersion: positive,
 });
 
+export const agentRunStateSchema = z.enum([
+  'queued',
+  'running',
+  'retry-scheduled',
+  'blocked',
+  'failed',
+  'uncertain',
+  'completed',
+  'cancelled',
+]);
+export const agentProgressStageSchema = z.enum([
+  'claimed',
+  'checking-provider',
+  'provider-request',
+  'applying',
+  'retry-scheduled',
+  'finished',
+]);
+export const agentRunSchema = z.object({
+  id: uuid,
+  version: positive,
+  status: z.enum([
+    'blocked',
+    'cancelled',
+    'queued',
+    'running',
+    'completed',
+    'failed',
+  ]),
+  state: agentRunStateSchema,
+  trigger: z.enum(['manual', 'schedule']),
+  outcome: runOutcomeSchema.nullable(),
+  errorCode: z.string().nullable(),
+  cancelReason: z.string().nullable(),
+  createdAt: stamp,
+  startedAt: stamp.nullable(),
+  finishedAt: stamp.nullable(),
+  progressAt: stamp.nullable(),
+  progressStage: agentProgressStageSchema.nullable(),
+  leaseUntil: stamp.nullable(),
+  leaseExpired: z.boolean(),
+  retryAt: stamp.nullable(),
+  attempts: z.number().int().nonnegative(),
+  turnId: uuid.nullable(),
+  settledMicros: z.number().int().nonnegative(),
+  heldMicros: z.number().int().nonnegative(),
+  uncertainMicros: z.number().int().nonnegative(),
+  exchangeCount: z.number().int().nonnegative(),
+  // Authoritative permission to offer a new Run now after proven zero-cost
+  // failure, not permission to replay an uncertain provider exchange.
+  canRetry: z.boolean(),
+});
+export type AgentRun = z.infer<typeof agentRunSchema>;
+export const agentSpendingSchema = z.object({
+  month: z.string().regex(/^\d{4}-\d{2}$/),
+  settledMicros: z.number().int().nonnegative(),
+  heldMicros: z.number().int().nonnegative(),
+  uncertainMicros: z.number().int().nonnegative(),
+  remainingMicros: z.number().int().nonnegative(),
+  capMicros: z.number().int().positive(),
+  resetsAt: stamp,
+  overCap: z.boolean(),
+});
+export const agentRunsQuerySchema = z
+  .strictObject({
+    limit: z.coerce.number().int().min(1).max(50).default(20),
+    after: uuid.optional(),
+    expectedCursorVersion: z.coerce.number().int().positive().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (Boolean(value.after) !== Boolean(value.expectedCursorVersion))
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Supply both cursor ID and version.',
+      });
+  });
+export const agentRunsResponseSchema = z.object({
+  asOf: stamp,
+  runs: z.array(agentRunSchema).max(50),
+  totalCount: z.number().int().nonnegative(),
+  nextAfter: z.object({ id: uuid, version: positive }).nullable(),
+});
+
 export const agentSchema = z.object({
   id: uuid,
   version: positive,
@@ -85,24 +168,24 @@ export const agentSchema = z.object({
   useMail: z.boolean(),
   monthlyCapMicros: z.number().int().positive(),
   spentMicros: z.number().int().nonnegative(),
+  spending: agentSpendingSchema.optional(),
+  /** Current execution can precede a newer queued run; never infer it from lastRun. */
+  activeRun: agentRunSchema.nullable().optional(),
+  runState: z
+    .enum(['idle', 'paused', 'cap-paused', ...agentRunStateSchema.options])
+    .optional(),
   timeZone: z.string(),
   conversationId: uuid,
   nextRunAt: stamp.nullable(),
-  lastRun: z
-    .object({
-      id: uuid,
-      status: z.enum([
-        'blocked',
-        'cancelled',
-        'queued',
-        'running',
-        'completed',
-        'failed',
-      ]),
-      outcome: runOutcomeSchema.nullable(),
-      errorCode: z.string().nullable(),
-      finishedAt: stamp.nullable(),
-      turnId: uuid.nullable(),
+  lastRun: agentRunSchema
+    .partial()
+    .required({
+      id: true,
+      status: true,
+      outcome: true,
+      errorCode: true,
+      finishedAt: true,
+      turnId: true,
     })
     .nullable(),
 });
@@ -117,6 +200,12 @@ export const agentWorkerSchema = z.object({
   lastTick: stamp.nullable(),
   errorCode: z.string().nullable(),
   healthy: z.boolean(),
+  enabled: z.boolean().optional(),
+  state: z
+    .enum(['disabled', 'not-configured', 'starting', 'healthy', 'unhealthy'])
+    .optional(),
+  disabledReason: z.enum(['config', 'missing-key']).nullable().optional(),
+  asOf: stamp.optional(),
 });
 
 /** Agent fields of a responsibility in the planner export. */

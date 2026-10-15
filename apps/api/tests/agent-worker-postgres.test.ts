@@ -8,6 +8,7 @@ import { runAgentTick } from '../src/features/agent-worker.js';
 import { chatUrl, modelsUrl, zdrUrl } from '../src/ai/openrouter-live.js';
 import { action, answer, model } from './helpers/openrouter.js';
 import { admitLive, settleLive } from '../src/ai/live-request.js';
+import { readAgentSpending } from '../src/features/agent-status.js';
 
 // Opt-in, disposable-schema PostgreSQL test: no provider or owner database use.
 it.skipIf(!process.env.TEST_DATABASE_URL)(
@@ -186,6 +187,25 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
       const [first] = await database.query(
         "SELECT id FROM responsibility_runs WHERE status='running'",
       );
+      const metadata = await app.inject({
+        url: `/api/v1/agents/${agent}/runs`,
+        headers,
+      });
+      expect(metadata.statusCode).toBe(200);
+      expect(
+        metadata
+          .json()
+          .runs.find((run: { id: string }) => run.id === first!.id),
+      ).toMatchObject({
+        state: 'running',
+        progressStage: 'provider-request',
+        startedAt: expect.any(String),
+        canRetry: false,
+      });
+      expect(
+        (await readAgentSpending(database, String(owner!.id), agent, 2000000))
+          .heldMicros,
+      ).toBeGreaterThan(0);
       expect((await runAgentTick(database, config, fetcher)).ran).toBeNull();
       expect(calls).toBe(1);
       await database.query(

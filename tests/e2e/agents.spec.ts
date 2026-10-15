@@ -73,6 +73,15 @@ async function stub(page: Page, agents: Json[] = [agentFixture()]) {
     turns: [] as Json[],
     writes: [] as { method: string; url: string; body: Json }[],
     failNext: 0,
+    worker: {
+      lastTick: new Date().toISOString(),
+      errorCode: null,
+      healthy: true,
+      enabled: true,
+      state: 'healthy',
+      disabledReason: null,
+      asOf: new Date().toISOString(),
+    } as Json,
   };
   const pinned = () =>
     state.agents.map((agent) => ({
@@ -168,11 +177,7 @@ async function stub(page: Page, agents: Json[] = [agentFixture()]) {
   });
   await page.route('**/api/v1/agents/worker', (route) =>
     route.fulfill({
-      json: {
-        lastTick: new Date().toISOString(),
-        errorCode: null,
-        healthy: true,
-      },
+      json: state.worker,
     }),
   );
   await page.route(/\/api\/v1\/agents\/[0-9a-f-]{36}$/, (route) => {
@@ -336,7 +341,7 @@ test('a capped agent cannot run until its cap is raised', async ({ page }) => {
   });
 });
 
-test('run turns show a run line, applied items can be undone, and failed runs offer Retry', async ({
+test('run turns retain Undo and latest safe refusal can be retried', async ({
   page,
 }) => {
   const state = await stub(page);
@@ -383,6 +388,19 @@ test('run turns show a run line, applied items can be undone, and failed runs of
     },
   );
   state.turns = [applied, failed];
+  state.agents = [
+    agentFixture({
+      lastRun: {
+        id: crypto.randomUUID(),
+        status: 'failed',
+        outcome: 'failed',
+        errorCode: 'PROVIDER_RATE_LIMITED',
+        finishedAt: new Date().toISOString(),
+        turnId: failed.id,
+        canRetry: true,
+      },
+    }),
+  ];
   let deleted: Json | null = null;
   await page.route(`**/api/v1/calendar/${eventId}`, (route) => {
     deleted = route.request().postDataJSON() as Json;
@@ -433,7 +451,7 @@ test('run turns show a run line, applied items can be undone, and failed runs of
   await expect(
     thread.getByText('OpenRouter is limiting requests.', { exact: false }),
   ).toBeVisible();
-  await thread.getByRole('button', { name: 'Retry' }).click();
+  await thread.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect
     .poll(() => state.writes.at(-1)?.url ?? '')
     .toContain(`/api/v1/agents/${agentId}/run`);
@@ -553,6 +571,7 @@ test('a failed precheck without a turn shows a reason and Retry', async ({
         status: 'failed',
         outcome: 'failed',
         errorCode: 'AGENT_CHANGED',
+        canRetry: true,
         finishedAt: new Date().toISOString(),
         turnId: null,
       },
@@ -677,3 +696,291 @@ for (const theme of ['light', 'dark', 'eink'] as const) {
     await expect(page.getByRole('button', { name: 'New agent' })).toBeFocused();
   });
 }
+
+const runFixture = (fields: Json = {}): Json => ({
+  id: crypto.randomUUID(),
+  version: 1,
+  status: 'failed',
+  state: 'failed',
+  trigger: 'schedule',
+  outcome: 'failed',
+  errorCode: 'ASSISTANT_NOT_CONFIGURED',
+  cancelReason: null,
+  createdAt: '2026-10-15T13:00:00.000Z',
+  startedAt: null,
+  finishedAt: '2026-10-15T13:00:01.000Z',
+  progressAt: null,
+  progressStage: null,
+  leaseUntil: null,
+  leaseExpired: false,
+  retryAt: null,
+  attempts: 1,
+  turnId: null,
+  settledMicros: 0,
+  heldMicros: 0,
+  uncertainMicros: 0,
+  exchangeCount: 0,
+  canRetry: false,
+  ...fields,
+});
+const spending = {
+  month: '2026-10',
+  settledMicros: 12500,
+  heldMicros: 250000,
+  uncertainMicros: 250000,
+  remainingMicros: 1737500,
+  capMicros: 2000000,
+  resetsAt: '2026-11-01T00:00:00.000Z',
+  overCap: false,
+};
+
+test('shows authoritative run states, separate allowance and disabled scheduler', async ({
+  page,
+}) => {
+  const current = runFixture({
+    status: 'queued',
+    state: 'retry-scheduled',
+    outcome: null,
+    errorCode: null,
+    finishedAt: null,
+    retryAt: '2026-10-15T13:15:00.000Z',
+  });
+  const state = await stub(page, [
+    agentFixture({ runState: 'retry-scheduled', lastRun: current, spending }),
+  ]);
+  state.worker = {
+    ...state.worker,
+    enabled: false,
+    state: 'disabled',
+    healthy: false,
+    disabledReason: 'config',
+  };
+  await page.goto(`/assistant/${conversationId}`);
+  const nav = page.getByRole('navigation', { name: 'Agents' });
+  await expect(nav).toContainText('Retry scheduled');
+  await expect(nav).toContainText('Scheduler disabled');
+  const allowance = page.getByRole('region', { name: 'Agent allowance' });
+  await expect(allowance).toContainText('Settled');
+  await expect(allowance).toContainText('$0.01');
+  await expect(allowance).toContainText('Uncertain holds');
+  await expect(allowance).toContainText('Lost responses are not resent.');
+  await expect(
+    page.getByRole('region', { name: 'Current agent run' }),
+  ).toContainText('Retry at');
+  for (const status of [
+    'queued',
+    'running',
+    'blocked',
+    'failed',
+    'uncertain',
+    'completed',
+  ]) {
+    state.agents = [
+      agentFixture({
+        runState: status,
+        spending,
+        lastRun: runFixture({
+          status: status === 'uncertain' ? 'failed' : status,
+          state: status,
+          ...(status === 'running'
+            ? {
+                progressStage: 'provider-request',
+                progressAt: '2026-10-15T13:01:00.000Z',
+                leaseUntil: '2026-10-15T13:10:00.000Z',
+                finishedAt: null,
+              }
+            : {}),
+        }),
+      }),
+    ];
+    await page.reload();
+    await expect(nav).toContainText(status[0]!.toUpperCase() + status.slice(1));
+    if (status === 'running')
+      await expect(
+        page.getByText('Waiting for provider', { exact: true }),
+      ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Retry', exact: true }),
+    ).toHaveCount(0);
+  }
+  state.worker = { ...state.worker, enabled: true, state: 'unhealthy' };
+  await page.reload();
+  await expect(nav).toContainText('Scheduler unhealthy');
+  expect(state.writes).toHaveLength(0);
+});
+
+test('pages bounded run history including pre-turn failures and resets stale cursors', async ({
+  page,
+}) => {
+  await stub(page, [agentFixture({ spending })]);
+  const first = runFixture();
+  const older = runFixture({
+    state: 'uncertain',
+    errorCode: 'PROVIDER_TIMEOUT',
+    heldMicros: 250000,
+    uncertainMicros: 250000,
+  });
+  const requests: URL[] = [];
+  let stale = false;
+  await page.route('**/api/v1/agents/*/runs?*', (route) => {
+    const url = new URL(route.request().url());
+    requests.push(url);
+    if (url.searchParams.has('after') && stale)
+      return route.fulfill({
+        status: 409,
+        json: {
+          error: { code: 'VERSION_CONFLICT', message: 'Reload cursor.' },
+        },
+      });
+    return route.fulfill({
+      json: {
+        runs: [url.searchParams.has('after') ? older : first],
+        totalCount: 2,
+        asOf: '2026-10-15T13:02:00.000Z',
+        nextAfter: url.searchParams.has('after')
+          ? null
+          : { id: first.id, version: 1 },
+      },
+    });
+  });
+  await page.goto(`/assistant/${conversationId}`);
+  await page.getByText('Run history', { exact: true }).click();
+  const runs = page.getByRole('list', { name: 'Agent runs' });
+  await expect(runs).toContainText('No answer was saved for this run.');
+  await expect(runs).toContainText('The server needs an OpenRouter key.');
+  await runs.getByRole('button', { name: 'Help: Run diagnostics' }).click();
+  await expect(runs.getByText(/Code: ASSISTANT_NOT_CONFIGURED/)).toBeVisible();
+  await page.getByRole('button', { name: 'Older runs' }).click();
+  await expect(runs).toContainText('Uncertain');
+  expect(requests.at(-1)!.searchParams.get('after')).toBe(first.id);
+  expect(requests.at(-1)!.searchParams.get('expectedCursorVersion')).toBe('1');
+  expect(requests.at(-1)!.searchParams.get('limit')).toBe('20');
+  await expect(
+    page.getByRole('button', { name: 'Retry', exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole('button', { name: 'Reload newest runs' }).click();
+  stale = true;
+  await page.getByRole('button', { name: 'Older runs' }).click();
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'Run history changed' }),
+  ).toBeVisible();
+  await expect(runs).toHaveCount(0);
+  await page.getByRole('button', { name: 'Reload newest runs' }).click();
+  await expect(runs).toContainText('No answer was saved');
+  expect(requests.at(-1)!.searchParams.has('after')).toBe(false);
+});
+
+test('run visibility fits narrow dark and e-ink layouts with keyboard Help', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await stub(page, [
+    agentFixture({
+      runState: 'uncertain',
+      spending,
+      lastRun: runFixture({
+        state: 'uncertain',
+        errorCode: 'PROVIDER_TIMEOUT',
+      }),
+    }),
+  ]);
+  await page.route('**/api/v1/agents/*/runs?*', (route) =>
+    route.fulfill({
+      json: {
+        runs: [runFixture()],
+        nextAfter: null,
+        totalCount: 1,
+        asOf: new Date().toISOString(),
+      },
+    }),
+  );
+  await page.goto(`/assistant/${conversationId}`);
+  for (const appearance of ['dark', 'eink']) {
+    await page.evaluate((value) => {
+      document.documentElement.dataset.theme =
+        value === 'eink' ? 'eink' : 'standard';
+      document.documentElement.dataset.scheme =
+        value === 'dark' ? 'dark' : 'light';
+    }, appearance);
+    const help = page.getByRole('button', { name: 'Help: Agent allowance' });
+    await help.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByText(/UTC reservation month/)).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(help).toBeFocused();
+    await page.getByText('Run history', { exact: true }).click();
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth -
+          document.documentElement.clientWidth,
+      ),
+    ).toBeLessThanOrEqual(0);
+    const axe = await new AxeBuilder({ page }).include('main').analyze();
+    expect(axe.violations).toEqual([]);
+    await page.getByText('Run history', { exact: true }).click();
+  }
+});
+
+test('an older active run remains visible behind a newer queue and warns on deadline expiry', async ({
+  page,
+}) => {
+  const active = runFixture({
+    id: crypto.randomUUID(),
+    state: 'running',
+    status: 'running',
+    outcome: null,
+    errorCode: null,
+    createdAt: '2026-10-15T13:00:00.000Z',
+    startedAt: '2026-10-15T13:00:01.000Z',
+    finishedAt: null,
+    progressStage: 'checking-provider',
+    progressAt: '2026-10-15T13:00:02.000Z',
+    leaseUntil: '2026-10-15T13:10:00.000Z',
+  });
+  const queued = runFixture({
+    id: crypto.randomUUID(),
+    state: 'queued',
+    status: 'queued',
+    outcome: null,
+    errorCode: null,
+    createdAt: '2026-10-15T13:01:00.000Z',
+    finishedAt: null,
+  });
+  const state = await stub(page, [
+    agentFixture({
+      spending,
+      runState: 'running',
+      activeRun: active,
+      lastRun: queued,
+    }),
+  ]);
+  await page.goto(`/assistant/${conversationId}`);
+  const current = page.getByRole('region', { name: 'Current agent run' });
+  const nav = page.getByRole('navigation', { name: 'Agents' });
+  await expect(current).toContainText('Checking provider');
+  await expect(current).toContainText('Running');
+  await expect(current).not.toContainText('Queued');
+  await expect(nav).toContainText('Scheduler healthy');
+  await expect(nav).toContainText('Running');
+  state.agents = [
+    agentFixture({
+      spending,
+      runState: 'running',
+      activeRun: { ...active, leaseExpired: true },
+      lastRun: queued,
+    }),
+  ];
+  await page.reload();
+  await expect(current).toContainText('Deadline passed');
+  await expect(current.getByRole('alert')).toContainText(
+    'Automatic changes are blocked',
+  );
+  await expect(current).not.toContainText('Checking provider');
+  await expect(nav).toContainText('Scheduler healthy');
+  await expect(nav).toContainText('Deadline passed');
+  await expect(
+    page.getByRole('button', { name: 'Retry', exact: true }),
+  ).toHaveCount(0);
+  expect(state.writes).toHaveLength(0);
+});
