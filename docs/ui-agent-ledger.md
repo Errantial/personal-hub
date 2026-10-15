@@ -1,5 +1,15 @@
 # UI agent ledger
 
+## Manual academic sources in owner asks (P7, backend implemented, UI next, 2026-10-15)
+
+`POST /api/v1/assistant/requests` now accepts an optional per-ask `academic` selection list: up to 20 `{ id, expectedVersion, expectedCourseVersion }` entries, unique ids. The composer slice must let the owner pick work items for the current ask — per item, never a class-level "all open work" mode — and must never surface notes or grades. Conversation turns echo the sent items as `academic` (ref, title, kind, dueDate, estimatedMinutes, status, priority; ≤20) so a coverage/withheld read can be added later.
+
+Required states to build: no selection (the ask proceeds unchanged); one or more picked items shown with a removable chip/list of their planning fields; and, after a send, the sent items from `turn.academic`. The request receipt counts disallowed selections in `withheld` (alongside planner and mail withholding); show the count without naming withheld items. Blocked selections fail the ask before any hold and surface the actionable error: `VERSION_CONFLICT` ("Reload academic context." — reload the class/work and keep the draft), `ACADEMIC_CLASS_ARCHIVED` (the class is archived) and `NOT_FOUND` (the item is gone). Reuse the existing pending/offline/conflict states and the exact-`operationId` lost-response retry.
+
+Preserve: an empty or omitted selection is equivalent (same operation hash), so a no-selection device still replays; agent runs and run threads expose no academic selection; mail-dependent read-only turns keep their rules; and applied proposals keep their inherited labels and `bound-derived` origin. Put the "missing deadline or effort is unknown, not zero" and "manual records only, no grades" explanations in contextual Help or tips available by keyboard and tap, not as flavor text.
+
+Known limitations: the picker and withheld-item coverage UI are not built; grounded academic proposals (P8) are later; actual Kompakt and screen-reader acceptance remain pending, and development is not deployment or owner live acceptance. Validation of the backend slice: `npm run check` (lint, workspace types, 751 unit/API/client tests with three optional PostgreSQL tests skipped, formatting, production builds). No browser cases were added for this backend-only slice.
+
 ## Durable output lineage and server-owned Apply (P5/P6 boundary 2, development branch, 2026-10-15)
 
 The Assistant no longer composes planner writes in the browser. `AssistantTurnView` sends only `{ expectedVersion, indexes, operationId }` to `POST /api/v1/assistant/turns/:id/apply` or `/undo` and renders the returned turn. `PUT /api/v1/assistant/turns/:id/items` is retained for compatibility but refuses any client-chosen state or write ID with `SERVER_OWNED_APPLY` (mail-derived turns keep `PROPOSAL_READ_ONLY` first). Preserve the per-turn pending/offline/conflict states and the exact-operation retry: a lost response retains the same `operationId` and expected version rather than inventing a second write, and `VERSION_CONFLICT`/`NOT_FOUND` reload the answer. Read-only (mail-dependent) suggestions still show no Apply control.
