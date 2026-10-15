@@ -60,8 +60,8 @@ test('Today shows failed delivery and the latest three unread reminders without 
   await expect(page.getByRole('region', { name: 'Overdue' })).toContainText(
     'Today failed delivery',
   );
-  const unread = page.getByRole('group', { name: 'Unread reminders · 4' });
-  await unread.getByText('Unread reminders · 4').click();
+  const unread = page.getByRole('group', { name: 'Unread notifications · 4' });
+  await unread.getByText('Unread notifications · 4').click();
   for (const index of [0, 1, 2])
     await expect(
       unread.getByText(`Today notification ${index}`, { exact: true }),
@@ -417,7 +417,7 @@ test('Overdue appears only when something is overdue or failed', async ({
   );
 });
 
-test('Next 7 days and Unread reminders are collapsed with counts', async ({
+test('Next 7 days and Unread notifications are collapsed with counts', async ({
   page,
 }) => {
   await page.goto('/today');
@@ -429,8 +429,8 @@ test('Next 7 days and Unread reminders are collapsed with counts', async ({
   await expect(week.getByText('Soon task')).toBeHidden();
   await week.getByText('Next 7 days · 1').click();
   await expect(week.getByText('Soon task')).toBeVisible();
-  const unread = page.getByRole('group', { name: 'Unread reminders · 3' });
+  const unread = page.getByRole('group', { name: 'Unread notifications · 3' });
   await expect(unread.getByText('Unread 0')).toBeHidden();
-  await unread.getByText('Unread reminders · 3').click();
+  await unread.getByText('Unread notifications · 3').click();
   await expect(unread.getByText('Unread 0')).toBeVisible();
 });

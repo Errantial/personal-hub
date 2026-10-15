@@ -113,6 +113,7 @@ export function InboxView({
         initialized.current &&
         !observed.current.has(item.id) &&
         !item.readAt &&
+        !item.runId &&
         typeof Notification !== 'undefined' &&
         Notification.permission === 'granted'
       ) {
@@ -633,7 +634,16 @@ function NotificationsSection({
   const row = (item: HubNotification, history = false) => (
     <li key={item.id}>
       <div className="inbox-list__body">
-        <strong>{item.title}</strong>
+        {item.conversationId ? (
+          <Link
+            route={{ name: 'assistant', id: item.conversationId }}
+            navigate={navigate}
+          >
+            {item.title}
+          </Link>
+        ) : (
+          <strong>{item.title}</strong>
+        )}
         <span>{when(item.createdAt)}</span>
         <span className="inbox-list__meta">
           <StatusChip>{item.readAt ? 'Read' : 'Unread'}</StatusChip>
@@ -671,8 +681,8 @@ function NotificationsSection({
     <section aria-label="Notifications">
       <h2>Notifications</h2>
       <Help label="Notifications">
-        Delivered reminders stay here; unread ones come first. The list shows
-        the latest 200. Older notifications load read-only.
+        Delivered reminders and agent results stay here; unread ones come first.
+        The list shows the latest 200. Older notifications load read-only.
       </Help>
       <ReadState resource={resource} label="notifications" />
       {unread > 0 && (

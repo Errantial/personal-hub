@@ -14,6 +14,7 @@ import { formatCost } from '../lib/assistant';
 import { formatInstant } from '../lib/format';
 import { useOnline, useResource } from '../lib/hooks';
 import { operationTracker } from '../lib/operations';
+import { useConversationNotifications } from '../lib/conversation-notifications';
 import type { Route } from '../lib/router';
 import { assistantHelp, useAssistantSettings } from './AssistantBox';
 import { AssistantComposer } from './AssistantComposer';
@@ -31,9 +32,11 @@ import './Assistant.css';
 export function AssistantView({
   route,
   navigate,
+  onChanged,
 }: {
   route: Extract<Route, { name: 'assistant' }>;
   navigate: (route: Route) => void;
+  onChanged?: () => void;
 }) {
   const online = useOnline();
   const settings = useAssistantSettings();
@@ -119,6 +122,11 @@ export function AssistantView({
   }, [agent, markSeen]);
   const latestRun = agent?.lastRun?.id;
   const latestFinish = agent?.lastRun?.finishedAt;
+  const notifications = useConversationNotifications(
+    conversation?.id === route.id ? route.id : undefined,
+    latestFinish ?? thread.data?.turns.at(-1)?.id,
+    onChanged,
+  );
   useEffect(() => {
     if (latestFinish) {
       void thread.reload();
@@ -387,6 +395,21 @@ export function AssistantView({
             <p role="alert" className="form-error">
               {runError}
             </p>
+          )}
+          {notifications.error && (
+            <div>
+              <p role="alert" className="form-error">
+                {notifications.error}
+              </p>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={!online}
+                onClick={notifications.retry}
+              >
+                Retry notification read
+              </button>
+            </div>
           )}
           {runFailure && (
             <div>

@@ -1,6 +1,12 @@
 # Planner assistant (first live AI flow)
 
-Implemented 2026-10-13 (plan step 4, D47). The **Assistant** box on Today turns a natural-language request into proposed task and event changes through OpenRouter. Nothing changes until the owner applies the proposals; applied changes use the ordinary versioned planner writes and can be undone. This is the only feature that sends requests to a provider. The older routing, preflight and synthetic request machinery is unchanged and still not used for dispatch.
+Implemented 2026-10-13 (plan step 4, D47). The Assistant on Today and its conversation page turn natural-language requests into proposed task and event changes through OpenRouter. Owner requests change nothing until Apply; changes use the ordinary versioned planner writes and can be undone. The older general gateway remains separate from dispatch.
+
+## Scheduled agents (D57, implemented locally 2026-10-14; rollout pending)
+
+Agents share `answerTurn`, privacy checks, text-only mail access, spending holds and conversation history with owner requests. Runs are turns with `trigger: 'agent'`; owner replies in pinned conversations steer later runs. Settings > AI > Actions governs automatic changes with Undo, ask-first proposals and dropped blocked proposals (`notAllowed`). Uncertain requests and expired leases are never resent. Open threads and agent states refresh periodically; failed prechecks stay visible even without a turn.
+
+Inbox and Today link run notifications to retained conversations. Opening a conversation marks only its own notifications read, paging unread history (up to 10,000 rows per pass, with a visible warning at the limit). Read failures can be retried. Agent notifications never trigger browser alerts. See the [design and exclusions](superpowers/specs/2026-10-14-persistent-agents-design.md#out-of-scope-recorded-for-future-work); merge, deployment and live owner acceptance remain pending.
 
 ## Owner decisions (2026-10-13)
 
