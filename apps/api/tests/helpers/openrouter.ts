@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { vi } from 'vitest';
+import type { LightMyRequestResponse } from 'fastify';
 import { buildApp } from '../../src/app.js';
 import { readConfig } from '../../src/config.js';
 import type { Config } from '../../src/config.js';
@@ -73,7 +74,7 @@ type Call = (
   method: string,
   url: string,
   payload?: object,
-) => Promise<{ statusCode: number; json: () => any }>;
+) => Promise<LightMyRequestResponse>;
 
 /** Approves a live destination as the owner would in Settings. */
 export async function approveLiveDestination(
