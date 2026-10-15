@@ -20,7 +20,9 @@ Approved 2026-10-14 (D54–D56), all done and deployed:
 
 Live operation (2026-10-14): mail sync runs every 10 minutes from the owner's Windows computer; the server has the OpenRouter key and spending limits.
 
-Later (not yet ordered): bidirectional MCP, persistent agents, Kompakt hardware verification, Outlook mailbox, Windows app.
+Next (approved 2026-10-14, D57): **persistent agents**. [Design](superpowers/specs/2026-10-14-persistent-agents-design.md): scheduled agents (Daily plan, Mail triage, Deadline watch, custom) as pinned Assistant conversations, run by an in-process worker under the action settings and a per-agent monthly cap. Three PRs: backend, UI, notifications/docs. Out of scope for this slice (listed in the design and agent-scope.md): event triggers, parallel runs, delegation, MCP, web browsing, sending email, external calendar writes, memory edits, voice, personas, learning, auto-resume after a cap pause, push notifications.
+
+Later (not yet ordered): bidirectional MCP, Kompakt hardware verification, Outlook mailbox, Windows app.
 
 Step 5 gateway foundation (2026-10-13): [verified mail context](ai-mail-context.md) is implemented with owned message references, bounded text projections, retained labels and exact message/connector integrity binding. Older imports without body-origin declarations remain blocked for AI context. Classification, corrections, selection UI and approved live provider execution remain next work; this does not complete live upload/scheduling acceptance.
 
