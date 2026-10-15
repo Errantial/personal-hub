@@ -10,6 +10,10 @@ install -d -m 0755 /opt/personal-hub /srv/personal-hub/releases
 install -d -m 0755 /etc/personal-hub
 if ! id hub >/dev/null 2>&1; then useradd --system --home-dir /srv/personal-hub --shell /sbin/nologin hub; fi
 if ! id hub-caddy >/dev/null 2>&1; then useradd --system --home-dir /var/lib/personal-hub-caddy --shell /sbin/nologin hub-caddy; fi
+# hub cannot write its root-owned home; give npm installs their own cache.
+install -d -o hub -g hub -m 0700 /var/cache/personal-hub/npm
+printf 'cache=/var/cache/personal-hub/npm\nupdate-notifier=false\nfund=false\n' >/srv/personal-hub/.npmrc
+chmod 0644 /srv/personal-hub/.npmrc
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 cd "$work"
