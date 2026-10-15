@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page, Route } from '@playwright/test';
+import { applyRequest, undoRequest } from '@hub/contracts';
+import type { AssistantTurn } from '@hub/contracts';
 import { authenticate } from './auth';
 
 const headers = { Origin: 'http://127.0.0.1:5180' };
@@ -34,18 +36,77 @@ function answer(route: Route, request: { proposals: unknown[] }) {
   return reply;
 }
 
-/** Saving applied state echoes the items back, as the server does. */
-async function stubItems(page: Page) {
-  let version = 1;
-  await page.route('**/api/v1/assistant/turns/*/items', (route) => {
-    const body = route.request().postDataJSON() as { items: unknown[] };
-    version += 1;
-    return route.fulfill({
-      json: {
-        turn: (lastTurn = { ...lastTurn, version, items: body.items }),
-      },
-    });
+/** Synthetic server operation adapter: browser sends only indexes and identity. */
+async function stubOperations(page: Page, loseFirstResponse = false) {
+  const receipts = new Map<string, unknown>();
+  const requests: unknown[] = [];
+  let lost = false;
+  await page.route('**/api/v1/assistant/turns/*/items', () => {
+    throw new Error('The browser must not save assistant item states.');
   });
+  await page.route(
+    /\/api\/v1\/assistant\/turns\/[^/]+\/(apply|undo)$/,
+    async (route) => {
+      const body = route.request().postDataJSON() as {
+        expectedVersion: number;
+        indexes: number[];
+        operationId: string;
+      };
+      requests.push(body);
+      const replay = receipts.get(body.operationId);
+      if (replay) {
+        expect(body).toEqual(replay);
+        await route.fulfill({ json: { turn: lastTurn } });
+        return;
+      }
+      const turn = lastTurn as unknown as AssistantTurn;
+      expect(body.expectedVersion).toBe(turn.version);
+      const undo = route.request().url().endsWith('/undo');
+      const items = [...turn.items];
+      for (const index of undo ? [...body.indexes].reverse() : body.indexes) {
+        const item = items[index]!;
+        const proposal = turn.request.proposals[index]!;
+        const planned = undo
+          ? undoRequest(proposal, item.applied!, item.undoId)
+          : applyRequest(proposal, item.applyId);
+        // This test-only server adapter makes the planner request independently;
+        // page routes can detect any forbidden browser-side planner write.
+        const response = await page.request.fetch(planned.path, {
+          method: planned.method,
+          headers,
+          data: planned.body,
+        });
+        if (response.ok()) {
+          const record = (await response.json())[
+            planned.returns === 'task' ? 'task' : 'event'
+          ];
+          items[index] = {
+            ...item,
+            state: undo ? 'undone' : 'applied',
+            applied: undo
+              ? item.applied
+              : { id: record.id, version: record.version },
+            error: null,
+          };
+        } else {
+          items[index] = {
+            ...item,
+            state: undo ? 'applied' : 'failed',
+            error: 'Changed or removed since the assistant read it. Ask again.',
+          };
+        }
+      }
+      lastTurn = { ...lastTurn, version: turn.version + 1, items };
+      receipts.set(body.operationId, body);
+      if (loseFirstResponse && !lost) {
+        lost = true;
+        await route.abort('failed');
+        return;
+      }
+      await route.fulfill({ json: { turn: lastTurn } });
+    },
+  );
+  return requests;
 }
 let lastTurn: Record<string, unknown> = {};
 
@@ -133,7 +194,7 @@ test('destination panel replaces the model picker and can approve and revoke wit
   ).toBe(true);
 });
 
-test('proposed changes apply through the planner and can be undone', async ({
+test('server-owned Apply retries a lost response without browser planner writes and can be undone', async ({
   page,
 }) => {
   const suffix = crypto.randomUUID().slice(0, 8);
@@ -195,7 +256,12 @@ test('proposed changes apply through the planner and can be undone', async ({
     });
   });
 
-  await stubItems(page);
+  const operations = await stubOperations(page, true);
+  let browserWrites = 0;
+  await page.route(/\/api\/v1\/(tasks|calendar)(\/|$)/, (route) => {
+    if (route.request().method() !== 'GET') browserWrites += 1;
+    return route.continue();
+  });
   await stubThread(page);
   await page.goto('/assistant');
   const box = page.locator('main');
@@ -226,7 +292,16 @@ test('proposed changes apply through the planner and can be undone', async ({
     '2036-03-10',
   );
   await changes.getByRole('button', { name: 'Apply 2 changes' }).click();
+  await expect(
+    box.getByText('The result could not be confirmed.', { exact: false }),
+  ).toBeVisible();
+  await changes
+    .getByRole('button', { name: 'Retry Apply', exact: true })
+    .click();
   await expect(box.getByText('Applied 2 changes.')).toBeVisible();
+  expect(operations).toHaveLength(2);
+  expect(operations[1]).toEqual(operations[0]);
+  expect(browserWrites).toBe(0);
   let tasks = await read();
   expect(tasks.find((t) => t.id === task.id)?.dueDate).toBe('2036-03-12');
   expect(tasks.some((t) => t.title === newTitle)).toBe(true);
@@ -236,6 +311,7 @@ test('proposed changes apply through the planner and can be undone', async ({
   tasks = await read();
   expect(tasks.find((t) => t.id === task.id)?.dueDate).toBe('2036-03-10');
   expect(tasks.some((t) => t.title === newTitle)).toBe(false);
+  expect(browserWrites).toBe(0);
 });
 
 test('a change made elsewhere is a conflict, not an overwrite', async ({
@@ -292,7 +368,7 @@ test('a change made elsewhere is a conflict, not an overwrite', async ({
       }),
     }),
   );
-  await stubItems(page);
+  await stubOperations(page);
   await stubThread(page);
   await page.goto('/assistant');
   const box = page.locator('main');

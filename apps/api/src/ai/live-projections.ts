@@ -23,12 +23,14 @@ import type { LiveSource } from './live-manifest.js';
 const appliedFromMail = `SELECT (i->'applied'->>'id')::uuid FROM ai_conversation_turns t, jsonb_array_elements(t.items) i
   WHERE t.owner_id=$1 AND jsonb_array_length(t.mail)>0 AND jsonb_typeof(i->'applied')='object'`;
 
-export const openTask = (task: Task) =>
+export const openTask = (task: Task, aiOrigin = 'owner-entered') =>
+  aiOrigin === 'owner-entered' &&
   task.sensitivity === 'unlabeled' &&
   !task.canvasSource &&
   !task.academicSource &&
   !task.mailSource;
-export const openEvent = (event: CalendarRecord) =>
+export const openEvent = (event: CalendarRecord, aiOrigin = 'owner-entered') =>
+  aiOrigin === 'owner-entered' &&
   event.sensitivity === 'unlabeled' &&
   Array.isArray(event.academicLabels) &&
   event.academicLabels.length === 0 &&
@@ -57,28 +59,37 @@ export async function livePlannerContext(
   const tasks = (
     await tx.query(
       byIds
-        ? `SELECT ${taskColumns},id IN (${appliedFromMail}) AS "fromMail" FROM tasks WHERE owner_id=$1 AND id=ANY($2::uuid[]) AND deleted_at IS NULL AND completed=false`
-        : `SELECT ${taskColumns},id IN (${appliedFromMail}) AS "fromMail" FROM tasks WHERE owner_id=$1 AND deleted_at IS NULL AND completed=false ORDER BY due_date NULLS LAST,created_at DESC LIMIT 150`,
+        ? `SELECT ${taskColumns},ai_origin AS "aiOrigin",id IN (${appliedFromMail}) AS "fromMail" FROM tasks WHERE owner_id=$1 AND id=ANY($2::uuid[]) AND deleted_at IS NULL AND completed=false`
+        : `SELECT ${taskColumns},ai_origin AS "aiOrigin",id IN (${appliedFromMail}) AS "fromMail" FROM tasks WHERE owner_id=$1 AND deleted_at IS NULL AND completed=false ORDER BY due_date NULLS LAST,created_at DESC LIMIT 150`,
       byIds ? [owner, select.tasks] : [owner],
     )
-  ).map((row) => ({ task: taskSchema.parse(row), fromMail: !!row.fromMail }));
+  ).map((row) => ({
+    task: taskSchema.parse(row),
+    aiOrigin: String(row.aiOrigin ?? 'owner-entered'),
+    fromMail: !!row.fromMail,
+  }));
   const events = (
     await tx.query(
       byIds
-        ? `SELECT ${eventColumns},id IN (${appliedFromMail}) AS "fromMail" FROM events WHERE owner_id=$1 AND id=ANY($2::uuid[]) AND deleted_at IS NULL`
-        : `SELECT ${eventColumns},id IN (${appliedFromMail}) AS "fromMail" FROM events WHERE owner_id=$1 AND deleted_at IS NULL AND ends_at >= CURRENT_TIMESTAMP - interval '1 day' AND starts_at < CURRENT_TIMESTAMP + interval '30 days' ORDER BY starts_at,id LIMIT 150`,
+        ? `SELECT ${eventColumns},ai_origin AS "aiOrigin",id IN (${appliedFromMail}) AS "fromMail" FROM events WHERE owner_id=$1 AND id=ANY($2::uuid[]) AND deleted_at IS NULL`
+        : `SELECT ${eventColumns},ai_origin AS "aiOrigin",id IN (${appliedFromMail}) AS "fromMail" FROM events WHERE owner_id=$1 AND deleted_at IS NULL AND ends_at >= CURRENT_TIMESTAMP - interval '1 day' AND starts_at < CURRENT_TIMESTAMP + interval '30 days' ORDER BY starts_at,id LIMIT 150`,
       byIds ? [owner, select.events] : [owner],
     )
   )
     .map((row) => ({
       event: calendarRecordSchema.parse(row),
+      aiOrigin: String(row.aiOrigin ?? 'owner-entered'),
       fromMail: !!row.fromMail,
     }))
     // Repeating series are not offered (one change would move every
     // occurrence) and, as before, are not counted as withheld.
     .filter((e) => e.event.recurrence === null);
-  const openTasks = tasks.filter((t) => !t.fromMail && openTask(t.task));
-  const openEvents = events.filter((e) => !e.fromMail && openEvent(e.event));
+  const openTasks = tasks.filter(
+    (t) => !t.fromMail && openTask(t.task, t.aiOrigin),
+  );
+  const openEvents = events.filter(
+    (e) => !e.fromMail && openEvent(e.event, e.aiOrigin),
+  );
   return {
     tasks: openTasks.map((t) => t.task),
     events: openEvents.map((e) => e.event),

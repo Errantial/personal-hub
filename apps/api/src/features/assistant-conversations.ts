@@ -6,6 +6,7 @@ import {
   assistantConversationListSchema,
   assistantConversationResponseSchema,
   assistantItemsUpdateSchema,
+  assistantTurnActionSchema,
   assistantProposalSchema,
   assistantTurnResponseSchema,
 } from '@hub/contracts';
@@ -27,6 +28,8 @@ import {
 } from '../ai/live-manifest.js';
 import { liveReceipt } from '../ai/live-request.js';
 import { stamp } from './common.js';
+import { changeSavedTurn } from './assistant-apply.js';
+import { captureTurnOrigin } from './ai-planner-origin.js';
 
 // Assistant conversations (docs/ai-assistant.md, D55): asks, replies,
 // proposals and their applied/undone state live on the owner's server.
@@ -183,6 +186,16 @@ export async function finishTurn(
         sources ? JSON.stringify(sources) : null,
       ],
     );
+    if (mail.binding && answer?.proposals.length) {
+      await captureTurnOrigin(
+        tx,
+        owner,
+        id,
+        mail.binding.requestId,
+        answer.proposals,
+        items,
+      );
+    }
   });
 }
 
@@ -350,6 +363,18 @@ export function registerAssistantConversations(
     return assistantConversationDeletedSchema.parse({ deleted: true });
   });
 
+  for (const action of ['apply', 'undo'] as const) {
+    app.post(`/api/v1/assistant/turns/:id/${action}`, async (request) => {
+      const owner = await auth.requireUser(request);
+      const { id } = idSchema.parse(request.params);
+      const input = assistantTurnActionSchema.parse(request.body);
+      await changeSavedTurn(database, owner.id, id, action, input);
+      const turn = await readTurn(database, owner.id, id);
+      if (!turn) throw notFound();
+      return assistantTurnResponseSchema.parse({ turn });
+    });
+  }
+
   // Records Apply/Undo results so other devices show them and reuse the
   // same write IDs.
   app.put('/api/v1/assistant/turns/:id/items', async (request) => {
@@ -397,6 +422,12 @@ export function registerAssistantConversations(
           409,
           'PROPOSAL_READ_ONLY',
           "These suggestions came from mail and can't be applied yet.",
+        );
+      if (JSON.stringify(stored) !== JSON.stringify(input.items))
+        throw new ApiError(
+          409,
+          'SERVER_OWNED_APPLY',
+          'Apply or undo the saved changes through this answer.',
         );
       await tx.query(
         'UPDATE ai_conversation_turns SET items=$3,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2',

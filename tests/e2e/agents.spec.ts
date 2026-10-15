@@ -401,40 +401,19 @@ test('run turns retain Undo and latest safe refusal can be retried', async ({
       },
     }),
   ];
-  let deleted: Json | null = null;
-  await page.route(`**/api/v1/calendar/${eventId}`, (route) => {
-    deleted = route.request().postDataJSON() as Json;
-    return route.fulfill({
-      json: {
-        event: {
-          id: eventId,
-          title: 'Study block',
-          notes: '',
-          timeZone: zone,
-          sensitivity: 'unlabeled',
-          version: 2,
-          allDay: false,
-          recurrence: null,
-          courseId: null,
-          topicId: null,
-          studyStatus: 'planned',
-          startsAt: '2036-03-09T16:00:00.000Z',
-          endsAt: '2036-03-09T17:00:00.000Z',
-          startDate: null,
-          endDate: null,
-          createdAt: '2026-10-13T13:00:00.000Z',
-          updatedAt: '2026-10-13T13:00:00.000Z',
-          deletedAt: '2026-10-13T14:00:00.000Z',
-          academicLabels: [],
-        },
-      },
-    });
+  let browserWrites = 0;
+  await page.route(/\/api\/v1\/(tasks|calendar)(\/|$)/, (route) => {
+    if (route.request().method() !== 'GET') browserWrites += 1;
+    return route.continue();
   });
-  await page.route('**/api/v1/assistant/turns/*/items', (route) => {
-    const body = route.request().postDataJSON() as { items: Json[] };
-    return route.fulfill({
-      json: { turn: { ...applied, version: 3, items: body.items } },
-    });
+  let undoBody: Json | null = null;
+  await page.route(/\/api\/v1\/assistant\/turns\/[^/]+\/undo$/, (route) => {
+    undoBody = route.request().postDataJSON() as Json;
+    const items = (applied.items as Json[]).map((item) => ({
+      ...item,
+      state: 'undone',
+    }));
+    return route.fulfill({ json: { turn: { ...applied, version: 3, items } } });
   });
   await page.goto(`/assistant/${conversationId}`);
   const thread = page.locator('main');
@@ -446,7 +425,8 @@ test('run turns retain Undo and latest safe refusal can be retried', async ({
   await expect(thread.getByText('Applied', { exact: true })).toBeVisible();
   await expect(thread.getByText(/1 not allowed by settings/)).toBeVisible();
   await thread.getByRole('button', { name: 'Undo' }).click();
-  await expect.poll(() => deleted).toMatchObject({ expectedVersion: 1 });
+  await expect.poll(() => undoBody).toMatchObject({ indexes: [0] });
+  expect(browserWrites).toBe(0);
   await expect(thread.getByText('Undone', { exact: true })).toBeVisible();
   await expect(
     thread.getByText('OpenRouter is limiting requests.', { exact: false }),

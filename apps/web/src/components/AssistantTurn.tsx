@@ -2,23 +2,14 @@ import { useState } from 'react';
 import {
   assistantTurnResponseSchema,
   assistantConversationResponseSchema,
-  calendarResponseSchema,
-  taskResponseSchema,
 } from '@hub/contracts';
-import type {
-  AssistantItem,
-  AssistantRequest,
-  AssistantTurn,
-} from '@hub/contracts';
+import type { AssistantRequest, AssistantTurn } from '@hub/contracts';
 import { RequestError, liveRequestJson } from '../lib/api';
 import {
-  applyRequest,
   applicableItemIndexes,
   describeProposal,
   formatCost,
-  undoRequest,
 } from '../lib/assistant';
-import type { PlannedRequest } from '../lib/assistant';
 import { runLine } from '../lib/agents';
 import { formatInstant } from '../lib/format';
 import { useOnline } from '../lib/hooks';
@@ -45,14 +36,6 @@ export const reasons: Record<
   'route-blocked': 'The approved destination changed. Nothing was sent.',
 };
 
-/** One live planner write (never queued offline); returns the record. */
-async function send(request: PlannedRequest) {
-  const options = { method: request.method, body: request.body };
-  return request.returns === 'task'
-    ? (await liveRequestJson(request.path, taskResponseSchema, options)).task
-    : (await liveRequestJson(request.path, calendarResponseSchema, options))
-        .event;
-}
 const failure = (error: unknown) =>
   error instanceof RequestError
     ? error.code === 'VERSION_CONFLICT' || error.code === 'NOT_FOUND'
@@ -62,8 +45,8 @@ const failure = (error: unknown) =>
 
 /**
  * One ask and its answer: reply, cost and proposed changes. Apply and Undo
- * use the ordinary versioned writes with the turn's stored write IDs, and
- * their results are saved so every device shows them.
+ * use server-owned versioned operations. Exact retry identities survive a lost
+ * response while this view remains open; the server saves effects and receipts.
  */
 export function AssistantTurnView({
   turn,
@@ -92,29 +75,62 @@ export function AssistantTurnView({
   );
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  const [pending, setPending] = useState<{
+    action: 'apply' | 'undo';
+    body: { expectedVersion: number; indexes: number[]; operationId: string };
+  } | null>(null);
   const timeZone = zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-  /** Saves item states; a newer version elsewhere asks for a reload. */
-  async function save(items: AssistantItem[]) {
+  async function perform(operation: NonNullable<typeof pending>) {
+    setBusy(true);
+    setNotice('');
+    setPending(operation);
     try {
       const { turn: saved } = await liveRequestJson(
-        `/api/v1/assistant/turns/${turn.id}/items`,
+        `/api/v1/assistant/turns/${turn.id}/${operation.action}`,
         assistantTurnResponseSchema,
-        { method: 'PUT', body: { expectedVersion: turn.version, items } },
+        { method: 'POST', body: operation.body },
       );
       onTurn(saved);
+      setPending(null);
+      const count = saved.items.filter(
+        (item) => item.state === 'applied',
+      ).length;
+      setNotice(
+        operation.action === 'apply'
+          ? count
+            ? `Applied ${count} change${count === 1 ? '' : 's'}.`
+            : ''
+          : count
+            ? 'Some changes could not be undone.'
+            : 'Changes undone.',
+      );
+      onApplied();
     } catch (error) {
-      if (error instanceof RequestError && error.code === 'VERSION_CONFLICT')
-        onStale();
-      else
+      if (
+        error instanceof RequestError &&
+        error.status < 500 &&
+        error.code !== 'RETRY_REQUIRED'
+      ) {
+        setPending(null);
+        setNotice(failure(error));
+        if (error.code === 'VERSION_CONFLICT' || error.code === 'NOT_FOUND')
+          onStale();
+      } else {
+        // The server may have committed already. Retain the exact operation,
+        // including its expected version, rather than inventing a second write.
         setNotice(
-          'The changes were made, but this device could not record them. Reload before undoing.',
+          'The result could not be confirmed. Retry to check the same operation.',
         );
+      }
+    } finally {
+      setBusy(false);
     }
   }
 
   async function apply() {
-    if (busy || !online || turn.proposalAccess === 'read-only') return;
+    if (busy || pending || !online || turn.proposalAccess === 'read-only')
+      return;
     setBusy(true);
     setNotice('');
     let fresh: AssistantTurn | undefined;
@@ -157,50 +173,28 @@ export function AssistantTurnView({
       setBusy(false);
       return;
     }
-    const next = [...fresh.items];
-    for (const index of applicableItemIndexes(fresh, selected)) {
-      const item = next[index]!;
-      try {
-        const record = await send(
-          applyRequest(fresh.request.proposals[index]!, item.applyId),
-        );
-        next[index] = {
-          ...item,
-          state: 'applied',
-          applied: { id: record.id, version: record.version },
-          error: null,
-        };
-      } catch (error) {
-        next[index] = { ...item, state: 'failed', error: failure(error) };
-      }
-    }
-    const count = next.filter((item) => item.state === 'applied').length;
-    setNotice(count ? `Applied ${count} change${count === 1 ? '' : 's'}.` : '');
-    await save(next);
-    setBusy(false);
-    if (count) onApplied();
+    await perform({
+      action: 'apply',
+      body: {
+        expectedVersion: fresh.version,
+        indexes: applicableItemIndexes(fresh, selected),
+        operationId: crypto.randomUUID(),
+      },
+    });
   }
 
   async function undo() {
-    setBusy(true);
-    const next = [...turn.items];
-    // Newest first, so later changes to the same item are reversed first.
-    for (const [index, item] of [...next.entries()].reverse()) {
-      if (item.state !== 'applied' || !item.applied) continue;
-      try {
-        await send(
-          undoRequest(request.proposals[index]!, item.applied, item.undoId),
-        );
-        next[index] = { ...item, state: 'undone', error: null };
-      } catch (error) {
-        next[index] = { ...item, error: failure(error) };
-      }
-    }
-    const left = next.filter((item) => item.state === 'applied').length;
-    setNotice(left ? 'Some changes could not be undone.' : 'Changes undone.');
-    await save(next);
-    setBusy(false);
-    onApplied();
+    if (busy || pending || !online) return;
+    await perform({
+      action: 'undo',
+      body: {
+        expectedVersion: turn.version,
+        indexes: turn.items.flatMap((item, index) =>
+          item.state === 'applied' ? [index] : [],
+        ),
+        operationId: crypto.randomUUID(),
+      },
+    });
   }
 
   const readOnly = turn.proposalAccess === 'read-only';
@@ -281,7 +275,7 @@ export function AssistantTurnView({
                       <input
                         type="checkbox"
                         checked={item.state === 'proposed' && !!selected[index]}
-                        disabled={item.state !== 'proposed'}
+                        disabled={!!pending || item.state !== 'proposed'}
                         onChange={(event) =>
                           setSelected(
                             selected.map((value, at) =>
@@ -307,11 +301,23 @@ export function AssistantTurnView({
               ))}
             </ul>
             <div className="form-actions">
+              {pending && (
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={!online}
+                  onClick={() => {
+                    void perform(pending);
+                  }}
+                >
+                  {pending.action === 'apply' ? 'Retry Apply' : 'Retry Undo'}
+                </button>
+              )}
               {!readOnly && proposed.length > 0 && (
                 <button
                   type="button"
                   className="primary-button"
-                  disabled={!chosen || !online}
+                  disabled={!!pending || !chosen || !online}
                   onClick={() => {
                     void apply();
                   }}
@@ -325,7 +331,7 @@ export function AssistantTurnView({
                 <button
                   type="button"
                   className="secondary-button"
-                  disabled={!online}
+                  disabled={!!pending || !online}
                   onClick={() => {
                     void undo();
                   }}

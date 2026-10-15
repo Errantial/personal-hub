@@ -110,7 +110,14 @@ it('upgrades a populated pre-reconciliation database without rewriting annotatio
     };
     const before = await retained();
     await migrate(db);
-    expect(await retained()).toEqual(before);
+    const after = await retained();
+    after.forEach((rows, index) =>
+      rows.forEach((row, at) => expect(row).toMatchObject(before[index]![at]!)),
+    );
+    expect(after[3]![0]).toMatchObject({
+      ai_origin: 'legacy-unknown',
+      ai_labels: [],
+    });
     const [source] = await db.query(
       'SELECT version,sensitivity,account_provider_id,last_imported_at FROM canvas_lms_sources WHERE owner_id=$1',
       [owner],
@@ -144,12 +151,14 @@ it('upgrades a populated pre-reconciliation database without rewriting annotatio
     expect(
       (
         await db.query(
-          'SELECT academic_labels,notes,version FROM events WHERE id=$1',
+          'SELECT academic_labels,ai_origin,ai_labels,notes,version FROM events WHERE id=$1',
           [legacyEventId],
         )
       )[0],
     ).toEqual({
       academic_labels: null,
+      ai_origin: 'legacy-unknown',
+      ai_labels: [],
       notes: 'Retained study notes',
       version: 4,
     });
@@ -158,7 +167,7 @@ it('upgrades a populated pre-reconciliation database without rewriting annotatio
       0,
     );
     await migrate(db);
-    expect(await retained()).toEqual(before);
+    expect(await retained()).toEqual(after);
     expect(await db.query('SELECT name FROM schema_migrations')).toHaveLength(
       names.length,
     );

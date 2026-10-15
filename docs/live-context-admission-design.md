@@ -1,6 +1,6 @@
 # Live context admission and retained provenance
 
-Owner-confirmed refinement (2026-10-15): boundary 1 uses one-click approval of the server-declared live model and single upstream in Settings, with new bound history available immediately. The [boundary plan](superpowers/plans/2026-10-15-live-context-admission-boundary-1.md) records this narrow compatibility adapter; it supersedes this specification's earlier provider-profile setup proposal. General gateway routing/dispatch remains separate and unchanged. Boundary 2 still owns durable output lineage and server-owned Apply.
+Owner-confirmed refinement (2026-10-15): boundary 1 uses one-click approval of the server-declared live model and single upstream in Settings, with new bound history available immediately. The [boundary plan](superpowers/plans/2026-10-15-live-context-admission-boundary-1.md) records this narrow compatibility adapter; it supersedes this specification's earlier provider-profile setup proposal. General gateway routing/dispatch remains separate and unchanged. Boundary 2 is implemented on `ai/derived-output-lineage` (not deployed; validation in progress): durable derived-record lineage and server-owned Apply, described under "Output application" below.
 
 Implementation specification for P5/P6 of the approved [development plan](post-agents-development-plan.md). This document describes proposed work; it does not claim deployed enforcement. P3 source baseline: `65ab10d`. Academic, memory and MCP context stay excluded until this boundary passes its acceptance checks.
 
