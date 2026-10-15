@@ -508,6 +508,8 @@ export async function answerTurn(
     conversationId?: string | undefined;
     useMail: boolean;
     trigger: 'owner' | 'agent';
+    /** Internal scheduled-worker attribution for atomic per-exchange caps. */
+    agentId?: string | undefined;
   },
 ): Promise<AssistantTurn> {
   const hash = createHash('sha256')
@@ -587,6 +589,7 @@ export async function answerTurn(
         maxOutputTokens,
       ),
       withheld: context.withheld,
+      agentId: input.agentId,
     });
   } catch (error) {
     // A concurrent identical operation won the race.
@@ -737,6 +740,7 @@ export async function answerTurn(
           maxOutputTokens,
         ),
         withheld: 0,
+        agentId: input.agentId,
       });
       await recordRound(database, { requestId: nextId, turnId: id, round });
     } catch (error) {

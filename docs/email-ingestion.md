@@ -1,13 +1,13 @@
 # Proton Mail ingestion (read-only)
 
-Implemented 2026-10-13 (plan step 5, first half; D48, D51). Proton Bridge runs on the owner's always-on Windows computer; Bridge's official Linux build does not support the Oracle VM's ARM64 CPU. A small connector on that computer reads mail through Bridge and uploads it to the hub over HTTPS. Bridge is never exposed beyond loopback. AI filtering is the next slice and is not implemented.
+Implemented 2026-10-13 (plan step 5, first half; D48, D51). Proton Bridge runs on the owner's always-on Windows computer; Bridge's official Linux build does not support the Oracle VM's ARM64 CPU. A small connector on that computer reads mail through Bridge and uploads it to the hub over HTTPS. Bridge is never exposed beyond loopback. Selected-message category/task suggestions and Assistant mail reading are implemented through narrow OpenRouter flows. The separate general verified-context gateway still has disabled dispatch. Windows mail sync was recorded as operating every ten minutes on 2026-10-14; required Gmail coverage remains unverified.
 
 ## Owner decisions (2026-10-13)
 
 - Upload headers and the plain-text body (HTML converted to text, 32,000-character cap). Attachments are never uploaded; only their count is kept.
 - Read every folder and label except Spam and Trash.
 - First import: 30 days before the connector is added; new mail afterwards.
-- The connector's owner-chosen label (default Personal) applies to every imported message, so labeled mail stays out of hosted AI context under the existing routing rules.
+- The connector's owner-chosen label (default Personal) applies to every imported message. Current narrow live mail flows require explicit Allow Personal mail before Personal disclosure and always exclude Restricted content. The general gateway separately evaluates inherited routing rules; categories never authorize disclosure.
 
 ## Completeness proof (2026-10-13, this computer)
 
@@ -43,7 +43,7 @@ The file holds secrets; never commit, print or share it. Bridge must be on a loo
 
 Sync asks the hub for each folder's UIDVALIDITY and last uploaded UID, opens folders with EXAMINE (flags never change), uploads new messages oldest first in batches of 25, then records the folder's high-water mark. Missing or incomplete fetch results stop the run before advancing that batch. A changed UIDVALIDITY restarts that folder; messages de-duplicate by Message-ID (or a SHA-256 of the source when it is missing), and folder membership accumulates. Messages above 15 MiB are stored with headers only and marked shortened, although their raw source is still fetched locally; attachment counts for these messages are unavailable. Errors print only our own messages and error names, never IMAP server text. Configure Task Scheduler to avoid overlapping runs.
 
-Schedule it with Windows Task Scheduler (for example every 10 minutes) once the hub has this release. Running it from the development checkout depends on that checkout's branch; a separate install directory is better for daily use.
+Operation recorded 2026-10-14: a Windows scheduled job runs every ten minutes. Do not install a duplicate job as a prerequisite to further development. Audit its installed version, non-overlap behavior and recovery from host sleep/Bridge outages before changing it. Running from the development checkout depends on its branch; a separately versioned install directory is preferred. This status is a dated operating receipt, not a fresh inspection of the job.
 
 ## Hub routes
 
@@ -65,12 +65,12 @@ Owner create/revoke writes require `operationId`. Durable receipts contain conne
 
 ## Validation
 
-API tests: one-time token and hash-only storage, cookie/token separation, de-duplication across folders, folder positions and UIDVALIDITY restart, paging and folder filter, body size limit, revocation and version conflicts. Connector tests: plain text, HTML-only conversion, group addresses, attachment counting without content, truncation and hashed keys. Browser test: create a connector, upload with its token, folder counts, Inbox › Mail list/detail (plain text, never HTML), revoke. Live, read-only: the check and dry run above. No mail was uploaded to any hub, and no message content appears in logs or the repository.
+API tests: one-time token and hash-only storage, cookie/token separation, de-duplication across folders, folder positions and UIDVALIDITY restart, paging and folder filter, body size limit, revocation and version conflicts. Connector tests: plain text, HTML-only conversion, group addresses, attachment counting without content, truncation and hashed keys. Browser test: create a connector, upload with its token, folder counts, Inbox › Mail list/detail (plain text, never HTML), revoke. Historical 2026-10-13 live read-only validation: the check and dry run above uploaded no mail. The subsequent 2026-10-14 operating status records live upload/scheduling; it does not supply a current Gmail comparison or a new failure-recovery receipt. Do not copy message content into logs or the repository.
 
 ## Known limits
 
 [Mail categories and rules](mail-organization.md) now organize imported records locally and preserve owner corrections through connector refreshes. Provider flags, labels, folders and bodies remain read-only.
 
-The [verified mail context gateway](ai-mail-context.md) now accepts explicitly selected message references. Updated collectors declare message-body origin; older imported text remains unavailable for AI context. This foundation enables no classification or paid calls. Mail list/detail now expose a source `version`.
+The [verified mail context gateway](ai-mail-context.md) now accepts explicitly selected message references. Updated collectors declare message-body origin; older imported text remains unavailable for AI context. This foundation itself enables no classification or paid calls; separately implemented selected-message suggestions and Assistant mail reading use narrow live paths. Mail list/detail now expose a source `version`.
 
-No deletion or move tracking (folder membership only grows), no flags/read state, no attachments, not in the portable export, no AI filtering yet, no automatic scheduling installed, and the Gmail completeness gap above.
+No deletion or move tracking (folder membership only grows), no provider flag/read-state writes, no attachment upload and no mail in the portable export. Source contact/import/complete-window health is not yet a full freshness contract. The historical Gmail snapshot needs a bounded owner-reviewed comparison; it is not a current diagnosis or proof of ongoing completeness. Automatic classification/application and provider mailbox changes remain excluded; selected-message suggestions do not establish autonomous filtering.

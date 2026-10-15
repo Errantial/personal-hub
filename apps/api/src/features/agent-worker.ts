@@ -12,7 +12,9 @@ import {
   applyByPolicy,
   notificationTitle,
   outcomeOf,
+  transactionDatabase,
 } from './agent-run.js';
+import { readTurn } from './assistant-conversations.js';
 import type { RunCounts } from './agent-run.js';
 import {
   admitSlot,
@@ -47,8 +49,9 @@ type AgentRow = {
   capMicros: number;
   pauseReason: string | null;
   sensitivity: string;
+  labels: string[];
 };
-const agentColumns = `id,owner_id AS "ownerId",version,status,title,goal,template,conversation_id AS "conversationId",time_zone AS "timeZone",use_mail AS "useMail",monthly_cap_micros::text AS "capMicros",pause_reason AS "pauseReason",sensitivity`;
+const agentColumns = `id,owner_id AS "ownerId",version,status,title,goal,template,conversation_id AS "conversationId",time_zone AS "timeZone",use_mail AS "useMail",monthly_cap_micros::text AS "capMicros",pause_reason AS "pauseReason",sensitivity,labels`;
 
 /** Agent fields of one responsibility; null when it is not an agent. */
 export async function readAgentRow(
@@ -152,10 +155,19 @@ async function failRun(
 /** Leases that outlived a restart: failed, never resent (the call may have gone out). */
 async function failExpiredLeases(database: Database, now: Date) {
   const expired = await database.query(
-    'SELECT r.id,r.owner_id AS "ownerId",r.responsibility_id AS "responsibilityId",r.lease_token AS token,p.title,p.conversation_id AS "conversationId" FROM responsibility_runs r JOIN responsibilities p ON p.owner_id=r.owner_id AND p.id=r.responsibility_id WHERE r.status=\'running\' AND r.lease_until <= $1',
+    'SELECT r.id,r.owner_id AS "ownerId",r.responsibility_id AS "responsibilityId",r.attempts,r.lease_token AS token,p.title,p.conversation_id AS "conversationId" FROM responsibility_runs r JOIN responsibilities p ON p.owner_id=r.owner_id AND p.id=r.responsibility_id WHERE r.status=\'running\' AND r.lease_until <= $1',
     [now],
   );
-  for (const row of expired)
+  for (const row of expired) {
+    // Recover a durable answer for owner review without repeating inference or
+    // automatically applying work whose execution ownership has expired.
+    const [request] = await database.query(
+      'SELECT id FROM ai_assistant_requests WHERE owner_id=$1 AND operation_id=$2',
+      [row.ownerId, attemptOperation(String(row.id), Number(row.attempts))],
+    );
+    const turn = request
+      ? await readTurn(database, String(row.ownerId), String(request.id))
+      : null;
     await failRun(
       database,
       row as unknown as Claimed,
@@ -167,7 +179,9 @@ async function failExpiredLeases(database: Database, now: Date) {
         : null,
       'LEASE_EXPIRED',
       now,
+      turn?.id ?? null,
     );
+  }
 }
 
 /** Admits every due slot of active agents into queued runs. */
@@ -278,8 +292,9 @@ async function execute(
   config: Config,
   fetcher: OpenRouterFetch,
   run: Claimed,
-  now: Date,
+  clock: () => Date,
 ) {
+  const now = clock();
   const agent = await readAgentRow(database, run.ownerId, run.responsibilityId);
   // Recheck before any hold.
   if (!agent || agent.status !== 'active' || agent.pauseReason)
@@ -287,7 +302,10 @@ async function execute(
   if (agent.version !== run.responsibilityVersion)
     return failRun(database, run, agent, 'AGENT_CHANGED', now);
   // Goals are sent to OpenRouter: only unlabeled agents run.
-  if (agent.sensitivity !== 'unlabeled')
+  if (
+    agent.sensitivity !== 'unlabeled' ||
+    agent.labels.some((label) => label !== 'unlabeled')
+  )
     return failRun(database, run, agent, 'AGENT_LABELED', now);
   if (
     (await agentSpend(database, run.ownerId, agent.id, now)) >= agent.capMicros
@@ -313,7 +331,35 @@ async function execute(
 
   let turn: AssistantTurn;
   try {
-    turn = await answerTurn(database, config, fetcher, run.ownerId, {
+    const ownedFetch: OpenRouterFetch = async (url, init) => {
+      const current = await readAgentRow(database, run.ownerId, agent.id);
+      if (!current || !['active', 'paused'].includes(current.status))
+        throw new ApiError(
+          409,
+          'AGENT_UNAVAILABLE',
+          'This agent is unavailable.',
+        );
+      if (
+        current.sensitivity !== 'unlabeled' ||
+        current.labels.some((label) => label !== 'unlabeled')
+      )
+        throw new ApiError(
+          409,
+          'AGENT_LABELED',
+          'This agent is no longer eligible for this provider.',
+        );
+      // Pause changes the version but intentionally lets the current run finish.
+      // A changed goal must never disclose its captured predecessor again.
+      if (current.goal !== agent.goal)
+        throw new ApiError(
+          409,
+          'AGENT_CHANGED',
+          'This agent changed during its run.',
+        );
+      await requireLease(database, run, clock());
+      return fetcher(url, init);
+    };
+    turn = await answerTurn(database, config, ownedFetch, run.ownerId, {
       operationId: attemptOperation(run.id, run.attempts),
       prompt: agentPrompt(
         agent,
@@ -325,52 +371,111 @@ async function execute(
       conversationId: agent.conversationId,
       useMail: agent.useMail,
       trigger: 'agent',
+      agentId: agent.id,
     });
   } catch (error) {
     if (!(error instanceof ApiError))
-      return failRun(database, run, agent, 'AGENT_RUN_ERROR', now);
+      return failRun(database, run, agent, 'AGENT_RUN_ERROR', clock());
+    if (error.code === 'AGENT_BUDGET_EXCEEDED') {
+      return database.transaction(async (tx) => {
+        await requireLease(tx, run, clock(), true);
+        await failRun(transactionDatabase(tx), run, agent, error.code, clock());
+        await pauseAtCap(tx, run.ownerId, agent.id);
+      });
+    }
     if (retryableCodes.has(error.code) && run.attempts === 1)
-      return requeue(database, run, now, null);
-    return failRun(database, run, agent, error.code, now);
+      return requeue(database, run, clock(), null);
+    return failRun(database, run, agent, error.code, clock());
   }
   if (turn.request.status !== 'completed' || turn.request.reason !== null) {
     const rateLimited =
       turn.request.status === 'failed' &&
       turn.request.reason === 'rate-limited';
     if (rateLimited && run.attempts === 1)
-      return requeue(database, run, now, turn.id);
-    return failRun(database, run, agent, providerCode(turn), now, turn.id);
+      return requeue(database, run, clock(), turn.id);
+    return failRun(database, run, agent, providerCode(turn), clock(), turn.id);
   }
 
-  let counts: RunCounts;
   try {
-    counts = await applyByPolicy(database, run.ownerId, turn);
-  } catch {
-    return failRun(database, run, agent, 'AGENT_APPLY_ERROR', now, turn.id);
-  }
-  const outcome: RunOutcome = outcomeOf(counts, turn);
-  await database.transaction(async (tx) => {
-    const [row] = await tx.query(
-      "UPDATE responsibility_runs SET status='completed',outcome=$3,turn_id=$4,finished_at=$5,lease_token=NULL,lease_until=NULL,version=version+1 WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id",
-      [run.id, run.token, outcome, turn.id, now],
-    );
-    if (!row) return;
-    await activity(tx, run.ownerId, agent.id, 'run-completed', run.id);
-    const capped =
-      (await agentSpend(tx, run.ownerId, agent.id, now)) >= agent.capMicros;
-    if (capped) await pauseAtCap(tx, run.ownerId, agent.id);
-    if (outcome !== 'quiet' || capped)
-      await notify(
-        tx,
+    await database.transaction(async (tx) => {
+      // The run lock, lease predicate, planner receipts/effects, turn items and
+      // terminal result share one transaction. A stale worker cannot commit
+      // planner changes, even if it completed inference after losing its lease.
+      await requireLease(tx, run, clock(), true);
+      const counts: RunCounts = await applyByPolicy(
+        transactionDatabase(tx),
         run.ownerId,
-        run.id,
-        agent.conversationId,
-        outcome === 'quiet'
-          ? `${agent.title}: paused at its monthly cap`
-          : `${notificationTitle(agent.title, outcome, counts)}${capped ? ' · paused at its monthly cap' : ''}`,
-        now,
+        turn,
       );
-  });
+      const outcome: RunOutcome = outcomeOf(counts, turn);
+      const finished = clock();
+      await activity(tx, run.ownerId, agent.id, 'run-completed', run.id);
+      const capped =
+        (await agentSpend(tx, run.ownerId, agent.id, finished)) >=
+        agent.capMicros;
+      if (capped) await pauseAtCap(tx, run.ownerId, agent.id);
+      if (outcome !== 'quiet' || capped)
+        await notify(
+          tx,
+          run.ownerId,
+          run.id,
+          agent.conversationId,
+          outcome === 'quiet'
+            ? `${agent.title}: paused at its monthly cap`
+            : `${notificationTitle(agent.title, outcome, counts)}${capped ? ' · paused at its monthly cap' : ''}`,
+          finished,
+        );
+      // Check the deadline after all potentially blocking effect/receipt work.
+      // A failed terminal predicate rolls back the entire transaction.
+      const committedAt = clock();
+      const [row] = await tx.query(
+        "UPDATE responsibility_runs SET status='completed',outcome=$3,turn_id=$4,finished_at=$5,lease_token=NULL,lease_until=NULL,version=version+1 WHERE id=$1 AND lease_token=$2 AND status='running' AND lease_until > $5 RETURNING id",
+        [run.id, run.token, outcome, turn.id, committedAt],
+      );
+      if (!row)
+        throw new ApiError(
+          409,
+          'AGENT_LEASE_LOST',
+          'This run no longer owns execution.',
+        );
+    });
+  } catch (error) {
+    return failRun(
+      database,
+      run,
+      agent,
+      error instanceof ApiError && error.code === 'AGENT_LEASE_LOST'
+        ? error.code
+        : 'AGENT_APPLY_ERROR',
+      clock(),
+      turn.id,
+    );
+  }
+}
+
+async function requireLease(
+  tx: QueryExecutor,
+  run: Claimed,
+  now: Date,
+  lock = false,
+) {
+  const [row] = await tx.query(
+    `SELECT id FROM responsibility_runs WHERE id=$1 AND owner_id=$2 AND status='running' AND lease_token=$3 AND lease_until > $4${lock ? ' FOR UPDATE' : ''}`,
+    [run.id, run.ownerId, run.token, now],
+  );
+  if (!row)
+    throw new ApiError(
+      409,
+      'AGENT_LEASE_LOST',
+      'This run no longer owns execution.',
+    );
+}
+
+async function heartbeat(database: Database, now: Date) {
+  await database.query(
+    "INSERT INTO worker_state(name,last_tick,error_code) VALUES('agents',$1,NULL) ON CONFLICT (name) DO UPDATE SET last_tick=EXCLUDED.last_tick,error_code=NULL",
+    [now],
+  );
 }
 
 /**
@@ -381,17 +486,31 @@ export async function runAgentTick(
   database: Database,
   config: Config,
   fetcher: OpenRouterFetch,
-  now = new Date(),
+  now?: Date,
+  clock: () => Date = now ? () => now! : () => new Date(),
 ): Promise<{ admitted: number; ran: string | null }> {
-  await failExpiredLeases(database, now);
-  const admitted = await admitDue(database, now);
-  const run = await claim(database, now);
-  if (run) await execute(database, config, fetcher, run, now);
-  await database.query(
-    "INSERT INTO worker_state(name,last_tick,error_code) VALUES('agents',$1,NULL) ON CONFLICT (name) DO UPDATE SET last_tick=EXCLUDED.last_tick,error_code=NULL",
-    [now],
-  );
-  return { admitted, ran: run?.id ?? null };
+  now = clock();
+  await heartbeat(database, now);
+  // Liveness is separate from a provider call's latency. Do not renew the
+  // execution lease: ten minutes remains an absolute ownership bound.
+  let pending = Promise.resolve();
+  const timer = setInterval(() => {
+    pending = pending
+      .then(() => heartbeat(database, clock()))
+      .catch(() => undefined);
+  }, tickMs);
+  timer.unref();
+  try {
+    await failExpiredLeases(database, now);
+    const admitted = await admitDue(database, now);
+    const run = await claim(database, now);
+    if (run) await execute(database, config, fetcher, run, clock);
+    await heartbeat(database, clock());
+    return { admitted, ran: run?.id ?? null };
+  } finally {
+    clearInterval(timer);
+    await pending;
+  }
 }
 
 export function startAgentWorker(

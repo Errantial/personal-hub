@@ -41,8 +41,9 @@ export async function agentSpend(
        SELECT t.id FROM ai_conversation_turns t JOIN responsibilities r ON r.conversation_id=t.conversation_id
        WHERE t.owner_id=$1 AND r.id=$2 AND t.trigger='agent'),
      requests AS (
-       SELECT id FROM turns UNION SELECT request_id FROM ai_conversation_turn_rounds WHERE turn_id IN (SELECT id FROM turns))
-     SELECT COALESCE(SUM(CASE WHEN b.status='settled' THEN b.actual_micros WHEN b.status='uncertain' THEN b.reserved_micros ELSE 0 END),0)::text AS spent
+       SELECT id FROM turns UNION SELECT request_id FROM ai_conversation_turn_rounds WHERE turn_id IN (SELECT id FROM turns)
+       UNION SELECT id FROM ai_assistant_requests WHERE owner_id=$1 AND agent_id=$2)
+     SELECT COALESCE(SUM(CASE WHEN b.status='settled' THEN b.actual_micros WHEN b.status IN ('reserved','uncertain') THEN b.reserved_micros ELSE 0 END),0)::text AS spent
      FROM ai_assistant_requests a JOIN ai_budget_reservations b ON b.id=a.reservation_id
      WHERE a.owner_id=$1 AND a.id IN (SELECT id FROM requests) AND b.month=date_trunc('month',$3::timestamptz AT TIME ZONE 'UTC')::date`,
     [owner, responsibilityId, now.toISOString()],
@@ -88,17 +89,123 @@ export async function applyByPolicy(
   owner: string,
   turn: AssistantTurn,
 ): Promise<RunCounts> {
+  return database.transaction(async (tx) => {
+    await tx.query(
+      'SELECT id FROM ai_conversation_turns WHERE owner_id=$1 AND id=$2 FOR UPDATE',
+      [owner, turn.id],
+    );
+    const [saved] = await tx.query(
+      'SELECT proposals,items,not_allowed FROM ai_conversation_turns WHERE owner_id=$1 AND id=$2',
+      [owner, turn.id],
+    );
+    if (!saved)
+      throw new ApiError(404, 'NOT_FOUND', 'This answer no longer exists.');
+    const parse = (value: unknown) =>
+      typeof value === 'string' ? JSON.parse(value) : value;
+    const current = {
+      ...turn,
+      items: parse(saved.items) as AssistantItem[],
+      request: {
+        ...turn.request,
+        proposals: parse(
+          saved.proposals,
+        ) as AssistantTurn['request']['proposals'],
+      },
+    };
+    return applyInTransaction(
+      transactionDatabase(tx),
+      owner,
+      current,
+      Number(saved.not_allowed),
+    );
+  });
+}
+
+/** Planner mutations retain ordinary receipts and rollback independently on conflict. */
+export function transactionDatabase(tx: QueryExecutor): Database {
+  let sequence = 0;
+  return {
+    ...tx,
+    async transaction(work) {
+      const savepoint = `agent_action_${++sequence}`;
+      await tx.exec(`SAVEPOINT ${savepoint}`);
+      try {
+        const result = await work(tx);
+        await tx.exec(`RELEASE SAVEPOINT ${savepoint}`);
+        return result;
+      } catch (error) {
+        await tx.exec(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+        await tx.exec(`RELEASE SAVEPOINT ${savepoint}`);
+        throw error;
+      }
+    },
+    async close() {
+      throw new Error('Cannot close an active agent transaction.');
+    },
+  };
+}
+
+async function applyInTransaction(
+  database: Database,
+  owner: string,
+  turn: AssistantTurn,
+  notAllowed: number,
+): Promise<RunCounts> {
+  // Lock the owner's policy for this short database-only effect transaction.
+  await database.query(
+    'INSERT INTO ai_action_policies(owner_id) VALUES($1) ON CONFLICT DO NOTHING',
+    [owner],
+  );
+  await database.query(
+    'SELECT owner_id FROM ai_action_policies WHERE owner_id=$1 FOR SHARE',
+    [owner],
+  );
   const { policy } = await readAIActionPolicy(database, owner);
   const counts: RunCounts = {
     applied: 0,
     proposed: 0,
-    notAllowed: 0,
+    notAllowed,
     failed: 0,
   };
   const proposals = [];
   const items: AssistantItem[] = [];
   for (const [index, proposal] of turn.request.proposals.entries()) {
     const item = turn.items[index]!;
+    // A resumed application must not undo or replace an already saved decision.
+    if (item.state === 'applied' || item.state === 'undone') {
+      proposals.push(proposal);
+      items.push(item);
+      if (item.state === 'applied') counts.applied++;
+      continue;
+    }
+    // Older workers could commit a planner receipt before saving the turn's
+    // item state. Recover that exact receipt even if the policy since changed;
+    // this branch never starts an operation without an existing saved result.
+    const [receipt] = await database.query(
+      'SELECT operation_id FROM mutation_receipts WHERE owner_id=$1 AND operation_id=$2 AND result IS NOT NULL FOR SHARE',
+      [owner, item.applyId],
+    );
+    if (receipt) {
+      proposals.push(proposal);
+      try {
+        const applied = await plannedWrite(
+          database,
+          owner,
+          applyRequest(proposal, item.applyId),
+        );
+        counts.applied++;
+        items.push({ ...item, state: 'applied', applied, error: null });
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error;
+        counts.failed++;
+        items.push({
+          ...item,
+          state: 'failed',
+          error: error.message.slice(0, 300),
+        });
+      }
+      continue;
+    }
     const mode = proposal.kind.startsWith('task.')
       ? policy.tasks
       : policy.calendar;

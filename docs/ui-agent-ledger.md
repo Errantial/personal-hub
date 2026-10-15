@@ -1,5 +1,19 @@
 # UI agent ledger
 
+## Agent reliability backend (implemented on development branch, not deployed)
+
+Per-exchange agent admission now includes settled charges and uncertain holds, including requests not yet linked to a saved turn. A cap pause can mean the remaining allowance cannot fund the next bounded call. The first-call rejection has `AGENT_BUDGET_EXCEEDED` and pauses the agent; a later mail-call rejection preserves the last usable answer with a visible mail warning. Spend remains reported in micros; richer split spend/hold and run history controls remain P3 work. Existing contracts and online-only controls are unchanged.
+
+Worker heartbeat advances independently of provider latency; completion time is recorded after effect work. A late/expired worker cannot commit planner effects. Effects, receipts, saved item states and terminal run state commit together; a persisted legacy receipt can restore an applied item's state without reapplying it, even after policy changes. Pause still permits a running run to finish. Goal/label changes are checked before each provider fetch; these checks do not establish full source/history provenance. Retained conversation and pending approval behavior remain unchanged; P5/P6 still gate richer context.
+
+## Proposed post-agents contracts (planning only, 2026-10-14)
+
+See the [development proposal](post-agents-development-plan.md). These are future requirements, not implemented API/UI claims. Preserve current conversation retention, agent Pause-finish-running semantics, quiet notifications, read-on-open receipts, planner Apply/Undo, versions and offline/conflict drafts.
+
+Proposed additions: authoritative queued/running/retry/blocked/failed/uncertain/cap-paused states; scheduler liveness distinct from run progress/lease expiry; bounded history including failures without turns; settled spend distinct from reserved/uncertain holds; per-source coverage/freshness distinct from connectivity. No-message successful sync must not look stale, and partial/unknown coverage must not look empty.
+
+Before academic/memory expansion, display bounded sources used/withheld, truncation and legacy-history limitations. Retained owner-readable conversation text is separate from text eligible for future inference. Derived proposals retain inherited labels and source bindings through Apply, edits and Undo. Memory selection is explicit per ask using the existing editor; no automatic agent reads/edits. Surface missing dates/effort and manual-only academic coverage. New controls remain keyboard/tap accessible with pending, offline, conflict and actionable errors visible; visual refinement stays deferred.
+
 ## Persistent agents UI (D57, 2026-10-14)
 
 PR 3 adds Inbox/Today conversation links and read-on-open across paged unread history. Only matching conversation IDs are marked read, in receipt-backed batches, with visible read failure/retry and a warning after the 10,000-row scan bound. Retained conversations work after agent deletion. Opening a thread updates the shell unread count. Agent notifications never trigger browser alerts; reminder alerts and mixed notification history paging retain their behavior. Notifications stay in the hub Inbox; no native/push delivery is added.

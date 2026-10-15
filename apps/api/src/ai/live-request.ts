@@ -159,10 +159,51 @@ export async function admitLive(
     model: string;
     maximumMicros: number;
     withheld: number;
+    /** Trusted worker attribution, never accepted from the public request. */
+    agentId?: string | undefined;
   },
 ) {
   await database.transaction(async (tx) => {
     await lockBudget(tx, owner);
+    if (request.agentId) {
+      const [agent] = await tx.query(
+        "SELECT monthly_cap_micros FROM responsibilities WHERE owner_id=$1 AND id=$2 AND template IS NOT NULL AND deleted_at IS NULL AND status IN ('active','paused') FOR UPDATE",
+        [owner, request.agentId],
+      );
+      if (!agent)
+        throw new ApiError(
+          409,
+          'AGENT_UNAVAILABLE',
+          'This agent is unavailable.',
+        );
+      // Include legacy turn-linked requests and new pre-turn attribution. UNION
+      // deduplicates rows that have both. The owner budget lock serializes all
+      // holds/settlements; a crash before startTurn/recordRound retains its hold.
+      const [usage] = await tx.query(
+        `WITH turns AS (
+          SELECT t.id FROM ai_conversation_turns t JOIN responsibilities r ON r.conversation_id=t.conversation_id
+          WHERE t.owner_id=$1 AND r.id=$2 AND t.trigger='agent'),
+        requests AS (
+          SELECT id FROM ai_assistant_requests WHERE owner_id=$1 AND agent_id=$2
+          UNION SELECT id FROM turns
+          UNION SELECT request_id FROM ai_conversation_turn_rounds WHERE turn_id IN (SELECT id FROM turns))
+        SELECT COALESCE(SUM(CASE WHEN b.status='settled' THEN b.actual_micros
+          WHEN b.status IN ('reserved','uncertain') THEN b.reserved_micros ELSE 0 END),0)::text AS used
+        FROM ai_assistant_requests a JOIN ai_budget_reservations b ON b.id=a.reservation_id
+        WHERE a.owner_id=$1 AND a.id IN (SELECT id FROM requests)
+          AND b.month=date_trunc('month',CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date`,
+        [owner, request.agentId],
+      );
+      if (
+        BigInt(String(usage!.used)) + BigInt(request.maximumMicros) >
+        BigInt(String(agent.monthly_cap_micros))
+      )
+        throw new ApiError(
+          409,
+          'AGENT_BUDGET_EXCEEDED',
+          'The remaining agent allowance cannot fund this call.',
+        );
+    }
     const [policy] = await tx.query(
       'SELECT version FROM ai_budget_policies WHERE owner_id=$1',
       [owner],
@@ -180,7 +221,7 @@ export async function admitLive(
       [owner, reservation.id],
     );
     await tx.query(
-      `INSERT INTO ai_assistant_requests(id,owner_id,operation_id,request_hash,model,reservation_id,status,withheld,kind) VALUES($1,$2,$3,$4,$5,$6,'uncertain',$7,$8)`,
+      `INSERT INTO ai_assistant_requests(id,owner_id,operation_id,request_hash,model,reservation_id,status,withheld,kind,agent_id) VALUES($1,$2,$3,$4,$5,$6,'uncertain',$7,$8,$9)`,
       [
         request.id,
         owner,
@@ -190,6 +231,7 @@ export async function admitLive(
         reservation.id,
         request.withheld,
         request.kind,
+        request.agentId ?? null,
       ],
     );
   });
