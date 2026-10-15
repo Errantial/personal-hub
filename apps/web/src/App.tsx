@@ -192,7 +192,11 @@ function Workspace({
           <Suspense fallback={<p role="status">Loading…</p>}>
             {view === 'today' && <TodayView navigate={navigate} />}
             {route.name === 'assistant' && (
-              <AssistantView route={route} navigate={navigate} />
+              <AssistantView
+                route={route}
+                navigate={navigate}
+                onChanged={reloadInbox}
+              />
             )}
             {route.name === 'tasks' && (
               <TasksView route={route} navigate={navigate} />

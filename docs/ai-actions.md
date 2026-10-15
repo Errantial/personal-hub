@@ -1,12 +1,12 @@
 # Typed action permissions
 
-Backend settings and authority preview implemented 2026-10-11. No action execution is enabled. [Exact-message email approval records](email-drafts.md) are implemented separately; this authority preview does not grant or consume approval. Provider routing, source provenance, consent, budget and retention remain separate required gates. Read [AI routing](ai-permissions.md) and [gateway boundaries](ai-gateway.md).
+Backend settings and authority preview implemented 2026-10-11. D57 adds Settings > AI > Actions and enforcement in scheduled agent runs (implemented locally 2026-10-14; rollout pending): automatic categories apply hub planner changes with Undo, ask-first waits for Apply, and blocked categories are dropped and counted. Owner Assistant requests always ask first. The authority preview remains non-executing and never grants approval. [Exact-message email approval records](email-drafts.md) remain separate; email sending is unavailable. See the [agent scope and exclusions](superpowers/specs/2026-10-14-persistent-agents-design.md#out-of-scope-recorded-for-future-work).
 
 ## Owner settings
 
-GET `/api/v1/ai/actions` returns `{ version, policy }`. Unsaved owners receive version 1 without inserting a row, with `policy: { tasks: 'blocked', calendar: 'automatic', email: 'approval-required' }`.
+GET `/api/v1/ai/actions` returns `{ version, policy }`. Unsaved owners receive version 1 without inserting a row, with `policy: { tasks: 'approval-required', calendar: 'automatic', email: 'approval-required' }` (D57). Saved policies are unchanged.
 
-Calendar defaults reflect confirmed AI authority on writable calendars. Task automation defaults blocked because its initial authority was not agreed. Owners may select automatic, approval-required or blocked task/calendar modes. Email is always approval-required and cannot become automatic. These settings govern proposed automation, not ordinary owner planner editing; manual task/calendar operations remain available when automation is blocked.
+Calendar defaults reflect confirmed authority on writable calendars; current execution writes hub records only. Tasks default to ask-first. Owners may select automatic, approval-required or blocked task/calendar modes. Email is always approval-required. Manual planner operations remain available when automation is blocked.
 
 PUT requires `{ operationId, expectedVersion, policy }`, with exactly tasks/calendar/email fields. Writes are optimistic, atomic, owner-scoped and receipt-backed. The first successful save advances version 1 to 2. Concurrent same-version distinct writes allow one winner. Stale versions return `VERSION_CONFLICT`; a saved operation ID reused with changed payload returns `OPERATION_CONFLICT`. Exact retries return historical results even after later changes/restart. Preserve the exact request after a lost response and refresh before another action.
 
@@ -46,12 +46,12 @@ Preview uses a read-only repeatable snapshot with owner/session and current-poli
 
 ## UI and future integration
 
-UI controls are pending. Keep owner mode, policy decision, capability, email approval and execution state distinct. Keep blockers visible, preserve settings drafts/retry identities, refresh after historical retries and guard delayed responses. Routes are online-only, outside cache/outbox/AI-reference allowlists; ordinary offline planner edits retain their behavior.
+The Actions panel is implemented. Preserve failed-save drafts and retry identities; conflicts require explicit reload. Keep policy, provider capability, email approval and execution state distinct. Routes are online-only, outside cache/outbox/AI-reference allowlists; ordinary offline planner edits retain their behavior.
 
 Before future dispatch, revalidate current policy, owned target versions, complete text provenance/provider routing, provider capability, budget/consent/retention and required exact-payload approval. Use existing authorized/versioned planner operations. Never trust a client preview, outbound-email descriptor or earlier policy result as runtime authority. Email approvals and internal test-only consumption/attempts now exist separately (email-drafts.md, email-attempts.md); live provider verification and action/gateway execution enforcement remain pending. This authority preview does not consume approval or admit an attempt.
 
-## Validation
+## Original backend validation (2026-10-11)
 
 `npm run check` passed lint, strict types, formatting, production builds and 256 API/client tests; one optional standard PostgreSQL test was skipped because its isolated URL is unset. Nine new synthetic tests cover defaults/read-only previews, all supported action kinds, mandatory email/invitation/attendee/cancellation approval, capability separation, strict content/override rejection, optimistic/concurrent/historical receipts, owner/session isolation, unaffected manual planner writes, export compatibility, populated migration upgrade/SQL constraints and persisted restart. Fixtures use memory or isolated `.artifacts` databases with network calls forbidden.
 
-Optional PostgreSQL coverage adds duplicate policy writes, invitation capability/approval preview and export, but remains unverified locally. Browser tests were not rerun because UI/authentication-layer code was unchanged. No owner database reads/resets, real provider calls, paid AI or device tests occurred. UI controls and runtime approval/execution remain pending.
+Optional PostgreSQL coverage adds duplicate policy writes, invitation capability/approval preview and export, but remains unverified locally. Browser tests were not rerun for that backend-only slice. No owner database reads/resets, real provider calls, paid AI or device tests occurred. D57 implementation and validation are recorded separately in implementation-log.md.

@@ -26,6 +26,68 @@ const change = (expectedVersion: number) => ({
   operationId: randomUUID(),
   expectedVersion,
 });
+
+it('notification history pages mixed reminder and agent results once in stable order', async () => {
+  const created = await post('/api/v1/agents', {
+    operationId: randomUUID(),
+    template: 'custom',
+    title: 'History test',
+    goal: 'Synthetic only',
+    schedule: { frequency: 'daily', times: ['07:00'] },
+    timeZone: 'UTC',
+    useMail: false,
+    monthlyCapMicros: 2000000,
+  });
+  expect(created.statusCode).toBe(200);
+  const agent = created.json().agent;
+  const ids: string[] = [];
+  for (let index = 0; index < 30; index++) {
+    const id = randomUUID();
+    ids.push(id);
+    if (index % 2) {
+      const queued = await post(
+        `/api/v1/agents/${agent.id}/run`,
+        change(agent.version),
+      );
+      expect(queued.statusCode).toBe(200);
+      await db.query(
+        'INSERT INTO notifications(id,owner_id,run_id,conversation_id,title,created_at) VALUES($1,$2,$3,$4,$5,$6)',
+        [
+          id,
+          owner,
+          queued.json().runId,
+          agent.conversationId,
+          `Agent ${index}`,
+          '2036-01-01T00:00:00Z',
+        ],
+      );
+    } else {
+      const source = await reminder();
+      await db.query(
+        'INSERT INTO notifications(id,owner_id,reminder_id,title,created_at) VALUES($1,$2,$3,$4,$5)',
+        [id, owner, source.id, `Reminder ${index}`, '2036-01-01T00:00:00Z'],
+      );
+    }
+  }
+  const first = (await get('/api/v1/notifications/history?limit=15')).json();
+  const second = (
+    await get(
+      `/api/v1/notifications/history?limit=15&before=${first.nextBefore}`,
+    )
+  ).json();
+  expect(
+    [...first.notifications, ...second.notifications].map(
+      (item: { id: string }) => item.id,
+    ),
+  ).toEqual(ids.sort().reverse());
+  expect(second.nextBefore).toBeNull();
+  expect(first.unreadCount).toBe(30);
+  const mixed = [...first.notifications, ...second.notifications];
+  expect(
+    mixed.filter((item) => item.conversationId === agent.conversationId),
+  ).toHaveLength(15);
+  expect(mixed.filter((item) => item.reminderId !== null)).toHaveLength(15);
+});
 async function academicTarget(fields: object = {}) {
   const course = (
     await post('/api/v1/courses', {

@@ -20,7 +20,7 @@ Approved 2026-10-14 (D54–D56), all done and deployed:
 
 Live operation (2026-10-14): mail sync runs every 10 minutes from the owner's Windows computer; the server has the OpenRouter key and spending limits.
 
-Next (approved 2026-10-14, D57): **persistent agents**. [Design](superpowers/specs/2026-10-14-persistent-agents-design.md): scheduled agents (Daily plan, Mail triage, Deadline watch, custom) as pinned Assistant conversations, run by an in-process worker under the action settings and a per-agent monthly cap. Three PRs: backend, UI, notifications/docs. Out of scope for this slice (listed in the design and agent-scope.md): event triggers, parallel runs, delegation, MCP, web browsing, sending email, external calendar writes, memory edits, voice, personas, learning, auto-resume after a cap pause, push notifications.
+Implemented locally (approved 2026-10-14, D57; merge/deployment and live acceptance pending): **persistent agents**. [Design](superpowers/specs/2026-10-14-persistent-agents-design.md): scheduled agents (Daily plan, Mail triage, Deadline watch, custom) as pinned Assistant conversations, run by an in-process worker under the action settings and a per-agent monthly cap. Three PRs: backend, UI, notifications/docs. Out of scope for this slice (listed in the design and agent-scope.md): event triggers, parallel runs, delegation, MCP, web browsing, sending email, external calendar writes, memory edits, voice, personas, learning, auto-resume after a cap pause, push notifications.
 
 Later (not yet ordered): bidirectional MCP, Kompakt hardware verification, Outlook mailbox, Windows app.
 

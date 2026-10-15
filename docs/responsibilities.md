@@ -1,10 +1,12 @@
 # Responsibility records, review schedules and activity
 
-Three backend milestones implemented 2026-10-11: owned responsibility lifecycle (migration 034), UTC review schedules/due admission (035), and durable blocked run/activity history/export (036). These are application records and owner-invoked review placeholders. No background scheduler, autonomous agent, model/tool execution, provider call, paid request, lease/worker, MCP runtime or Dots/OpenDots parity is enabled. UI integration remains pending.
+Three legacy milestones implemented 2026-10-11: owned lifecycle (034), UTC review schedules/due admission (035), and blocked run/activity history/export (036). Responsibilities without a template remain owner-invoked blocked placeholders, with no model/tool execution. D57 adds the agent path below; full Dots/OpenDots parity remains future scope.
 
 Persistent agents (D57, 2026-10-14, [design](superpowers/specs/2026-10-14-persistent-agents-design.md)): a responsibility with a `template` is an agent. It has a pinned Assistant conversation, a local schedule (up to six daily times) and a monthly cap. Its admitted runs are `queued` and executed by the in-process agent worker (queued → running → completed/failed, 10-minute lease, one at a time). Responsibilities without a template are unchanged: owner-invoked, `blocked`, never executed. Agents are created and edited through `/api/v1/agents`; pause, resume and delete use the endpoints below. Resume starts at the next future slot, and delete unpins and keeps the conversation. The design's out-of-scope list still applies.
 
 ## Milestone 1: owned responsibility lifecycle
+
+D57 UI is implemented locally (rollout pending): pinned Assistant conversations, create/edit, Pause/Resume, Run now, cap controls, results and Undo. Non-quiet run notifications link from Inbox and Today; opening a retained conversation reads its own notifications. Legacy responsibility UI remains pending. See the [explicit exclusions](superpowers/specs/2026-10-14-persistent-agents-design.md#out-of-scope-recorded-for-future-work).
 
 POST `/api/v1/responsibilities` takes operationId, title (trimmed 1–160), goal (trimmed 1–4000) and optional owner sensitivity (unlabeled default). Source is server-assigned owner-entered; status starts paused/version 1. Labels retain the complete unique history of owner-applied labels. Attachments, refs/source manifests, providers, tools, budgets, client status/source/labels and arbitrary execution settings are rejected. Goal text is data, never executable code or an instruction granting authority.
 

@@ -478,6 +478,45 @@ test('uncertain requests never offer Retry', async ({ page }) => {
   ).toHaveCount(0);
 });
 
+test('opening an unfinished run does not mark its eventual result seen', async ({
+  page,
+}) => {
+  const runId = crypto.randomUUID();
+  const state = await stub(page, [
+    agentFixture({
+      lastRun: {
+        id: runId,
+        status: 'running',
+        outcome: null,
+        errorCode: null,
+        finishedAt: null,
+        turnId: null,
+      },
+    }),
+  ]);
+  await page.goto(`/assistant/${conversationId}`);
+  await expect(
+    page.getByRole('button', { name: 'Agent settings' }),
+  ).toBeVisible();
+  await page.goto('/assistant');
+  state.agents = [
+    agentFixture({
+      lastRun: {
+        id: runId,
+        status: 'completed',
+        outcome: 'quiet',
+        errorCode: null,
+        finishedAt: new Date().toISOString(),
+        turnId: null,
+      },
+    }),
+  ];
+  await page.reload();
+  await expect(
+    page.getByRole('navigation', { name: 'Agents' }).getByLabel('New run'),
+  ).toBeVisible();
+});
+
 test('completed scheduled runs appear while the thread stays open', async ({
   page,
 }) => {

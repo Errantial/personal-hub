@@ -32,7 +32,7 @@ Voice calls and Slack access are included in later parity scope. Voice is gated 
 
 Using OpenDots as a feature reference does not select its runtime or replace the current scaffold. Its README describes CopilotKit Intelligence for conversation persistence, with hosted, local evaluation, and licensed self-hosted options. Assess cost, licensing, retention, and sensitivity routing before choosing any dependency. Conversation storage, learning, search, channels, and computer services are separate data destinations; approving a model provider does not approve them automatically.
 
-## First executing slice (D57, 2026-10-14)
+## First executing slice (D57, implemented locally 2026-10-14; rollout pending)
 
 Design: [persistent agents](superpowers/specs/2026-10-14-persistent-agents-design.md). Scheduled agents run in an in-process worker, one at a time, through the Assistant pipeline, with results as pinned Assistant conversations and proposals governed by Settings › AI › Actions.
 
@@ -63,6 +63,6 @@ Design: [persistent agents](superpowers/specs/2026-10-14-persistent-agents-desig
 
 ## Delivery order
 
-Three local backend milestones are now implemented in [responsibility contracts](responsibilities.md): owned lifecycle, UTC and local daily/weekly review schedules/explicit selected due admission, and blocked run/activity history. This is not an agent executor or background scheduler. Active enables owner requests only; placeholders never call providers/tools. Verified context/routing/permissions/budgets, leases/stop rechecks, real results/actions and UI remain pending. Editable owner memory supports explicit versioned context selection through the verified gateway; automatic retrieval and live AI remain pending.
+Legacy [responsibility contracts](responsibilities.md) provide lifecycle, schedules and blocked review history; those placeholders never call providers/tools. D57 adds the scheduled executor, pinned conversations, controls, action settings, results/Undo and linked notifications within the [explicit exclusions](superpowers/specs/2026-10-14-persistent-agents-design.md#out-of-scope-recorded-for-future-work) above. Merge, deployment and live owner acceptance remain pending. Automatic memory retrieval remains pending.
 
 Finish authenticated planner persistence first. Introduce durable worker/job state before autonomous ongoing responsibilities; implement provider-routing and tool policies before enabling paid agent execution. Add proactive study/inbox reviews incrementally after the relevant integrations work. Android, server resources, and cost limits constrain concurrency and notification guarantees.

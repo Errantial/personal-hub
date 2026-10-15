@@ -58,7 +58,9 @@ export function TodayView({ navigate }: { navigate: (route: Route) => void }) {
   const inbox = useResource(
     (signal) =>
       getSnapshot('/api/v1/notifications', notificationsSchema, signal),
-    { failure: 'Unread reminders unavailable. Retry unread reminders.' },
+    {
+      failure: 'Unread notifications unavailable. Retry unread notifications.',
+    },
   );
   const reloadTasks = tasks.reload;
   const reloadSchedule = schedule.reload;
@@ -233,21 +235,30 @@ export function TodayView({ navigate }: { navigate: (route: Route) => void }) {
       </details>
       <details
         className="panel today-more"
-        aria-label={`Unread reminders · ${unread.length}`}
+        aria-label={`Unread notifications · ${unread.length}`}
       >
-        <summary>Unread reminders · {unread.length}</summary>
-        <ReadState resource={inbox} label="unread reminders" />
+        <summary>Unread notifications · {unread.length}</summary>
+        <ReadState resource={inbox} label="unread notifications" />
         <ul className="today-list">
           {unread.slice(0, 3).map((item) => (
             <li key={item.id}>
-              <strong>{item.title}</strong>
+              {item.conversationId ? (
+                <Link
+                  route={{ name: 'assistant', id: item.conversationId }}
+                  navigate={navigate}
+                >
+                  {item.title}
+                </Link>
+              ) : (
+                <strong>{item.title}</strong>
+              )}
               <small>{formatInstant(item.createdAt)}</small>
             </li>
           ))}
         </ul>
-        {inbox.data && !unread.length && <p>No unread reminders.</p>}
+        {inbox.data && !unread.length && <p>No unread notifications.</p>}
         <Link route={{ name: 'inbox' }} navigate={navigate}>
-          View all reminders
+          View all notifications
         </Link>
       </details>
     </div>
