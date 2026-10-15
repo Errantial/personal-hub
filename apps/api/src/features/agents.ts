@@ -6,6 +6,8 @@ import {
   agentResponseSchema,
   agentRunRequestSchema,
   agentRunResponseSchema,
+  agentRunsQuerySchema,
+  agentRunsResponseSchema,
   agentSchema,
   agentUpdateSchema,
   agentWorkerSchema,
@@ -19,11 +21,17 @@ import type {
   ResponsibilityLocalRule,
 } from '@hub/contracts';
 import type { authService } from '../auth/routes.js';
+import type { Config } from '../config.js';
 import type { Database, QueryExecutor } from '../db/database.js';
 import { ApiError } from '../errors.js';
 import { mutate } from '../planner/mutations.js';
-import { stamp } from './common.js';
+import { stamp, version } from './common.js';
 import { agentSpend } from './agent-run.js';
+import {
+  agentRunColumns,
+  describeAgentRun,
+  readAgentSpending,
+} from './agent-status.js';
 import {
   appendResponsibilityActivity,
   cancelResponsibilityRuns,
@@ -84,13 +92,13 @@ export async function scheduleFromNow(
 }
 
 const agentColumns = `r.id,r.version,r.template,r.title,r.goal,r.status,r.pause_reason AS "pauseReason",r.use_mail AS "useMail",r.monthly_cap_micros::text AS "capMicros",r.time_zone AS "timeZone",r.conversation_id AS "conversationId",s.local_rule AS "localRule",${stamp('s.next_due_at', 'nextDueAt')}`;
-const lastRunColumns = `id,status,outcome,error_code AS "errorCode",${stamp('finished_at', 'finishedAt')},turn_id AS "turnId"`;
 
 /** Agents of an owner (all, or one), as the API returns them. */
 export async function readAgents(
   tx: QueryExecutor,
   owner: string,
   id?: string,
+  allowNewRun = false,
 ): Promise<Agent[]> {
   const rows = await tx.query(
     `SELECT ${agentColumns} FROM responsibilities r LEFT JOIN responsibility_schedules s ON s.owner_id=r.owner_id AND s.responsibility_id=r.id AND s.deleted_at IS NULL
@@ -105,14 +113,52 @@ export async function readAgents(
         : row.localRule,
     );
     const [lastRun] = await tx.query(
-      `SELECT ${lastRunColumns} FROM responsibility_runs WHERE owner_id=$1 AND responsibility_id=$2 AND status<>'cancelled' ORDER BY created_at DESC,id DESC LIMIT 1`,
+      `SELECT ${agentRunColumns} FROM responsibility_runs WHERE owner_id=$1 AND responsibility_id=$2 AND status<>'cancelled' ORDER BY created_at DESC,id DESC LIMIT 1`,
       [owner, row.id],
     );
+    const spending = await readAgentSpending(
+      tx,
+      owner,
+      String(row.id),
+      Number(row.capMicros),
+    );
+    const run = lastRun
+      ? await describeAgentRun(
+          tx,
+          owner,
+          lastRun,
+          new Date().toISOString(),
+          allowNewRun && row.status === 'active',
+        )
+      : null;
+    const activeRow =
+      lastRun?.status === 'running'
+        ? lastRun
+        : (
+            await tx.query(
+              `SELECT ${agentRunColumns} FROM responsibility_runs WHERE owner_id=$1 AND responsibility_id=$2 AND status='running' ORDER BY lease_until DESC NULLS LAST,created_at DESC,id DESC LIMIT 1`,
+              [owner, row.id],
+            )
+          )[0];
+    const activeRun = activeRow
+      ? activeRow.id === run?.id
+        ? run
+        : await describeAgentRun(tx, owner, activeRow, new Date().toISOString())
+      : null;
     agents.push(
       agentSchema.parse({
         ...row,
         monthlyCapMicros: Number(row.capMicros),
         spentMicros: await agentSpend(tx, owner, String(row.id)),
+        spending,
+        activeRun,
+        runState: activeRun
+          ? activeRun.state
+          : row.pauseReason === 'cap-reached'
+            ? 'cap-paused'
+            : row.status === 'paused'
+              ? 'paused'
+              : (run?.state ?? 'idle'),
         schedule: {
           frequency: rule.frequency,
           ...(rule.frequency === 'weekly'
@@ -121,14 +167,19 @@ export async function readAgents(
           times: rule.times ?? [rule.localTime],
         },
         nextRunAt: row.status === 'active' ? row.nextDueAt : null,
-        lastRun: lastRun ?? null,
+        lastRun: run,
       }),
     );
   }
   return agents;
 }
-async function readAgent(tx: QueryExecutor, owner: string, id: string) {
-  const [agent] = await readAgents(tx, owner, id);
+async function readAgent(
+  tx: QueryExecutor,
+  owner: string,
+  id: string,
+  allowNewRun = false,
+) {
+  const [agent] = await readAgents(tx, owner, id, allowNewRun);
   if (!agent) throw notFound();
   return agent;
 }
@@ -157,13 +208,23 @@ export function registerAgents(
   app: FastifyInstance,
   database: Database,
   auth: ReturnType<typeof authService>,
+  config: Config,
 ) {
   const base = '/api/v1/agents';
+  const allowNewRun = () =>
+    config.AGENT_WORKER === 'on' && !!config.AI_SECRET_OPENROUTER;
 
   app.get(base, async (request) => {
     const owner = await auth.requireUser(request);
-    return agentsResponseSchema.parse({
-      agents: await readAgents(database, owner.id),
+    return database.transaction(async (tx) => {
+      await tx.query(
+        'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY',
+      );
+      if (!(await auth.currentUser(request, tx)))
+        throw new ApiError(401, 'UNAUTHENTICATED', 'Sign in again.');
+      return agentsResponseSchema.parse({
+        agents: await readAgents(tx, owner.id, undefined, allowNewRun()),
+      });
     });
   });
 
@@ -172,13 +233,92 @@ export function registerAgents(
     const [row] = await database.query(
       `SELECT ${stamp('last_tick', 'lastTick')},error_code AS "errorCode" FROM worker_state WHERE name='agents'`,
     );
+    const disabledReason =
+      config.AGENT_WORKER === 'off'
+        ? 'config'
+        : !config.AI_SECRET_OPENROUTER
+          ? 'missing-key'
+          : null;
+    const enabled = disabledReason === null;
+    const asOf = new Date().toISOString();
+    const age = row?.lastTick
+      ? Date.parse(asOf) - Date.parse(String(row.lastTick))
+      : null;
+    const healthy =
+      enabled && age !== null && age >= -5000 && age < 90000 && !row?.errorCode;
     return agentWorkerSchema.parse({
+      enabled,
+      disabledReason,
+      asOf,
+      state:
+        disabledReason === 'config'
+          ? 'disabled'
+          : disabledReason === 'missing-key'
+            ? 'not-configured'
+            : !row?.lastTick
+              ? 'starting'
+              : healthy
+                ? 'healthy'
+                : 'unhealthy',
       lastTick: row?.lastTick ?? null,
       errorCode: row?.errorCode ?? null,
-      healthy:
-        !!row?.lastTick &&
-        !row.errorCode &&
-        Date.now() - Date.parse(String(row.lastTick)) < 90000,
+      healthy,
+    });
+  });
+
+  app.get(`${base}/:id/runs`, async (request) => {
+    const owner = await auth.requireUser(request);
+    const { id } = ids.parse(request.params);
+    const input = agentRunsQuerySchema.parse(request.query);
+    return database.transaction(async (tx) => {
+      await tx.query(
+        'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY',
+      );
+      if (!(await auth.currentUser(request, tx)))
+        throw new ApiError(401, 'UNAUTHENTICATED', 'Sign in again.');
+      // Tombstoned agents retain owned metadata/history; their text is never
+      // returned here. Never accept a cross-owner parent or cursor.
+      const [parent] = await tx.query(
+        'SELECT id FROM responsibilities WHERE owner_id=$1 AND id=$2 AND template IS NOT NULL',
+        [owner.id, id],
+      );
+      if (!parent) throw notFound();
+      const [time] = await tx.query(
+        `SELECT ${stamp('CURRENT_TIMESTAMP', 'asOf')}`,
+      );
+      const asOf = String(time!.asOf);
+      let cursorTime: unknown = null;
+      if (input.after) {
+        const [anchor] = await tx.query(
+          `SELECT version,${stamp('created_at', 'cursorTime').replace('.MS', '.US')} FROM responsibility_runs WHERE owner_id=$1 AND responsibility_id=$2 AND id=$3`,
+          [owner.id, id, input.after],
+        );
+        if (!anchor)
+          throw new ApiError(404, 'NOT_FOUND', 'Run cursor is unavailable.');
+        version(anchor, input.expectedCursorVersion);
+        cursorTime = anchor.cursorTime;
+      }
+      const [summary] = await tx.query(
+        'SELECT count(*)::int AS total FROM responsibility_runs WHERE owner_id=$1 AND responsibility_id=$2',
+        [owner.id, id],
+      );
+      const rows = await tx.query(
+        `SELECT ${agentRunColumns} FROM responsibility_runs WHERE owner_id=$1 AND responsibility_id=$2 AND ($3::uuid IS NULL OR (created_at,id)<($4::timestamptz,$3::uuid)) ORDER BY created_at DESC,id DESC LIMIT $5`,
+        [owner.id, id, input.after ?? null, cursorTime, input.limit + 1],
+      );
+      const runs = [];
+      for (const row of rows.slice(0, input.limit))
+        runs.push(await describeAgentRun(tx, owner.id, row, asOf));
+      const last = rows[input.limit - 1];
+      return agentRunsResponseSchema.parse({
+        asOf,
+        runs,
+        totalCount: summary!.total,
+        nextAfter:
+          rows.length > input.limit && last
+            ? { id: last.id, version: last.version }
+            : null,
+      });
     });
   });
 
@@ -228,7 +368,7 @@ export function registerAgents(
         for (const kind of ['created', 'schedule-set', 'resumed'] as const)
           await appendResponsibilityActivity(tx, owner.id, value, kind);
         return agentResponseSchema.parse({
-          agent: await readAgent(tx, owner.id, id),
+          agent: await readAgent(tx, owner.id, id, allowNewRun()),
         });
       },
     );
@@ -306,7 +446,7 @@ export function registerAgents(
         if (resume)
           await appendResponsibilityActivity(tx, owner.id, value, 'resumed');
         return agentResponseSchema.parse({
-          agent: await readAgent(tx, owner.id, id),
+          agent: await readAgent(tx, owner.id, id, allowNewRun()),
         });
       },
     );
@@ -334,7 +474,7 @@ export function registerAgents(
         const value = await readResponsibility(tx, owner.id, id);
         const run = await createResponsibilityRun(tx, owner.id, value, null);
         return agentRunResponseSchema.parse({
-          agent: await readAgent(tx, owner.id, id),
+          agent: await readAgent(tx, owner.id, id, allowNewRun()),
           runId: run.id,
         });
       },

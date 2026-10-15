@@ -8,6 +8,8 @@ The owner approved autonomous development according to the [post-agents developm
 
 First batch implemented in [PR #35](https://github.com/Errantial/personal-hub/pull/35) (not deployed): present-status reconciliation and [acceptance checklist](agents-acceptance.md); atomic worker effects/result persistence, lease fencing, independent heartbeat, legacy receipt recovery, pre-fetch goal/label checks and durable per-exchange agent allowance admission (migration 058); staged artifact/migration/service-user preflight and explicit rollback compatibility evidence. Validation: full check passed 653 tests, all 144 browser cases passed, and Linux/Windows/PostgreSQL CI passed, including two-worker races and the Linux filesystem fixture. Receipts are in implementation-log.md. Actual service-user preflight and owner live acceptance remain pending. Full history/output provenance regressions and enforcement remain P5/P6, not completed P1 acceptance.
 
+P3 implemented on `agents/run-visibility` (not deployed; full validation in progress): authoritative run states and bounded owned history, separate active execution and chronological latest run, scheduler configuration/liveness, progress/deadline warnings and settled/held/remaining allowance. Migration 059 leaves legacy timing unknown. Retry requires server evidence of no charged/uncertain exchange or existing effect; explicit Run now remains a new operation. Connector freshness/completeness remains E1 work. P5/P6 live source/history/output admission is next before richer academic or memory context.
+
 ## Current plan (approved 2026-10-12)
 
 New backend features are frozen until steps 2–3 are done (D49); fixes and backend work those steps require are allowed.

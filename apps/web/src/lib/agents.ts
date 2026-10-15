@@ -27,15 +27,50 @@ export function agentState(
   agent: Agent,
   now = new Date(),
 ): { label: string; tone: 'normal' | 'paused' | 'warning' } {
+  if ((agent.activeRun ?? agent.lastRun)?.leaseExpired)
+    return { label: 'Deadline passed', tone: 'warning' };
+  const state = agent.runState;
+  if (state && state !== 'idle') return runStateLabel(state);
   if (agent.pauseReason === 'cap-reached')
     return { label: 'Cap reached', tone: 'warning' };
   if (agent.status === 'paused') return { label: 'Paused', tone: 'paused' };
-  if (agent.lastRun?.outcome === 'failed')
-    return { label: 'Failed', tone: 'warning' };
+  if (
+    agent.lastRun &&
+    ['queued', 'running', 'blocked', 'failed'].includes(agent.lastRun.status)
+  )
+    return runStateLabel(agent.lastRun.status);
   if (!agent.nextRunAt) return { label: 'Not scheduled', tone: 'paused' };
   return {
     label: `Next ${when(agent.nextRunAt, agent.timeZone, now)}`,
     tone: 'normal',
+  };
+}
+
+/** Labels describe server states; a timeout never becomes a Retry action. */
+export function runStateLabel(state: string): {
+  label: string;
+  tone: 'normal' | 'paused' | 'warning';
+} {
+  const label: Record<string, string> = {
+    idle: 'Not scheduled',
+    paused: 'Paused',
+    'cap-paused': 'Cap reached',
+    queued: 'Queued',
+    running: 'Running',
+    'retry-scheduled': 'Retry scheduled',
+    blocked: 'Blocked',
+    failed: 'Failed',
+    uncertain: 'Uncertain',
+    completed: 'Completed',
+    cancelled: 'Cancelled',
+  };
+  return {
+    label: label[state] ?? 'Status unavailable',
+    tone: ['cap-paused', 'blocked', 'failed', 'uncertain'].includes(state)
+      ? 'warning'
+      : ['paused', 'cancelled'].includes(state)
+        ? 'paused'
+        : 'normal',
   };
 }
 

@@ -1,10 +1,12 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { Temporal } from '@hub/contracts';
 import type { AgentTemplate, AssistantTurn, RunOutcome } from '@hub/contracts';
 import type { Config } from '../config.js';
 import type { Database, QueryExecutor } from '../db/database.js';
 import { ApiError } from '../errors.js';
 import type { OpenRouterFetch } from '../ai/openrouter-live.js';
+import { chatUrl } from '../ai/openrouter-live.js';
+import { attemptOperation } from './agent-operation.js';
 import { answerTurn } from './assistant.js';
 import {
   agentPrompt,
@@ -130,7 +132,7 @@ async function failRun(
 ) {
   await database.transaction(async (tx) => {
     const [row] = await tx.query(
-      "UPDATE responsibility_runs SET status='failed',outcome='failed',error_code=$3,finished_at=$4,turn_id=COALESCE($5,turn_id),lease_token=NULL,lease_until=NULL,version=version+1 WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id",
+      "UPDATE responsibility_runs SET status='failed',outcome='failed',error_code=$3,finished_at=$4,progress_at=$4,progress_stage='finished',turn_id=COALESCE($5,turn_id),lease_token=NULL,lease_until=NULL,version=version+1 WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id",
       [run.id, run.token, code, now, turnId],
     );
     if (!row) return;
@@ -245,8 +247,8 @@ async function claim(database: Database, now: Date): Promise<Claimed | null> {
     if (!row) return null;
     const token = randomUUID();
     await tx.query(
-      "UPDATE responsibility_runs SET status='running',attempts=attempts+1,lease_token=$2,lease_until=$3,not_before=NULL,version=version+1 WHERE id=$1",
-      [row.id, token, new Date(now.getTime() + leaseMs)],
+      "UPDATE responsibility_runs SET status='running',attempts=attempts+1,lease_token=$2,lease_until=$3,started_at=COALESCE(started_at,$4),progress_at=$4,progress_stage='claimed',not_before=NULL,version=version+1 WHERE id=$1",
+      [row.id, token, new Date(now.getTime() + leaseMs), now],
     );
     await activity(
       tx,
@@ -263,14 +265,6 @@ async function claim(database: Database, now: Date): Promise<Claimed | null> {
   });
 }
 
-/** A stable operation ID per run attempt, so a replay never calls twice. */
-function attemptOperation(runId: string, attempt: number) {
-  const hex = createHash('sha256')
-    .update(`${runId}:attempt:${attempt}`)
-    .digest('hex');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-${'89ab'[parseInt(hex[16]!, 16) % 4]}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-}
-
 /** Puts a run back in the queue for its one retry. */
 async function requeue(
   database: Database,
@@ -279,8 +273,8 @@ async function requeue(
   turnId: string | null,
 ) {
   await database.query(
-    "UPDATE responsibility_runs SET status='queued',not_before=$3,turn_id=COALESCE($4,turn_id),lease_token=NULL,lease_until=NULL,version=version+1 WHERE id=$1 AND lease_token=$2 AND status='running'",
-    [run.id, run.token, new Date(now.getTime() + retryMs), turnId],
+    "UPDATE responsibility_runs SET status='queued',not_before=$3,turn_id=COALESCE($4,turn_id),progress_at=$5,progress_stage='retry-scheduled',lease_token=NULL,lease_until=NULL,version=version+1 WHERE id=$1 AND lease_token=$2 AND status='running'",
+    [run.id, run.token, new Date(now.getTime() + retryMs), turnId, now],
   );
 }
 
@@ -312,7 +306,7 @@ async function execute(
   ) {
     await database.transaction(async (tx) => {
       const [row] = await tx.query(
-        "UPDATE responsibility_runs SET status='cancelled',cancel_reason='cap-reached',cancelled_at=$3,lease_token=NULL,lease_until=NULL,version=version+1 WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id",
+        "UPDATE responsibility_runs SET status='cancelled',cancel_reason='cap-reached',cancelled_at=$3,progress_at=$3,progress_stage='finished',lease_token=NULL,lease_until=NULL,version=version+1 WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id",
         [run.id, run.token, now],
       );
       if (!row) return;
@@ -357,6 +351,12 @@ async function execute(
           'This agent changed during its run.',
         );
       await requireLease(database, run, clock());
+      await progress(
+        database,
+        run,
+        clock(),
+        url === chatUrl ? 'provider-request' : 'checking-provider',
+      );
       return fetcher(url, init);
     };
     turn = await answerTurn(database, config, ownedFetch, run.ownerId, {
@@ -397,6 +397,7 @@ async function execute(
   }
 
   try {
+    await progress(database, run, clock(), 'applying');
     await database.transaction(async (tx) => {
       // The run lock, lease predicate, planner receipts/effects, turn items and
       // terminal result share one transaction. A stale worker cannot commit
@@ -429,7 +430,7 @@ async function execute(
       // A failed terminal predicate rolls back the entire transaction.
       const committedAt = clock();
       const [row] = await tx.query(
-        "UPDATE responsibility_runs SET status='completed',outcome=$3,turn_id=$4,finished_at=$5,lease_token=NULL,lease_until=NULL,version=version+1 WHERE id=$1 AND lease_token=$2 AND status='running' AND lease_until > $5 RETURNING id",
+        "UPDATE responsibility_runs SET status='completed',outcome=$3,turn_id=$4,finished_at=$5,progress_at=$5,progress_stage='finished',lease_token=NULL,lease_until=NULL,version=version+1 WHERE id=$1 AND lease_token=$2 AND status='running' AND lease_until > $5 RETURNING id",
         [run.id, run.token, outcome, turn.id, committedAt],
       );
       if (!row)
@@ -451,6 +452,25 @@ async function execute(
       turn.id,
     );
   }
+}
+
+/** Progress is a lifecycle event, not a periodic heartbeat or lease renewal. */
+async function progress(
+  tx: QueryExecutor,
+  run: Claimed,
+  now: Date,
+  stage: 'checking-provider' | 'provider-request' | 'applying',
+) {
+  const [row] = await tx.query(
+    "UPDATE responsibility_runs SET progress_at=$4,progress_stage=$5,version=version+1 WHERE id=$1 AND owner_id=$2 AND lease_token=$3 AND status='running' AND lease_until>$4 RETURNING id",
+    [run.id, run.ownerId, run.token, now, stage],
+  );
+  if (!row)
+    throw new ApiError(
+      409,
+      'AGENT_LEASE_LOST',
+      'This run no longer owns execution.',
+    );
 }
 
 async function requireLease(
@@ -503,7 +523,7 @@ export async function runAgentTick(
   try {
     await failExpiredLeases(database, now);
     const admitted = await admitDue(database, now);
-    const run = await claim(database, now);
+    const run = await claim(database, clock());
     if (run) await execute(database, config, fetcher, run, clock);
     await heartbeat(database, clock());
     return { admitted, ran: run?.id ?? null };

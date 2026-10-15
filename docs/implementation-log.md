@@ -1,5 +1,15 @@
 # Implementation log
 
+## 2026-10-15 — Agent run visibility (P3)
+
+Implemented additive run/status/spending contracts and owner-only guarded `/api/v1/agents/:id/runs` history, including retained deleted-agent metadata and pre-turn failures. Current execution is separate from chronological latest-run metadata, preserving unread and Retry behavior while a newer run waits. Migration 059 adds start/progress fields without inventing legacy timestamps. Worker configuration and heartbeat health are separate from run progress, deadline expiry and outcome. Read-only pages use consistent snapshots and full-precision guarded cursors.
+
+Assistant navigation, selected agent and settings now show authoritative states and UTC-month settled charges, held/uncertain amounts, remaining allowance and cap. Current progress and expired-deadline warnings remain visible independently of scheduler health; history is bounded, read-only and reloadable after a stale cursor. Diagnostic codes use Help with actionable visible error categories. Mounted-page offline data is marked stale; durable offline agent/history caching is not implemented. Existing planner controls, notification semantics and Pause-finish-running remain intact.
+
+Retry is authorized only from durable evidence: known started/progress metadata, bounded attempts, no paid/uncertain/unknown-cost exchange and no applied item or saved planner receipt. All attempt/round identities are resolved, including an orphan third mail round before turn linking. Legacy/lease/apply/unknown failures remain ineligible; Run now is a separate new operation. No provider access or action authority is added.
+
+Validation in progress: independent review found and corrected active-run hiding, missing-budget categorization and expiry visibility. Focused API, type/lint and earlier browser checks passed; final nullable-cost, active-run/deadline and upgrade-fixture fixes have focused checks recorded separately while the complete check is running. Full final browser acceptance, CI, production deployment and live owner use are not claimed yet. No owner records, real provider, paid request or hardware test was used.
+
 ## 2026-10-15 — First post-agents reliability batch
 
 Implemented the first reliability batch from the approved [development plan](post-agents-development-plan.md), without deployment. Worker planner effects, durable receipts, saved item states and terminal run state now share a lease-fenced transaction; per-item conflicts use savepoints. Default action-policy row creation is serialized, older committed planner receipts can restore item state without repeating effects, and expired runs retain available answer links without redispatch. Heartbeats advance during provider latency and completion timestamps use actual completion time. Each provider fetch rechecks current agent availability, unchanged goal and inherited labels while preserving Pause-finish-running.

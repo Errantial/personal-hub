@@ -149,7 +149,7 @@ export async function buildApp(
   registerMemory(app, database, auth);
   registerResponsibilities(app, database, auth);
   registerResponsibilityInbox(app, database, auth);
-  registerAgents(app, database, auth);
+  registerAgents(app, database, auth, config);
   registerStudy(app, database, auth);
   registerDeletedPlanner(app, database, auth);
   registerPlanner(app, database, auth);

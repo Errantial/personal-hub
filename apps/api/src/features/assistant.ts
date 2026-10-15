@@ -58,7 +58,7 @@ import {
 import type { MailHit } from './assistant-mail.js';
 
 /** A stable operation ID for a later call of one ask. */
-function roundOperation(operationId: string, round: number) {
+export function roundOperation(operationId: string, round: number) {
   const hex = createHash('sha256')
     .update(`${operationId}:round:${round}`)
     .digest('hex');
