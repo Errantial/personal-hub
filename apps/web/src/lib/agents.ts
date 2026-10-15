@@ -70,7 +70,7 @@ export function useAgentSeen() {
     [seen],
   );
   const markSeen = useCallback((agent: Agent) => {
-    if (!agent.lastRun) return;
+    if (!agent.lastRun?.finishedAt) return;
     const next = { ...readSeen(), [agent.id]: agent.lastRun.id };
     try {
       localStorage.setItem(seenKey, JSON.stringify(next));
