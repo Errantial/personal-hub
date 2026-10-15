@@ -29,7 +29,11 @@ afterEach(async () => {
   harness = undefined;
 });
 
-const academicLabels = ['unlabeled', 'personal', 'restricted'];
+const academicLabels: Parameters<typeof academicContext>[3] = [
+  'unlabeled',
+  'personal',
+  'restricted',
+];
 
 /** Seeds one unlabeled class and work item, and projects it as sent. */
 async function seedAcademic(h: Harness, title = 'Synthetic essay') {
