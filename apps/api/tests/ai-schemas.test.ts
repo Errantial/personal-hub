@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
 import {
+  assistantRequestInputSchema,
   liveDestinationApproveSchema,
   liveDestinationStatusSchema,
 } from '@hub/contracts';
@@ -84,6 +85,40 @@ it('requires a reason exactly when the live destination is blocked', () => {
       model: base.model,
       upstream: 'google-vertex/global',
       expectedVersion: 0,
+    }).success,
+  ).toBe(false);
+});
+
+it('academic selection pins both versions and unique work items', () => {
+  const base = {
+    operationId: '00000000-0000-4000-8000-000000000000',
+    text: 'plan my week',
+    timeZone: 'UTC',
+  };
+  // Omitted selection defaults to none.
+  expect(assistantRequestInputSchema.parse(base).academic).toEqual([]);
+  const id = '11111111-1111-4111-8111-111111111111';
+  expect(
+    assistantRequestInputSchema.safeParse({
+      ...base,
+      academic: [{ id, expectedVersion: 2, expectedCourseVersion: 3 }],
+    }).success,
+  ).toBe(true);
+  // The class version is required for academic selection.
+  expect(
+    assistantRequestInputSchema.safeParse({
+      ...base,
+      academic: [{ id, expectedVersion: 2 }],
+    }).success,
+  ).toBe(false);
+  // Each work item is selected once.
+  expect(
+    assistantRequestInputSchema.safeParse({
+      ...base,
+      academic: [
+        { id, expectedVersion: 2, expectedCourseVersion: 3 },
+        { id, expectedVersion: 2, expectedCourseVersion: 3 },
+      ],
     }).success,
   ).toBe(false);
 });

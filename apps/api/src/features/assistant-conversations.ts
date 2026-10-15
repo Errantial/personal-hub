@@ -11,6 +11,7 @@ import {
   assistantTurnResponseSchema,
 } from '@hub/contracts';
 import type {
+  AssistantAcademicSent,
   AssistantItem,
   AssistantMailSent,
   AssistantProposal,
@@ -126,9 +127,10 @@ export async function finishTurn(
     mail: AssistantMailSent[];
     mailWithheld: number;
     mailNote: string | null;
+    academic?: AssistantAcademicSent[];
     proposalAccess?: 'read-only' | 'applicable';
     binding?: { requestId: string } | null;
-  } = { mail: [], mailWithheld: 0, mailNote: null },
+  } = { mail: [], mailWithheld: 0, mailNote: null, academic: [] },
 ) {
   const items: AssistantItem[] = (answer?.proposals ?? []).map(() => ({
     state: 'proposed',
@@ -170,7 +172,7 @@ export async function finishTurn(
       }
     }
     await tx.query(
-      `UPDATE ai_conversation_turns SET reply=$3,proposals=$4,items=$5,mail=$6,mail_withheld=$7,mail_note=$8,proposal_access=$9,inference_history=$10,inference_digest=$11,inference_sources=$12,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2`,
+      `UPDATE ai_conversation_turns SET reply=$3,proposals=$4,items=$5,mail=$6,mail_withheld=$7,mail_note=$8,proposal_access=$9,inference_history=$10,inference_digest=$11,inference_sources=$12,academic=$13,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2`,
       [
         owner,
         id,
@@ -184,6 +186,7 @@ export async function finishTurn(
         digest ? 'bound' : 'unbound',
         digest,
         sources ? JSON.stringify(sources) : null,
+        JSON.stringify(mail.academic ?? []),
       ],
     );
     if (mail.binding && answer?.proposals.length) {
@@ -199,7 +202,7 @@ export async function finishTurn(
   });
 }
 
-const turnColumns = `t.id,t.conversation_id AS "conversationId",t.ask,t.reply,t.proposals,t.items,t.version,t.use_mail AS "useMail",t.mail,t.mail_withheld AS "mailWithheld",t.mail_note AS "mailNote",t.trigger,t.not_allowed AS "notAllowed",t.inference_history AS "inferenceHistory",t.proposal_access AS "proposalAccess"`;
+const turnColumns = `t.id,t.conversation_id AS "conversationId",t.ask,t.reply,t.proposals,t.items,t.version,t.use_mail AS "useMail",t.mail,t.mail_withheld AS "mailWithheld",t.mail_note AS "mailNote",t.academic,t.trigger,t.not_allowed AS "notAllowed",t.inference_history AS "inferenceHistory",t.proposal_access AS "proposalAccess"`;
 const json = (value: unknown) =>
   typeof value === 'string' ? JSON.parse(value) : value;
 
@@ -269,6 +272,7 @@ function toTurn(
     })),
     mailWithheld: Number(row.mailWithheld ?? 0),
     mailNote: (row.mailNote as string | null) ?? null,
+    academic: (json(row.academic) ?? []) as AssistantAcademicSent[],
     inferenceHistory: row.inferenceHistory === 'bound' ? 'bound' : 'unbound',
     proposalAccess:
       row.proposalAccess === 'read-only' ? 'read-only' : 'applicable',

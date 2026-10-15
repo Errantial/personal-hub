@@ -88,6 +88,15 @@ export const liveDestinationRevokeSchema = z.strictObject({
   operationId: z.string().uuid().optional(),
 });
 
+/**
+ * Explicitly selected manual academic work, pinned to its work and class
+ * versions so a stale selection blocks before anything is sent.
+ */
+export const assistantAcademicRefSchema = z.strictObject({
+  id: z.string().uuid(),
+  expectedVersion: z.number().int().positive(),
+  expectedCourseVersion: z.number().int().positive(),
+});
 export const assistantRequestInputSchema = z.strictObject({
   operationId: z.string().uuid(),
   text: z.string().trim().min(1).max(1000),
@@ -102,6 +111,21 @@ export const assistantRequestInputSchema = z.strictObject({
    * five bodies read. Off: mail is never touched.
    */
   useMail: z.boolean().default(false),
+  /**
+   * Manual academic work sent with this ask (docs/ai-academic-context.md):
+   * allowlisted planning text only. A missing deadline or effort stays
+   * unknown, never zero. A labeled item outside the approved destination's
+   * labels is withheld and counted.
+   */
+  academic: z
+    .array(assistantAcademicRefSchema)
+    .max(20)
+    .refine(
+      (values) =>
+        new Set(values.map((value) => value.id)).size === values.length,
+      'Select each item once.',
+    )
+    .default([]),
 });
 
 const title = z.string().trim().min(1).max(200);
@@ -223,6 +247,29 @@ export const assistantMailSentSchema = z.object({
 });
 export type AssistantMailSent = z.infer<typeof assistantMailSentSchema>;
 
+const academicKind = z.enum(['assignment', 'exam', 'project', 'other']);
+const academicStatus = z.enum([
+  'planned',
+  'in_progress',
+  'submitted',
+  'cancelled',
+]);
+/**
+ * One selected manual academic item as sent: allowlisted planning text only.
+ * Notes, grades, class/instructor text and provider data are never included.
+ */
+export const assistantAcademicSentSchema = z.object({
+  id: z.string().uuid(),
+  ref: z.string(),
+  title: z.string(),
+  kind: academicKind,
+  dueDate: dateOnly.nullable(),
+  estimatedMinutes: z.number().int().nonnegative().nullable(),
+  status: academicStatus,
+  priority: z.number().int().min(1).max(5),
+});
+export type AssistantAcademicSent = z.infer<typeof assistantAcademicSentSchema>;
+
 export const assistantTurnSchema = z.object({
   id: z.string().uuid(),
   conversationId: z.string().uuid(),
@@ -244,6 +291,8 @@ export const assistantTurnSchema = z.object({
   mailWithheld: z.number().int().nonnegative().default(0),
   /** Why mail reading stopped early, if it did. */
   mailNote: z.string().nullable().default(null),
+  /** Selected manual academic work as sent, for coverage display. */
+  academic: z.array(assistantAcademicSentSchema).default([]),
   /**
    * bound: this ask and reply may be sent again as history while their
    * sources stay eligible. unbound: readable only (legacy or ineligible).
