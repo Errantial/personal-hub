@@ -2,7 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { Temporal, responsibilityLocalRuleSchema } from '@hub/contracts';
+import {
+  Temporal,
+  responsibilityLocalRuleSchema,
+  applyRequest,
+} from '@hub/contracts';
+import { applyByPolicy } from '../src/features/agent-run.js';
+import { readTurn } from '../src/features/assistant-conversations.js';
 import { runAgentTick } from '../src/features/agent-worker.js';
 import { localReviewSlot } from '../src/features/responsibility-local-cadence.js';
 import {
@@ -12,6 +18,8 @@ import {
   startHarness,
 } from './helpers/openrouter.js';
 import type { Harness } from './helpers/openrouter.js';
+import type { QueryExecutor } from '../src/db/database.js';
+import { modelsUrl } from '../src/ai/openrouter-live.js';
 
 // Agent worker (D57): admission, claim, rechecks, execution and finish.
 // Every tick gets an explicit `now`; nothing reaches the network.
@@ -153,7 +161,7 @@ it('runs one at a time and fails an expired lease without resending', async () =
 
 it('rechecks the agent version and cap before any hold', async () => {
   h = await startHarness();
-  const agent = await seedAgent({ daysAgo: -1 });
+  const agent = await seedAgent({ daysAgo: -2 });
   const changed = await queueRun(agent);
   await h.database.query(
     'UPDATE responsibilities SET version=version+1 WHERE id=$1',
@@ -190,7 +198,7 @@ it('rechecks the agent version and cap before any hold', async () => {
 
 it('fails without a hold when the key is missing or the model is not private', async () => {
   h = await startHarness({ key: null });
-  const agent = await seedAgent({ daysAgo: -1 });
+  const agent = await seedAgent({ daysAgo: -2 });
   const missing = await queueRun(agent);
   await tick();
   expect(await run(missing)).toMatchObject({
@@ -199,7 +207,7 @@ it('fails without a hold when the key is missing or the model is not private', a
   });
   await h.app.close();
   h = await startHarness();
-  const other = await seedAgent({ daysAgo: -1 });
+  const other = await seedAgent({ daysAgo: -2 });
   await h.database.query(
     "INSERT INTO ai_assistant_settings(owner_id,model) VALUES($1,'anthropic/claude-not-private')",
     [h.owner],
@@ -217,7 +225,7 @@ it('fails without a hold when the key is missing or the model is not private', a
 it('retries a rate limit once, 15 minutes later', async () => {
   h = await startHarness();
   h.state.chat = rateLimited;
-  const agent = await seedAgent({ daysAgo: -1 });
+  const agent = await seedAgent({ daysAgo: -2 });
   const id = await queueRun(agent);
   const now = new Date();
   await tick(now);
@@ -241,7 +249,7 @@ it('never resends an uncertain outcome and keeps its hold', async () => {
   h.state.chat = () => {
     throw new Error('connection reset');
   };
-  const agent = await seedAgent({ daysAgo: -1 });
+  const agent = await seedAgent({ daysAgo: -2 });
   const id = await queueRun(agent);
   const now = new Date();
   await tick(now);
@@ -256,7 +264,7 @@ it('never resends an uncertain outcome and keeps its hold', async () => {
 
 it('finishes a running run after the owner pauses the agent', async () => {
   h = await startHarness();
-  const agent = await seedAgent({ daysAgo: -1 });
+  const agent = await seedAgent({ daysAgo: -2 });
   const id = await queueRun(agent);
   h.state.chat = async () => {
     const { version } = await agentRow(agent);
@@ -286,7 +294,7 @@ it('finishes a running run after the owner pauses the agent', async () => {
 
 it('notifies only when a run needs the owner', async () => {
   h = await startHarness();
-  const agent = await seedAgent({ daysAgo: -1 });
+  const agent = await seedAgent({ daysAgo: -2 });
   await queueRun(agent);
   await tick();
   expect(await notifications()).toHaveLength(0);
@@ -316,11 +324,16 @@ it('notifies only when a run needs the owner', async () => {
 
 it('pauses at the monthly cap and does not resume at the next month', async () => {
   h = await startHarness();
-  const agent = await seedAgent({ daysAgo: -1, cap: 100 });
+  const agent = await seedAgent({ daysAgo: -2, cap: 100 });
   const id = await queueRun(agent);
   const now = new Date();
   await tick(now);
-  expect((await run(id)).status).toBe('completed');
+  expect(await run(id)).toMatchObject({
+    status: 'failed',
+    error_code: 'AGENT_BUDGET_EXCEEDED',
+  });
+  expect(h.chatCalls()).toBe(0);
+  expect(await reservations()).toEqual([]);
   expect(await agentRow(agent)).toMatchObject({
     status: 'paused',
     pause_reason: 'cap-reached',
@@ -329,7 +342,7 @@ it('pauses at the monthly cap and does not resume at the next month', async () =
   expect((await tick(later)).admitted).toBe(0);
   expect(await agentRow(agent)).toMatchObject({ status: 'paused' });
   expect((await notifications()).at(-1)!.title as string).toContain(
-    'monthly cap',
+    'run failed',
   );
 });
 
@@ -339,7 +352,7 @@ it('keeps queued runs across a restart', async () => {
   const dataDir = await mkdtemp(resolve(root, 'agents-'));
   try {
     h = await startHarness({ dataDir });
-    const agent = await seedAgent({ daysAgo: -1 });
+    const agent = await seedAgent({ daysAgo: -2 });
     const id = await queueRun(agent);
     await h.app.close();
     h = await startHarness({ dataDir });
@@ -354,7 +367,7 @@ it('keeps queued runs across a restart', async () => {
 
 it('never sends a labeled agent goal', async () => {
   h = await startHarness();
-  const agent = await seedAgent({ daysAgo: -1 });
+  const agent = await seedAgent({ daysAgo: -2 });
   await h.database.query(
     "UPDATE responsibilities SET sensitivity='restricted',labels=ARRAY['unlabeled','restricted'] WHERE id=$1",
     [agent.id],
@@ -367,4 +380,268 @@ it('never sends a labeled agent goal', async () => {
   });
   expect(h.chatCalls()).toBe(0);
   expect(await reservations()).toHaveLength(0);
+});
+
+it.each(['sensitivity', 'inherited-label', 'goal'] as const)(
+  'withholds a captured goal changed during catalog lookup: %s',
+  async (change) => {
+    h = await startHarness();
+    const agent = await seedAgent({ daysAgo: -2 });
+    await queueRun(agent);
+    const original = h.fetcher.getMockImplementation()!;
+    h.fetcher.mockImplementation(async (url, init) => {
+      const response = await original(url, init);
+      if (url === modelsUrl) {
+        if (change === 'goal')
+          await h.database.query(
+            "UPDATE responsibilities SET goal='Changed private goal',version=version+1 WHERE id=$1",
+            [agent.id],
+          );
+        else if (change === 'sensitivity')
+          await h.database.query(
+            "UPDATE responsibilities SET sensitivity='restricted',version=version+1 WHERE id=$1",
+            [agent.id],
+          );
+        else
+          await h.database.query(
+            "UPDATE responsibilities SET labels=ARRAY['unlabeled','restricted'],version=version+1 WHERE id=$1",
+            [agent.id],
+          );
+      }
+      return response;
+    });
+    await tick();
+    expect(h.chatCalls()).toBe(0);
+    expect(h.state.sent).toEqual([]);
+  },
+);
+
+it('uses completion time and fences a response returned after lease expiry', async () => {
+  h = await startHarness();
+  const agent = await seedAgent({ daysAgo: -2 });
+  const id = await queueRun(agent);
+  const started = new Date();
+  let now = started;
+  h.state.chat = () => {
+    now = minutes(11, started);
+    return answer('Add a block.', [
+      action({
+        type: 'event.create',
+        title: 'Expired block',
+        start: '2036-03-09T09:00',
+        end: '2036-03-09T10:00',
+      }),
+    ]);
+  };
+  await runAgentTick(h.database, h.config, h.fetcher, started, () => now);
+  expect(await run(id)).toMatchObject({
+    status: 'failed',
+    error_code: 'AGENT_LEASE_LOST',
+    turn_id: expect.any(String),
+  });
+  expect((await h.call('GET', '/api/v1/calendar')).json().events).toEqual([]);
+  const [timestamps] = await h.database.query(
+    'SELECT finished_at FROM responsibility_runs WHERE id=$1',
+    [id],
+  );
+  expect(new Date(timestamps!.finished_at as string).getTime()).toBe(
+    now.getTime(),
+  );
+  const [health] = await h.database.query(
+    "SELECT last_tick FROM worker_state WHERE name='agents'",
+  );
+  expect(new Date(health!.last_tick as string).getTime()).toBe(now.getTime());
+  await tick(now);
+  expect(h.chatCalls()).toBe(1);
+});
+
+it('updates worker liveness while inference is pending without extending the lease', async () => {
+  h = await startHarness();
+  const agent = await seedAgent({ daysAgo: -2 });
+  const id = await queueRun(agent);
+  const started = new Date();
+  let now = started;
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  try {
+    h.state.chat = async () => {
+      now = minutes(2, started);
+      await vi.advanceTimersByTimeAsync(30000);
+      const [health] = await h.database.query(
+        "SELECT last_tick FROM worker_state WHERE name='agents'",
+      );
+      expect(new Date(health!.last_tick as string).getTime()).toBe(
+        now.getTime(),
+      );
+      const [active] = await h.database.query(
+        'SELECT status,lease_until FROM responsibility_runs WHERE id=$1',
+        [id],
+      );
+      expect(active!.status).toBe('running');
+      expect(new Date(active!.lease_until as string).getTime()).toBe(
+        minutes(10, started).getTime(),
+      );
+      return answer('Done.');
+    };
+    await runAgentTick(h.database, h.config, h.fetcher, started, () => now);
+    expect((await run(id)).status).toBe('completed');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('rolls back planner effects and receipts when saving applied items fails', async () => {
+  h = await startHarness();
+  const agent = await seedAgent({ daysAgo: -2 });
+  const id = await queueRun(agent);
+  h.state.chat = () =>
+    answer('Add a block.', [
+      action({
+        type: 'event.create',
+        title: 'Atomic block',
+        start: '2036-03-09T09:00',
+        end: '2036-03-09T10:00',
+      }),
+    ]);
+  const transaction = h.database.transaction.bind(h.database);
+  const original = h.database.query.bind(h.database);
+  vi.spyOn(h.database, 'transaction').mockImplementation((work) =>
+    transaction((tx) =>
+      work({
+        ...tx,
+        query: (async (sql: string, values?: unknown[]) => {
+          if (sql.startsWith('UPDATE ai_conversation_turns SET proposals='))
+            throw new Error('synthetic persistence interruption');
+          return tx.query(sql, values);
+        }) as QueryExecutor['query'],
+      }),
+    ),
+  );
+  await tick();
+  expect(await run(id)).toMatchObject({
+    status: 'failed',
+    error_code: 'AGENT_APPLY_ERROR',
+    turn_id: expect.any(String),
+  });
+  expect((await h.call('GET', '/api/v1/calendar')).json().events).toEqual([]);
+  const [turn] = await original(
+    'SELECT items FROM ai_conversation_turns WHERE id=$1',
+    [(await run(id)).turn_id],
+  );
+  const items =
+    typeof turn!.items === 'string' ? JSON.parse(turn!.items) : turn!.items;
+  expect(items[0].state).toBe('proposed');
+  const [receipt] = await original(
+    'SELECT count(*)::int AS count FROM mutation_receipts WHERE operation_id=$1',
+    [items[0].applyId],
+  );
+  expect(receipt!.count).toBe(0);
+  await tick();
+  expect(h.chatCalls()).toBe(1);
+});
+
+it('rolls back an applied planner change if the lease expires before commit', async () => {
+  h = await startHarness();
+  const agent = await seedAgent({ daysAgo: -2 });
+  const id = await queueRun(agent);
+  const started = new Date();
+  let now = started;
+  h.state.chat = () =>
+    answer('Add a block.', [
+      action({
+        type: 'event.create',
+        title: 'Lease-bound block',
+        start: '2036-03-09T09:00',
+        end: '2036-03-09T10:00',
+      }),
+    ]);
+  const transaction = h.database.transaction.bind(h.database);
+  let wrote = false;
+  vi.spyOn(h.database, 'transaction').mockImplementation((work) =>
+    transaction((tx) =>
+      work({
+        ...tx,
+        query: (async (sql: string, values?: unknown[]) => {
+          const result = await tx.query(sql, values);
+          if (/INSERT INTO events\s*\(/i.test(sql)) {
+            wrote = true;
+            now = minutes(11, started);
+          }
+          return result;
+        }) as QueryExecutor['query'],
+      }),
+    ),
+  );
+  await runAgentTick(h.database, h.config, h.fetcher, started, () => now);
+  expect(wrote).toBe(true);
+  expect(await run(id)).toMatchObject({
+    status: 'failed',
+    error_code: 'AGENT_LEASE_LOST',
+  });
+  expect((await h.call('GET', '/api/v1/calendar')).json().events).toEqual([]);
+  expect(h.chatCalls()).toBe(1);
+});
+
+it('recovers a completed answer link after restart without redispatch or auto-apply', async () => {
+  h = await startHarness();
+  const agent = await seedAgent({ daysAgo: -2 });
+  const id = await queueRun(agent);
+  await tick();
+  const finished = await run(id);
+  await h.database.query(
+    "UPDATE responsibility_runs SET status='running',outcome=NULL,finished_at=NULL,turn_id=NULL,lease_token=$2,lease_until=$3 WHERE id=$1",
+    [id, randomUUID(), minutes(-1)],
+  );
+  await tick();
+  expect(await run(id)).toMatchObject({
+    status: 'failed',
+    error_code: 'LEASE_EXPIRED',
+    turn_id: finished.turn_id,
+  });
+  expect(h.chatCalls()).toBe(1);
+});
+
+it('recovers an older committed planner receipt without applying twice after policy changes', async () => {
+  h = await startHarness();
+  const agent = await seedAgent({ daysAgo: -2 });
+  const id = await queueRun(agent);
+  h.state.chat = () =>
+    answer('Add a task.', [
+      action({ type: 'task.create', title: 'Receipt recovery' }),
+    ]);
+  await tick();
+  const turn = (await readTurn(
+    h.database,
+    h.owner,
+    String((await run(id)).turn_id),
+  ))!;
+  const request = applyRequest(
+    turn.request.proposals[0]!,
+    turn.items[0]!.applyId,
+  );
+  expect(
+    (await h.call(request.method, request.path, request.body)).statusCode,
+  ).toBe(200);
+  // Simulate the legacy crash boundary: planner write/receipt persisted but
+  // the conversation still says proposed. The current owner now blocks tasks.
+  const policy = (await h.call('GET', '/api/v1/ai/actions')).json();
+  expect(
+    (
+      await h.call('PUT', '/api/v1/ai/actions', {
+        operationId: randomUUID(),
+        expectedVersion: policy.version,
+        policy: {
+          tasks: 'blocked',
+          calendar: 'automatic',
+          email: 'approval-required',
+        },
+      })
+    ).statusCode,
+  ).toBe(200);
+  const counts = await applyByPolicy(h.database, h.owner, turn);
+  expect(counts).toEqual({ applied: 1, proposed: 0, failed: 0, notAllowed: 0 });
+  expect((await h.call('GET', '/api/v1/tasks')).json().tasks).toHaveLength(1);
+  expect((await readTurn(h.database, h.owner, turn.id))!.items[0]!.state).toBe(
+    'applied',
+  );
+  expect(h.chatCalls()).toBe(1);
 });

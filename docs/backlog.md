@@ -2,6 +2,12 @@
 
 Updated 2026-10-14. This is the work queue; product.md remains the full scope, decisions.md records choices, and roadmap.md sets milestone order. Completed work and validation receipts are in [implementation-log.md](implementation-log.md).
 
+## Approved next sequence (2026-10-14)
+
+The owner approved autonomous development according to the [post-agents development plan](post-agents-development-plan.md): reliability and daily-use acceptance, shared live context/history/output provenance, manual academic assistance, explicit per-ask memory, source coverage improvements, then inbound and outbound MCP in separate gated slices. The recommended defaults are authorized for implementation; account-specific access, destinations and live acceptance retain their gates. Existing implemented editors/planners are reused. Work starts with P1/P2/P4; broader context expansion remains blocked on P5/P6.
+
+First batch implemented on `agents/reliability-foundation` (not deployed): present-status reconciliation and [acceptance checklist](agents-acceptance.md); atomic worker effects/result persistence, lease fencing, independent heartbeat, legacy receipt recovery, pre-fetch goal/label checks and durable per-exchange agent allowance admission (migration 058); staged artifact/migration/service-user preflight and explicit rollback compatibility evidence. Validation receipts are recorded in implementation-log.md. Full history/output provenance regressions and enforcement remain P5/P6, not completed P1 acceptance. Linux service-user execution, standard PostgreSQL races and owner live acceptance need their own actual receipts.
+
 ## Current plan (approved 2026-10-12)
 
 New backend features are frozen until steps 2–3 are done (D49); fixes and backend work those steps require are allowed.

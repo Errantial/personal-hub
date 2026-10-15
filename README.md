@@ -1,20 +1,20 @@
 # Personal Productivity Hub
 
-[Tasks from mail](docs/mail-tasks.md) now support owner-reviewed capture with an exact body quote, retained source labels and explicit deadline confirmation. Automatic extraction remains pending.
+[Tasks from mail](docs/mail-tasks.md) now support owner-reviewed capture with an exact body quote, retained source labels and explicit deadline confirmation. AI suggestions from a selected message fill the owner-reviewed capture form; automatic creation remains excluded.
 
 Schedule, task, email, and study hub targeting the web, Android, and Windows.
 
-Status: the owner-authenticated planner includes tasks, recurring calendars, class portfolios, study-plan approval, reminders, memory editing and exact-message email-draft approval. Read-only Canvas adapters preserve source facts and labels; the school blocks token creation, and broader live coverage remains unverified. Proton Bridge ingestion and Mail browsing are implemented; live upload and scheduling remain pending. The Today Assistant supports a narrow OpenRouter planner flow with owner review before Apply, an owner-configured server key/model and saved spending limits. General AI gateway dispatch, email classification, sending and MCP remain pending. The scheduled agent slice is deployed at https://hub.ecg.name as release `519054d` (2026-10-14); the first owner-created agent/run and live acceptance remain pending. See the [scope and exclusions](docs/superpowers/specs/2026-10-14-persistent-agents-design.md#out-of-scope-recorded-for-future-work).
+Status: the owner-authenticated planner includes tasks, recurring calendars, class portfolios, study-plan approval, reminders, memory editing and exact-message email-draft approval. Read-only Canvas adapters preserve source facts and labels; the school blocks token creation, and broader live coverage remains unverified. Proton Bridge ingestion and Mail browsing are implemented; Windows mail sync was recorded as operating every ten minutes on 2026-10-14. Required Gmail coverage remains unverified. The Today Assistant supports a narrow OpenRouter planner flow with owner review before Apply, an owner-configured server key/model and saved spending limits. The separate general AI gateway has disabled dispatch. Narrow OpenRouter mail category/task suggestions are implemented; email sending and MCP remain pending. The scheduled agent slice is deployed at https://hub.ecg.name as release `519054d` (2026-10-14); the first owner-created agent/run and live acceptance remain pending. See the [scope and exclusions](docs/superpowers/specs/2026-10-14-persistent-agents-design.md#out-of-scope-recorded-for-future-work).
 
 SQL migrations, shared contracts, optimistic versions, retry receipts and tombstones protect durable operations. Browser and provisional Android clients cache loaded views and queue task edits offline; emulator checks passed, while actual Kompakt hardware and closed-app native reminders remain unverified. HTTPS deployment and same-device backup/restore are implemented; release integration and owner daily-use acceptance are tracked in [the backlog](docs/backlog.md).
 
 Backend responsibility reviews now support [local daily/weekly schedules](docs/responsibility-local-schedules.md), preserving wall-clock cadence across DST with explicit missed-slot admission. Legacy review records remain blocked placeholders. D57 adds scheduled agents, pinned Assistant conversations, action controls and Inbox results within the [approved exclusions](docs/superpowers/specs/2026-10-14-persistent-agents-design.md#out-of-scope-recorded-for-future-work); release `519054d` is deployed and live owner acceptance remains pending.
 
-[Verified mail context](docs/ai-mail-context.md) now resolves explicitly selected imported messages through the text-only routing gateway, with label inheritance and message/connector integrity binding. Email classification and paid processing remain pending.
+[Verified mail context](docs/ai-mail-context.md) now resolves explicitly selected imported messages through the text-only routing gateway, with label inheritance and message/connector integrity binding. This general gateway foundation does not dispatch; selected-message classification is implemented through a separate narrow OpenRouter flow.
 
-[Mail categories and explicit rules](docs/mail-organization.md) now provide local organization, protected owner corrections and previewed selected applies. Categories remain separate from privacy labels; AI classification and provider-side mail changes remain pending.
+[Mail categories and explicit rules](docs/mail-organization.md) now provide local organization, protected owner corrections and previewed selected applies. Categories remain separate from privacy labels; Selected-message AI suggestions are implemented separately; autonomous classification/application and provider-side mail changes remain pending.
 
-[Read-only email ingestion](docs/email-ingestion.md) now includes a local Proton Bridge connector, owner-managed upload tokens and Inbox mail browsing. Headers and bounded plain-text bodies are imported; attachments and provider writes remain excluded. The observed Bridge snapshot was checked read-only, but live hub upload, scheduling, Gmail delivery completeness and AI filtering remain pending.
+[Read-only email ingestion](docs/email-ingestion.md) now includes a local Proton Bridge connector, owner-managed upload tokens and Inbox mail browsing. Headers and bounded plain-text bodies are imported; attachments and provider writes remain excluded. Windows upload/scheduling was recorded as operating on 2026-10-14. Selected-message category/task suggestions are implemented; Gmail delivery completeness remains unverified. The earlier Bridge snapshot does not prove current coverage.
 
 The backend also has [verified AI context binding and explicit memory selection](docs/ai-verified-context.md), plus an internal fake-adapter text-result flow. Dispatch remains disabled on this general gateway; the [narrow planner assistant](docs/ai-assistant.md) is a separate implemented flow.
 
@@ -68,7 +68,7 @@ AI permissions include provider-routing rules based only on sources/content expl
 
 ## Working direction
 
-Today now shows overdue tasks, today's planner/Canvas schedule, due/upcoming tasks and unread reminders, with independent cached sections and offline task capture. The UI rewrite (Today, Tasks, Calendar, Classes, Inbox, and Settings with Appearance, Connections and AI) is implemented on branch `ui/phase-4`; device and screen-reader verification remain open. See the [frontend plan](docs/frontend-plan.md).
+Today now shows overdue tasks, today's planner/Canvas schedule, due/upcoming tasks and unread reminders, with independent cached sections and offline task capture. The UI rewrite (Today, Tasks, Calendar, Classes, Inbox, and Settings with Appearance, Connections and AI) is integrated into main and deployed; actual Kompakt and screen-reader verification remain open. See the [frontend plan](docs/frontend-plan.md).
 
 Build a dependable daily planner first, then connect academic deadlines and email, then add AI actions through the same validated operations used by the UI. Introduce basic class tracking and an e-ink-friendly interface early.
 
@@ -76,39 +76,15 @@ The central planning constraint is Proton: desktop Bridge access and read-only c
 
 ## Readiness boundaries
 
-[Responsibility review inbox](docs/responsibility-inbox.md) adds global blocked/history browsing with current source metadata, full attention counts and atomic versioned selected dismissal. It creates no notifications or execution; UI controls remain pending.
+Status reconciled 2026-10-14 against the deployment receipt for release `519054d` and the dated [implementation log](docs/implementation-log.md). The [agent acceptance checklist](docs/agents-acceptance.md) keeps deployment, synthetic checks and live owner acceptance separate. The [post-agents development plan](docs/post-agents-development-plan.md) sets the next gated sequence.
 
-[Responsibility lifecycle and scheduled reviews](docs/responsibilities.md) add owned pause/resume/cancel records, UTC schedules/due previews, atomic owner-selected blocked review admission, run dismissal/activity and export. Those legacy review records do not execute. Scheduled agents use the separate deployed D57 path described above; legacy UI remains pending.
+- Task/Calendar selected changes, Undo/Recently deleted, manual academic Work management, study availability/goals/plan approval, reminder snooze/history, memory editing and exact-message email-draft review have UI controls. These online controls do not imply offline batch editing or complete coverage of every backend inspection/report endpoint.
+- [Memory](docs/memory.md) supports owner editing, enable/disable and forgetting. Explicit versioned memory references exist in the general verified-context gateway; live selection, derived-history revocation and automatic retrieval remain separate work. Enabling memory does not send it to a provider.
+- [Study planning](docs/study.md) is deterministic, supports manual academic workload and creates planner blocks only after approval. External calendars are not checked. Reservations and recorded study time do not establish assignment completion or mastery. Workload-derived AI context remains blocked.
+- The [live Assistant](docs/ai-assistant.md), selected-message mail suggestions and scheduled D57 agents use narrow OpenRouter paths. General [gateway dispatch](docs/ai-gateway.md) remains disabled; its synthetic attempt/accounting/context checks do not prove shared live provenance or provider behavior. Complete history/output lineage is a prerequisite for expanding context.
+- [Legacy responsibility reviews](docs/responsibilities.md) remain nonexecuting backend placeholders. They are distinct from deployed D57 scheduled agents and their pinned conversations/Inbox notifications. First owner-created agent/run and live usefulness remain pending.
+- [Email approvals](docs/email-drafts.md) and the [synthetic attempt harness](docs/email-attempts.md) provide no live send adapter or delivery proof. Every send, invitation and cancellation email still requires explicit approval.
+- Canvas calendar/API adapters and a one-course browser proof do not establish all-course completeness or a durable browser collector. School token creation is blocked. Outlook access/tenant consent remains unverified.
+- HTTPS deployment and same-device backup/isolated restore are evidenced; encrypted off-host backups remain owner-deferred. Emulator checks do not establish actual Kompakt behavior, closed-app reminders or screen-reader acceptance.
 
-[Editable owner memory](docs/memory.md) adds preferences/goals/facts, versioned correction/disable controls, metadata-only receipts and logical text removal on forgetting. Owned browsing/export are available; UI and verified AI retrieval remain pending. Enabling memory never starts provider calls.
-
-[Email attempt lifecycle](docs/email-attempts.md) adds durable one-attempt consumption and uncertainty handling through an internal test-only synthetic harness, with owned history/export. Synthetic outcomes do not prove real delivery; no send endpoint, worker or live adapter exists. All send previews remain blocked.
-
-[Email draft approvals](docs/email-drafts.md) add owner-entered plain-text drafts, exact-message review/approval, atomic invalidation, retained history and blocked send previews. No mailbox access, attachments, sender verification or sending is enabled. UI review and verified send adapters remain pending.
-
-[Typed action permissions](docs/ai-actions.md) add owner task/calendar automation modes and a read-only authority/capability preview. Email approval remains mandatory; Canvas is read-only and external writes remain unverified. This authority preview enables no execution or approval; exact-message email review records are available separately. UI controls are pending.
-
-[Task browsing and selected changes](docs/task-management.md) add bounded completed/open task history, full filter counts and atomic versioned batch completion, priority, deadline and delete operations. Source history and owner fields are preserved; UI integration remains pending.
-
-The [task agenda and Today attention summary](docs/today-summary.md) provide full task deadline buckets, guarded paging, manual academic workload counts and current reminder/unread attention in consistent owned reads. UI integration is pending; existing independent Calendar/imported-source views and offline task drafts keep their behavior.
-
-The [academic deadline agenda](docs/academic-agenda.md) now provides owned, date-sorted open manual work across classes, overdue/today/upcoming/undated buckets and full horizon counts with explicit missing estimates. UI and offline integration remain pending; provider deadlines and Calendar reservations stay separate.
-
-[Academic management](docs/academic-management.md) adds guarded all-status browsing and atomic selected status/deadline/effort/priority/deletion with score protection. [Calendar batches](docs/calendar-management.md) add selected whole-record deletion and one-time study-status changes, preserving source/recurrence history. UI/offline controls remain pending.
-
-Manual academic-work backend supports class-linked assignments/exams, owner-entered deadlines/effort/submission/scores, restore/history and missing-data summaries. Explicit [linked task/study creation](docs/academic-planning.md) adds atomic source snapshots, captured/current inspection, paged linked work and status/time reports. [Academic reminders](docs/academic-reminders.md) suppress delivery when work is closed, deleted or in an archived class. [Verified manual academic context](docs/ai-academic-context.md) supports explicit work/class versions and direct planner origins without grades; workload-plan/legacy incomplete provenance stays blocked. New UI controls and live grade/submission import remain pending; see [academic-work contracts](docs/academic-work.md).
-
-Reminder/inbox backend now supports durable snooze, paged history, full unread counts and atomic selected-notification mark-read. These controls await UI integration and retain the existing in-app delivery boundary; see [reminder contracts](docs/planner.md#snooze-and-inbox-history-backend-implemented-2026-10-11).
-
-The study-planning backend now supports saved availability/goals, reasoned priorities using manual assessments and open academic deadlines/effort, planner conflict checks, draft editing, atomic approval/cancellation and progress reports. [Durable workload history](docs/study-workload.md) shows captured/current planning facts and retains source labels through block edits and deletion. Weekly goals remain the time budget; grades and study time do not infer assignment completion. Deleted tasks/calendar records have a paged browsing endpoint. These backend slices await UI integration; see [study contracts](docs/study.md). External calendars are not checked by study previews, and workload-derived blocks remain blocked from AI.
-
-Backend AI lifecycle now includes metadata-only requests, owner cancellation/hiding, and an internal synthetic-only attempt/accounting harness with restart recovery. Live dispatch and lifecycle UI remain pending; see [gateway contracts](docs/ai-gateway.md#durable-requests-and-synthetic-attempts).
-
-- Initial audience, required accounts, target devices, and offline behavior are agreed.
-- Local web/API development is unblocked and has an authenticated persistence slice.
-- Canvas authentication and required Proton workflows still need app-specific demonstrations before dependent integration features are promised.
-- Server-side AI data access and model hosting are agreed.
-- Kompakt packaging/offline/closed-app notification behavior remains an open device gate.
-- The first implementation milestone has bounded scope and measurable acceptance criteria.
-
-Research baseline: 2026-10-09; implementation/scope updated 2026-10-12. Recheck provider requirements when implementation starts.
+Research baseline: 2026-10-09; present-status reconciliation: 2026-10-14. Recheck provider requirements when implementation starts.

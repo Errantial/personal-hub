@@ -2,6 +2,8 @@
 
 Status: pending unless explicitly confirmed. These entries prevent draft recommendations from becoming accidental requirements.
 
+Owner approval after the 2026-10-14 planning report: proceed autonomously according to [post-agents-development-plan.md](post-agents-development-plan.md), using its recommended implementation defaults. In particular, per-agent caps use atomic admission reservations before each actual exchange; Pause continues to let a running run finish. Future context work withholds unbound legacy history and preserves inherited labels. Approval does not establish account-specific permissions, MCP client/export destinations, live provider acceptance or authority explicitly excluded by the plan. Completed slices remain recorded separately.
+
 | ID | Decision | Current proposal or question | Why it matters |
 | --- | --- | --- | --- |
 | D01 | Audience | Confirmed: personal use first, designed for future expansion; ownership checks from day one | OAuth, onboarding, hosting, and isolation scope |

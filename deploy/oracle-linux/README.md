@@ -44,12 +44,71 @@ Build/check locally with Node 24/npm 11. Archive only these paths, excluding `.e
 tar -czf release.tar.gz package.json package-lock.json \
   apps/api/package.json apps/api/dist apps/api/migrations \
   apps/web/package.json apps/web/dist \
+  apps/email-connector/package.json \
   packages/contracts/package.json packages/contracts/dist
 ```
 
 Transfer over SSH, extract into a **new** directory under `/srv/personal-hub/releases`, install as `hub` with the bundled runtime and `npm ci --omit=dev --ignore-scripts`, then make the release root-owned. The home directory stays root-owned, so provisioning points npm at `/var/cache/personal-hub/npm` through a root-owned `/srv/personal-hub/.npmrc`. This release needs no production install scripts; review dependencies that change that assumption.
 
 Take a backup and review migration compatibility before changing the release symlink. Restart the API, check `/api/ready`, then reload Caddy. Keep the previous release until verification. A code rollback does not roll back migrations; never silently restore an older database over current owner data.
+
+### Staged-release preflight (implemented, not yet exercised on the host)
+
+`release-check.mjs` and `preflight.sh` add offline artifact and migration gates. They do not deploy, migrate, load production configuration, start a server/worker or contact a provider. Run the normal application checks from a clean, reviewed checkout first. Record the **full** tested commit and tree (`git rev-parse HEAD` and `git rev-parse 'HEAD^{tree}'`); verify any stacked changes are present on the release branch. The manifest records this operator-supplied identity; it does not independently prove that a build came from that tree, replace review/CI, or authenticate a downloaded artifact.
+
+After building, copy only the archive allowlist above into a new clean staging directory, preserving its relative paths. Seal that directory before creating the final archive (do not seal the working checkout, which may contain `.env.example`, private configuration or development data):
+
+```sh
+node deploy/oracle-linux/release-check.mjs seal STAGING_RELEASE FULL_COMMIT FULL_TREE
+```
+
+Include `release-manifest.json` in the archive above. The seal hashes the exact API/UI/contracts build files, package manifests/lockfile and migration bytes. Missing required entrypoints, symlinks in those artifacts, obvious private environment/data files and an existing seal fail closed. Unlisted root files are not included in the artifact inventory: continue using the archive allowlist, never archive the entire checkout. Keep a trusted copy of the seal/artifact checksum with the release receipt. Build output and declared Git identity still require a trusted build process.
+
+Include the email connector's public package manifest so npm's lockfile workspace link has an existing target. Its source and local configuration stay off the server; this metadata does not run mail collection or install credentials. When adding a workspace, update the staging allowlist and manifest together so clean installation cannot leave a broken workspace link.
+
+Install production dependencies with `npm ci --omit=dev --ignore-scripts` before the preflight; retain the recorded lockfile. Make public release files root-owned and service-readable, with directories traversable and no group/world write permission. Do not change `/etc/personal-hub/hub.env` from root-owned mode 0600. Export the existing **metadata-only** migration manifest immediately before the gate, from the local server administration session:
+
+```sh
+sudo sh -c 'umask 077; runuser -u postgres -- psql -d hub -Atqc "SELECT coalesce(json_agg(m ORDER BY name), '\''[]'\''::json) FROM (SELECT name, checksum FROM schema_migrations) m" > /root/hub-applied-migrations.json'
+sudo bash deploy/oracle-linux/preflight.sh \
+  /srv/personal-hub/releases/RELEASE FULL_COMMIT FULL_TREE \
+  /root/hub-applied-migrations.json
+```
+
+The root gate requires Node 24, verifies exact artifact hashes and declared identity, and rejects missing/modified applied migrations or newly inserted older migrations. `check-release-tree.sh` requires root ownership and rejects writable regular files/directories. npm workspace and `.bin` symlinks may retain their normal mode 0777, but must be root-owned with existing final targets inside this release; broken/external targets fail. Its `find -P` traversal does not recursively follow links outside the stage. Build artifacts themselves still prohibit symlinks entirely. As the actual `hub` user in an empty environment, it reads every listed artifact and imports the built application/contract modules, resolving their production dependency graph without invoking `buildApp` or `server.js`. As `hub-caddy`, it checks the static tree's traversal and readability. This reproduces the previous inaccessible staging-directory failure before activation. It does not hash installed `node_modules`, prove every lazily loaded optional dependency, or simulate systemd sandboxing; the lockfile-based clean install and actual service readiness remain required.
+
+Run the isolated shell fixture with `bash deploy/oracle-linux/test-release-tree.sh` on Linux. It checks normal npm links, writable-file rejection, escaped targets and broken links, using only a temporary synthetic directory. Windows Git Bash may copy symlinks and reports an explicit skip; that is not a passing Linux/service-user receipt. The optional numeric owner argument on the helper supports unprivileged fixtures; production `preflight.sh` always supplies UID 0.
+
+Keep fresh backup plus isolated restore proof before migration/activation. The preflight compares a captured manifest, not a database lock: serialize releases, take a fresh capture if another deploy/migration can have occurred, and let the runtime migration transaction recheck checksums. After atomic symlink activation/restart, require `/api/ready`, expected static artifact hashes and service stability. Check worker health separately; process readiness does not prove the worker is progressing. Neither script reports live acceptance.
+
+### Code rollback compatibility gate
+
+Before relying on the previous binary after forward migrations, run:
+
+```sh
+node deploy/oracle-linux/release-check.mjs rollback \
+  CURRENT_RELEASE PREVIOUS_RELEASE POST_UPGRADE_MANIFEST_JSON REVIEWED_RECEIPT_JSON
+```
+
+Both releases need verified manifests. Existing pre-manifest releases require a one-time audited seal using their independently confirmed Git identities/artifact hashes; do not invent an identity to enable rollback. The applied manifest must exactly match all current release migrations, with unchanged prior bytes. Extra future migrations or incomplete exports block the gate.
+
+The reviewed receipt is private operator evidence with this JSON shape:
+
+```json
+{
+  "version": 1,
+  "currentDigest": "current release-manifest.json digest",
+  "previousDigest": "previous release-manifest.json digest",
+  "appliedDigest": "SHA-256 of canonical applied migration object",
+  "schemaCompatible": true,
+  "isolatedRestorePassed": true,
+  "review": "Review reference and isolated restore/old-binary compatibility evidence"
+}
+```
+
+Canonical applied data is the JSON object mapping migration filename to checksum, sorted by filename using JavaScript `localeCompare`, serialized with `JSON.stringify` and no newline. Only after an actual isolated restore and compatibility exercise should a reviewer assert these booleans. Check old-binary reads/writes, defaults, constraints, new record variants, worker state and idempotency receipts against the upgraded disposable schema. Append-only SQL is not sufficient proof of old-code compatibility. The gate verifies that a declaration matches the exact artifact/schema combination; it cannot establish the truth of the review or tests. Missing/stale/negative evidence blocks automatic code rollback. Prepare this evidence before activation if automated rollback is desired.
+
+No symlink mutation or automatic rollback is implemented by these checks. If compatibility is unproven, stop and preserve owner data for a forward fix or explicitly reviewed recovery. Never automatically restore an old database over current owner writes. Same-device backup policy and root-only secrets remain unchanged.
 
 ## Same-device backup and restore
 
@@ -64,10 +123,10 @@ sudo bash verify-restore.sh
 
 Run the verification script from the copied deployment directory. It restores a fresh backup into an isolated `hub_restore_check_*` database, verifies the migration manifest and a synthetic receipt round trip, then drops only that verification database. It never restores over `hub`.
 
-For disaster recovery, stop the API and restore a verified dump into a **new** database using `pg_restore --exit-on-error --no-owner` as a database administrator. Check tables, versions, receipts, authorization and worker state before pointing the API at it. Restore server configuration privately and reestablish the database role/socket permissions. Historical backups retain records that may since have been forgotten; restoring them needs an explicit retention decision. Never blindly resend uncertain external operations. No live provider/send worker is enabled here.
+For disaster recovery, stop the API and restore a verified dump into a **new** database using `pg_restore --exit-on-error --no-owner` as a database administrator. Check tables, versions, receipts, authorization and worker state before pointing the API at it. Restore server configuration privately and reestablish the database role/socket permissions. Historical backups retain records that may since have been forgotten; restoring them needs an explicit retention decision. Never blindly resend uncertain external operations. Restore verification starts no provider/send worker.
 
-## Validation and remaining gates
+## Historical initial-deployment validation (2026-10-13)
 
 Application checks passed 516 tests (one optional local PostgreSQL test skipped), lint, types, formatting and builds; all 93 isolated browser tests passed. Actual ARM64 host checks passed shell/systemd syntax, schema migration/startup, API restart/readiness, unauthenticated private-route 401, backup checksum, isolated schema restoration and synthetic receipt restoration. External HTTPS returned ready, owner setup and the correct service-worker header. A read-only live Playwright check passed deep-link startup, setup-token field, 320px layout and no JS errors with a DNS override. The collaborative preview could not resolve the hostname through the locally cached resolver.
 
-Owner enrollment, authenticated daily use, development-data transfer, sustained load, backup retention/off-host protection, standard PostgreSQL concurrency tests on this host and Kompakt hardware remain unverified. This deploys the tested UI stack while those PRs await integration into main.
+This paragraph records the initial deployment's gates, not the current PR/release state: owner enrollment, authenticated daily use, development-data transfer, sustained load, backup retention/off-host protection, standard PostgreSQL concurrency tests on this host and Kompakt hardware were then unverified. The current release receipt above supersedes the historical PR-integration/test counts; keep ongoing owner/hardware acceptance separate from deployment readiness.
