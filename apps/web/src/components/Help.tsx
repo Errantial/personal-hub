@@ -20,11 +20,14 @@ export function Help({
   const id = useId();
   useEffect(() => {
     if (!open) return;
-    const outside = (event: PointerEvent) => {
+    // Close on click, not pointerdown: the bubble is in the page flow, so
+    // closing it before the click lands would move the control under the
+    // pointer and the tap would miss it.
+    const outside = (event: MouseEvent) => {
       if (!container.current?.contains(event.target as Node)) setOpen(false);
     };
-    document.addEventListener('pointerdown', outside);
-    return () => document.removeEventListener('pointerdown', outside);
+    document.addEventListener('click', outside);
+    return () => document.removeEventListener('click', outside);
   }, [open]);
   return (
     <span

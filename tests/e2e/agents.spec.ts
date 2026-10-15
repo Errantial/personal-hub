@@ -763,7 +763,7 @@ test('shows authoritative run states, separate allowance and disabled scheduler'
   await expect(allowance).toContainText('Settled');
   await expect(allowance).toContainText('$0.01');
   await expect(allowance).toContainText('Uncertain holds');
-  await expect(allowance).toContainText('They are not resent.');
+  await expect(allowance).toContainText('Lost responses are not resent.');
   await expect(
     page.getByRole('region', { name: 'Current agent run' }),
   ).toContainText('Retry at');
