@@ -32,6 +32,26 @@ Voice calls and Slack access are included in later parity scope. Voice is gated 
 
 Using OpenDots as a feature reference does not select its runtime or replace the current scaffold. Its README describes CopilotKit Intelligence for conversation persistence, with hosted, local evaluation, and licensed self-hosted options. Assess cost, licensing, retention, and sensitivity routing before choosing any dependency. Conversation storage, learning, search, channels, and computer services are separate data destinations; approving a model provider does not approve them automatically.
 
+## First executing slice (D57, 2026-10-14)
+
+Design: [persistent agents](superpowers/specs/2026-10-14-persistent-agents-design.md). Scheduled agents run in an in-process worker, one at a time, through the Assistant pipeline, with results as pinned Assistant conversations and proposals governed by Settings › AI › Actions.
+
+**Explicitly out of scope for this slice** — each needs its own owner decision and spec; do not add them as side effects of agent work:
+
+- Event triggers (runs started by new mail, Canvas changes or task edits)
+- Parallel runs
+- Delegation between agents or sub-agents
+- MCP tools, in either direction
+- Web browsing or any network access beyond OpenRouter
+- Sending email, invitations, attendee updates or cancellations
+- External calendar writes (Proton, Outlook)
+- Automatic memory reads or edits
+- Voice and other non-text input or output
+- Separate agent personas with their own instructions, permissions or memory
+- Learning (proposed skills or preference learning from runs)
+- Auto-resume at month start after a cap pause
+- Native or push notifications
+
 ## Existing boundaries remain in force
 
 - Hosted AI gets text only: no screenshots, images, attachments, or attachment-derived content.
