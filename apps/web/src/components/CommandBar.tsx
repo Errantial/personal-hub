@@ -2,9 +2,12 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 import {
   assistantRequestResponseSchema,
+  liveDestinationResponseSchema,
   taskResponseSchema,
 } from '@hub/contracts';
-import { useMutation } from '../lib/hooks';
+import { useMutation, useOnline, useResource } from '../lib/hooks';
+import { getJson } from '../lib/api';
+import { destinationReason } from '../lib/assistant';
 import { offlineStatus } from '../lib/offline';
 import type { Route } from '../lib/router';
 import { useAssistantSettings } from './AssistantComposer';
@@ -36,6 +39,18 @@ export function CommandBar({
   onTaskSaved: () => Promise<unknown>;
 }) {
   const settings = useAssistantSettings();
+  const online = useOnline();
+  const destination = useResource(
+    (signal) =>
+      getJson(
+        '/api/v1/assistant/destination',
+        liveDestinationResponseSchema,
+        signal,
+      ),
+    { failure: 'Destination status unavailable.', refreshMs: 15000 },
+  );
+  const route = destination.data?.destination;
+  const routeReady = online && !destination.error && route?.status === 'ready';
   const saved = settings.data?.settings;
   const canAsk = !!saved?.configured;
   const [chosen, setChosen] = useState<Mode>(readMode);
@@ -87,6 +102,7 @@ export function CommandBar({
       await onTaskSaved();
       return;
     }
+    if (!routeReady) return;
     const result = await ask.run(
       assistantRequestResponseSchema,
       'POST',
@@ -167,10 +183,28 @@ export function CommandBar({
             />
           </label>
         )}
-        <button className="primary-button" disabled={pending || !text.trim()}>
+        <button
+          className="primary-button"
+          disabled={pending || !text.trim() || (mode === 'ask' && !routeReady)}
+        >
           {pending ? 'Saving…' : mode === 'task' ? 'Add' : 'Ask'}
         </button>
       </form>
+      {mode === 'ask' && (!routeReady || destination.error) && (
+        <p role="status">
+          Assistant blocked:{' '}
+          {!online
+            ? 'Offline'
+            : destination.error
+              ? 'Status unavailable'
+              : route?.reason
+                ? destinationReason[route.reason]
+                : 'Checking destination'}{' '}
+          <Link route={{ name: 'settings', section: 'ai' }} navigate={navigate}>
+            Settings
+          </Link>
+        </p>
+      )}
       <p role="status" className="meta">
         {message}
       </p>

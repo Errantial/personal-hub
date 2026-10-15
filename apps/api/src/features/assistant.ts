@@ -3,14 +3,16 @@ import type { FastifyInstance } from 'fastify';
 import {
   Temporal,
   assistantProposalSchema,
+  assistantModelSchema,
   assistantRequestInputSchema,
   assistantRequestResponseSchema,
   assistantSettingsResponseSchema,
   assistantSettingsUpdateSchema,
   calendarInputSchema,
-  calendarRecordSchema,
   dateOnly,
-  taskSchema,
+  liveDestinationApproveSchema,
+  liveDestinationResponseSchema,
+  liveDestinationRevokeSchema,
 } from '@hub/contracts';
 import type {
   AssistantMailSent,
@@ -18,7 +20,6 @@ import type {
   AssistantRequest,
   AssistantTurn,
   CalendarRecord,
-  Task,
 } from '@hub/contracts';
 import { z } from 'zod';
 import type { authService } from '../auth/routes.js';
@@ -28,33 +29,53 @@ import { ApiError } from '../errors.js';
 import {
   admitLive,
   findReplay,
-  prepareLive,
+  prepareLiveDestination,
   readAssistantSettings,
   settleLive,
 } from '../ai/live-request.js';
 import {
-  exchange,
   hostsFor,
-  providerRouting,
+  pinnedRouting,
   worstCaseMicros,
 } from '../ai/openrouter-live.js';
 import type { OpenRouterFetch } from '../ai/openrouter-live.js';
-import { taskColumns } from '../planner/routes.js';
+import {
+  livePlannerContext,
+  projectEvent,
+  projectTask,
+  plannerSources,
+  mailSources,
+} from '../ai/live-projections.js';
+import type { PlannerContext } from '../ai/live-projections.js';
+import {
+  approveLiveDestination,
+  readLiveDestination,
+  revokeLiveDestination,
+} from '../ai/live-destination.js';
 import {
   finishTurn,
   openConversation,
-  readHistory,
   readTurn,
   recordRound,
   startTurn,
 } from './assistant-conversations.js';
-import { eventColumns } from './common.js';
 import {
   maxReads,
   maxSearchTerms,
   readMail,
+  projectMailHeader,
+  projectMailBody,
+  reprojectAssistantMail,
   searchMail,
 } from './assistant-mail.js';
+import { sealEnvelope } from '../ai/live-envelope.js';
+import { releaseUnsent, transmitLive } from '../ai/live-guard.js';
+import type { GuardContext, LiveSealed } from '../ai/live-guard.js';
+import { readBoundHistory } from '../ai/live-history.js';
+import { sourceDigest } from '../ai/live-manifest.js';
+import type { LiveManifest, LiveSource } from '../ai/live-manifest.js';
+import { liveAllowedLabels } from '../ai/live-destination.js';
+import type { MailProjected } from '../ai/live-projections.js';
 import type { MailHit } from './assistant-mail.js';
 
 /** A stable operation ID for a later call of one ask. */
@@ -73,51 +94,7 @@ export function roundOperation(operationId: string, round: number) {
 const maxOutputTokens = 1500;
 const maxActions = 10;
 
-/** Planner items the model may see and change; labeled items are withheld. */
-async function readContext(tx: QueryExecutor, owner: string) {
-  const tasks = (
-    await tx.query(
-      `SELECT ${taskColumns} FROM tasks WHERE owner_id=$1 AND deleted_at IS NULL AND completed=false ORDER BY due_date NULLS LAST,created_at DESC LIMIT 150`,
-      [owner],
-    )
-  ).map((row) => taskSchema.parse(row));
-  const events = (
-    await tx.query(
-      `SELECT ${eventColumns} FROM events WHERE owner_id=$1 AND deleted_at IS NULL AND ends_at >= CURRENT_TIMESTAMP - interval '1 day' AND starts_at < CURRENT_TIMESTAMP + interval '30 days' ORDER BY starts_at,id LIMIT 150`,
-      [owner],
-    )
-  )
-    .map((row) => calendarRecordSchema.parse(row))
-    // Repeating series are not offered yet: one change would move every occurrence.
-    .filter((event) => event.recurrence === null);
-  const openTask = (task: Task) =>
-    task.sensitivity === 'unlabeled' &&
-    !task.canvasSource &&
-    !task.academicSource &&
-    !task.mailSource;
-  const openEvent = (event: CalendarRecord) =>
-    event.sensitivity === 'unlabeled' &&
-    Array.isArray(event.academicLabels) &&
-    event.academicLabels.length === 0 &&
-    !event.canvasSource &&
-    !event.academicSource &&
-    !event.courseId &&
-    !event.topicId;
-  return {
-    tasks: tasks.filter(openTask),
-    events: events.filter(openEvent),
-    withheld:
-      tasks.filter((task) => !openTask(task)).length +
-      events.filter((event) => !openEvent(event)).length,
-  };
-}
-type Context = Awaited<ReturnType<typeof readContext>>;
-
-const local = (instant: string, timeZone: string) =>
-  Temporal.Instant.from(instant)
-    .toZonedDateTimeISO(timeZone)
-    .toPlainDateTime()
-    .toString({ smallestUnit: 'minute' });
+type Context = PlannerContext;
 
 const instructions = `You are the planning assistant in the owner's personal hub. Turn the owner's request into changes to their tasks and calendar events.
 Rules:
@@ -247,33 +224,18 @@ export function buildAssistantRequest(
   mail?: MailRound,
   /** A scheduled or Run now agent turn (D57): no owner is present. */
   agent = false,
+  upstream = 'google-vertex',
 ) {
   const current = now.toZonedDateTimeISO(timeZone);
   const payload = {
     now: `${current.toPlainDateTime().toString({ smallestUnit: 'minute' })} (${current.toPlainDate().dayOfWeek === 7 ? 'Sunday' : ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][current.toPlainDate().dayOfWeek - 1]})`,
     timeZone,
-    tasks: context.tasks.map((task, index) => ({
-      ref: `t${index + 1}`,
-      title: task.title,
-      dueDate: task.dueDate,
-      priority: task.priority,
-    })),
-    events: context.events.map((event, index) => ({
-      ref: `e${index + 1}`,
-      title: event.title,
-      ...(event.allDay
-        ? {
-            allDay: true,
-            start: event.startDate,
-            end: Temporal.PlainDate.from(event.endDate!)
-              .subtract({ days: 1 })
-              .toString(),
-          }
-        : {
-            start: local(event.startsAt, timeZone),
-            end: local(event.endsAt, timeZone),
-          }),
-    })),
+    tasks: context.tasks.map((task, index) =>
+      projectTask(task, `t${index + 1}`),
+    ),
+    events: context.events.map((event, index) =>
+      projectEvent(event, `e${index + 1}`, timeZone),
+    ),
     request: text,
   };
   return {
@@ -295,7 +257,7 @@ export function buildAssistantRequest(
       { role: 'user', content: JSON.stringify(payload) },
       ...(mail?.followUps ?? []),
     ],
-    provider: providerRouting(model),
+    provider: pinnedRouting(upstream),
     response_format: {
       type: 'json_schema',
       json_schema: {
@@ -510,6 +472,9 @@ export async function answerTurn(
     trigger: 'owner' | 'agent';
     /** Internal scheduled-worker attribution for atomic per-exchange caps. */
     agentId?: string | undefined;
+    agentGoal?: string;
+    authority?: (tx: QueryExecutor) => Promise<boolean>;
+    agentRun?: GuardContext['agentRun'];
   },
 ): Promise<AssistantTurn> {
   const hash = createHash('sha256')
@@ -556,26 +521,87 @@ export async function answerTurn(
   await database.transaction((tx) =>
     openConversation(tx, owner, conversationId, input.ask),
   );
-  const { key, settings, cost } = await prepareLive(
+  const { key, destination, cost } = await prepareLiveDestination(
     database,
     config,
     fetcher,
     owner,
   );
-  const model = settings.model;
-  const context = await readContext(database, owner);
-  const history = await readHistory(database, owner, conversationId);
-  const body = buildAssistantRequest(
-    model,
-    context,
-    input.prompt,
-    input.timeZone,
-    undefined,
-    history,
-    input.useMail ? { round: 1, followUps: [] } : undefined,
-    input.trigger === 'agent',
-  );
+  const model = destination.model;
   const id = randomUUID();
+  let agentGoal = input.agentGoal;
+  const prepared = await database.transaction(async (tx) => {
+    await tx.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    const settings = await readAssistantSettings(tx, owner);
+    if (input.agentId && agentGoal === undefined) {
+      const [agent] = await tx.query(
+        'SELECT goal FROM responsibilities WHERE owner_id=$1 AND id=$2',
+        [owner, input.agentId],
+      );
+      agentGoal = String(agent?.goal ?? '');
+    }
+    const context = await livePlannerContext(tx, owner, { limit: 150 });
+    const history = await readBoundHistory(tx, owner, conversationId, {
+      allowed: liveAllowedLabels(settings),
+      useMail: input.useMail,
+    });
+    const body = buildAssistantRequest(
+      model,
+      context,
+      input.prompt,
+      input.timeZone,
+      undefined,
+      history.history,
+      input.useMail ? { round: 1, followUps: [] } : undefined,
+      input.trigger === 'agent',
+      destination.upstream,
+    );
+    const manifest: LiveManifest = {
+      formatVersion: 1,
+      owner,
+      requestId: id,
+      kind: 'planner',
+      round: 1,
+      conversationId,
+      priorRequestIds: [],
+      destination,
+      settingsVersion: settings.version,
+      useMail: input.useMail,
+      request:
+        input.trigger === 'agent' && input.agentId
+          ? {
+              provenance: 'agent-goal',
+              labels: ['unlabeled'],
+              agent: {
+                id: input.agentId,
+                goalDigest: sourceDigest(
+                  owner,
+                  id,
+                  'agent-goal',
+                  input.agentId,
+                  agentGoal,
+                ),
+              },
+            }
+          : { provenance: 'owner-entered', labels: ['unlabeled'] },
+      timeZone: input.timeZone,
+      history: {
+        turns: history.turns,
+        sources: history.sources,
+        withheld: history.withheld,
+      },
+      sources: plannerSources(owner, id, context, input.timeZone),
+      bytes: Buffer.byteLength(JSON.stringify(body)),
+    };
+    return {
+      settings,
+      context,
+      history,
+      body,
+      sealed: sealEnvelope(owner, id, body, manifest),
+    };
+  });
+  const { settings, context, history, body } = prepared;
   try {
     await admitLive(database, owner, {
       id,
@@ -590,6 +616,7 @@ export async function answerTurn(
       ),
       withheld: context.withheld,
       agentId: input.agentId,
+      sealed: prepared.sealed,
     });
   } catch (error) {
     // A concurrent identical operation won the race.
@@ -606,26 +633,65 @@ export async function answerTurn(
     }
     throw error;
   }
-  await startTurn(database, owner, {
-    id,
-    conversationId,
-    ask: input.ask,
-    useMail: input.useMail,
-    trigger: input.trigger,
-  });
+  try {
+    await startTurn(database, owner, {
+      id,
+      conversationId,
+      ask: input.ask,
+      useMail: input.useMail,
+      trigger: input.trigger,
+    });
+  } catch (error) {
+    await releaseUnsent(database, owner, id, 'context-changed');
+    throw error;
+  }
 
   // One call, or up to three with Use mail: plan a search, choose
   // messages, answer with their bodies. Each call is held and settled on
   // its own; the last usable answer is the turn's answer.
   let answer: ReturnType<typeof readAnswer> | null = null;
-  let current = { id, body, round: 1 as MailRound['round'] };
+  let current: { id: string; sealed: LiveSealed; round: MailRound['round'] } = {
+    id,
+    sealed: prepared.sealed,
+    round: 1,
+  };
+  let binding: { requestId: string } | null = null;
+  const priorRequestIds: string[] = [];
+  const projections: MailProjected[] = [];
+  let originals: LiveSource[] = prepared.sealed.manifest.sources;
   const followUps: MailRound['followUps'] = [];
   let hits: MailHit[] = [];
   const sent = new Map<string, AssistantMailSent>();
+  const pendingMail = new Map<string, AssistantMailSent>();
   let mailWithheld = 0;
   let mailNote: string | null = null;
   for (;;) {
-    const result = await exchange(fetcher, key, current.body);
+    const result = await transmitLive(
+      database,
+      config,
+      fetcher,
+      key,
+      current.sealed,
+      {
+        ...(input.authority ? { authority: input.authority } : {}),
+        ...(input.agentRun ? { agentRun: input.agentRun } : {}),
+        reprojectMail: (tx, sources) =>
+          reprojectAssistantMail(
+            tx,
+            owner,
+            sources,
+            settings.allowPersonalMail,
+          ),
+      },
+    );
+    if (result.status === 'withheld') {
+      if (current.round > 1)
+        mailNote =
+          'Mail reading stopped: a source changed. Nothing more was sent.';
+      break;
+    }
+    for (const [key, item] of pendingMail) sent.set(key, item);
+    pendingMail.clear();
     let next: ReturnType<typeof readAnswer> | null = null;
     let reason: AssistantRequest['reason'] = null;
     if (result.status === 'confirmed' && result.content !== null) {
@@ -652,82 +718,170 @@ export async function answerTurn(
       break;
     }
     answer = next;
+    binding = { requestId: current.id };
+    priorRequestIds.push(current.id);
     if (!input.useMail) break;
-    let round: MailRound['round'];
-    if (current.round === 1 && next.mailSearch.length) {
-      const found = await searchMail(
-        database,
-        owner,
-        next.mailSearch,
-        settings.allowPersonalMail,
-      );
-      hits = found.hits;
-      mailWithheld = found.withheld;
-      for (const item of hits)
-        sent.set(item.id, { ...item, read: false, truncated: false });
-      followUps.push(
-        { role: 'assistant', content: result.content! },
-        {
-          role: 'user',
-          content: JSON.stringify({
-            instruction: chooseInstructions,
-            mailResults: hits.map((item, index) => ({
-              ref: `m${index + 1}`,
-              from: item.from,
-              subject: item.subject,
-              received: item.receivedAt.slice(0, 10),
-            })),
-            leftOutByLabels: mailWithheld,
-          }),
-        },
-      );
-      round = 2;
-    } else if (current.round === 2 && next.read.length) {
-      const chosen = [
-        ...new Set(
-          next.read
-            .map((ref) => hits[Number(/^m(\d+)$/.exec(ref)?.[1]) - 1])
-            .filter((item): item is MailHit => !!item),
-        ),
-      ].slice(0, maxReads);
-      const bodies = await readMail(
-        database,
-        owner,
-        chosen.map((item) => item.id),
-        settings.allowPersonalMail,
-      );
-      if (!bodies.length) break;
-      for (const item of bodies)
-        sent.set(item.id, { ...sent.get(item.id)!, read: true });
-      followUps.push(
-        { role: 'assistant', content: result.content! },
-        {
-          role: 'user',
-          content: JSON.stringify({
-            instruction: answerInstructions,
-            mail: bodies.map((item) => ({
-              ref: `m${hits.findIndex((other) => other.id === item.id) + 1}`,
-              from: item.from,
-              subject: item.subject,
-              received: item.receivedAt.slice(0, 10),
-              body: item.body,
-            })),
-          }),
-        },
-      );
-      round = 3;
-    } else break;
-    const nextBody = buildAssistantRequest(
-      model,
-      context,
-      input.prompt,
-      input.timeZone,
-      undefined,
-      history,
-      { round, followUps: [...followUps] },
-      input.trigger === 'agent',
-    );
     const nextId = randomUUID();
+    const nextPrepared = await database.transaction(async (tx) => {
+      await tx.query(
+        'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY',
+      );
+      let round: MailRound['round'];
+      const added: MailProjected[] = [];
+      if (current.round === 1 && next.mailSearch.length) {
+        const found = await searchMail(
+          tx,
+          owner,
+          next.mailSearch,
+          settings.allowPersonalMail,
+        );
+        hits = found.hits;
+        mailWithheld = found.withheld;
+        const projected = hits.map((item, index) =>
+          projectMailHeader(item, `m${index + 1}`),
+        );
+        for (const [index, item] of hits.entries()) {
+          pendingMail.set(item.id, { ...item, read: false, truncated: false });
+          added.push({
+            projection: 'mail-header-v1',
+            id: item.id,
+            ref: `m${index + 1}`,
+            projected: projected[index],
+          });
+        }
+        followUps.push(
+          { role: 'assistant', content: result.content! },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              instruction: chooseInstructions,
+              mailResults: projected,
+              leftOutByLabels: mailWithheld,
+            }),
+          },
+        );
+        round = 2;
+      } else if (current.round === 2 && next.read.length) {
+        const chosen = [
+          ...new Set(
+            next.read
+              .map((ref) => hits[Number(/^m(\d+)$/.exec(ref)?.[1]) - 1])
+              .filter((item): item is MailHit => !!item),
+          ),
+        ].slice(0, maxReads);
+        const bodies = await readMail(
+          tx,
+          owner,
+          chosen.map((item) => item.id),
+          settings.allowPersonalMail,
+        );
+        if (!bodies.length) return null;
+        const projected = bodies.map((item) =>
+          projectMailBody(
+            item,
+            `m${hits.findIndex((other) => other.id === item.id) + 1}`,
+          ),
+        );
+        for (const [index, item] of bodies.entries()) {
+          pendingMail.set(item.id, {
+            ...sent.get(item.id)!,
+            read: true,
+            truncated: item.truncated,
+          });
+          added.push({
+            projection: 'mail-body-v1',
+            id: item.id,
+            ref: projected[index]!.ref,
+            projected: projected[index],
+            truncated: item.truncated,
+          });
+        }
+        followUps.push(
+          { role: 'assistant', content: result.content! },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              instruction: answerInstructions,
+              mail: projected,
+            }),
+          },
+        );
+        round = 3;
+      } else return null;
+      const nextBody = buildAssistantRequest(
+        model,
+        context,
+        input.prompt,
+        input.timeZone,
+        undefined,
+        history.history,
+        { round, followUps: [...followUps] },
+        input.trigger === 'agent',
+        destination.upstream,
+      );
+      // Preserve the exact earlier projections and versions. A later snapshot
+      // must never bless changed data that was already sent in this ask.
+      const cumulative = originals.map((source) => {
+        const projected =
+          source.kind === 'task'
+            ? projectTask(
+                context.tasks.find((t) => t.id === source.id)!,
+                source.ref,
+              )
+            : source.kind === 'event'
+              ? projectEvent(
+                  context.events.find((e) => e.id === source.id)!,
+                  source.ref,
+                  input.timeZone,
+                )
+              : projections.find(
+                  (p) =>
+                    p.projection === source.projection && p.id === source.id,
+                )!.projected;
+        return {
+          ...source,
+          digest: sourceDigest(
+            owner,
+            nextId,
+            source.projection,
+            source.id,
+            projected,
+          ),
+        };
+      });
+      cumulative.push(...(await mailSources(tx, owner, nextId, added)));
+      const manifest: LiveManifest = {
+        ...prepared.sealed.manifest,
+        requestId: nextId,
+        kind: 'planner-round',
+        round,
+        priorRequestIds: [...priorRequestIds],
+        sources: cumulative,
+        bytes: Buffer.byteLength(JSON.stringify(nextBody)),
+        request:
+          input.trigger === 'agent' && input.agentId
+            ? {
+                provenance: 'agent-goal',
+                labels: ['unlabeled'],
+                agent: {
+                  id: input.agentId,
+                  goalDigest: sourceDigest(
+                    owner,
+                    nextId,
+                    'agent-goal',
+                    input.agentId,
+                    agentGoal,
+                  ),
+                },
+              }
+            : prepared.sealed.manifest.request,
+      };
+      projections.push(...added);
+      originals = cumulative;
+      return { round, sealed: sealEnvelope(owner, nextId, nextBody, manifest) };
+    });
+    if (!nextPrepared) break;
+    const { round, sealed } = nextPrepared;
     try {
       await admitLive(database, owner, {
         id: nextId,
@@ -737,11 +891,12 @@ export async function answerTurn(
         model,
         maximumMicros: worstCaseMicros(
           cost,
-          Buffer.byteLength(JSON.stringify(nextBody)),
+          Buffer.byteLength(sealed.bytes),
           maxOutputTokens,
         ),
         withheld: 0,
         agentId: input.agentId,
+        sealed,
       });
       await recordRound(database, { requestId: nextId, turnId: id, round });
     } catch (error) {
@@ -751,14 +906,23 @@ export async function answerTurn(
           : 'Mail reading stopped.';
       break;
     }
-    current = { id: nextId, body: nextBody, round };
+    current = { id: nextId, sealed, round };
   }
   await finishTurn(database, owner, id, answer, {
     mail: [...sent.values()],
     mailWithheld,
     mailNote,
+    proposalAccess:
+      sent.size > 0 ||
+      history.sources.some((source) => source.kind === 'mail-message')
+        ? 'read-only'
+        : 'applicable',
+    binding,
   });
-  return (await readTurn(database, owner, id))!;
+  const saved = await readTurn(database, owner, id);
+  if (!saved)
+    throw new ApiError(404, 'NOT_FOUND', 'This conversation no longer exists.');
+  return saved;
 }
 
 export function registerAssistant(
@@ -806,6 +970,39 @@ export function registerAssistant(
     });
   });
 
+  const destination = async (owner: string, previewModel?: string) =>
+    liveDestinationResponseSchema.parse({
+      destination: (
+        await readLiveDestination(database, config, owner, previewModel)
+      ).status,
+    });
+
+  app.get('/api/v1/assistant/destination', async (request) => {
+    const owner = await auth.requireUser(request);
+    const { model } = z
+      .object({ model: assistantModelSchema.optional() })
+      .parse(request.query);
+    return destination(owner.id, model);
+  });
+
+  app.put('/api/v1/assistant/destination', async (request) => {
+    const owner = await auth.requireUser(request);
+    const input = liveDestinationApproveSchema.parse(request.body);
+    await database.transaction((tx) =>
+      approveLiveDestination(tx, owner.id, input),
+    );
+    return destination(owner.id);
+  });
+
+  app.delete('/api/v1/assistant/destination', async (request) => {
+    const owner = await auth.requireUser(request);
+    const { expectedVersion } = liveDestinationRevokeSchema.parse(request.body);
+    await database.transaction((tx) =>
+      revokeLiveDestination(tx, owner.id, expectedVersion),
+    );
+    return destination(owner.id);
+  });
+
   app.post('/api/v1/assistant/requests', async (request) => {
     const owner = await auth.requireUser(request);
     const input = assistantRequestInputSchema.parse(request.body);
@@ -817,6 +1014,7 @@ export function registerAssistant(
       conversationId: input.conversationId,
       useMail: input.useMail,
       trigger: 'owner',
+      authority: async (tx) => !!(await auth.currentUser(request, tx)),
     });
     return assistantRequestResponseSchema.parse({
       request: turn.request,

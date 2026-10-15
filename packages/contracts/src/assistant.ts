@@ -83,6 +83,11 @@ export const liveDestinationApproveSchema = z.strictObject({
   operationId: z.string().uuid().optional(),
 });
 
+export const liveDestinationRevokeSchema = z.strictObject({
+  expectedVersion: z.number().int().positive(),
+  operationId: z.string().uuid().optional(),
+});
+
 export const assistantRequestInputSchema = z.strictObject({
   operationId: z.string().uuid(),
   text: z.string().trim().min(1).max(1000),

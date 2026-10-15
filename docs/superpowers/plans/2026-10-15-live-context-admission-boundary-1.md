@@ -14,6 +14,8 @@
 
 ## Global Constraints
 
+Implementation checkpoint (2026-10-15): Tasks 1–9 now have implementation in the development worktree; final validation and receipts remain in progress. Migration 060 is committed; append-only migration 061 preserves destination versions through revocation. Independent review added serialized-route checks, exact response models, inherited-history eligibility, retained-text verification, revocation-version safety, and deleted-conversation handling. The detailed checkboxes below remain the original proposed workflow, not assertions that each intermediate command or commit ran. Full P5/P6 output lineage remains boundary 2.
+
 - Migrations are append-only: add `060_live_context_admission.sql`; never edit 001–059.
 - Tests inject `OpenRouterFetch` (helpers in `apps/api/tests/helpers/openrouter.ts`, `vi.stubGlobal('fetch', …throw…)`); no real provider, paid AI request or owner database.
 - Private values (`integrity_hash`, per-source `digest`) never appear in HTTP responses, export, UI, logs or notifications. `ai_live_exchanges` is not exported.
@@ -230,7 +232,7 @@
     3. Conversation, if any, is owned and not deleted.
     4. `ai_assistant_settings.version === settingsVersion`.
     5. The destination row still exists with the bound `version` and `revision`, matches the settings model, and the server key is present; a failure returns `route-blocked`. Every request, source and history-source label is in `liveAllowedLabels(settings)`.
-    5a. Every history turn exists in the same, non-deleted conversation with `inference_history='bound'` and an equal `inference_digest`. Every history source still exists (not deleted), has equal labels, an equal connector version for mail, and mail history sources require `useMail` for this ask.
+       5a. Every history turn exists in the same, non-deleted conversation with `inference_history='bound'` and an equal `inference_digest`. Every history source still exists (not deleted), has equal labels, an equal connector version for mail, and mail history sources require `useMail` for this ask.
     6. Every planner source is still returned by `livePlannerContext({tasks,events})` with equal version and equal `sourceDigest` of its re-projection.
     7. Every mail source re-resolves (version, connector version, labels equal) and re-projects to an equal digest. Bodies are re-read and cut to 6000 characters, and they still satisfy the Personal ceiling.
     8. For agents, the responsibility is not deleted, `status IN ('active','paused')`, it is unlabeled and `sourceDigest(…, 'agent-goal', id, goal) === goalDigest`. The run is `running` with the token and `lease_until > now()`.
@@ -414,21 +416,22 @@
 
 - **Spec coverage (boundary 1):**
 
-  | Spec item | Task |
-  | --- | --- |
-  | Withhold unbound history | 6, 8 |
-  | Exact envelopes in consistent snapshots | 4, 6, 9 |
-  | Per-exchange manifests persisted atomically with the reservation | 1, 5 |
-  | Final guard over cumulative sources, authority, conversation, labels, settings/consent/route, agent, bytes | 5, 6, 7 |
-  | Linearization and lock order documented and tested on PostgreSQL | 5 |
-  | Explicit route configuration, no inferred approval, no fallback | 3 |
-  | Single pinned upstream decision | 2, 3 |
-  | Narrow mail consent mapped to routes | 6, 9 |
-  | Source-derived proposals read-only | 6, 7, 8 |
-  | Private hash never exposed | 5, 6 |
-  | All live call sites connected before any claim | 6, 7, 9, 10 |
-  | Populated upgrade | 1 |
+  | Spec item                                                                                                  | Task        |
+  | ---------------------------------------------------------------------------------------------------------- | ----------- |
+  | Withhold unbound history                                                                                   | 6, 8        |
+  | Exact envelopes in consistent snapshots                                                                    | 4, 6, 9     |
+  | Per-exchange manifests persisted atomically with the reservation                                           | 1, 5        |
+  | Final guard over cumulative sources, authority, conversation, labels, settings/consent/route, agent, bytes | 5, 6, 7     |
+  | Linearization and lock order documented and tested on PostgreSQL                                           | 5           |
+  | Explicit route configuration, no inferred approval, no fallback                                            | 3           |
+  | Single pinned upstream decision                                                                            | 2, 3        |
+  | Narrow mail consent mapped to routes                                                                       | 6, 9        |
+  | Source-derived proposals read-only                                                                         | 6, 7, 8     |
+  | Private hash never exposed                                                                                 | 5, 6        |
+  | All live call sites connected before any claim                                                             | 6, 7, 9, 10 |
+  | Populated upgrade                                                                                          | 1           |
 
   Acceptance bullets 1–5 and 8 are covered. Bullets 6–7 (bound history unions, server Apply lineage) are boundary 2.
+
 - **Boundary 2 hooks:** `inference_history`, `proposal_access`, `priorRequestIds`, manifest `history`, the `ai_live_exchanges` owned FK and `guard_state='admitted'` as recovery evidence.
 - **Type names used across tasks:** `SealedEnvelope`, `LiveManifest`, `LiveDestination`, `GuardContext`, `transmitLive`, `releaseUnsent`, `liveAllowedLabels`, `readBoundHistory`, `historyRefs`, `livePlannerContext`, `mailSources`, `sourceDigest` and `boundLiveHash`.

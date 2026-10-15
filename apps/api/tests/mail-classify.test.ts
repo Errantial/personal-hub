@@ -1,3 +1,4 @@
+import { approveLiveDestination } from './helpers/openrouter.js';
 import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
@@ -9,6 +10,7 @@ import { chatUrl, modelsUrl, zdrUrl } from '../src/ai/openrouter-live.js';
 const origin = 'http://127.0.0.1:5173';
 const model = 'anthropic/claude-haiku-5.5';
 let app: Awaited<ReturnType<typeof buildApp>>;
+let database: Awaited<ReturnType<typeof openDatabase>>;
 let cookie: string;
 let sent: Record<string, unknown>[];
 let chat: (body: Record<string, unknown>) => Response;
@@ -40,11 +42,12 @@ beforeEach(async () => {
   });
   sent = [];
   chat = () => completion({ results: [] });
+  database = await openDatabase(config);
   app = await buildApp(
     { logger: false },
     {
       config,
-      database: await openDatabase(config),
+      database,
       openRouterFetch: async (url, init) => {
         if (url === modelsUrl)
           return new Response(
@@ -87,6 +90,7 @@ beforeEach(async () => {
     payload: { email: 'classify@example.test', password: 'synthetic-password' },
   });
   cookie = String(setup.headers['set-cookie']).split(';')[0]!;
+  await approveLiveDestination(call);
   await call('PUT', '/api/v1/ai/budget', {
     operationId: randomUUID(),
     expectedVersion: 1,
@@ -200,7 +204,7 @@ it('sends only allowed, verified mail and returns suggestions without saving the
   expect(text).not.toContain(open!.id);
   expect(sent[0]).toMatchObject({
     provider: {
-      only: ['anthropic', 'google-vertex', 'amazon-bedrock'],
+      only: ['google-vertex'],
       allow_fallbacks: false,
       zdr: true,
     },
@@ -265,4 +269,62 @@ it('charges invalid output without suggestions', async () => {
     resultAvailable: false,
     costMicros: 200,
   });
+});
+
+it('blocks before any hold without destination approval', async () => {
+  await call('DELETE', '/api/v1/assistant/destination', { expectedVersion: 1 });
+  const messages = await importMail('unlabeled', [
+    { key: 'blocked-route', subject: 'Blocked route' },
+  ]);
+  const result = await call('POST', '/api/v1/email/classify', {
+    operationId: randomUUID(),
+    messages,
+  });
+  expect(result.json().error.code).toBe('ASSISTANT_ROUTE_UNSET');
+  expect(await database.query('SELECT id FROM ai_budget_reservations')).toEqual(
+    [],
+  );
+});
+
+it('a message changed after preparation is withheld with a released hold', async () => {
+  const messages = await importMail('unlabeled', [
+    { key: 'changed-context', subject: 'Changed context' },
+  ]);
+  const transaction = database.transaction.bind(database);
+  let changed = false;
+  vi.spyOn(database, 'transaction').mockImplementation((work) =>
+    transaction((tx) =>
+      work({
+        ...tx,
+        query: async <T extends Record<string, unknown>>(
+          sql: string,
+          values?: unknown[],
+        ) => {
+          const rows = await tx.query<T>(sql, values);
+          if (!changed && sql.startsWith('INSERT INTO ai_live_exchanges')) {
+            changed = true;
+            await tx.query(
+              "UPDATE email_messages SET subject='Changed after seal',version=version+1 WHERE id=$1",
+              [messages[0]!.id],
+            );
+          }
+          return rows;
+        },
+      }),
+    ),
+  );
+  const result = await call('POST', '/api/v1/email/classify', {
+    operationId: randomUUID(),
+    messages,
+  });
+  expect(result.json().request).toMatchObject({
+    status: 'failed',
+    reason: 'context-changed',
+    suggestions: [],
+  });
+  expect(sent).toEqual([]);
+  expect(
+    (await database.query('SELECT status FROM ai_budget_reservations'))[0]!
+      .status,
+  ).toBe('released');
 });

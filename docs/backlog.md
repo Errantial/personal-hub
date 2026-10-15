@@ -4,6 +4,8 @@ Updated 2026-10-14. This is the work queue; product.md remains the full scope, d
 
 ## Approved next sequence (2026-10-14)
 
+P5 boundary 1 is implemented on `ai/live-context-admission`, with validation in progress: one-click pinned-destination approval, exact live envelopes, cumulative source checks, bound new history and read-only mail-dependent proposals. See the [specification](live-context-admission-design.md) and [boundary plan](superpowers/plans/2026-10-15-live-context-admission-boundary-1.md). Boundary 2 still owns durable derived-record lineage and server-owned Apply. No academic/memory/MCP expansion or deployment is claimed by this development status.
+
 The owner approved autonomous development according to the [post-agents development plan](post-agents-development-plan.md): reliability and daily-use acceptance, shared live context/history/output provenance, manual academic assistance, explicit per-ask memory, source coverage improvements, then inbound and outbound MCP in separate gated slices. The recommended defaults are authorized for implementation; account-specific access, destinations and live acceptance retain their gates. Existing implemented editors/planners are reused. Work starts with P1/P2/P4; broader context expansion remains blocked on P5/P6.
 
 First batch implemented in [PR #35](https://github.com/Errantial/personal-hub/pull/35) (not deployed): present-status reconciliation and [acceptance checklist](agents-acceptance.md); atomic worker effects/result persistence, lease fencing, independent heartbeat, legacy receipt recovery, pre-fetch goal/label checks and durable per-exchange agent allowance admission (migration 058); staged artifact/migration/service-user preflight and explicit rollback compatibility evidence. Validation: full check passed 653 tests, all 144 browser cases passed, and Linux/Windows/PostgreSQL CI passed, including two-worker races and the Linux filesystem fixture. Receipts are in implementation-log.md. Actual service-user preflight and owner live acceptance remain pending. Full history/output provenance regressions and enforcement remain P5/P6, not completed P1 acceptance.
@@ -21,6 +23,7 @@ New backend features are frozen until steps 2–3 are done (D49); fixes and back
 5. **Email ingestion**: prove Proton Bridge completeness (Oracle VM if supported, otherwise an always-on local machine, D48), read-only first; then AI filtering through the gateway. Read-only ingestion implemented 2026-10-13 with Bridge on the owner's Windows computer and a local connector; observed Bridge snapshot coverage was verified read-only, while Gmail delivery completeness remains unresolved (latest observed message 2026-09-28). Live upload needs this release deployed, a connector token and a scheduled task. AI filtering is next. See [email-ingestion.md](email-ingestion.md).
 
 Approved 2026-10-14 (D54–D56), all done and deployed:
+
 1. **Dark theme** following the device by default, with Light/Dark/Match device in Settings › Appearance.
 2. **Assistant page** in the sidebar with server-side conversation history.
 3. **Assistant mail reading**: search subjects and senders, then read up to five bodies; each answer lists the messages sent.
@@ -81,4 +84,3 @@ The standard PostgreSQL check is opt-in via TEST_DATABASE_URL and configured in 
 ## Interface guideline
 
 Prefer concise titles and labels. Use keyboard/tap-accessible contextual Help for useful secondary explanations. Keep errors, pending/offline/conflict state and essential warnings visible. Marketing/welcome copy has been removed from the current screens.
-

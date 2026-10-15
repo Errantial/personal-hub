@@ -110,7 +110,6 @@ export function AssistantView({
     input.current?.focus();
   }, [turns]);
 
-  const configured = settings.data?.settings.configured;
   const usage = budget.data?.usage;
   const limit = budget.data?.policy.monthlyLimitMicros;
   const conversation = thread.data?.conversation;
@@ -446,6 +445,28 @@ export function AssistantView({
                   review every change before it is saved.
                 </p>
               )}
+              {turns.some(
+                (turn) =>
+                  turn.request.reply && turn.inferenceHistory === 'unbound',
+              ) && (
+                <div>
+                  <p className="meta">
+                    Older messages aren't sent with new asks.{' '}
+                    <Help label="Earlier messages">
+                      Messages from before this update, or ones whose sources
+                      were deleted, relabeled or need Use mail, can't be sent
+                      again. They stay readable.
+                    </Help>
+                  </p>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => navigate({ name: 'assistant' })}
+                  >
+                    New conversation
+                  </button>
+                </div>
+              )}
               <ol className="assistant-page__turns">
                 {turns.map((turn, index) => (
                   <li
@@ -469,37 +490,30 @@ export function AssistantView({
                   </li>
                 ))}
               </ol>
-              {configured === false ? (
-                <p>
-                  Not set up: the server has no OpenRouter key. See the
-                  operating guide.
-                </p>
-              ) : (
-                <div className="assistant-page__composer" ref={composer}>
-                  <AssistantComposer
-                    conversationId={id}
-                    settings={settings}
-                    inputRef={input}
-                    placeholder={
-                      turns.length
-                        ? 'Ask a follow-up'
-                        : 'Move my essay to Friday and add a reminder to print it'
-                    }
-                    navigate={navigate}
-                    onAnswered={(turn) => {
-                      scrollNext.current = true;
-                      replace(turn);
-                      void list.reload();
-                      void budget.reload();
-                      if (!route.id)
-                        navigate({
-                          name: 'assistant',
-                          id: turn.conversationId,
-                        });
-                    }}
-                  />
-                </div>
-              )}
+              <div className="assistant-page__composer" ref={composer}>
+                <AssistantComposer
+                  conversationId={id}
+                  settings={settings}
+                  inputRef={input}
+                  placeholder={
+                    turns.length
+                      ? 'Ask a follow-up'
+                      : 'Move my essay to Friday and add a reminder to print it'
+                  }
+                  navigate={navigate}
+                  onAnswered={(turn) => {
+                    scrollNext.current = true;
+                    replace(turn);
+                    void list.reload();
+                    void budget.reload();
+                    if (!route.id)
+                      navigate({
+                        name: 'assistant',
+                        id: turn.conversationId,
+                      });
+                  }}
+                />
+              </div>
             </>
           )}
         </section>

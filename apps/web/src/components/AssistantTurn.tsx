@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   assistantTurnResponseSchema,
+  assistantConversationResponseSchema,
   calendarResponseSchema,
   taskResponseSchema,
 } from '@hub/contracts';
@@ -12,6 +13,7 @@ import type {
 import { RequestError, liveRequestJson } from '../lib/api';
 import {
   applyRequest,
+  applicableItemIndexes,
   describeProposal,
   formatCost,
   undoRequest,
@@ -20,6 +22,7 @@ import type { PlannedRequest } from '../lib/assistant';
 import { runLine } from '../lib/agents';
 import { formatInstant } from '../lib/format';
 import { useOnline } from '../lib/hooks';
+import { Help } from './Help';
 
 export const reasons: Record<
   NonNullable<AssistantRequest['reason']>,
@@ -111,13 +114,55 @@ export function AssistantTurnView({
   }
 
   async function apply() {
+    if (busy || !online || turn.proposalAccess === 'read-only') return;
     setBusy(true);
-    const next = [...turn.items];
-    for (const [index, item] of next.entries()) {
-      if (!selected[index] || item.state !== 'proposed') continue;
+    setNotice('');
+    let fresh: AssistantTurn | undefined;
+    try {
+      // This is a live read, never an offline cached conversation. A page
+      // retained across a deployment may still display an old Apply control.
+      const conversation = await liveRequestJson(
+        `/api/v1/assistant/conversations/${turn.conversationId}`,
+        assistantConversationResponseSchema,
+      );
+      fresh = conversation.turns.find((item) => item.id === turn.id);
+    } catch {
+      setNotice(
+        'Could not verify these suggestions. Nothing was changed. Reconnect and try again.',
+      );
+      setBusy(false);
+      return;
+    }
+    if (
+      !fresh ||
+      fresh.version !== turn.version ||
+      fresh.proposalAccess !== turn.proposalAccess ||
+      fresh.items.length !== turn.items.length ||
+      fresh.items.some(
+        (item, index) =>
+          item.applyId !== turn.items[index]?.applyId ||
+          item.undoId !== turn.items[index]?.undoId,
+      )
+    ) {
+      if (fresh) onTurn(fresh);
+      else onStale();
+      setNotice(
+        'These suggestions changed. Review the updated answer before applying. Nothing was changed.',
+      );
+      setBusy(false);
+      return;
+    }
+    if (!navigator.onLine) {
+      setNotice('The assistant needs a connection. Nothing was changed.');
+      setBusy(false);
+      return;
+    }
+    const next = [...fresh.items];
+    for (const index of applicableItemIndexes(fresh, selected)) {
+      const item = next[index]!;
       try {
         const record = await send(
-          applyRequest(request.proposals[index]!, item.applyId),
+          applyRequest(fresh.request.proposals[index]!, item.applyId),
         );
         next[index] = {
           ...item,
@@ -158,10 +203,9 @@ export function AssistantTurnView({
     onApplied();
   }
 
+  const readOnly = turn.proposalAccess === 'read-only';
   const proposed = turn.items.filter((item) => item.state === 'proposed');
-  const chosen = turn.items.filter(
-    (item, index) => item.state === 'proposed' && selected[index],
-  ).length;
+  const chosen = applicableItemIndexes(turn, selected).length;
   const applied = turn.items.some((item) => item.state === 'applied');
   const plural = (count: number, word: string) =>
     `${count} ${word}${count === 1 ? '' : 's'}`;
@@ -220,23 +264,33 @@ export function AssistantTurnView({
           !request.reply && <p>No changes proposed.</p>}
         {turn.items.length > 0 && (
           <fieldset className="assistant__changes turn-changes" disabled={busy}>
-            <legend>Proposed changes</legend>
+            <legend>
+              {readOnly ? 'From mail · read only' : 'Proposed changes'}
+            </legend>
+            {readOnly && (
+              <Help label="Read-only suggestions">
+                Suggestions based on mail can't be applied until their origin
+                can be kept. Create the item yourself if you want it.
+              </Help>
+            )}
             <ul>
               {turn.items.map((item, index) => (
                 <li key={item.applyId}>
                   <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={item.state === 'proposed' && !!selected[index]}
-                      disabled={item.state !== 'proposed'}
-                      onChange={(event) =>
-                        setSelected(
-                          selected.map((value, at) =>
-                            at === index ? event.target.checked : value,
-                          ),
-                        )
-                      }
-                    />
+                    {!readOnly && (
+                      <input
+                        type="checkbox"
+                        checked={item.state === 'proposed' && !!selected[index]}
+                        disabled={item.state !== 'proposed'}
+                        onChange={(event) =>
+                          setSelected(
+                            selected.map((value, at) =>
+                              at === index ? event.target.checked : value,
+                            ),
+                          )
+                        }
+                      />
+                    )}
                     {describeProposal(request.proposals[index]!, timeZone)}
                   </label>
                   {item.state !== 'proposed' && (
@@ -253,7 +307,7 @@ export function AssistantTurnView({
               ))}
             </ul>
             <div className="form-actions">
-              {proposed.length > 0 && (
+              {!readOnly && proposed.length > 0 && (
                 <button
                   type="button"
                   className="primary-button"
@@ -292,7 +346,11 @@ export function AssistantTurnView({
                   <span className="meta">
                     {item.from ?? 'Unknown sender'} ·{' '}
                     {formatInstant(item.receivedAt)} ·{' '}
-                    {item.read ? 'Body sent' : 'Subject and sender only'}
+                    {item.read
+                      ? item.truncated
+                        ? 'Body sent (cut)'
+                        : 'Body sent'
+                      : 'Subject and sender only'}
                   </span>
                 </li>
               ))}

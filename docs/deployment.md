@@ -1,5 +1,15 @@
 # Deployment and AI policy
 
+## Live admission boundary 1 rollout (development; not deployed)
+
+After the reviewed release and migrations 060/061 are deployed, approve a live destination in **Settings → AI → Assistant**. Choose the model and one declared upstream, then select **Approve destination**. Assistant asks, scheduled agents and selected-message category/task suggestions require approval. A saved key alone does not approve disclosure. No server profile/environment change is needed.
+
+Changing the model or server destination terms invalidates prior approval. Revocation blocks later admissions; versions survive revoke/reapprove. An unavailable approved zero-retention upstream blocks without switching hosts. The Personal-mail switch is an additional permission ceiling; Restricted sources stay excluded. General gateway profiles and dispatch are unchanged.
+
+Legacy conversations remain readable, but unbound turns are withheld from inference. New history follows retained source permissions; Use mail off also withholds mail-dependent history. Mail-dependent Assistant proposals remain read-only until output lineage is implemented; existing applied changes retain Undo. Client-composed owner Apply and unidentified legacy origins remain limitations.
+
+Use normal sealed-artifact/service-user preflight, fresh backup and isolated restore gates. Verify migrations and the integrated commit, then check readiness separately from authenticated worker configuration and live owner acceptance. Routine verification uses synthetic providers; no paid verification request is required. This procedure is not a deployment receipt.
+
 ## Confirmed target
 
 Current deployment (2026-10-13): the existing VM is Oracle Linux 9.7 ARM64, with two CPUs and 10 GiB RAM. The tested app is running at `https://hub.ecg.name` with PostgreSQL, supervised API, managed HTTPS and daily same-device backups. Isolated backup restore passed. See the [receipt and operating guide](../deploy/oracle-linux/README.md). Owner enrollment and development-data transfer remain pending. The owner deferred encrypted off-host backups.

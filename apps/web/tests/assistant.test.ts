@@ -2,11 +2,16 @@ import { expect, it } from 'vitest';
 import {
   applyRequest,
   assistantProposalSchema,
+  assistantTurnSchema,
   calendarRecordSchema,
   taskSchema,
   undoRequest,
 } from '@hub/contracts';
-import { describeProposal, formatCost } from '../src/lib/assistant';
+import {
+  applicableItemIndexes,
+  describeProposal,
+  formatCost,
+} from '../src/lib/assistant';
 
 const task = taskSchema.parse({
   id: '00000000-0000-4000-8000-000000000001',
@@ -121,4 +126,54 @@ it('describes all-day events by their last day and formats small costs', () => {
   expect(formatCost(150)).toBe('$0.00015');
   expect(formatCost(0)).toBe('$0');
   expect(formatCost(250000)).toBe('$0.25');
+});
+
+it('read-only turns build no apply requests while ordinary selection stays applicable', () => {
+  const turn = assistantTurnSchema.parse({
+    id: task.id,
+    conversationId: event.id,
+    ask: 'Add a task',
+    version: 1,
+    request: {
+      id: task.id,
+      status: 'completed',
+      reason: null,
+      model: 'anthropic/claude-haiku-5.5',
+      resultAvailable: true,
+      reply: 'Suggested',
+      proposals: [
+        {
+          kind: 'task.create',
+          task: {
+            title: 'Follow up',
+            notes: '',
+            dueDate: null,
+            priority: 'normal',
+          },
+        },
+      ],
+      dropped: 0,
+      withheld: 0,
+      costMicros: 10,
+      heldMicros: 0,
+      createdAt: task.createdAt,
+    },
+    items: [
+      {
+        state: 'proposed',
+        applied: null,
+        error: null,
+        applyId: task.id,
+        undoId: event.id,
+      },
+    ],
+    proposalAccess: 'read-only',
+  });
+  expect(applicableItemIndexes(turn, [true])).toEqual([]);
+  expect(
+    applicableItemIndexes({ ...turn, proposalAccess: 'applicable' }, [true]),
+  ).toEqual([0]);
+  expect(
+    applicableItemIndexes({ ...turn, proposalAccess: 'applicable' }, [false]),
+  ).toEqual([]);
 });

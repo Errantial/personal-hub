@@ -271,10 +271,18 @@ async function requeue(
   run: Claimed,
   now: Date,
   turnId: string | null,
+  refreshVersion = false,
 ) {
   await database.query(
-    "UPDATE responsibility_runs SET status='queued',not_before=$3,turn_id=COALESCE($4,turn_id),progress_at=$5,progress_stage='retry-scheduled',lease_token=NULL,lease_until=NULL,version=version+1 WHERE id=$1 AND lease_token=$2 AND status='running'",
-    [run.id, run.token, new Date(now.getTime() + retryMs), turnId, now],
+    "UPDATE responsibility_runs SET responsibility_version=CASE WHEN $6 THEN (SELECT version FROM responsibilities WHERE id=responsibility_id AND owner_id=responsibility_runs.owner_id) ELSE responsibility_version END,status='queued',not_before=$3,turn_id=COALESCE($4,turn_id),progress_at=$5,progress_stage='retry-scheduled',lease_token=NULL,lease_until=NULL,version=version+1 WHERE id=$1 AND lease_token=$2 AND status='running' AND lease_until > $5",
+    [
+      run.id,
+      run.token,
+      new Date(now.getTime() + retryMs),
+      turnId,
+      now,
+      refreshVersion,
+    ],
   );
 }
 
@@ -326,37 +334,10 @@ async function execute(
   let turn: AssistantTurn;
   try {
     const ownedFetch: OpenRouterFetch = async (url, init) => {
-      const current = await readAgentRow(database, run.ownerId, agent.id);
-      if (!current || !['active', 'paused'].includes(current.status))
-        throw new ApiError(
-          409,
-          'AGENT_UNAVAILABLE',
-          'This agent is unavailable.',
-        );
-      if (
-        current.sensitivity !== 'unlabeled' ||
-        current.labels.some((label) => label !== 'unlabeled')
-      )
-        throw new ApiError(
-          409,
-          'AGENT_LABELED',
-          'This agent is no longer eligible for this provider.',
-        );
-      // Pause changes the version but intentionally lets the current run finish.
-      // A changed goal must never disclose its captured predecessor again.
-      if (current.goal !== agent.goal)
-        throw new ApiError(
-          409,
-          'AGENT_CHANGED',
-          'This agent changed during its run.',
-        );
-      await requireLease(database, run, clock());
-      await progress(
-        database,
-        run,
-        clock(),
-        url === chatUrl ? 'provider-request' : 'checking-provider',
-      );
+      if (url !== chatUrl) {
+        await requireLease(database, run, clock());
+        await progress(database, run, clock(), 'checking-provider');
+      }
       return fetcher(url, init);
     };
     turn = await answerTurn(database, config, ownedFetch, run.ownerId, {
@@ -372,6 +353,8 @@ async function execute(
       useMail: agent.useMail,
       trigger: 'agent',
       agentId: agent.id,
+      agentGoal: agent.goal,
+      agentRun: { runId: run.id, token: run.token, now: clock },
     });
   } catch (error) {
     if (!(error instanceof ApiError))
@@ -388,6 +371,39 @@ async function execute(
     return failRun(database, run, agent, error.code, clock());
   }
   if (turn.request.status !== 'completed' || turn.request.reason !== null) {
+    if (turn.request.reason === 'context-changed') {
+      try {
+        await requireLease(database, run, clock());
+      } catch {
+        return failRun(
+          database,
+          run,
+          agent,
+          'AGENT_LEASE_LOST',
+          clock(),
+          turn.id,
+        );
+      }
+      if (run.attempts === 1)
+        return requeue(database, run, clock(), turn.id, true);
+      return failRun(
+        database,
+        run,
+        agent,
+        'LIVE_CONTEXT_CHANGED',
+        clock(),
+        turn.id,
+      );
+    }
+    if (turn.request.reason === 'route-blocked')
+      return failRun(
+        database,
+        run,
+        agent,
+        'ASSISTANT_ROUTE_UNAVAILABLE',
+        clock(),
+        turn.id,
+      );
     const rateLimited =
       turn.request.status === 'failed' &&
       turn.request.reason === 'rate-limited';

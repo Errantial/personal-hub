@@ -984,3 +984,13 @@ test('an older active run remains visible behind a newer queue and warns on dead
   ).toHaveCount(0);
   expect(state.writes).toHaveLength(0);
 });
+
+test('route failure reason is shown on the agent', async ({ page }) => {
+  const failed = runFixture({
+    errorCode: 'ASSISTANT_ROUTE_UNSET',
+    state: 'blocked',
+  });
+  await stub(page, [agentFixture({ lastRun: failed })]);
+  await page.goto(`/assistant/${conversationId}`);
+  await expect(page.locator('main')).toContainText('No approved destination');
+});

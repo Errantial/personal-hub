@@ -261,6 +261,24 @@ test('cached Today and quick capture survive offline reload and replay once at 3
 test('the Today command bar adds a task, remembers its mode and sends asks to the Assistant page', async ({
   page,
 }) => {
+  await page.route('**/api/v1/assistant/destination*', (route) =>
+    route.fulfill({
+      json: {
+        destination: {
+          status: 'ready',
+          reason: null,
+          approved: {
+            model: 'anthropic/claude-haiku-5.5',
+            upstream: 'google-vertex',
+          },
+          model: 'anthropic/claude-haiku-5.5',
+          hosts: ['google-vertex'],
+          personalMail: false,
+          version: 1,
+        },
+      },
+    }),
+  );
   let settings = {
     model: 'anthropic/claude-haiku-5.5',
     version: 1,

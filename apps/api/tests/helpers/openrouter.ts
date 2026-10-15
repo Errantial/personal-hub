@@ -69,6 +69,27 @@ export const action = (fields: Record<string, unknown>) => ({
 });
 
 export type Harness = Awaited<ReturnType<typeof startHarness>>;
+type Call = (
+  method: string,
+  url: string,
+  payload?: object,
+) => Promise<{ statusCode: number; json: () => any }>;
+
+/** Approves a live destination as the owner would in Settings. */
+export async function approveLiveDestination(
+  call: Call,
+  choice: { model?: string; upstream?: string } = {},
+) {
+  const current = (await call('GET', '/api/v1/assistant/destination')).json()
+    .destination;
+  const approved = await call('PUT', '/api/v1/assistant/destination', {
+    model: choice.model ?? current.model,
+    upstream: choice.upstream ?? 'google-vertex',
+    expectedVersion: current.version,
+  });
+  if (approved.statusCode !== 200)
+    throw new Error(`Approval failed: ${JSON.stringify(approved.json())}`);
+}
 type Chat = (body: Record<string, unknown>) => Promise<Response> | Response;
 
 /** Builds the app on a fresh database (or `dataDir`), signs up and sets limits. */
@@ -76,13 +97,19 @@ export async function startHarness(
   options: {
     key?: string | null;
     dataDir?: string;
+    /** A disposable PostgreSQL URL (opt-in race tests only). */
+    databaseUrl?: string;
     budget?: boolean;
+    /** Approve the default live destination (default true). */
+    destination?: boolean;
   } = {},
 ) {
   const key = options.key === undefined ? 'sk-or-synthetic-test' : options.key;
   const config: Config = readConfig({
     NODE_ENV: 'test',
-    PGLITE_DATA_DIR: options.dataDir ?? 'memory://',
+    ...(options.databaseUrl
+      ? { DATABASE_URL: options.databaseUrl }
+      : { PGLITE_DATA_DIR: options.dataDir ?? 'memory://' }),
     ...(key ? { AI_SECRET_OPENROUTER: key } : {}),
   });
   const database = await openDatabase(config);
@@ -139,6 +166,11 @@ export async function startHarness(
           perRequestLimitMicros: 250000,
         },
       });
+  }
+  if (key && options.destination !== false) {
+    const current = (await call('GET', '/api/v1/assistant/destination')).json()
+      .destination;
+    if (current.status !== 'ready') await approveLiveDestination(call);
   }
   const chatCalls = () =>
     fetcher.mock.calls.filter(([url]) => url === chatUrl).length;

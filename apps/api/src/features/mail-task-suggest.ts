@@ -15,15 +15,16 @@ import {
   admitLive,
   findReplay,
   liveReceipt,
-  prepareLive,
+  prepareLiveDestination,
+  readAssistantSettings,
   settleLive,
 } from '../ai/live-request.js';
 import type { LiveReason } from '../ai/live-request.js';
-import {
-  exchange,
-  providerRouting,
-  worstCaseMicros,
-} from '../ai/openrouter-live.js';
+import { pinnedRouting, worstCaseMicros } from '../ai/openrouter-live.js';
+import { sealEnvelope } from '../ai/live-envelope.js';
+import { transmitLive } from '../ai/live-guard.js';
+import { mailSources } from '../ai/live-projections.js';
+import type { LiveManifest } from '../ai/live-manifest.js';
 import type { OpenRouterFetch } from '../ai/openrouter-live.js';
 import { eligibleMail } from './mail-classify.js';
 import type { Eligible } from './mail-classify.js';
@@ -77,11 +78,19 @@ const answerSchema = z.object({
     .max(maxTasks),
 });
 
+export const projectTaskMail = (message: Eligible) => ({
+  from: message.from,
+  subject: message.subject,
+  sent: message.sentAt ?? message.receivedAt,
+  body: message.body,
+});
+
 export function buildTaskSuggestRequest(
   model: string,
   message: Eligible,
   timeZone: string,
   now = Temporal.Now.instant(),
+  upstream = 'google-vertex',
 ) {
   const today = now.toZonedDateTimeISO(timeZone).toPlainDate();
   return {
@@ -95,16 +104,11 @@ export function buildTaskSuggestRequest(
         content: JSON.stringify({
           today: `${today.toString()} (${today.toLocaleString('en-US', { weekday: 'long' })})`,
           timeZone,
-          email: {
-            from: message.from,
-            subject: message.subject,
-            sent: message.sentAt ?? message.receivedAt,
-            body: message.body,
-          },
+          email: projectTaskMail(message),
         }),
       },
     ],
-    provider: providerRouting(model),
+    provider: pinnedRouting(upstream),
     response_format: {
       type: 'json_schema',
       json_schema: { name: 'mail_tasks', strict: true, schema: outputSchema },
@@ -185,41 +189,85 @@ export function registerMailTaskSuggest(
     );
     // A retried request never calls the model again.
     if (previous) return respond(previous, null, null);
-    const { key, settings, cost } = await prepareLive(
+    const { key, destination, cost } = await prepareLiveDestination(
       database,
       config,
       fetcher,
       owner.id,
     );
-    const { eligible, blocked } = await eligibleMail(
-      database,
-      owner.id,
-      [{ id: messageId, expectedVersion: input.expectedVersion }],
-      settings.allowPersonalMail,
-    );
-    const message = eligible[0];
-    // Not allowed: no hold, no request, no charge.
-    if (!message) return respond(null, blocked[0]!.reason, null);
-
-    const body = buildTaskSuggestRequest(
-      settings.model,
-      message,
-      input.timeZone,
-    );
     const id = randomUUID();
+    const prepared = await database.transaction(async (tx) => {
+      await tx.query(
+        'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY',
+      );
+      const settings = await readAssistantSettings(tx, owner.id);
+      const { eligible, blocked } = await eligibleMail(
+        tx,
+        owner.id,
+        [{ id: messageId, expectedVersion: input.expectedVersion }],
+        settings.allowPersonalMail,
+      );
+      if (!eligible.length)
+        return { eligible, blocked, sealed: null, settings };
+      const body = buildTaskSuggestRequest(
+        destination.model,
+        eligible[0]!,
+        input.timeZone,
+        undefined,
+        destination.upstream,
+      );
+      const sources = await mailSources(
+        tx,
+        owner.id,
+        id,
+        eligible.map((message, index) => ({
+          projection: 'mail-task-v1',
+          id: message.id,
+          ref: `m${index + 1}`,
+          projected: projectTaskMail(message),
+        })),
+      );
+      const manifest: LiveManifest = {
+        formatVersion: 1,
+        owner: owner.id,
+        requestId: id,
+        kind: 'mail-tasks',
+        round: 1,
+        conversationId: null,
+        priorRequestIds: [],
+        destination,
+        settingsVersion: settings.version,
+        useMail: true,
+        request: { provenance: 'none', labels: ['unlabeled'] },
+        timeZone: input.timeZone,
+        history: { turns: [], sources: [], withheld: 0 },
+        sources,
+        bytes: Buffer.byteLength(JSON.stringify(body)),
+      };
+      return {
+        eligible,
+        blocked,
+        sealed: sealEnvelope(owner.id, id, body, manifest),
+        settings,
+      };
+    });
+    const { eligible, blocked, sealed, settings } = prepared;
+    if (!sealed) return respond(null, blocked[0]!.reason, null);
+    const message = eligible[0]!;
     try {
       await admitLive(database, owner.id, {
         id,
         kind: 'mail-tasks',
         operationId: input.operationId,
         hash,
-        model: settings.model,
+        model: destination.model,
         maximumMicros: worstCaseMicros(
           cost,
-          Buffer.byteLength(JSON.stringify(body)),
+          Buffer.byteLength(sealed.bytes),
           maxOutputTokens,
         ),
         withheld: 0,
+        sealed,
       });
     } catch (error) {
       const raced = await findReplay(
@@ -232,7 +280,40 @@ export function registerMailTaskSuggest(
       if (raced) return respond(raced, null, null);
       throw error;
     }
-    const result = await exchange(fetcher, key, body);
+    const result = await transmitLive(database, config, fetcher, key, sealed, {
+      authority: async (tx) => !!(await auth.currentUser(request, tx)),
+      reprojectMail: async (tx, sources) => {
+        const current = await eligibleMail(
+          tx,
+          owner.id,
+          sources.map((source) => ({
+            id: source.id,
+            expectedVersion: source.version,
+          })),
+          settings.allowPersonalMail,
+        );
+        return new Map(
+          sources.map((source) => {
+            const message = current.eligible.find(
+              (item) => item.id === source.id,
+            );
+            return [
+              `${source.projection}:${source.id}`,
+              message
+                ? {
+                    projection: 'mail-task-v1' as const,
+                    id: message.id,
+                    ref: source.ref,
+                    projected: projectTaskMail(message),
+                  }
+                : null,
+            ];
+          }),
+        );
+      },
+    });
+    if (result.status === 'withheld')
+      return respond(await liveReceipt(database, owner.id, id), null, null);
     let answer: ReturnType<typeof readTaskSuggestions> | null = null;
     let invalid: LiveReason | null = null;
     if (result.status === 'confirmed' && result.content !== null) {

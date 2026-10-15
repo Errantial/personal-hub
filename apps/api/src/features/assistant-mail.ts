@@ -89,13 +89,70 @@ export async function readMail(
 ) {
   if (!ids.length) return [];
   const rows = await tx.query(
-    `SELECT ${columns},m.body FROM ${source} WHERE m.owner_id=$1 AND m.id=ANY($2::uuid[])`,
+    `SELECT ${columns},m.body,m.body_truncated FROM ${source} WHERE m.owner_id=$1 AND m.id=ANY($2::uuid[])`,
     [owner, ids],
   );
   return ids.flatMap((id) => {
     const row = rows.find((item) => item.id === id);
     return row && allowed(row, allowPersonalMail)
-      ? [{ ...hit(row), body: String(row.body).slice(0, bodyLimit) }]
+      ? [
+          {
+            ...hit(row),
+            body: String(row.body).slice(0, bodyLimit),
+            truncated:
+              row.body_truncated === true ||
+              String(row.body).length > bodyLimit,
+          },
+        ]
       : [];
   });
+}
+
+/** The exact header/body fields used by Assistant follow-up envelopes. */
+export const projectMailHeader = (item: MailHit, ref: string) => ({
+  ref,
+  from: item.from,
+  subject: item.subject,
+  received: item.receivedAt.slice(0, 10),
+});
+export const projectMailBody = (
+  item: MailHit & { body: string },
+  ref: string,
+) => ({ ...projectMailHeader(item, ref), body: item.body });
+
+export async function reprojectAssistantMail(
+  tx: QueryExecutor,
+  owner: string,
+  sources: import('../ai/live-manifest.js').LiveSource[],
+  allowPersonalMail: boolean,
+) {
+  const messages = await readMail(
+    tx,
+    owner,
+    sources.map((s) => s.id),
+    allowPersonalMail,
+  );
+  return new Map(
+    sources.map((source) => {
+      const item = messages.find((item) => item.id === source.id);
+      return [
+        `${source.projection}:${source.id}`,
+        item
+          ? {
+              projection: source.projection as
+                'mail-header-v1' | 'mail-body-v1',
+              id: item.id,
+              ref: source.ref,
+              projected:
+                source.projection === 'mail-header-v1'
+                  ? projectMailHeader(item, source.ref)
+                  : projectMailBody(item, source.ref),
+              ...(source.projection === 'mail-body-v1'
+                ? { truncated: item.truncated }
+                : {}),
+            }
+          : null,
+      ];
+    }),
+  );
 }
