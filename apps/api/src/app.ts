@@ -56,6 +56,8 @@ import { ApiError } from './errors.js';
 import { registerAcademics } from './features/academics.js';
 import { registerCalendar } from './features/calendar.js';
 import { registerCalendarManagement } from './features/calendar-management.js';
+import { startAgentWorker } from './features/agent-worker.js';
+import { registerAgents } from './features/agents.js';
 import {
   registerReminders,
   startReminderWorker,
@@ -85,10 +87,12 @@ export async function buildApp(
   let worker: ReturnType<typeof startReminderWorker> | undefined;
   let canvasWorker: ReturnType<typeof startCanvasWorker> | undefined;
   let canvasLmsWorker: ReturnType<typeof startCanvasLmsWorker> | undefined;
+  let agentWorker: ReturnType<typeof startAgentWorker> | undefined;
   app.addHook('onClose', async () => {
     await worker?.stop();
     await canvasWorker?.stop();
     await canvasLmsWorker?.stop();
+    await agentWorker?.stop();
     await database.close();
   });
   await app.register(cookie);
@@ -145,6 +149,7 @@ export async function buildApp(
   registerMemory(app, database, auth);
   registerResponsibilities(app, database, auth);
   registerResponsibilityInbox(app, database, auth);
+  registerAgents(app, database, auth);
   registerStudy(app, database, auth);
   registerDeletedPlanner(app, database, auth);
   registerPlanner(app, database, auth);
@@ -167,6 +172,12 @@ export async function buildApp(
         config,
         runtime.canvasApiFetcher,
       );
+      if (config.AGENT_WORKER === 'on' && config.AI_SECRET_OPENROUTER)
+        agentWorker = startAgentWorker(
+          database,
+          config,
+          runtime.openRouterFetch ?? fetch,
+        );
     });
 
   app.get('/api/health', async () =>

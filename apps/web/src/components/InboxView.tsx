@@ -652,7 +652,7 @@ function NotificationsSection({
             Mark read
           </button>
         )}
-        {!snoozed.has(item.reminderId) && (
+        {item.reminderId && !snoozed.has(item.reminderId) && (
           <Link
             route={{
               name: 'inbox',

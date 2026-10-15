@@ -1,4 +1,8 @@
-import type { AssistantProposal, CalendarRecord, Task } from '@hub/contracts';
+import type { AssistantProposal } from '@hub/contracts';
+// The planner writes for Apply/Undo live in contracts so the agent worker
+// builds the same requests (D57).
+export { applyRequest, undoRequest } from '@hub/contracts';
+export type { PlannedRequest } from '@hub/contracts';
 import { formatDate } from './format';
 
 /** Plain-language summary of one proposed change. */
@@ -84,133 +88,6 @@ function allDayRange(start: string, end: string) {
   return last === start
     ? `${formatDate(start)}, all day`
     : `${formatDate(start)} – ${formatDate(last)}, all day`;
-}
-
-const taskFields = (task: Task) => ({
-  title: task.title,
-  notes: task.notes,
-  dueDate: task.dueDate,
-  priority: task.priority,
-  completed: task.completed,
-});
-const eventFields = (event: CalendarRecord) => ({
-  title: event.title,
-  notes: event.notes,
-  startsAt: event.startsAt,
-  endsAt: event.endsAt,
-  timeZone: event.timeZone,
-  sensitivity: event.sensitivity,
-  allDay: event.allDay,
-  startDate: event.startDate,
-  endDate: event.endDate,
-  recurrence: event.recurrence,
-  courseId: event.courseId,
-  topicId: event.topicId,
-  studyStatus: event.studyStatus,
-});
-
-export type PlannedRequest = {
-  method: 'POST' | 'PUT' | 'DELETE';
-  path: string;
-  body: Record<string, unknown>;
-  /** Which record the response holds. */
-  returns: 'task' | 'event';
-};
-
-/**
- * The ordinary planner write for a proposal. Updates carry the version the
- * model saw, so a change made since then is a conflict, not an overwrite.
- */
-export function applyRequest(
-  proposal: AssistantProposal,
-  operationId: string,
-): PlannedRequest {
-  switch (proposal.kind) {
-    case 'task.create':
-      return {
-        method: 'POST',
-        path: '/api/v1/tasks',
-        body: { ...proposal.task, operationId },
-        returns: 'task',
-      };
-    case 'task.update':
-      return {
-        method: 'PUT',
-        path: `/api/v1/tasks/${proposal.target.id}`,
-        body: {
-          ...taskFields(proposal.target),
-          ...proposal.changes,
-          operationId,
-          expectedVersion: proposal.target.version,
-        },
-        returns: 'task',
-      };
-    case 'event.create':
-      return {
-        method: 'POST',
-        path: '/api/v1/calendar',
-        body: { ...proposal.event, notes: '', operationId },
-        returns: 'event',
-      };
-    case 'event.update':
-      return {
-        method: 'PUT',
-        path: `/api/v1/calendar/${proposal.target.id}`,
-        body: {
-          ...eventFields(proposal.target),
-          ...proposal.changes,
-          operationId,
-          expectedVersion: proposal.target.version,
-        },
-        returns: 'event',
-      };
-  }
-}
-
-/** Reverses an applied proposal: delete what was added, restore the rest. */
-export function undoRequest(
-  proposal: AssistantProposal,
-  applied: { id: string; version: number },
-  operationId: string,
-): PlannedRequest {
-  switch (proposal.kind) {
-    case 'task.create':
-      return {
-        method: 'DELETE',
-        path: `/api/v1/tasks/${applied.id}`,
-        body: { operationId, expectedVersion: applied.version },
-        returns: 'task',
-      };
-    case 'event.create':
-      return {
-        method: 'DELETE',
-        path: `/api/v1/calendar/${applied.id}`,
-        body: { operationId, expectedVersion: applied.version },
-        returns: 'event',
-      };
-    case 'task.update':
-      return {
-        method: 'PUT',
-        path: `/api/v1/tasks/${applied.id}`,
-        body: {
-          ...taskFields(proposal.target),
-          operationId,
-          expectedVersion: applied.version,
-        },
-        returns: 'task',
-      };
-    case 'event.update':
-      return {
-        method: 'PUT',
-        path: `/api/v1/calendar/${applied.id}`,
-        body: {
-          ...eventFields(proposal.target),
-          operationId,
-          expectedVersion: applied.version,
-        },
-        returns: 'event',
-      };
-  }
 }
 
 /** "$0.0004" for small amounts; microdollars in. */

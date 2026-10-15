@@ -10,7 +10,11 @@ import {
   worstCaseMicros,
   zdrUrl,
 } from '../src/ai/openrouter-live.js';
-import { toProposal } from '../src/features/assistant.js';
+import { answerTurn, toProposal } from '../src/features/assistant.js';
+import { plannedWrite } from '../src/features/planner-write.js';
+import { applyRequest } from '@hub/contracts';
+import type { AssistantProposal, Task } from '@hub/contracts';
+import type { Config } from '../src/config.js';
 
 // Every provider exchange is injected; global fetch is forbidden.
 const origin = 'http://127.0.0.1:5173';
@@ -21,6 +25,8 @@ let database: Awaited<ReturnType<typeof openDatabase>>;
 let cookie: string;
 let chat: (body: Record<string, unknown>) => Promise<Response> | Response;
 let sent: Record<string, unknown>[];
+let config: Config;
+let fetcherInUse: Parameters<typeof answerTurn>[2];
 
 const catalog = () =>
   new Response(
@@ -87,7 +93,7 @@ const action = (fields: Record<string, unknown>) => ({
 });
 
 async function start(key: string | null = 'sk-or-synthetic-test') {
-  const config = readConfig({
+  config = readConfig({
     ...base,
     ...(key ? { AI_SECRET_OPENROUTER: key } : {}),
   });
@@ -103,6 +109,7 @@ async function start(key: string | null = 'sk-or-synthetic-test') {
     }
     throw new Error(`Unexpected ${url}`);
   });
+  fetcherInUse = fetcher;
   app = await buildApp(
     { logger: false },
     { config, database, openRouterFetch: fetcher },
@@ -801,4 +808,88 @@ it('converts all-day events and rejects skipped local times', () => {
       1500,
     ),
   ).toBe(Math.ceil((10000 * 0.0000001 + 1500 * 0.0000005) * 1.25 * 1e6));
+});
+
+const ownerId = async () =>
+  String((await database.query('SELECT id FROM users LIMIT 1'))[0]!.id);
+
+it('answerTurn stores the short ask and sends the prompt for agent runs', async () => {
+  await start();
+  await setBudget();
+  const turn = await answerTurn(
+    database,
+    config,
+    fetcherInUse,
+    await ownerId(),
+    {
+      operationId: randomUUID(),
+      prompt: 'GOAL-TEXT',
+      ask: 'Scheduled run',
+      timeZone: 'America/Denver',
+      conversationId: randomUUID(),
+      useMail: false,
+      trigger: 'agent',
+    },
+  );
+  const messages = sent[0]!.messages as { role: string; content: string }[];
+  expect(JSON.parse(messages.at(-1)!.content).request).toBe('GOAL-TEXT');
+  expect(messages[0]!.content).toContain('scheduled run');
+  expect(turn).toMatchObject({ ask: 'Scheduled run', trigger: 'agent' });
+  // Owner asks still read as owner turns.
+  const owned = (await ask('Plan my week')).json().turn;
+  expect(owned).toMatchObject({ ask: 'Plan my week', trigger: 'owner' });
+  expect(
+    (sent[1]!.messages as { content: string }[])[0]!.content,
+  ).not.toContain('scheduled run');
+});
+
+it('plannedWrite applies a task update at the target version, replays and conflicts after an edit', async () => {
+  await start();
+  const owner = await ownerId();
+  const task = (
+    await call('POST', '/api/v1/tasks', {
+      title: 'Lab report',
+      operationId: randomUUID(),
+    })
+  ).json().task as Task;
+  const proposal = {
+    kind: 'task.update',
+    target: task,
+    changes: { priority: 'high' },
+  } as AssistantProposal;
+  const operationId = randomUUID();
+  const written = await plannedWrite(
+    database,
+    owner,
+    applyRequest(proposal, operationId),
+  );
+  expect(written).toEqual({ id: task.id, version: 2 });
+  expect(
+    await plannedWrite(database, owner, applyRequest(proposal, operationId)),
+  ).toEqual(written);
+  await expect(
+    plannedWrite(database, owner, applyRequest(proposal, randomUUID())),
+  ).rejects.toMatchObject({ statusCode: 409, code: 'VERSION_CONFLICT' });
+  const event = await plannedWrite(
+    database,
+    owner,
+    applyRequest(
+      {
+        kind: 'event.create',
+        event: {
+          title: 'Study block',
+          timeZone: 'America/Denver',
+          startsAt: '2036-03-09T16:00:00.000Z',
+          endsAt: '2036-03-09T17:00:00.000Z',
+          allDay: false,
+          startDate: null,
+          endDate: null,
+        },
+      } as AssistantProposal,
+      randomUUID(),
+    ),
+  );
+  expect(
+    (await call('GET', `/api/v1/calendar/${event.id}`)).json().event.title,
+  ).toBe('Study block');
 });

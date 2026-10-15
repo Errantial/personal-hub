@@ -5,6 +5,7 @@ import {
   responsibilityRunSchema,
   responsibilityActivitySchema,
 } from './responsibilities.js';
+import { agentExportSchema } from './agents.js';
 import { memorySchema, memorySettingsSchema } from './memory.js';
 import { aiProviderConsentSchema } from './ai-provider-policy.js';
 import { aiRequestSchema } from './ai-requests.js';
@@ -110,6 +111,7 @@ export const plannerExportSchema = z.object({
     responsibilitySchedules: z.array(responsibilityScheduleSchema).default([]),
     responsibilityRuns: z.array(responsibilityRunSchema).default([]),
     responsibilityActivities: z.array(responsibilityActivitySchema).default([]),
+    agents: z.array(agentExportSchema).default([]),
     aiPreflights: z.array(aiPreflightSchema).default([]),
     aiBudget: aiBudgetSettingsSchema.nullable().default(null),
     aiBudgetReservations: z.array(aiBudgetReservationSchema).default([]),

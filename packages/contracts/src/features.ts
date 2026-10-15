@@ -253,7 +253,10 @@ export const remindersSchema = z.object({
 export const reminderResponseSchema = z.object({ reminder: reminderSchema });
 export const notificationSchema = z.object({
   id: z.string().uuid(),
-  reminderId: z.string().uuid(),
+  /** Set for reminders; agent notifications carry runId and conversationId. */
+  reminderId: z.string().uuid().nullable(),
+  runId: z.string().uuid().nullable().default(null),
+  conversationId: z.string().uuid().nullable().default(null),
   title: z.string(),
   createdAt: instant,
   readAt: instant.nullable(),

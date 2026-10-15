@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { taskSchema } from './core.js';
 import { calendarRecordSchema, dateOnly, instant, zone } from './features.js';
+import { runOutcomeSchema } from './responsibilities.js';
 
 /**
  * Natural-language planner assistant (live OpenRouter). The model only
@@ -180,6 +181,10 @@ export const assistantTurnSchema = z.object({
   items: z.array(assistantItemSchema),
   version: z.number().int().positive(),
   useMail: z.boolean().default(false),
+  /** Who started the turn: the owner, or a scheduled/Run now agent run. */
+  trigger: z.enum(['owner', 'agent']).default('owner'),
+  /** Proposals dropped because action settings turn that kind off. */
+  notAllowed: z.number().int().nonnegative().default(0),
   mail: z.array(assistantMailSentSchema).default([]),
   /** Matching messages the owner's labels kept out. */
   mailWithheld: z.number().int().nonnegative().default(0),
@@ -200,6 +205,19 @@ export const assistantConversationSchema = z.object({
   version: z.number().int().positive(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  /** Present when this is an agent's pinned thread. */
+  agent: z
+    .object({
+      id: z.string().uuid(),
+      title: z.string(),
+      status: z.enum(['active', 'paused']),
+      pauseReason: z.literal('cap-reached').nullable(),
+      nextRunAt: z.string().datetime().nullable(),
+      lastOutcome: runOutcomeSchema.nullable(),
+      lastRunAt: z.string().datetime().nullable(),
+    })
+    .nullable()
+    .default(null),
 });
 export type AssistantConversation = z.infer<typeof assistantConversationSchema>;
 export const assistantConversationListSchema = z.object({

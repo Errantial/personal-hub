@@ -823,11 +823,12 @@ it('upgrades populated storage through all three new migrations without changing
     'SELECT * FROM mutation_receipts WHERE owner_id=$1',
     [owner],
   );
+  // 057 (agents) builds on these tables; remove its additions too so both rerun.
   await db.exec(
-    'DROP TABLE responsibility_activities; DROP TABLE responsibility_runs; DROP TABLE responsibility_schedules; DROP TABLE responsibilities;',
+    'ALTER TABLE notifications DROP CONSTRAINT notifications_source, DROP COLUMN run_id, DROP COLUMN conversation_id; ALTER TABLE ai_conversations DROP COLUMN responsibility_id; ALTER TABLE ai_conversation_turns DROP COLUMN trigger, DROP COLUMN not_allowed; DROP TABLE responsibility_activities; DROP TABLE responsibility_runs; DROP TABLE responsibility_schedules; DROP TABLE responsibilities; DROP FUNCTION hub_valid_local_times;',
   );
   await db.query(
-    "DELETE FROM schema_migrations WHERE name IN ('034_responsibilities.sql','035_responsibility_schedules.sql','036_responsibility_runs.sql','037_responsibility_local_schedules.sql')",
+    "DELETE FROM schema_migrations WHERE name IN ('034_responsibilities.sql','035_responsibility_schedules.sql','036_responsibility_runs.sql','037_responsibility_local_schedules.sql','057_persistent_agents.sql')",
   );
   await migrate(db);
   expect((await get(`/api/v1/tasks/${task.json().task.id}`)).json()).toEqual(

@@ -2,6 +2,14 @@ import { z } from 'zod';
 import { sensitivitySchema } from './core.js';
 import { responsibilityLocalRuleSchema } from './responsibility-local-schedule.js';
 const positive = z.number().int().positive();
+export const runOutcomeSchema = z.enum([
+  'quiet',
+  'applied',
+  'needs-approval',
+  'warning',
+  'failed',
+]);
+export type RunOutcome = z.infer<typeof runOutcomeSchema>;
 const uuid = z.string().uuid();
 const stamp = z.string().datetime();
 const text = (max: number) =>
@@ -197,7 +205,14 @@ export const responsibilityRunSchema = z
     skippedIntervals: z.number().int().nonnegative(),
     inputHash: z.string().regex(/^[a-f0-9]{64}$/),
     labels: z.array(sensitivitySchema).min(1).max(3),
-    status: z.enum(['blocked', 'cancelled']),
+    status: z.enum([
+      'blocked',
+      'cancelled',
+      'queued',
+      'running',
+      'completed',
+      'failed',
+    ]),
     cancelReason: z
       .enum([
         'owner-dismissed',
@@ -206,17 +221,26 @@ export const responsibilityRunSchema = z
         'responsibility-deleted',
         'source-changed',
         'schedule-changed',
+        'cap-reached',
       ])
       .nullable(),
     createdAt: stamp,
     cancelledAt: stamp.nullable(),
+    /** Agent runs (D57); null for legacy blocked reviews. */
+    attempts: z.number().int().nonnegative().default(0),
+    turnId: uuid.nullable().default(null),
+    outcome: runOutcomeSchema.nullable().default(null),
+    errorCode: z.string().nullable().default(null),
+    finishedAt: stamp.nullable().default(null),
   })
   .superRefine((value, ctx) => {
     if (
       (value.status === 'cancelled') !==
         (value.cancelledAt !== null && value.cancelReason !== null) ||
-      (value.status === 'blocked' &&
+      (value.status !== 'cancelled' &&
         (value.cancelledAt !== null || value.cancelReason !== null)) ||
+      ['completed', 'failed'].includes(value.status) !==
+        (value.finishedAt !== null && value.outcome !== null) ||
       (value.trigger === 'manual'
         ? value.scheduledFor !== null ||
           value.scheduleVersion !== null ||
@@ -257,6 +281,10 @@ export const responsibilityActivitySchema = z.object({
     'run-created',
     'run-dismissed',
     'runs-cancelled',
+    'run-started',
+    'run-completed',
+    'run-failed',
+    'cap-reached',
   ]),
   runId: uuid.nullable(),
   createdAt: stamp,

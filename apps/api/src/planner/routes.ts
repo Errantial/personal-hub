@@ -83,6 +83,80 @@ export async function createTaskRecord(
     );
   return taskResponseSchema.parse({ task });
 }
+/**
+ * Creates, updates or deletes one task through the versioned, receipted
+ * mutation. Routes and the agent worker (D57) share it.
+ */
+export async function saveTask(
+  database: Database,
+  owner: string,
+  method: 'POST' | 'PUT' | 'DELETE',
+  target: string | null,
+  body: unknown,
+): Promise<z.infer<typeof taskResponseSchema>> {
+  if (method === 'POST') {
+    const input = createTaskSchema.parse(body);
+    return mutate(
+      database,
+      owner,
+      input.operationId,
+      { kind: 'task.create', input },
+      (transaction) => createTaskRecord(transaction, owner, input),
+    );
+  }
+  const id = z.string().uuid().parse(target);
+  if (method === 'PUT') {
+    const input = updateTaskSchema.parse(body);
+    return mutate(
+      database,
+      owner,
+      input.operationId,
+      { kind: 'task.update', id, input },
+      async (transaction) => {
+        const labels = await academicPlannerLabels(
+          transaction,
+          owner,
+          'task',
+          id,
+        );
+        labels.push(...(await mailTaskLabels(transaction, owner, id)));
+        const [task] = await transaction.query(
+          `UPDATE tasks SET title = $3, notes = $4, due_date = $5, priority = $6, completed = $7, sensitivity = COALESCE($8, sensitivity), version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE owner_id = $1 AND id = $2 AND version = $9 AND deleted_at IS NULL RETURNING ${taskColumns}`,
+          [
+            owner,
+            id,
+            input.title,
+            input.notes,
+            input.dueDate,
+            input.priority,
+            input.completed,
+            input.sensitivity === undefined
+              ? null
+              : strongest(input.sensitivity, ...labels),
+            input.expectedVersion,
+          ],
+        );
+        if (!task) return missingOrConflict(transaction, 'tasks', owner, id);
+        return taskResponseSchema.parse({ task });
+      },
+    );
+  }
+  const input = deleteItemSchema.parse(body);
+  return mutate(
+    database,
+    owner,
+    input.operationId,
+    { kind: 'task.delete', id, input },
+    async (transaction) => {
+      const [task] = await transaction.query(
+        `UPDATE tasks SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP, version = version + 1 WHERE owner_id = $1 AND id = $2 AND version = $3 AND deleted_at IS NULL RETURNING ${taskColumns}`,
+        [owner, id, input.expectedVersion],
+      );
+      if (!task) return missingOrConflict(transaction, 'tasks', owner, id);
+      return taskResponseSchema.parse({ task });
+    },
+  );
+}
 export function registerPlanner(
   app: FastifyInstance,
   database: Database,
@@ -142,71 +216,17 @@ export function registerPlanner(
   });
   app.post('/api/v1/tasks', async (request) => {
     const user = await auth.requireUser(request);
-    const input = createTaskSchema.parse(request.body);
-    return mutate(
-      database,
-      user.id,
-      input.operationId,
-      { kind: 'task.create', input },
-      (transaction) => createTaskRecord(transaction, user.id, input),
-    );
+    return saveTask(database, user.id, 'POST', null, request.body);
   });
   app.put('/api/v1/tasks/:id', async (request) => {
     const user = await auth.requireUser(request);
     const { id } = idSchema.parse(request.params);
-    const input = updateTaskSchema.parse(request.body);
-    return mutate(
-      database,
-      user.id,
-      input.operationId,
-      { kind: 'task.update', id, input },
-      async (transaction) => {
-        const labels = await academicPlannerLabels(
-          transaction,
-          user.id,
-          'task',
-          id,
-        );
-        labels.push(...(await mailTaskLabels(transaction, user.id, id)));
-        const [task] = await transaction.query(
-          `UPDATE tasks SET title = $3, notes = $4, due_date = $5, priority = $6, completed = $7, sensitivity = COALESCE($8, sensitivity), version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE owner_id = $1 AND id = $2 AND version = $9 AND deleted_at IS NULL RETURNING ${taskColumns}`,
-          [
-            user.id,
-            id,
-            input.title,
-            input.notes,
-            input.dueDate,
-            input.priority,
-            input.completed,
-            input.sensitivity === undefined
-              ? null
-              : strongest(input.sensitivity, ...labels),
-            input.expectedVersion,
-          ],
-        );
-        if (!task) return missingOrConflict(transaction, 'tasks', user.id, id);
-        return taskResponseSchema.parse({ task });
-      },
-    );
+    return saveTask(database, user.id, 'PUT', id, request.body);
   });
   app.delete('/api/v1/tasks/:id', async (request) => {
     const user = await auth.requireUser(request);
     const { id } = idSchema.parse(request.params);
-    const input = deleteItemSchema.parse(request.body);
-    return mutate(
-      database,
-      user.id,
-      input.operationId,
-      { kind: 'task.delete', id, input },
-      async (transaction) => {
-        const [task] = await transaction.query(
-          `UPDATE tasks SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP, version = version + 1 WHERE owner_id = $1 AND id = $2 AND version = $3 AND deleted_at IS NULL RETURNING ${taskColumns}`,
-          [user.id, id, input.expectedVersion],
-        );
-        if (!task) return missingOrConflict(transaction, 'tasks', user.id, id);
-        return taskResponseSchema.parse({ task });
-      },
-    );
+    return saveTask(database, user.id, 'DELETE', id, request.body);
   });
   app.get('/api/v1/events', async (request) => {
     const user = await auth.requireUser(request);

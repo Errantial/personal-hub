@@ -19,7 +19,7 @@ import { expandEvent, Temporal } from '@hub/contracts';
 import { ApiError } from '../errors.js';
 
 export const reminderColumns = `id,title,snoozed_from_id AS "snoozedFromId",${stamp('scheduled_at', 'scheduledAt')},target_kind AS "targetKind",target_id AS "targetId",to_char(occurrence_date,'YYYY-MM-DD') AS "occurrenceDate",status,attempts,last_error AS "lastError",version,${stamp('created_at', 'createdAt')},${stamp('updated_at', 'updatedAt')}`;
-export const notificationColumns = `id,reminder_id AS "reminderId",title,${stamp('created_at', 'createdAt')},${stamp('read_at', 'readAt')}`;
+export const notificationColumns = `id,reminder_id AS "reminderId",run_id AS "runId",conversation_id AS "conversationId",title,${stamp('created_at', 'createdAt')},${stamp('read_at', 'readAt')}`;
 export async function targetAvailable(
   tx: QueryExecutor,
   job: Record<string, unknown>,
