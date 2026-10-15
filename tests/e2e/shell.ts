@@ -160,6 +160,9 @@ export async function showCalendar(
   },
 ) {
   const region = calendarRegion(page);
+  await expect(
+    region.getByRole('navigation', { name: 'Calendar views' }),
+  ).toBeVisible();
   // Narrow screens keep the date and zone behind the Calendars button.
   const tools = region.getByRole('button', { name: 'Calendars', exact: true });
   if (

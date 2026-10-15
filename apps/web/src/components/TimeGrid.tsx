@@ -220,7 +220,14 @@ export function TimeGrid({
           </ul>
         ))}
       </div>
-      <div className="time-grid__scroll" ref={scroller}>
+      <div
+        className="time-grid__scroll"
+        ref={scroller}
+        // Scrollable by keyboard; blocks and New event stay reachable by Tab.
+        tabIndex={0}
+        role="group"
+        aria-label="Hours"
+      >
         <div
           className="time-grid__body"
           ref={body}

@@ -152,7 +152,7 @@ test('calendar navigation preserves a stale draft until the latest version is lo
   await editor.getByRole('button', { name: 'Save changes' }).click();
   await expect(editor.getByRole('status').first()).toHaveText('Saved.');
   await expect(
-    view.getByRole('link', { name: 'Calendar preserved draft', exact: true }),
+    view.getByRole('link', { name: /^Calendar preserved draft, / }),
   ).toBeVisible();
 });
 test('calendar shows agenda, week and day windows and edits an all-day recurring occurrence', async ({
