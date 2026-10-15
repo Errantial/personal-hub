@@ -153,9 +153,11 @@ export function AgentDialog({
   }
   useEffect(() => {
     const returnFocus = document.activeElement;
-    if (ref.current && !ref.current.open) ref.current.showModal();
+    const element = ref.current;
+    if (element && !element.open) element.showModal();
     first.current?.focus();
     return () => {
+      element?.close();
       if (returnFocus instanceof HTMLElement) returnFocus.focus();
     };
   }, []);
