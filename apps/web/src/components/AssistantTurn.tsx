@@ -38,6 +38,8 @@ export const reasons: Record<
   transport: 'The connection to OpenRouter failed.',
   response: 'OpenRouter sent an unreadable response.',
   billing: 'OpenRouter did not report the cost.',
+  'context-changed': 'A source changed before sending. Nothing was sent.',
+  'route-blocked': 'The approved destination changed. Nothing was sent.',
 };
 
 /** One live planner write (never queued offline); returns the record. */

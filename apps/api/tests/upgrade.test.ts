@@ -261,3 +261,124 @@ it('upgrades populated responsibilities, notifications and action policies throu
     await db.close();
   }
 });
+
+it('upgrades populated assistant turns and requests through 060 without rewriting them', async () => {
+  const db = await openDatabase(
+    readConfig({ NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' }),
+  );
+  try {
+    const directory = new URL('../migrations/', import.meta.url);
+    const names = (await readdir(directory))
+      .filter((name) => /^\d+_.+\.sql$/.test(name))
+      .sort();
+    await db.exec(
+      'CREATE TABLE schema_migrations (name TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)',
+    );
+    for (const name of names.filter((name) => Number(name.slice(0, 3)) <= 59)) {
+      const sql = await readFile(new URL(name, directory), 'utf8');
+      await db.exec(sql);
+      await db.query(
+        'INSERT INTO schema_migrations(name,checksum) VALUES($1,$2)',
+        [name, createHash('sha256').update(sql).digest('hex')],
+      );
+    }
+    const owner = randomUUID();
+    const other = randomUUID();
+    const conversation = randomUUID();
+    for (const [id, email] of [
+      [owner, 'live-upgrade@example.test'],
+      [other, 'live-upgrade-other@example.test'],
+    ])
+      await db.query(
+        "INSERT INTO users(id,email,password_hash) VALUES($1,$2,'unused')",
+        [id, email],
+      );
+    const request = async (user: string, reason: string | null = null) => {
+      const id = randomUUID();
+      const reservation = randomUUID();
+      await db.query(
+        "INSERT INTO ai_budget_reservations(id,owner_id,request_id,request_hash,month,provider,model,policy_version,reserved_micros,actual_micros,status) VALUES($1,$2,$3,'h','2026-10-01','openrouter','anthropic/claude-haiku-5.5',1,10,0,'released')",
+        [reservation, user, id],
+      );
+      await db.query(
+        "INSERT INTO ai_assistant_requests(id,owner_id,operation_id,request_hash,model,reservation_id,status,reason) VALUES($1,$2,$3,'h','anthropic/claude-haiku-5.5',$4,'failed',$5)",
+        [id, user, randomUUID(), reservation, reason],
+      );
+      return id;
+    };
+    for (const user of [owner, other])
+      await db.query('INSERT INTO ai_budget_policies(owner_id) VALUES($1)', [
+        user,
+      ]);
+    const mailTurn = await request(owner);
+    const plainTurn = await request(owner);
+    const foreign = await request(other);
+    await db.query(
+      "INSERT INTO ai_conversations(id,owner_id,title) VALUES($1,$2,'Legacy')",
+      [conversation, owner],
+    );
+    await db.query(
+      `INSERT INTO ai_conversation_turns(id,owner_id,conversation_id,position,ask,reply,proposals,items,mail) VALUES
+        ($1,$3,$4,0,'Synthetic ask','Synthetic reply','[{"kind":"task.create"}]','[{"state":"proposed"}]','[{"id":"m1","subject":"Synthetic"}]'),
+        ($2,$3,$4,1,'Second ask','Second reply','[]','[]','[]')`,
+      [mailTurn, plainTurn, owner, conversation],
+    );
+    const turns = () =>
+      db.query(
+        'SELECT id,ask,reply,proposals,items,mail,version FROM ai_conversation_turns ORDER BY position',
+      );
+    const before = await turns();
+    await migrate(db);
+    expect(await turns()).toEqual(before);
+    expect(
+      await db.query(
+        'SELECT proposal_access,inference_history,inference_digest,inference_sources FROM ai_conversation_turns ORDER BY position',
+      ),
+    ).toEqual([
+      {
+        proposal_access: 'read-only',
+        inference_history: 'unbound',
+        inference_digest: null,
+        inference_sources: null,
+      },
+      {
+        proposal_access: 'applicable',
+        inference_history: 'unbound',
+        inference_digest: null,
+        inference_sources: null,
+      },
+    ]);
+    // A bound turn needs both its digest and its sources.
+    await expect(
+      db.query(
+        "UPDATE ai_conversation_turns SET inference_history='bound' WHERE id=$1",
+        [plainTurn],
+      ),
+    ).rejects.toThrow();
+    await request(owner, 'context-changed');
+    await request(owner, 'route-blocked');
+    await expect(request(owner, 'nope')).rejects.toThrow();
+    // An exchange binding must belong to its request's owner.
+    await expect(
+      db.query(
+        "INSERT INTO ai_live_exchanges(request_id,owner_id,format_version,manifest,integrity_hash,destination_revision,source_count) VALUES($1,$2,1,'{}',$3,$3,0)",
+        [foreign, owner, 'a'.repeat(64)],
+      ),
+    ).rejects.toThrow();
+    await db.query(
+      "INSERT INTO ai_live_exchanges(request_id,owner_id,format_version,manifest,integrity_hash,destination_revision,source_count) VALUES($1,$2,1,'{}',$3,$3,0)",
+      [foreign, other, 'a'.repeat(64)],
+    );
+    await expect(
+      db.query(
+        "INSERT INTO ai_live_destinations(owner_id,model,upstream,revision,version) VALUES($1,'anthropic/claude-haiku-5.5','google-vertex/x',$2,1)",
+        [owner, 'b'.repeat(64)],
+      ),
+    ).rejects.toThrow();
+    expect(await db.query('SELECT name FROM schema_migrations')).toHaveLength(
+      names.length,
+    );
+  } finally {
+    await db.close();
+  }
+});

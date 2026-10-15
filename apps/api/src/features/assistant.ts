@@ -663,7 +663,8 @@ export async function answerTurn(
       );
       hits = found.hits;
       mailWithheld = found.withheld;
-      for (const item of hits) sent.set(item.id, { ...item, read: false });
+      for (const item of hits)
+        sent.set(item.id, { ...item, read: false, truncated: false });
       followUps.push(
         { role: 'assistant', content: result.content! },
         {

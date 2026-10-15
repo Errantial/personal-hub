@@ -165,7 +165,7 @@ export async function finishTurn(
   );
 }
 
-const turnColumns = `t.id,t.conversation_id AS "conversationId",t.ask,t.reply,t.proposals,t.items,t.version,t.use_mail AS "useMail",t.mail,t.mail_withheld AS "mailWithheld",t.mail_note AS "mailNote",t.trigger,t.not_allowed AS "notAllowed"`;
+const turnColumns = `t.id,t.conversation_id AS "conversationId",t.ask,t.reply,t.proposals,t.items,t.version,t.use_mail AS "useMail",t.mail,t.mail_withheld AS "mailWithheld",t.mail_note AS "mailNote",t.trigger,t.not_allowed AS "notAllowed",t.inference_history AS "inferenceHistory",t.proposal_access AS "proposalAccess"`;
 const json = (value: unknown) =>
   typeof value === 'string' ? JSON.parse(value) : value;
 
@@ -229,9 +229,15 @@ function toTurn(
     useMail: row.useMail === true,
     trigger: row.trigger === 'agent' ? 'agent' : 'owner',
     notAllowed: Number(row.notAllowed ?? 0),
-    mail: (json(row.mail) ?? []) as AssistantMailSent[],
+    mail: ((json(row.mail) ?? []) as AssistantMailSent[]).map((item) => ({
+      ...item,
+      truncated: item.truncated === true,
+    })),
     mailWithheld: Number(row.mailWithheld ?? 0),
     mailNote: (row.mailNote as string | null) ?? null,
+    inferenceHistory: row.inferenceHistory === 'bound' ? 'bound' : 'unbound',
+    proposalAccess:
+      row.proposalAccess === 'read-only' ? 'read-only' : 'applicable',
     request: {
       ...(receipt as AssistantTurn['request']),
       resultAvailable: answered,
@@ -316,7 +322,7 @@ export function registerAssistantConversations(
         [id],
       );
       await tx.query(
-        `UPDATE ai_conversation_turns SET ask=NULL,reply=NULL,proposals='[]',items='[]',version=version+1,updated_at=CURRENT_TIMESTAMP WHERE conversation_id=$1`,
+        `UPDATE ai_conversation_turns SET ask=NULL,reply=NULL,proposals='[]',items='[]',inference_history='unbound',inference_digest=NULL,inference_sources=NULL,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE conversation_id=$1`,
         [id],
       );
     });
