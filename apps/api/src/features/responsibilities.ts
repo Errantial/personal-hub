@@ -24,6 +24,7 @@ import {
   responsibilityActivityPageQuerySchema,
   responsibilityActivityPageSchema,
   responsibilityLocalScheduleWriteSchema,
+  responsibilityLocalRuleSchema,
 } from '@hub/contracts';
 import type { Responsibility, ResponsibilityRun } from '@hub/contracts';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -35,18 +36,22 @@ import { stamp, version } from './common.js';
 import {
   localReviewSlot,
   advanceLocalReview,
+  firstSlotAfter,
 } from './responsibility-local-cadence.js';
 
 const ids = z.object({ id: z.string().uuid() });
 const runIds = ids.extend({ runId: z.string().uuid() });
 export const responsibilityColumns = `id,version,title,goal,source,sensitivity,labels,status,${stamp('created_at', 'createdAt')},${stamp('updated_at', 'updatedAt')},${stamp('deleted_at', 'deletedAt')}`;
 const scheduleColumns = `responsibility_id AS "responsibilityId",version,${stamp('starts_at', 'startsAt')},interval_minutes AS "intervalMinutes",${stamp('next_due_at', 'nextDueAt')},${stamp('updated_at', 'updatedAt')},${stamp('deleted_at', 'deletedAt')},local_rule AS "localRule",next_local_index AS "nextLocalIndex"`;
-const runColumns = `id,responsibility_id AS "responsibilityId",responsibility_version AS "responsibilityVersion",version,trigger,${stamp('scheduled_for', 'scheduledFor')},schedule_version AS "scheduleVersion",skipped_intervals AS "skippedIntervals",input_hash AS "inputHash",labels,status,cancel_reason AS "cancelReason",${stamp('created_at', 'createdAt')},${stamp('cancelled_at', 'cancelledAt')}`;
+const runColumns = `id,responsibility_id AS "responsibilityId",responsibility_version AS "responsibilityVersion",version,trigger,${stamp('scheduled_for', 'scheduledFor')},schedule_version AS "scheduleVersion",skipped_intervals AS "skippedIntervals",input_hash AS "inputHash",labels,status,cancel_reason AS "cancelReason",${stamp('created_at', 'createdAt')},${stamp('cancelled_at', 'cancelledAt')},attempts,turn_id AS "turnId",outcome,error_code AS "errorCode",${stamp('finished_at', 'finishedAt')}`;
 const activityColumns = `id,responsibility_id AS "responsibilityId",responsibility_version AS "responsibilityVersion",kind,run_id AS "runId",${stamp('created_at', 'createdAt')}`;
 export {
   read as readResponsibility,
   activity as appendResponsibilityActivity,
   runColumns as responsibilityRunColumns,
+  schedule as readResponsibilitySchedule,
+  cancelRuns as cancelResponsibilityRuns,
+  newRun as createResponsibilityRun,
 };
 async function read(
   tx: QueryExecutor,
@@ -108,7 +113,7 @@ async function cancelRuns(
   reason: ResponsibilityRun['cancelReason'],
 ) {
   const rows = await tx.query(
-    "UPDATE responsibility_runs SET status='cancelled',cancel_reason=$3,cancelled_at=CURRENT_TIMESTAMP,version=version+1 WHERE owner_id=$1 AND responsibility_id=$2 AND status='blocked' RETURNING id",
+    "UPDATE responsibility_runs SET status='cancelled',cancel_reason=$3,cancelled_at=CURRENT_TIMESTAMP,version=version+1 WHERE owner_id=$1 AND responsibility_id=$2 AND status IN ('blocked','queued') RETURNING id",
     [owner, value.id, reason],
   );
   if (rows.length) await activity(tx, owner, value, 'runs-cancelled');
@@ -147,8 +152,14 @@ async function newRun(
       }),
     )
     .digest('hex');
+  // Agents (D57) execute: their runs queue for the worker. Other
+  // responsibilities keep blocked review runs.
+  const [agent] = await tx.query(
+    'SELECT template FROM responsibilities WHERE owner_id=$1 AND id=$2',
+    [owner, value.id],
+  );
   const [row] = await tx.query(
-    `INSERT INTO responsibility_runs(id,owner_id,responsibility_id,responsibility_version,trigger,scheduled_for,schedule_version,skipped_intervals,input_hash,labels) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING ${runColumns}`,
+    `INSERT INTO responsibility_runs(id,owner_id,responsibility_id,responsibility_version,trigger,scheduled_for,schedule_version,skipped_intervals,input_hash,labels,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING ${runColumns}`,
     [
       randomUUID(),
       owner,
@@ -160,11 +171,99 @@ async function newRun(
       planned?.skippedIntervals ?? 0,
       hash,
       value.labels,
+      agent?.template ? 'queued' : 'blocked',
     ],
   );
   const run = responsibilityRunSchema.parse(row);
   await activity(tx, owner, value, 'run-created', run.id);
   return run;
+}
+/**
+ * Admits the schedule's due slot as one run (missed slots coalesce) and
+ * advances the schedule. Callers lock and check versions first. Server time
+ * only: client clocks never authorize admission.
+ */
+export async function admitSlot(
+  tx: QueryExecutor,
+  owner: string,
+  value: Responsibility,
+  saved: z.infer<typeof responsibilityScheduleSchema>,
+  now: number,
+): Promise<ResponsibilityRun> {
+  if (!saved.nextDueAt)
+    throw new ApiError(409, 'SCHEDULE_STATE', 'No pending schedule.');
+  const due = Date.parse(saved.nextDueAt);
+  if (due > now) throw new ApiError(409, 'NOT_DUE', 'This review is not due.');
+  const interval =
+    saved.intervalMinutes === null ? null : saved.intervalMinutes * 60000;
+  let skipped = interval === null ? 0 : Math.floor((now - due) / interval);
+  if (skipped > 2147483647)
+    throw new ApiError(
+      409,
+      'SCHEDULE_RANGE',
+      'Choose a more recent schedule start.',
+    );
+  let next =
+    interval === null
+      ? null
+      : new Date(due + (skipped + 1) * interval).toISOString();
+  let nextLocalIndex: number | null = null;
+  if (saved.localRule !== null) {
+    if (saved.nextLocalIndex === null)
+      throw new ApiError(
+        409,
+        'LOCAL_SCHEDULE_UNAVAILABLE',
+        'Local schedule position is unavailable.',
+      );
+    const advanced = advanceLocalReview(
+      saved.localRule,
+      saved.nextLocalIndex,
+      saved.nextDueAt,
+      now,
+    );
+    next = advanced.next;
+    nextLocalIndex = advanced.nextLocalIndex;
+    skipped = advanced.skippedIntervals;
+  }
+  const run = await newRun(tx, owner, value, {
+    scheduledFor: saved.nextDueAt,
+    scheduleVersion: saved.version,
+    skippedIntervals: skipped,
+  });
+  await tx.query(
+    'UPDATE responsibility_schedules SET next_due_at=$3,next_local_index=$4,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND responsibility_id=$2',
+    [owner, value.id, next, nextLocalIndex],
+  );
+  return run;
+}
+/** Points a resumed agent's local schedule at its first future slot. */
+async function restartAgentSchedule(
+  tx: QueryExecutor,
+  owner: string,
+  id: string,
+) {
+  const [row] = await tx.query(
+    'SELECT s.local_rule FROM responsibilities r JOIN responsibility_schedules s ON s.owner_id=r.owner_id AND s.responsibility_id=r.id WHERE r.owner_id=$1 AND r.id=$2 AND r.template IS NOT NULL AND s.deleted_at IS NULL AND s.local_rule IS NOT NULL',
+    [owner, id],
+  );
+  if (!row) return;
+  const rule = responsibilityLocalRuleSchema.parse(
+    typeof row.local_rule === 'string'
+      ? JSON.parse(row.local_rule)
+      : row.local_rule,
+  );
+  const first = firstSlotAfter(rule, Date.now());
+  await tx.query(
+    'UPDATE responsibility_schedules SET next_due_at=$3,next_local_index=$4,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND responsibility_id=$2',
+    [owner, id, first?.at ?? null, first?.index ?? null],
+  );
+}
+/** Agent fields for the planner export (D57). */
+async function exportAgents(tx: QueryExecutor, owner: string) {
+  return tx.query(
+    `SELECT id,template,conversation_id AS "conversationId",time_zone AS "timeZone",use_mail AS "useMail",monthly_cap_micros::int AS "monthlyCapMicros",pause_reason AS "pauseReason" FROM responsibilities WHERE owner_id=$1 AND template IS NOT NULL ORDER BY id LIMIT 10001`,
+    [owner],
+  );
 }
 export async function exportResponsibilities(tx: QueryExecutor, owner: string) {
   const rows = (table: string, columns: string) =>
@@ -185,6 +284,7 @@ export async function exportResponsibilities(tx: QueryExecutor, owner: string) {
     responsibilityActivities: (
       await rows('responsibility_activities', activityColumns)
     ).map((row) => responsibilityActivitySchema.parse(row)),
+    agents: await exportAgents(tx, owner),
   };
 }
 export function registerResponsibilities(
@@ -391,10 +491,19 @@ export function registerResponsibilities(
                   ? 'paused'
                   : 'cancelled';
             const [row] = await tx.query(
-              `UPDATE responsibilities SET status=$3,deleted_at=${action === 'delete' ? 'CURRENT_TIMESTAMP' : 'deleted_at'},version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2 RETURNING ${responsibilityColumns}`,
+              `UPDATE responsibilities SET status=$3,pause_reason=NULL,deleted_at=${action === 'delete' ? 'CURRENT_TIMESTAMP' : 'deleted_at'},version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2 RETURNING ${responsibilityColumns}`,
               [user.id, id, status],
             );
             const value = responsibilitySchema.parse(row);
+            // Agents (D57): resume starts at the next future slot (no
+            // back-fill); cancel or delete unpins the kept conversation.
+            if (action === 'resume')
+              await restartAgentSchedule(tx, user.id, id);
+            if (action === 'cancel' || action === 'delete')
+              await tx.query(
+                'UPDATE ai_conversations SET responsibility_id=NULL WHERE owner_id=$1 AND responsibility_id=$2',
+                [user.id, id],
+              );
             if (action !== 'resume')
               await cancelRuns(
                 tx,
@@ -547,54 +656,7 @@ export function registerResponsibilities(
           if (!saved || saved.deletedAt || !saved.nextDueAt)
             throw new ApiError(409, 'SCHEDULE_STATE', 'No pending schedule.');
           version(saved, item.expectedScheduleVersion);
-          const due = Date.parse(saved.nextDueAt);
-          if (due > now)
-            throw new ApiError(409, 'NOT_DUE', 'This review is not due.');
-          const interval =
-            saved.intervalMinutes === null
-              ? null
-              : saved.intervalMinutes * 60000;
-          let skipped =
-            interval === null ? 0 : Math.floor((now - due) / interval);
-          if (skipped > 2147483647)
-            throw new ApiError(
-              409,
-              'SCHEDULE_RANGE',
-              'Choose a more recent schedule start.',
-            );
-          let next =
-            interval === null
-              ? null
-              : new Date(due + (skipped + 1) * interval).toISOString();
-          let nextLocalIndex: number | null = null;
-          if (saved.localRule !== null) {
-            if (saved.nextLocalIndex === null)
-              throw new ApiError(
-                409,
-                'LOCAL_SCHEDULE_UNAVAILABLE',
-                'Local schedule position is unavailable.',
-              );
-            const advanced = advanceLocalReview(
-              saved.localRule,
-              saved.nextLocalIndex,
-              saved.nextDueAt,
-              now,
-            );
-            next = advanced.next;
-            nextLocalIndex = advanced.nextLocalIndex;
-            skipped = advanced.skippedIntervals;
-          }
-          runs.push(
-            await newRun(tx, user.id, value, {
-              scheduledFor: saved.nextDueAt,
-              scheduleVersion: saved.version,
-              skippedIntervals: skipped,
-            }),
-          );
-          await tx.query(
-            'UPDATE responsibility_schedules SET next_due_at=$3,next_local_index=$4,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND responsibility_id=$2',
-            [user.id, value.id, next, nextLocalIndex],
-          );
+          runs.push(await admitSlot(tx, user.id, value, saved, now));
         }
         return responsibilityDueAdmissionResponseSchema.parse({
           runs,

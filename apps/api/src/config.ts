@@ -54,6 +54,8 @@ const environmentSchema = z
     ),
     // Planner assistant key (docs/ai-assistant.md). Server memory only; never
     // returned, logged or exported.
+    // Agent worker (D57): 'off' keeps scheduled agents from running.
+    AGENT_WORKER: z.enum(['on', 'off']).default('on'),
     AI_SECRET_OPENROUTER: z.preprocess(
       (value) => (value === '' ? undefined : value),
       z
