@@ -56,6 +56,8 @@ Take a backup and review migration compatibility before changing the release sym
 
 `release-check.mjs` and `preflight.sh` add offline artifact and migration gates. They do not deploy, migrate, load production configuration, start a server/worker or contact a provider. Run the normal application checks from a clean, reviewed checkout first. Record the **full** tested commit and tree (`git rev-parse HEAD` and `git rev-parse 'HEAD^{tree}'`); verify any stacked changes are present on the release branch. The manifest records this operator-supplied identity; it does not independently prove that a build came from that tree, replace review/CI, or authenticate a downloaded artifact.
 
+Transfer `release-check.mjs`, `preflight.sh` and `check-release-tree.sh` from that same reviewed commit together into the server's operator deployment directory, root-owned and not group/world writable. The runtime archive intentionally excludes deployment scripts. Run the server commands below from the parent of `deploy/oracle-linux`, or substitute the verified scripts' absolute paths; do not invoke a stale script from an earlier checkout.
+
 After building, copy only the archive allowlist above into a new clean staging directory, preserving its relative paths. Seal that directory before creating the final archive (do not seal the working checkout, which may contain `.env.example`, private configuration or development data):
 
 ```sh
