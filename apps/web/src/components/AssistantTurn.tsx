@@ -17,6 +17,7 @@ import {
   undoRequest,
 } from '../lib/assistant';
 import type { PlannedRequest } from '../lib/assistant';
+import { runLine } from '../lib/agents';
 import { formatInstant } from '../lib/format';
 import { useOnline } from '../lib/hooks';
 
@@ -64,6 +65,8 @@ export function AssistantTurnView({
   onTurn,
   onApplied,
   onStale,
+  onRetry,
+  timeZone: zone,
 }: {
   turn: AssistantTurn;
   /** The turn after its applied state was saved. */
@@ -72,6 +75,10 @@ export function AssistantTurnView({
   onApplied: () => void;
   /** Another device changed this turn; reload it. */
   onStale: () => void;
+  /** Agent runs (D57): queue Run now again after a failure. */
+  onRetry?: (() => void) | undefined;
+  /** The agent's zone for run times; defaults to the device's. */
+  timeZone?: string | undefined;
 }) {
   const online = useOnline();
   const request = turn.request;
@@ -80,7 +87,7 @@ export function AssistantTurnView({
   );
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const timeZone = zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   /** Saves item states; a newer version elsewhere asks for a reload. */
   async function save(items: AssistantItem[]) {
@@ -166,14 +173,21 @@ export function AssistantTurnView({
     request.dropped
       ? `${plural(request.dropped, 'suggestion')} could not be used`
       : '',
+    turn.notAllowed ? `${turn.notAllowed} not allowed by settings` : '',
   ]
     .filter(Boolean)
     .join(' · ');
   return (
     <div className="assistant-turn">
-      <article aria-label="You" className="bubble bubble--me">
-        {turn.ask}
-      </article>
+      {turn.trigger === 'agent' ? (
+        <p className="turn-run meta">
+          {runLine(turn.ask, request.createdAt, timeZone)}
+        </p>
+      ) : (
+        <article aria-label="You" className="bubble bubble--me">
+          {turn.ask}
+        </article>
+      )}
       <article aria-label="Assistant" className="bubble bubble--ai">
         {request.reason && (
           <p role="alert" className="form-error">
@@ -181,6 +195,16 @@ export function AssistantTurnView({
             {request.status === 'uncertain' &&
               ` The cost is unknown: up to ${formatCost(request.heldMicros)} stays held against this month’s limit. Nothing is resent.`}
           </p>
+        )}
+        {request.status === 'failed' && request.reason && onRetry && (
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={!online}
+            onClick={onRetry}
+          >
+            Retry
+          </button>
         )}
         {request.reply && <p className="assistant__reply">{request.reply}</p>}
         {turn.mailNote && (

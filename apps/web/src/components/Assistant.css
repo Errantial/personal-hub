@@ -99,6 +99,11 @@
 .assistant-page__list a[aria-current='page'] {
   font-weight: var(--weight-strong);
 }
+.assistant-page__list a {
+  display: flex;
+  align-items: center;
+  min-height: var(--target);
+}
 .assistant-page__head {
   display: flex;
   flex-wrap: wrap;
@@ -235,4 +240,39 @@
         var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))
     );
   }
+}
+
+/* Agents (D57): pinned group above conversations; run turns. */
+.assistant-page__agents {
+  display: grid;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+.assistant-page__agents h2 {
+  font-size: var(--text-body);
+}
+.assistant-page__agents ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.assistant-page__agents li {
+  display: grid;
+}
+.assistant-page__dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-inline-start: var(--space-2);
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+}
+.agent-state--warning {
+  color: var(--danger);
+}
+.turn-run {
+  margin: 0;
+  text-align: center;
 }

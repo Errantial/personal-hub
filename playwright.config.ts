@@ -30,6 +30,8 @@ export default defineConfig({
       CANVAS_CALENDAR_FEED_URL: '',
       CANVAS_API_TOKEN: '',
       AI_PROVIDER_PROFILES: '[]',
+      AGENT_WORKER: 'off',
+      AI_SECRET_OPENROUTER: '',
     },
     timeout: 60000,
   },
