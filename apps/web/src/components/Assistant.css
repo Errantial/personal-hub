@@ -99,6 +99,11 @@
 .assistant-page__list a[aria-current='page'] {
   font-weight: var(--weight-strong);
 }
+.assistant-page__list a {
+  display: flex;
+  align-items: center;
+  min-height: var(--target);
+}
 .assistant-page__head {
   display: flex;
   flex-wrap: wrap;
