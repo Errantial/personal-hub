@@ -124,13 +124,21 @@ export async function resolveAIContext(
     memorySettingsVersion = settings.version;
   } else if (ref.kind === 'task' || ref.kind === 'event') {
     const [row] = await tx.query(
-      `SELECT ${ref.kind === 'task' ? taskColumns : eventColumns} FROM ${ref.kind === 'task' ? 'tasks' : 'events'} WHERE owner_id=$1 AND id=$2 AND deleted_at IS NULL`,
+      `SELECT ${ref.kind === 'task' ? taskColumns : eventColumns}, ai_origin AS "aiOrigin", ai_labels AS "aiLabels" FROM ${ref.kind === 'task' ? 'tasks' : 'events'} WHERE owner_id=$1 AND id=$2 AND deleted_at IS NULL`,
       [owner, ref.id],
     );
     if (!row)
       throw new ApiError(404, 'NOT_FOUND', 'Context source not available.');
     version(row, ref.expectedVersion);
     currentVersion = Number(row.version);
+    if (row.aiOrigin !== undefined && row.aiOrigin !== 'owner-entered')
+      throw new ApiError(
+        409,
+        'PROVENANCE_UNAVAILABLE',
+        'Derived or legacy planner origin is not verified for AI context.',
+      );
+    if (Array.isArray(row.aiLabels))
+      labels.push(...sensitivitySchema.array().max(3).parse(row.aiLabels));
     const record =
       ref.kind === 'task'
         ? taskSchema.parse(row)

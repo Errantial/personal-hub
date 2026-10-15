@@ -408,7 +408,7 @@ it('keeps conversations on the server, resends earlier turns and deletes their t
   expect(sent).toHaveLength(2);
 });
 
-it('stores applied state so another device can undo with the same write IDs', async () => {
+it('applies and undoes saved proposals on the server while refusing client item-state writes', async () => {
   await start();
   await setBudget();
   chat = () =>
@@ -420,35 +420,177 @@ it('stores applied state so another device can undo with the same write IDs', as
   expect(turn.items).toEqual([
     expect.objectContaining({ state: 'proposed', applied: null }),
   ]);
-  const item = {
+  const forged = {
     ...turn.items[0],
     state: 'applied',
     applied: { id: randomUUID(), version: 1 },
   };
-  const saved = (
-    await call('PUT', `/api/v1/assistant/turns/${turn.id}/items`, {
-      expectedVersion: turn.version,
-      items: [item],
-    })
-  ).json().turn;
-  expect(saved.items[0]).toEqual(item);
-  // A stale device is told to reload; changed write IDs are refused.
   expect(
     (
       await call('PUT', `/api/v1/assistant/turns/${turn.id}/items`, {
         expectedVersion: turn.version,
-        items: [item],
+        items: [forged],
+      })
+    ).json().error.code,
+  ).toBe('SERVER_OWNED_APPLY');
+  expect(
+    (
+      await call('PUT', `/api/v1/assistant/turns/${turn.id}/items`, {
+        expectedVersion: turn.version,
+        items: [{ ...turn.items[0], applyId: randomUUID() }],
+      })
+    ).statusCode,
+  ).toBe(400);
+
+  const applyOp = randomUUID();
+  const applied = (
+    await call('POST', `/api/v1/assistant/turns/${turn.id}/apply`, {
+      expectedVersion: turn.version,
+      indexes: [0],
+      operationId: applyOp,
+    })
+  ).json().turn;
+  expect(applied.items[0]).toMatchObject({
+    state: 'applied',
+    applied: { id: expect.any(String), version: 1 },
+    error: null,
+  });
+  // Replaying the same apply operationId returns the saved turn without conflict.
+  const replayed = (
+    await call('POST', `/api/v1/assistant/turns/${turn.id}/apply`, {
+      expectedVersion: turn.version,
+      indexes: [0],
+      operationId: applyOp,
+    })
+  ).json().turn;
+  expect(replayed.version).toBe(applied.version);
+  // A stale device with a new operationId is told to reload.
+  expect(
+    (
+      await call('POST', `/api/v1/assistant/turns/${turn.id}/apply`, {
+        expectedVersion: turn.version,
+        indexes: [0],
+        operationId: randomUUID(),
       })
     ).json().error.code,
   ).toBe('VERSION_CONFLICT');
   expect(
     (
       await call('PUT', `/api/v1/assistant/turns/${turn.id}/items`, {
-        expectedVersion: saved.version,
-        items: [{ ...item, applyId: randomUUID() }],
+        expectedVersion: turn.version,
+        items: applied.items,
       })
+    ).json().error.code,
+  ).toBe('VERSION_CONFLICT');
+
+  const undone = (
+    await call('POST', `/api/v1/assistant/turns/${turn.id}/undo`, {
+      expectedVersion: applied.version,
+      indexes: [0],
+      operationId: randomUUID(),
+    })
+  ).json().turn;
+  expect(undone.items[0]).toMatchObject({
+    state: 'undone',
+    applied: applied.items[0].applied,
+    error: null,
+  });
+});
+
+it('refuses to apply a saved proposal whose content was changed after capture', async () => {
+  await start();
+  await setBudget();
+  const marker = `TAMPER_${randomUUID().slice(0, 8)}`;
+  chat = () =>
+    completion({
+      reply: 'Added it.',
+      actions: [action({ type: 'task.create', title: marker })],
+    });
+  const { turn } = (await ask('Add a tracked task')).json();
+  const [saved] = await database.query<{ proposals: unknown }>(
+    'SELECT proposals FROM ai_conversation_turns WHERE id=$1',
+    [turn.id],
+  );
+  const proposals = (
+    typeof saved!.proposals === 'string'
+      ? JSON.parse(saved!.proposals)
+      : saved!.proposals
+  ) as AssistantProposal[];
+  const tampered = proposals[0]!;
+  if (tampered.kind !== 'task.create')
+    throw new Error('expected a task.create');
+  tampered.task.title = `${marker}_CHANGED`;
+  await database.query(
+    'UPDATE ai_conversation_turns SET proposals=$2,version=version+1 WHERE id=$1',
+    [turn.id, JSON.stringify(proposals)],
+  );
+  const result = (
+    await call('POST', `/api/v1/assistant/turns/${turn.id}/apply`, {
+      expectedVersion: turn.version + 1,
+      indexes: [0],
+      operationId: randomUUID(),
+    })
+  ).json().turn;
+  expect(result.items[0]).toMatchObject({ state: 'failed', applied: null });
+  expect(result.items[0].error).toMatch(/origin could not be verified/);
+  const created = await database.query(
+    'SELECT id FROM tasks WHERE title LIKE $1',
+    [`${marker}%`],
+  );
+  expect(created).toHaveLength(0);
+});
+
+it('keeps derived records bound and labelled after their conversation is deleted', async () => {
+  await start();
+  await setBudget();
+  const marker = `LINEAGE_${randomUUID().slice(0, 8)}`;
+  chat = () =>
+    completion({
+      reply: 'Added it.',
+      actions: [action({ type: 'task.create', title: marker })],
+    });
+  const { turn } = (await ask('Add a tracked task')).json();
+  const applied = (
+    await call('POST', `/api/v1/assistant/turns/${turn.id}/apply`, {
+      expectedVersion: turn.version,
+      indexes: [0],
+      operationId: randomUUID(),
+    })
+  ).json().turn;
+  expect(applied.items[0].state).toBe('applied');
+  const recordId = applied.items[0].applied.id as string;
+  const [task] = await database.query<{
+    ai_origin: string;
+    ai_labels: string[];
+  }>('SELECT ai_origin,ai_labels FROM tasks WHERE id=$1', [recordId]);
+  expect(task).toMatchObject({ ai_origin: 'bound-derived' });
+  expect(task!.ai_labels).toContain('unlabeled');
+  expect(
+    await database.query(
+      'SELECT turn_id FROM ai_planner_origins WHERE record_id=$1',
+      [recordId],
+    ),
+  ).toHaveLength(1);
+
+  const conversation = (
+    await call('GET', `/api/v1/assistant/conversations/${turn.conversationId}`)
+  ).json().conversation;
+  expect(
+    (
+      await call(
+        'DELETE',
+        `/api/v1/assistant/conversations/${turn.conversationId}`,
+        { expectedVersion: conversation.version },
+      )
     ).statusCode,
-  ).toBe(400);
+  ).toBe(200);
+
+  const [kept] = await database.query<{
+    ai_origin: string;
+    ai_labels: string[];
+  }>('SELECT ai_origin,ai_labels FROM tasks WHERE id=$1', [recordId]);
+  expect(kept).toMatchObject({ ai_origin: 'bound-derived' });
+  expect(kept!.ai_labels).toContain('unlabeled');
 });
 
 /** A connector with the given label and uploaded messages. */

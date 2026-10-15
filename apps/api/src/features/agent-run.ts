@@ -12,8 +12,13 @@ import type {
 } from '@hub/contracts';
 import type { Database, QueryExecutor } from '../db/database.js';
 import { ApiError } from '../errors.js';
+import { verifyTurnOrigin } from './ai-planner-origin.js';
+import type { VerifiedTurnOrigin } from './ai-planner-origin.js';
+import { lockSchedule } from '../planner/schedule-lock.js';
 import { readAIActionPolicy } from './ai-actions.js';
 import { plannedWrite } from './planner-write.js';
+import { applySavedProposal, transactionDatabase } from './assistant-apply.js';
+export { transactionDatabase } from './assistant-apply.js';
 
 // One agent run's work after the model answers (D57): apply each proposal
 // by the owner's action settings, then summarize the run's outcome.
@@ -90,6 +95,12 @@ export async function applyByPolicy(
   turn: AssistantTurn,
 ): Promise<RunCounts> {
   return database.transaction(async (tx) => {
+    const parent = await tx.query(
+      'SELECT c.id FROM ai_conversations c JOIN ai_conversation_turns t ON t.conversation_id=c.id WHERE t.owner_id=$1 AND t.id=$2 AND c.deleted_at IS NULL FOR SHARE OF c',
+      [owner, turn.id],
+    );
+    if (!parent.length)
+      throw new ApiError(404, 'NOT_FOUND', 'This answer no longer exists.');
     await tx.query(
       'SELECT id FROM ai_conversation_turns WHERE owner_id=$1 AND id=$2 FOR UPDATE',
       [owner, turn.id],
@@ -125,30 +136,6 @@ export async function applyByPolicy(
   });
 }
 
-/** Planner mutations retain ordinary receipts and rollback independently on conflict. */
-export function transactionDatabase(tx: QueryExecutor): Database {
-  let sequence = 0;
-  return {
-    ...tx,
-    async transaction(work) {
-      const savepoint = `agent_action_${++sequence}`;
-      await tx.exec(`SAVEPOINT ${savepoint}`);
-      try {
-        const result = await work(tx);
-        await tx.exec(`RELEASE SAVEPOINT ${savepoint}`);
-        return result;
-      } catch (error) {
-        await tx.exec(`ROLLBACK TO SAVEPOINT ${savepoint}`);
-        await tx.exec(`RELEASE SAVEPOINT ${savepoint}`);
-        throw error;
-      }
-    },
-    async close() {
-      throw new Error('Cannot close an active agent transaction.');
-    },
-  };
-}
-
 async function applyInTransaction(
   database: Database,
   owner: string,
@@ -171,6 +158,8 @@ async function applyInTransaction(
     notAllowed,
     failed: 0,
   };
+  let verified: VerifiedTurnOrigin | undefined;
+  await lockSchedule(database, owner);
   const proposals = [];
   const items: AssistantItem[] = [];
   for (const [index, proposal] of turn.request.proposals.entries()) {
@@ -230,10 +219,14 @@ async function applyInTransaction(
       continue;
     }
     try {
-      const applied = await plannedWrite(
+      verified ??= await verifyTurnOrigin(database, owner, turn.id);
+      const applied = await applySavedProposal(
         database,
         owner,
-        applyRequest(proposal, item.applyId),
+        turn.id,
+        proposal,
+        item,
+        verified,
       );
       counts.applied++;
       items.push({ ...item, state: 'applied', applied, error: null });

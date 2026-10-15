@@ -300,6 +300,18 @@ export const assistantItemsUpdateSchema = z.strictObject({
   items: z.array(assistantItemSchema).max(10),
   operationId: z.string().uuid().optional(),
 });
+export const assistantTurnActionSchema = z.strictObject({
+  expectedVersion: z.number().int().positive(),
+  indexes: z
+    .array(z.number().int().min(0).max(9))
+    .min(1)
+    .max(10)
+    .refine(
+      (values) => new Set(values).size === values.length,
+      'Select each change once.',
+    ),
+  operationId: z.string().uuid(),
+});
 export const assistantTurnResponseSchema = z.object({
   turn: assistantTurnSchema,
 });

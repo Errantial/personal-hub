@@ -1,6 +1,6 @@
 # Planner assistant (first live AI flow)
 
-Implemented 2026-10-13 (plan step 4, D47). The Assistant on Today and its conversation page turn natural-language requests into proposed task and event changes through OpenRouter. Owner requests change nothing until Apply; changes use the ordinary versioned planner writes and can be undone. The older general gateway remains separate from dispatch.
+Implemented 2026-10-13 (plan step 4, D47). The Assistant on Today and its conversation page turn natural-language requests into proposed task and event changes through OpenRouter. Owner requests change nothing until Apply; changes use the ordinary versioned planner writes and can be undone. Since the P5/P6 boundary 2 slice, Apply and Undo are server-owned and derived records keep inherited labels and origin. The older general gateway remains separate from dispatch.
 
 ## Scheduled agents (D57, deployed 2026-10-14 as release 519054d)
 
@@ -36,7 +36,8 @@ Set an upstream credit limit on the OpenRouter key as a second boundary.
 - `GET /api/v1/assistant/conversations` → newest 100 with at least one turn: `{ id, title (first ask, 80 chars), turnCount, version, createdAt, updatedAt }`.
 - `GET /api/v1/assistant/conversations/:id` → `{ conversation, turns }`; each turn has the ask, the request receipt with reply and proposals, and per-proposal `items` (`proposed`/`applied`/`failed`/`undone`, applied record, error, stored `applyId`/`undoId`).
 - `DELETE /api/v1/assistant/conversations/:id` `{ expectedVersion }` → tombstone; turn text, proposals and items are cleared. Repeats succeed.
-- `PUT /api/v1/assistant/turns/:id/items` `{ expectedVersion, items }` → records Apply/Undo results so every device shows them and reuses the same write IDs. Stale versions return `VERSION_CONFLICT`; changed write IDs are refused.
+- `POST /api/v1/assistant/turns/:id/apply` and `POST /api/v1/assistant/turns/:id/undo` `{ expectedVersion, indexes, operationId }` → the server applies or undoes the selected saved proposals through the ordinary versioned planner writes and returns the updated turn. Stale versions return `VERSION_CONFLICT`; replaying an `operationId` returns the saved turn without a second write; a mail-derived (read-only) turn refuses Apply with `PROPOSAL_READ_ONLY`; an item that was never applied returns `NOT_APPLIED`. The server re-verifies each proposal's identity and origin before writing.
+- `PUT /api/v1/assistant/turns/:id/items` `{ expectedVersion, items }` → only echoes the server's saved item state; any client-chosen state or write ID is refused with `SERVER_OWNED_APPLY` (or `PROPOSAL_READ_ONLY` first on mail-derived turns).
 
 ## Request lifecycle
 
@@ -69,15 +70,19 @@ The model may return up to 10 actions; each is checked and converted server-side
 - `event.create` (timed local start/end in the request timezone, end defaulting to +1 hour; or all-day with an inclusive last day) and `event.update` (title, start/end of a timed one-time event; moving only the start keeps the duration).
 - Skipped local times (DST gaps) are rejected; repeated times use the earlier offset only through `disambiguation: 'reject'`, which also rejects them.
 
-Updates carry the full record the model saw. Apply sends the ordinary `PUT /api/v1/tasks/:id` or `PUT /api/v1/calendar/:id` with that version, so a change made in between returns a conflict instead of being overwritten. Creates use `POST`. Each write has its own stable operation ID. Undo deletes created items and restores updated ones to their previous fields, newest first. Apply and Undo are online-only and never queued.
+Updates carry the full record the model saw. The server applies each selected proposal through the ordinary `PUT /api/v1/tasks/:id` or `PUT /api/v1/calendar/:id` with that version, so a change made in between returns a conflict instead of being overwritten; creates use `POST`. Each write has its own stable operation ID. Undo deletes created items and restores updated ones to their previous fields, newest first. Apply and Undo are online-only, never queued, and composed on the server from the saved proposal and its recorded origin — not from a client-supplied body.
+
+## Output lineage
+
+Migration 062 records durable output provenance. Each planner record created or updated by Apply inherits the answer's conservative label union (`ai_origin = 'bound-derived'`, `ai_labels`) and is linked to its turn in `ai_planner_origins`; the answer's source and label capture is kept once per turn in `ai_turn_origins`. Records written by hand are `owner-entered`; records that predate this migration are `legacy-unknown`. Triggers keep the inherited label floor and origin through ordinary edits, Undo, detach, deletion and restore, and propagate a later source relabel to dependent derived records — including tombstones. Because only fully bound answers carry a capture, a proposal whose origin or digest cannot be re-verified is refused rather than applied, and existing/legacy derived records stay ineligible for later inference. These rows hold no prompt, proposal, message or reply text.
 
 ## Storage and retention
 
-Migration 046 adds `ai_assistant_settings` and `ai_assistant_requests`. Request rows keep metadata only: operation ID and payload hash, model, reservation, status/reason, generation ID, token counts, cost, proposal/dropped/withheld counts and timestamps. Since migration 055 (D55), `ai_conversations` and `ai_conversation_turns` keep each ask, reply, the proposals (including the target records as sent) and their applied/undone state on the owner's server, for use across devices, until the owner deletes the conversation; deletion leaves a tombstone and clears the text. Turns are written before transmission (ask only) and completed after settlement. These tables are not yet in the portable export.
+Migration 046 adds `ai_assistant_settings` and `ai_assistant_requests`. Request rows keep metadata only: operation ID and payload hash, model, reservation, status/reason, generation ID, token counts, cost, proposal/dropped/withheld counts and timestamps. Since migration 055 (D55), `ai_conversations` and `ai_conversation_turns` keep each ask, reply, the proposals (including the target records as sent) and their applied/undone state on the owner's server, for use across devices, until the owner deletes the conversation; deletion leaves a tombstone and clears the text. Turns are written before transmission (ask only) and completed after settlement. Migration 062 adds the origin/label capture tables described above, which hold no ask, reply, proposal or message text and survive conversation deletion. These tables are not yet in the portable export.
 
 ## Validation
 
-API tests inject the provider exchange and forbid global fetch: missing key, unset budget, context withholding and ID-free payloads, pinned no-fallback request, proposal conversion and dropping, exact cost settlement, no-resend retries, operation conflicts, refused/uncertain/invalid outcomes, per-request limit and model settings. Browser tests cover the not-set-up state, model save, apply/undo through the real planner endpoints with the assistant endpoints stubbed, and conflict handling. No real provider or paid request was used.
+API tests inject the provider exchange and forbid global fetch: missing key, unset budget, context withholding and ID-free payloads, pinned no-fallback request, proposal conversion and dropping, exact cost settlement, no-resend retries, operation conflicts, refused/uncertain/invalid outcomes, per-request limit and model settings. Server-owned Apply/Undo tests verify idempotent operation IDs, version conflicts, refusal of forged client item state (`SERVER_OWNED_APPLY`), refusal of a proposal changed after capture, and that an applied record keeps `bound-derived` labels and its `ai_planner_origins` link after the conversation is deleted. Browser tests cover the not-set-up state, model save, Apply/Undo through the server-owned operations with a lost-response retry and no browser planner writes, and conflict handling. No real provider or paid request was used.
 
 ## Known limits
 

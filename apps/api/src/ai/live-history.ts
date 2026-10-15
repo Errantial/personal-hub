@@ -56,13 +56,14 @@ export async function historySourcesEligible(
     const wanted = ids(kind);
     if (!wanted.length) continue;
     for (const row of await tx.query(
-      `SELECT ${kind === 'task' ? taskColumns : eventColumns} FROM ${table} WHERE owner_id=$1 AND id=ANY($2::uuid[]) AND deleted_at IS NULL`,
+      `SELECT ${kind === 'task' ? taskColumns : eventColumns}, ai_origin AS "aiOrigin" FROM ${table} WHERE owner_id=$1 AND id=ANY($2::uuid[]) AND deleted_at IS NULL`,
       [owner, wanted],
     )) {
+      const origin = String(row.aiOrigin ?? 'owner-entered');
       const eligible =
         kind === 'task'
-          ? openTask(taskSchema.parse(row))
-          : openEvent(calendarRecordSchema.parse(row));
+          ? openTask(taskSchema.parse(row), origin)
+          : openEvent(calendarRecordSchema.parse(row), origin);
       if (eligible)
         current.set(`${kind}:${row.id}`, {
           labels: [sensitivitySchema.parse(row.sensitivity)],
