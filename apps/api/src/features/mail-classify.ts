@@ -10,20 +10,21 @@ import type { MailSuggestion } from '@hub/contracts';
 import { z } from 'zod';
 import type { authService } from '../auth/routes.js';
 import type { Config } from '../config.js';
-import type { Database } from '../db/database.js';
+import type { Database, QueryExecutor } from '../db/database.js';
 import {
   admitLive,
   findReplay,
   liveReceipt,
-  prepareLive,
+  prepareLiveDestination,
+  readAssistantSettings,
   settleLive,
 } from '../ai/live-request.js';
 import type { LiveReason } from '../ai/live-request.js';
-import {
-  exchange,
-  providerRouting,
-  worstCaseMicros,
-} from '../ai/openrouter-live.js';
+import { pinnedRouting, worstCaseMicros } from '../ai/openrouter-live.js';
+import { sealEnvelope } from '../ai/live-envelope.js';
+import { transmitLive } from '../ai/live-guard.js';
+import { mailSources } from '../ai/live-projections.js';
+import type { LiveManifest } from '../ai/live-manifest.js';
 import type { OpenRouterFetch } from '../ai/openrouter-live.js';
 import { strongest } from './common.js';
 
@@ -94,7 +95,7 @@ export type MailBlock = {
  * verified body origin is eligible.
  */
 export async function eligibleMail(
-  database: Database,
+  database: QueryExecutor,
   owner: string,
   references: { id: string; expectedVersion: number }[],
   allowPersonalMail: boolean,
@@ -137,14 +138,22 @@ export async function eligibleMail(
   return { eligible, blocked };
 }
 
-export function buildClassifyRequest(model: string, messages: Eligible[]) {
-  const payload = messages.map((message, index) => ({
-    ref: `m${index + 1}`,
-    from: message.from,
-    subject: message.subject,
-    received: message.receivedAt.slice(0, 10),
-    body: message.body.slice(0, bodyExcerpt),
-  }));
+export const projectClassifyMail = (message: Eligible, ref: string) => ({
+  ref,
+  from: message.from,
+  subject: message.subject,
+  received: message.receivedAt.slice(0, 10),
+  body: message.body.slice(0, bodyExcerpt),
+});
+
+export function buildClassifyRequest(
+  model: string,
+  messages: Eligible[],
+  upstream = 'google-vertex',
+) {
+  const payload = messages.map((message, index) =>
+    projectClassifyMail(message, `m${index + 1}`),
+  );
   return {
     model,
     stream: false,
@@ -153,7 +162,7 @@ export function buildClassifyRequest(model: string, messages: Eligible[]) {
       { role: 'system', content: instructions },
       { role: 'user', content: JSON.stringify({ messages: payload }) },
     ],
-    provider: providerRouting(model),
+    provider: pinnedRouting(upstream),
     response_format: {
       type: 'json_schema',
       json_schema: {
@@ -224,37 +233,82 @@ export function registerMailClassify(
     );
     // A retried request never calls the model again.
     if (previous) return respond(previous, [], null);
-    const { key, settings, cost } = await prepareLive(
+    const { key, destination, cost } = await prepareLiveDestination(
       database,
       config,
       fetcher,
       owner.id,
     );
-
-    const { eligible, blocked } = await eligibleMail(
-      database,
-      owner.id,
-      input.messages,
-      settings.allowPersonalMail,
-    );
-    // Nothing allowed: no hold, no request, no charge.
-    if (!eligible.length) return respond(null, blocked, null);
-
-    const body = buildClassifyRequest(settings.model, eligible);
     const id = randomUUID();
+    const prepared = await database.transaction(async (tx) => {
+      await tx.query(
+        'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY',
+      );
+      const settings = await readAssistantSettings(tx, owner.id);
+      const { eligible, blocked } = await eligibleMail(
+        tx,
+        owner.id,
+        input.messages,
+        settings.allowPersonalMail,
+      );
+      if (!eligible.length)
+        return { eligible, blocked, sealed: null, settings };
+      const body = buildClassifyRequest(
+        destination.model,
+        eligible,
+        destination.upstream,
+      );
+      const sources = await mailSources(
+        tx,
+        owner.id,
+        id,
+        eligible.map((message, index) => ({
+          projection: 'mail-classify-v1',
+          id: message.id,
+          ref: `m${index + 1}`,
+          projected: projectClassifyMail(message, `m${index + 1}`),
+        })),
+      );
+      const manifest: LiveManifest = {
+        formatVersion: 1,
+        owner: owner.id,
+        requestId: id,
+        kind: 'mail-classify',
+        round: 1,
+        conversationId: null,
+        priorRequestIds: [],
+        destination,
+        settingsVersion: settings.version,
+        useMail: true,
+        request: { provenance: 'none', labels: ['unlabeled'] },
+        timeZone: null,
+        history: { turns: [], sources: [], withheld: 0 },
+        sources,
+        bytes: Buffer.byteLength(JSON.stringify(body)),
+      };
+      return {
+        eligible,
+        blocked,
+        sealed: sealEnvelope(owner.id, id, body, manifest),
+        settings,
+      };
+    });
+    const { eligible, blocked, sealed, settings } = prepared;
+    if (!sealed) return respond(null, blocked, null);
     try {
       await admitLive(database, owner.id, {
         id,
         kind: 'mail-classify',
         operationId: input.operationId,
         hash,
-        model: settings.model,
+        model: destination.model,
         maximumMicros: worstCaseMicros(
           cost,
-          Buffer.byteLength(JSON.stringify(body)),
+          Buffer.byteLength(sealed.bytes),
           maxOutputTokens,
         ),
         withheld: blocked.length,
+        sealed,
       });
     } catch (error) {
       const raced = await findReplay(
@@ -267,7 +321,40 @@ export function registerMailClassify(
       if (raced) return respond(raced, [], null);
       throw error;
     }
-    const result = await exchange(fetcher, key, body);
+    const result = await transmitLive(database, config, fetcher, key, sealed, {
+      authority: async (tx) => !!(await auth.currentUser(request, tx)),
+      reprojectMail: async (tx, sources) => {
+        const current = await eligibleMail(
+          tx,
+          owner.id,
+          sources.map((source) => ({
+            id: source.id,
+            expectedVersion: source.version,
+          })),
+          settings.allowPersonalMail,
+        );
+        return new Map(
+          sources.map((source) => {
+            const message = current.eligible.find(
+              (item) => item.id === source.id,
+            );
+            return [
+              `${source.projection}:${source.id}`,
+              message
+                ? {
+                    projection: 'mail-classify-v1' as const,
+                    id: message.id,
+                    ref: source.ref,
+                    projected: projectClassifyMail(message, source.ref),
+                  }
+                : null,
+            ];
+          }),
+        );
+      },
+    });
+    if (result.status === 'withheld')
+      return respond(await liveReceipt(database, owner.id, id), blocked, null);
     let answer: ReturnType<typeof readSuggestions> | null = null;
     let invalid: LiveReason | null = null;
     if (result.status === 'confirmed' && result.content !== null) {

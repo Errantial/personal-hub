@@ -835,3 +835,15 @@ Final verification after the approval-lock read change: all 12 email draft tests
 - **Load more reminders** appends unique IDs. A page failure preserves loaded rows/cursor and offers retry or a fresh reload. Loading, empty and actionable error states remain visible. History is online and read-only; it does not expose mutation controls or cached/outbox writes. Current reminder editing, controls, snooze, earlier reminders and notification behavior are preserved.
 - Help explains creation ordering, changing status across pages and the boundary between durable inbox delivery and device alerts. Closed-app native delivery, permanent purge, offline history and frozen cross-page snapshots remain unavailable. No provider execution or backend changes.
 - Focused browser checks passed all nine Inbox tests, including real synthetic records paged across 25 rows, failed-page retry without duplicates, delayed filter response and expanded-view axe/overflow/target checks at 1280px standard and 320px e-ink. Broader validation is recorded in implementation-log.md.
+
+## Live context admission boundary 1 (development)
+
+Settings > AI > Assistant exposes Destination: server-declared hosts for the draft model, explicit atomic Approve, Ready with model/OpenRouter/host, and Revoke. Blocked states distinguish missing server key, missing approval, stale approval and unsupported model. Editing a model previews hosts without saving or approving. Approval changes use the current destination version; conflicts offer reload. Personal mail remains a separate owner consent switch. No automatic destination approval or fallback is inferred.
+
+Assistant and Today Ask disable sending until a fresh successful destination read says Ready. Offline, loading and failed status reads block asks; Settings approval/revoke and Personal consent writes are disabled offline. The mounted Destination panel warns that offline status can be stale; it has no offline write queue.
+
+Blocked-destination Settings links in Assistant and Today Ask use the shared control target: at least 44px in standard mode and 48px in e-ink. Preserve keyboard activation and navigation to Settings > AI without enabling Ask or adding an offline approval queue.
+
+Answered turns marked unbound remain readable, with an earlier-messages note, keyboard/tap Help and New conversation. Read-only mail proposals show From mail / read only and omit proposal checkboxes and Apply; the apply-selection helper independently refuses them. Existing applied items retain Undo. Turn details distinguish Body sent (cut), while actionable source/destination guard errors remain visible. Agent details map missing approval, unavailable destination and changed context into concise reasons.
+
+Known limits: owner Apply for applicable non-mail turns remains client-composed until boundary 2; the UI does not establish derived-output lineage. A bound marker describes saved eligibility, not a promise that the next ask will reuse a turn: current source/consent checks may withhold it. Production deployment, real providers, owner acceptance and Kompakt hardware remain separate gates.

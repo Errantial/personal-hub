@@ -1,4 +1,8 @@
 import { expect, it } from 'vitest';
+import {
+  liveDestinationApproveSchema,
+  liveDestinationStatusSchema,
+} from '@hub/contracts';
 import { buildAssistantRequest } from '../src/features/assistant.js';
 import { buildClassifyRequest } from '../src/features/mail-classify.js';
 import { buildTaskSuggestRequest } from '../src/features/mail-task-suggest.js';
@@ -45,3 +49,41 @@ for (const [name, request] of Object.entries(schemas))
       if (node.enum) expect(node.type).toBe('string');
     });
   });
+
+it('requires a reason exactly when the live destination is blocked', () => {
+  const base = {
+    approved: null,
+    model: 'anthropic/claude-haiku-5.5',
+    hosts: ['anthropic', 'google-vertex'],
+    personalMail: false,
+    version: 0,
+  };
+  expect(
+    liveDestinationStatusSchema.safeParse({
+      ...base,
+      status: 'blocked',
+      reason: 'approval-required',
+    }).success,
+  ).toBe(true);
+  expect(
+    liveDestinationStatusSchema.safeParse({
+      ...base,
+      status: 'blocked',
+      reason: null,
+    }).success,
+  ).toBe(false);
+  expect(
+    liveDestinationStatusSchema.safeParse({
+      ...base,
+      status: 'ready',
+      reason: 'approval-stale',
+    }).success,
+  ).toBe(false);
+  expect(
+    liveDestinationApproveSchema.safeParse({
+      model: base.model,
+      upstream: 'google-vertex/global',
+      expectedVersion: 0,
+    }).success,
+  ).toBe(false);
+});

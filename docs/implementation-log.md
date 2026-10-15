@@ -1,5 +1,19 @@
 # Implementation log
 
+## 2026-10-15 — PR #37 blocked-destination link targets
+
+Verified the Linux check failure: the Assistant's blocked-destination Settings link rendered at 21px, below both standard and e-ink target requirements. Assistant and Today Ask now use the existing shared link-button control styling. Expanded the blocked-destination browser regression across both views at 1280px standard and 320px e-ink, checking rendered target size, overflow, disabled Ask and keyboard navigation to Settings > AI. No destination authority, provider behavior or migrations changed.
+
+Validation: `npm run check` passed lint, workspace types, 731 tests (three optional PostgreSQL tests skipped), formatting and production builds. `npm run test:e2e` passed all 155 isolated Chromium tests, including both previously failing accessibility checks and all four blocked-destination target/keyboard cases. GitHub returned no review comments for this PR. No owner database, real provider requests, deployment or hardware tests were used; Linux CI must rerun on the fix.
+
+## 2026-10-15 — Live admission boundary 1 (development, validation pending)
+
+Implemented exact serialized live envelopes, per-exchange private source manifests, an owner-approved single OpenRouter upstream, final snapshot verification and release of provably unsent holds. Assistant/agent and selected-message suggestion paths use this boundary; the general gateway remains disabled. New history carries bounded transitive source references and text integrity bindings; legacy history stays readable but is withheld from inference. Source/connector labels, eligibility, approval versions, owner authority and agent leases are rechecked before transmission. Approval revocation retains a monotonic version (migration 061); migration 060 adds exchange, destination and turn-binding records.
+
+Mail-dependent Assistant proposals are read-only, including those depending on mail through history. Existing applied items keep Undo. Identifiable planner records from legacy mail-reading turns are withheld. Owner Apply is still client-composed: this slice does not establish durable output provenance or block a separately composed ordinary owner write. Records whose origin disappeared with a deleted conversation remain unidentified. Full P5/P6 enforcement, academic/memory context and MCP are not complete.
+
+Validation is in progress. Focused synthetic suites and independent review found and corrected missing serialized-route verification, inherited-history eligibility, loose response-model matching, approval-version reuse and late conversation-text resurrection. A disposable PostgreSQL guard/lock/revocation/concurrent-send test is included in CI; local execution is skipped without TEST_DATABASE_URL. Full checks and final browser acceptance are not yet claimed. No production deployment, owner database changes or paid/provider requests occurred in this slice. An early targeted browser run was stopped after development-server restarts invalidated it; it is not an acceptance receipt.
+
 ## 2026-10-15 — Agent run visibility (P3)
 
 Implemented additive run/status/spending contracts and owner-only guarded `/api/v1/agents/:id/runs` history, including retained deleted-agent metadata and pre-turn failures. Current execution is separate from chronological latest-run metadata, preserving unread and Retry behavior while a newer run waits. Migration 059 adds start/progress fields without inventing legacy timestamps. Worker configuration and heartbeat health are separate from run progress, deadline expiry and outcome. Read-only pages use consistent snapshots and full-precision guarded cursors.

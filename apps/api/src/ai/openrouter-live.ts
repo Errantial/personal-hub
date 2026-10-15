@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import type { SealedEnvelope } from './live-envelope.js';
 import { providerDollarsToMicros } from './provider-cost.js';
 
 // Live OpenRouter transport for the planner assistant (docs/ai-assistant.md).
@@ -30,12 +32,22 @@ const hosts: Record<string, string[]> = {
 };
 export const hostsFor = (model: string) => hosts[model.split('/')[0]!] ?? null;
 
-/** OpenRouter routing for a supported model: allowed hosts only, ZDR only. */
-export function providerRouting(model: string) {
-  const allowed = hostsFor(model)!;
+/**
+ * The terms every live destination is approved under: OpenRouter as the
+ * intermediary, zero data retention, no data collection, no fallbacks.
+ * Changing this revision makes every approval stale.
+ */
+export const liveTermsRevision = 'openrouter-zdr-v1';
+export const destinationRevision = (model: string, upstream: string) =>
+  createHash('sha256')
+    .update(JSON.stringify(['openrouter', model, upstream, liveTermsRevision]))
+    .digest('hex');
+
+/** OpenRouter routing pinned to one approved upstream: ZDR only, no fallback. */
+export function pinnedRouting(upstream: string) {
   return {
-    only: allowed,
-    order: allowed,
+    only: [upstream],
+    order: [upstream],
     allow_fallbacks: false,
     require_parameters: true,
     data_collection: 'deny',
@@ -161,18 +173,18 @@ const zdrSchema = z.object({
 });
 const zdrLists = new WeakMap<
   OpenRouterFetch,
-  { at: number; models: Set<string> }
+  { at: number; models: Map<string, Set<string>> }
 >();
 
 /**
- * Whether an allowed host serves the model with zero data retention and
- * strict JSON output, from OpenRouter's public ZDR endpoint list (cached for
- * an hour). The request carries no key and no owner data.
+ * The allowed hosts serving each model with zero data retention and strict
+ * JSON output, from OpenRouter's public ZDR endpoint list (cached for an
+ * hour). The request carries no key and no owner data.
  */
-export async function hasPrivateHost(
+async function privateHosts(
   fetcher: OpenRouterFetch,
   model: string,
-  now = Date.now(),
+  now: number,
 ) {
   let list = zdrLists.get(fetcher);
   if (!list || now - list.at > 3600000) {
@@ -185,17 +197,32 @@ export async function hasPrivateHost(
     if (response.status !== 200) throw new Error('ZDR list unavailable');
     const raw = await readBody(response, 32 * 1024 * 1024);
     if (raw === null) throw new Error('ZDR list too large');
-    const models = new Set<string>();
-    for (const endpoint of zdrSchema.parse(JSON.parse(raw)).data)
+    const models = new Map<string, Set<string>>();
+    for (const endpoint of zdrSchema.parse(JSON.parse(raw)).data) {
+      const host = endpoint.tag.split('/')[0]!;
       if (
-        hostsFor(endpoint.model_id)?.includes(endpoint.tag.split('/')[0]!) &&
+        hostsFor(endpoint.model_id)?.includes(host) &&
         endpoint.supported_parameters?.includes('structured_outputs')
       )
-        models.add(endpoint.model_id);
+        models.set(
+          endpoint.model_id,
+          (models.get(endpoint.model_id) ?? new Set()).add(host),
+        );
+    }
     list = { at: now, models };
     zdrLists.set(fetcher, list);
   }
-  return list.models.has(model);
+  return list.models.get(model) ?? new Set<string>();
+}
+
+/** Whether the pinned upstream serves the model privately. */
+export async function hasPrivateHost(
+  fetcher: OpenRouterFetch,
+  model: string,
+  upstream: string,
+  now = Date.now(),
+) {
+  return (await privateHosts(fetcher, model, now)).has(upstream);
 }
 
 /**
@@ -335,8 +362,7 @@ export function decodeCompletion(
       };
     // A different model means the no-fallback rule was broken: keep the
     // charge, discard the output.
-    const sameModel =
-      body.model === model || body.model.startsWith(`${model}-`);
+    const sameModel = body.model === model;
     if (
       !sameModel ||
       choice.finish_reason !== 'stop' ||
@@ -377,12 +403,33 @@ const rejections: Record<number, ExchangeResult & { status: 'rejected' }> = {
   429: { status: 'rejected', reason: 'rate-limited' },
 };
 
-/** Sends one chat-completions request. The key is never logged or returned. */
-export async function exchange(
+/**
+ * Sends one sealed chat-completions request: exactly the bytes bound at
+ * admission. The key is never logged or returned.
+ */
+export function exchange(
   fetcher: OpenRouterFetch,
   key: string,
-  body: { model: string; max_tokens: number },
+  sealed: SealedEnvelope,
   timeoutMs = 45000,
+) {
+  return send(
+    fetcher,
+    key,
+    sealed.bytes,
+    sealed.model,
+    sealed.maxTokens,
+    timeoutMs,
+  );
+}
+
+async function send(
+  fetcher: OpenRouterFetch,
+  key: string,
+  bytes: string,
+  model: string,
+  maxTokens: number,
+  timeoutMs: number,
 ): Promise<ExchangeResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -395,7 +442,7 @@ export async function exchange(
         'X-OpenRouter-Cache': 'false',
         'X-Title': 'Personal Hub',
       },
-      body: JSON.stringify(body),
+      body: bytes,
       redirect: 'error',
       signal: controller.signal,
     });
@@ -415,7 +462,7 @@ export async function exchange(
     const raw = await readBody(response, 262144);
     if (raw === null)
       return { status: 'uncertain', reason: 'response', generationId: null };
-    const decoded = decodeCompletion(raw, body.model, body.max_tokens);
+    const decoded = decodeCompletion(raw, model, maxTokens);
     // A cache hit contradicts the no-cache request: keep the charge only.
     return response.headers.has('X-OpenRouter-Cache-Status') &&
       decoded.status === 'confirmed'

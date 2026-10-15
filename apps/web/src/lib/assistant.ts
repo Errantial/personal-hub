@@ -1,4 +1,8 @@
-import type { AssistantProposal } from '@hub/contracts';
+import type {
+  AssistantProposal,
+  AssistantTurn,
+  LiveDestinationStatus,
+} from '@hub/contracts';
 // The planner writes for Apply/Undo live in contracts so the agent worker
 // builds the same requests (D57).
 export { applyRequest, undoRequest } from '@hub/contracts';
@@ -96,3 +100,22 @@ export const formatCost = (micros: number) =>
   micros < 10000
     ? `$${(micros / 1e6).toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}`
     : `$${(micros / 1e6).toFixed(2)}`;
+
+export function applicableItemIndexes(
+  turn: AssistantTurn,
+  selected: boolean[],
+): number[] {
+  if (turn.proposalAccess === 'read-only') return [];
+  return turn.items.flatMap((item, index) =>
+    item.state === 'proposed' && selected[index] ? [index] : [],
+  );
+}
+export const destinationReason: Record<
+  NonNullable<LiveDestinationStatus['reason']>,
+  string
+> = {
+  'approval-required': 'Not approved',
+  'approval-stale': 'Approval out of date',
+  'model-unsupported': 'Model not supported',
+  'key-missing': 'Server key missing',
+};

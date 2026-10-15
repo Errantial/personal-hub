@@ -40,6 +40,54 @@ export const assistantSettingsUpdateSchema = z.strictObject({
   operationId: z.string().uuid().optional(),
 });
 
+/**
+ * The owner's approved live destination: one OpenRouter model pinned to one
+ * server-declared host. Every live request blocks unless it is ready.
+ */
+export const liveUpstreamSchema = z.string().regex(/^[a-z][a-z0-9-]{0,47}$/);
+export const liveDestinationStatusSchema = z
+  .object({
+    status: z.enum(['ready', 'blocked']),
+    reason: z
+      .enum([
+        'key-missing',
+        'approval-required',
+        'approval-stale',
+        'model-unsupported',
+      ])
+      .nullable(),
+    approved: z
+      .object({ model: assistantModelSchema, upstream: liveUpstreamSchema })
+      .nullable(),
+    /** The current Assistant model setting. */
+    model: assistantModelSchema,
+    /** Hosts the server declares for that model. */
+    hosts: z.array(liveUpstreamSchema),
+    /** Personal mail may also be sent (the existing owner switch). */
+    personalMail: z.boolean(),
+    /** 0 until the first approval. */
+    version: z.number().int().nonnegative(),
+  })
+  .refine((value) => (value.reason === null) === (value.status === 'ready'), {
+    message: 'A blocked destination needs a reason.',
+  });
+export type LiveDestinationStatus = z.infer<typeof liveDestinationStatusSchema>;
+export const liveDestinationResponseSchema = z.object({
+  destination: liveDestinationStatusSchema,
+});
+export const liveDestinationApproveSchema = z.strictObject({
+  model: assistantModelSchema,
+  upstream: liveUpstreamSchema,
+  expectedVersion: z.number().int().nonnegative(),
+  /** Sent by the shared write helper; approvals are already version-guarded. */
+  operationId: z.string().uuid().optional(),
+});
+
+export const liveDestinationRevokeSchema = z.strictObject({
+  expectedVersion: z.number().int().positive(),
+  operationId: z.string().uuid().optional(),
+});
+
 export const assistantRequestInputSchema = z.strictObject({
   operationId: z.string().uuid(),
   text: z.string().trim().min(1).max(1000),
@@ -124,6 +172,10 @@ export const assistantReasonSchema = z.enum([
   'transport',
   'response',
   'billing',
+  /** A source, setting or session changed before sending; nothing was sent. */
+  'context-changed',
+  /** The approved destination changed before sending; nothing was sent. */
+  'route-blocked',
 ]);
 export const assistantRequestSchema = z.object({
   id: z.string().uuid(),
@@ -166,6 +218,8 @@ export const assistantMailSentSchema = z.object({
   receivedAt: z.string().datetime(),
   /** The body was sent too, not only subject and sender. */
   read: z.boolean(),
+  /** The body was cut to the length limit before sending. */
+  truncated: z.boolean().default(false),
 });
 export type AssistantMailSent = z.infer<typeof assistantMailSentSchema>;
 
@@ -190,6 +244,13 @@ export const assistantTurnSchema = z.object({
   mailWithheld: z.number().int().nonnegative().default(0),
   /** Why mail reading stopped early, if it did. */
   mailNote: z.string().nullable().default(null),
+  /**
+   * bound: this ask and reply may be sent again as history while their
+   * sources stay eligible. unbound: readable only (legacy or ineligible).
+   */
+  inferenceHistory: z.enum(['unbound', 'bound']).default('unbound'),
+  /** read-only: the proposals came from mail and cannot be applied yet. */
+  proposalAccess: z.enum(['applicable', 'read-only']).default('applicable'),
 });
 export type AssistantTurn = z.infer<typeof assistantTurnSchema>;
 

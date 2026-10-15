@@ -13,6 +13,8 @@ import { runAgentTick } from '../src/features/agent-worker.js';
 import { localReviewSlot } from '../src/features/responsibility-local-cadence.js';
 import {
   action,
+  approveLiveDestination,
+  completion,
   answer,
   rateLimited,
   startHarness,
@@ -212,6 +214,9 @@ it('fails without a hold when the key is missing or the model is not private', a
     "INSERT INTO ai_assistant_settings(owner_id,model) VALUES($1,'anthropic/claude-not-private')",
     [h.owner],
   );
+  await approveLiveDestination(h.call, {
+    model: 'anthropic/claude-not-private',
+  });
   const notPrivate = await queueRun(other);
   await tick();
   expect(await run(notPrivate)).toMatchObject({
@@ -644,4 +649,169 @@ it('recovers an older committed planner receipt without applying twice after pol
     'applied',
   );
   expect(h.chatCalls()).toBe(1);
+});
+
+it('an unapproved destination fails once with no hold and notifies the owner', async () => {
+  h = await startHarness({ destination: false });
+  const agent = await seedAgent({ daysAgo: -2 });
+  const id = await queueRun(agent);
+  await tick();
+  expect(await run(id)).toMatchObject({
+    status: 'failed',
+    error_code: 'ASSISTANT_ROUTE_UNSET',
+    attempts: 1,
+  });
+  expect(h.chatCalls()).toBe(0);
+  expect(await reservations()).toEqual([]);
+  expect(await notifications()).toHaveLength(1);
+});
+
+it('a captured goal edit at the catalog withholds, releases and requeues once', async () => {
+  h = await startHarness();
+  const agent = await seedAgent({ daysAgo: -2 });
+  const id = await queueRun(agent);
+  const original = h.fetcher.getMockImplementation()!;
+  h.fetcher.mockImplementation(async (url, init) => {
+    const response = await original(url, init);
+    if (url === modelsUrl)
+      await h.database.query(
+        "UPDATE responsibilities SET goal=goal||' edited',version=version+1 WHERE id=$1",
+        [agent.id],
+      );
+    return response;
+  });
+  const now = new Date();
+  await tick(now);
+  expect(await run(id)).toMatchObject({ status: 'queued', attempts: 1 });
+  expect(h.chatCalls()).toBe(0);
+  expect(await reservations()).toEqual([{ status: 'released' }]);
+  await tick(minutes(16, now));
+  expect(await run(id)).toMatchObject({
+    status: 'failed',
+    attempts: 2,
+    error_code: 'LIVE_CONTEXT_CHANGED',
+  });
+  expect(h.chatCalls()).toBe(0);
+  expect(await reservations()).toEqual([
+    { status: 'released' },
+    { status: 'released' },
+  ]);
+});
+
+it('pause committed during catalog lookup still sends and saves the running turn', async () => {
+  h = await startHarness();
+  const agent = await seedAgent({ daysAgo: -2 });
+  const id = await queueRun(agent);
+  const original = h.fetcher.getMockImplementation()!;
+  h.fetcher.mockImplementation(async (url, init) => {
+    const response = await original(url, init);
+    if (url === modelsUrl)
+      await h.database.query(
+        "UPDATE responsibilities SET status='paused',version=version+1 WHERE id=$1",
+        [agent.id],
+      );
+    return response;
+  });
+  await tick();
+  expect(h.chatCalls()).toBe(1);
+  expect(await run(id)).toMatchObject({ status: 'completed' });
+});
+
+it('a lease lost during catalog lookup never sends or leaves an uncertain hold', async () => {
+  h = await startHarness();
+  const agent = await seedAgent({ daysAgo: -2 });
+  const id = await queueRun(agent);
+  const original = h.fetcher.getMockImplementation()!;
+  h.fetcher.mockImplementation(async (url, init) => {
+    const response = await original(url, init);
+    if (url === modelsUrl)
+      await h.database.query(
+        "UPDATE responsibility_runs SET lease_until=CURRENT_TIMESTAMP-interval '1 second' WHERE id=$1",
+        [id],
+      );
+    return response;
+  });
+  await tick();
+  expect(h.chatCalls()).toBe(0);
+  expect(await reservations()).toEqual([{ status: 'released' }]);
+  expect((await run(id)).error_code).toBe('AGENT_LEASE_LOST');
+});
+
+it('mail-derived agent proposals remain proposed under automatic task policy', async () => {
+  h = await startHarness();
+  const agent = await seedAgent({ daysAgo: -2 });
+  await h.database.query(
+    'UPDATE responsibilities SET use_mail=true WHERE id=$1',
+    [agent.id],
+  );
+  const { token } = (
+    await h.call('POST', '/api/v1/email/connectors', {
+      name: 'Synthetic mail',
+      sensitivity: 'unlabeled',
+      operationId: randomUUID(),
+    })
+  ).json();
+  expect(
+    (
+      await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/email/connector/batch',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          path: 'INBOX',
+          role: null,
+          uidValidity: '1',
+          exists: 1,
+          inWindow: 1,
+          lastUid: 1,
+          messages: [
+            {
+              uid: 1,
+              messageKey: '<agent-mail@example.test>',
+              from: { name: 'Office', address: 'office@example.test' },
+              to: [],
+              cc: [],
+              subject: 'Waiver',
+              sentAt: null,
+              receivedAt: '2026-10-01T10:00:00.000Z',
+              body: 'Return waiver.',
+              bodyTruncated: false,
+              attachmentCount: 0,
+              textOrigin: 'message-body-v1',
+            },
+          ],
+        },
+      })
+    ).statusCode,
+  ).toBe(200);
+  await h.database.query(
+    `INSERT INTO ai_action_policies(owner_id,policy) VALUES($1,'{"tasks":"automatic","calendar":"automatic","email":"approval-required"}') ON CONFLICT(owner_id) DO UPDATE SET policy=EXCLUDED.policy`,
+    [h.owner],
+  );
+  h.state.chat = () =>
+    completion(
+      h.state.sent.length === 1
+        ? { reply: 'Search', actions: [], mailSearch: ['waiver'] }
+        : h.state.sent.length === 2
+          ? { reply: 'Read', actions: [], read: ['m1'] }
+          : {
+              reply: 'Create waiver task',
+              actions: [action({ title: 'Return waiver' })],
+            },
+    );
+  const id = await queueRun(agent);
+  await tick();
+  expect(h.chatCalls()).toBe(3);
+  expect(await run(id)).toMatchObject({
+    status: 'completed',
+    outcome: 'needs-approval',
+  });
+  expect((await h.call('GET', '/api/v1/tasks')).json().tasks).toEqual([]);
+  const turn = await readTurn(
+    h.database,
+    h.owner,
+    (await run(id)).turn_id as string,
+  );
+  expect(turn?.proposalAccess).toBe('read-only');
+  expect(turn?.items[0]!.state).toBe('proposed');
 });

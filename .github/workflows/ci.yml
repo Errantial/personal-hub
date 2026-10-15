@@ -61,6 +61,6 @@ jobs:
           cache: npm
       - run: npm ci
       # The full suite runs in the checks job; this job covers the PostgreSQL driver.
-      - run: npm test -- apps/api/tests/postgres.test.ts apps/api/tests/agent-worker-postgres.test.ts
+      - run: npm test -- apps/api/tests/postgres.test.ts apps/api/tests/agent-worker-postgres.test.ts apps/api/tests/live-guard-postgres.test.ts
         env:
           TEST_DATABASE_URL: postgresql://hub_test:synthetic-ci-password@127.0.0.1:5432/hub_test

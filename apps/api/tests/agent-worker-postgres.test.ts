@@ -6,7 +6,12 @@ import { readConfig } from '../src/config.js';
 import { openDatabase } from '../src/db/database.js';
 import { runAgentTick } from '../src/features/agent-worker.js';
 import { chatUrl, modelsUrl, zdrUrl } from '../src/ai/openrouter-live.js';
-import { action, answer, model } from './helpers/openrouter.js';
+import {
+  action,
+  answer,
+  model,
+  approveLiveDestination,
+} from './helpers/openrouter.js';
 import { admitLive, settleLive } from '../src/ai/live-request.js';
 import { readAgentSpending } from '../src/features/agent-status.js';
 
@@ -118,6 +123,14 @@ it.skipIf(!process.env.TEST_DATABASE_URL)(
         },
       });
       expect(budget.statusCode).toBe(200);
+      await approveLiveDestination((method, url, payload) =>
+        app!.inject({
+          method: method as 'GET',
+          url,
+          headers,
+          ...(payload ? { payload } : {}),
+        }),
+      );
       const [owner] = await database.query('SELECT id FROM users');
       const agent = randomUUID();
       const conversation = randomUUID();

@@ -19,16 +19,18 @@ import { z } from 'zod';
 import type { authService } from '../auth/routes.js';
 import type { Database, QueryExecutor } from '../db/database.js';
 import { ApiError } from '../errors.js';
+import {
+  historyRefs,
+  liveManifestSchema,
+  maxHistorySources,
+  turnDigest,
+} from '../ai/live-manifest.js';
 import { liveReceipt } from '../ai/live-request.js';
 import { stamp } from './common.js';
 
 // Assistant conversations (docs/ai-assistant.md, D55): asks, replies,
 // proposals and their applied/undone state live on the owner's server.
 // Deleting a conversation keeps a tombstone and clears its text.
-
-/** Turns resent as context: the newest that fit, oldest first. */
-const historyTurns = 10;
-const historyChars = 8000;
 
 const idSchema = z.object({ id: z.string().uuid() });
 const notFound = () =>
@@ -65,26 +67,6 @@ export async function openConversation(
   );
   if (!row || row.owner_id !== owner || row.deleted_at !== null)
     throw notFound();
-}
-
-/** Earlier asks and replies to resend, within the turn and size limits. */
-export async function readHistory(
-  tx: QueryExecutor,
-  owner: string,
-  conversationId: string,
-) {
-  const rows = await tx.query(
-    `SELECT ask,reply FROM ai_conversation_turns WHERE owner_id=$1 AND conversation_id=$2 AND ask IS NOT NULL AND reply IS NOT NULL ORDER BY position DESC LIMIT ${historyTurns}`,
-    [owner, conversationId],
-  );
-  const history: { ask: string; reply: string }[] = [];
-  let size = 0;
-  for (const row of rows) {
-    size += String(row.ask).length + String(row.reply).length;
-    if (size > historyChars) break;
-    history.unshift({ ask: String(row.ask), reply: String(row.reply) });
-  }
-  return history;
 }
 
 /** Records the ask before anything is sent, so a retry finds its turn. */
@@ -141,6 +123,8 @@ export async function finishTurn(
     mail: AssistantMailSent[];
     mailWithheld: number;
     mailNote: string | null;
+    proposalAccess?: 'read-only' | 'applicable';
+    binding?: { requestId: string } | null;
   } = { mail: [], mailWithheld: 0, mailNote: null },
 ) {
   const items: AssistantItem[] = (answer?.proposals ?? []).map(() => ({
@@ -150,22 +134,59 @@ export async function finishTurn(
     applyId: randomUUID(),
     undoId: randomUUID(),
   }));
-  await database.query(
-    `UPDATE ai_conversation_turns SET reply=$3,proposals=$4,items=$5,mail=$6,mail_withheld=$7,mail_note=$8,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2`,
-    [
-      owner,
-      id,
-      answer?.reply ?? null,
-      JSON.stringify(answer?.proposals ?? []),
-      JSON.stringify(items),
-      JSON.stringify(mail.mail),
-      mail.mailWithheld,
-      mail.mailNote,
-    ],
-  );
+  await database.transaction(async (tx) => {
+    // Serialize with conversation deletion before touching its turns. A late
+    // provider reply remains charged but may not resurrect cleared text.
+    const parent = await tx.query(
+      'SELECT c.id FROM ai_conversations c JOIN ai_conversation_turns t ON t.conversation_id=c.id WHERE t.owner_id=$1 AND t.id=$2 AND c.deleted_at IS NULL FOR SHARE OF c',
+      [owner, id],
+    );
+    if (!parent.length) return;
+    let digest: string | null = null;
+    let sources: ReturnType<typeof historyRefs> | null = null;
+    if (mail.binding && answer?.reply) {
+      const [exchange] = await tx.query(
+        "SELECT manifest FROM ai_live_exchanges WHERE owner_id=$1 AND request_id=$2 AND guard_state='verified'",
+        [owner, mail.binding.requestId],
+      );
+      if (exchange) {
+        const manifest = liveManifestSchema.parse(
+          typeof exchange.manifest === 'string'
+            ? JSON.parse(exchange.manifest)
+            : exchange.manifest,
+        );
+        const refs = historyRefs(manifest);
+        const [turn] = await tx.query(
+          'SELECT ask FROM ai_conversation_turns WHERE owner_id=$1 AND id=$2',
+          [owner, id],
+        );
+        if (turn?.ask !== null && turn && refs.length <= maxHistorySources) {
+          sources = refs;
+          digest = turnDigest(owner, id, String(turn.ask), answer.reply);
+        }
+      }
+    }
+    await tx.query(
+      `UPDATE ai_conversation_turns SET reply=$3,proposals=$4,items=$5,mail=$6,mail_withheld=$7,mail_note=$8,proposal_access=$9,inference_history=$10,inference_digest=$11,inference_sources=$12,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2`,
+      [
+        owner,
+        id,
+        answer?.reply ?? null,
+        JSON.stringify(answer?.proposals ?? []),
+        JSON.stringify(items),
+        JSON.stringify(mail.mail),
+        mail.mailWithheld,
+        mail.mailNote,
+        mail.proposalAccess ?? 'applicable',
+        digest ? 'bound' : 'unbound',
+        digest,
+        sources ? JSON.stringify(sources) : null,
+      ],
+    );
+  });
 }
 
-const turnColumns = `t.id,t.conversation_id AS "conversationId",t.ask,t.reply,t.proposals,t.items,t.version,t.use_mail AS "useMail",t.mail,t.mail_withheld AS "mailWithheld",t.mail_note AS "mailNote",t.trigger,t.not_allowed AS "notAllowed"`;
+const turnColumns = `t.id,t.conversation_id AS "conversationId",t.ask,t.reply,t.proposals,t.items,t.version,t.use_mail AS "useMail",t.mail,t.mail_withheld AS "mailWithheld",t.mail_note AS "mailNote",t.trigger,t.not_allowed AS "notAllowed",t.inference_history AS "inferenceHistory",t.proposal_access AS "proposalAccess"`;
 const json = (value: unknown) =>
   typeof value === 'string' ? JSON.parse(value) : value;
 
@@ -229,9 +250,15 @@ function toTurn(
     useMail: row.useMail === true,
     trigger: row.trigger === 'agent' ? 'agent' : 'owner',
     notAllowed: Number(row.notAllowed ?? 0),
-    mail: (json(row.mail) ?? []) as AssistantMailSent[],
+    mail: ((json(row.mail) ?? []) as AssistantMailSent[]).map((item) => ({
+      ...item,
+      truncated: item.truncated === true,
+    })),
     mailWithheld: Number(row.mailWithheld ?? 0),
     mailNote: (row.mailNote as string | null) ?? null,
+    inferenceHistory: row.inferenceHistory === 'bound' ? 'bound' : 'unbound',
+    proposalAccess:
+      row.proposalAccess === 'read-only' ? 'read-only' : 'applicable',
     request: {
       ...(receipt as AssistantTurn['request']),
       resultAvailable: answered,
@@ -316,7 +343,7 @@ export function registerAssistantConversations(
         [id],
       );
       await tx.query(
-        `UPDATE ai_conversation_turns SET ask=NULL,reply=NULL,proposals='[]',items='[]',version=version+1,updated_at=CURRENT_TIMESTAMP WHERE conversation_id=$1`,
+        `UPDATE ai_conversation_turns SET ask=NULL,reply=NULL,proposals='[]',items='[]',inference_history='unbound',inference_digest=NULL,inference_sources=NULL,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE conversation_id=$1`,
         [id],
       );
     });
@@ -331,7 +358,7 @@ export function registerAssistantConversations(
     const input = assistantItemsUpdateSchema.parse(request.body);
     await database.transaction(async (tx) => {
       const [row] = await tx.query(
-        `SELECT t.items,t.version FROM ai_conversation_turns t JOIN ai_conversations c ON c.id=t.conversation_id WHERE t.owner_id=$1 AND t.id=$2 AND c.deleted_at IS NULL FOR UPDATE OF t`,
+        `SELECT t.items,t.version,t.proposal_access FROM ai_conversation_turns t JOIN ai_conversations c ON c.id=t.conversation_id WHERE t.owner_id=$1 AND t.id=$2 AND c.deleted_at IS NULL FOR UPDATE OF t`,
         [owner.id, id],
       );
       if (!row) throw notFound();
@@ -356,6 +383,20 @@ export function registerAssistantConversations(
           400,
           'VALIDATION_ERROR',
           'The changes do not match this answer.',
+        );
+      if (
+        row.proposal_access === 'read-only' &&
+        stored.some(
+          (item, index) =>
+            item.state !== 'applied' &&
+            item.state !== 'undone' &&
+            input.items[index]?.state === 'applied',
+        )
+      )
+        throw new ApiError(
+          409,
+          'PROPOSAL_READ_ONLY',
+          "These suggestions came from mail and can't be applied yet.",
         );
       await tx.query(
         'UPDATE ai_conversation_turns SET items=$3,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2',

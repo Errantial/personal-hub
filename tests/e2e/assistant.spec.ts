@@ -18,6 +18,8 @@ function answer(route: Route, request: { proposals: unknown[] }) {
       conversationId: sent.conversationId,
       ask: sent.text,
       version: 1,
+      inferenceHistory: 'bound',
+      proposalAccess: 'applicable',
       request: { ...request, id },
       items: request.proposals.map(() => ({
         state: 'proposed',
@@ -71,45 +73,64 @@ async function stubThread(page: Page) {
 
 test.beforeEach(async ({ page }) => {
   await authenticate(page);
+  await stubDestination(page);
 });
 
-test('without a server key the assistant says it is not set up, and the model can still be chosen', async ({
+test('destination panel replaces the model picker and can approve and revoke without a server key', async ({
   page,
 }) => {
+  await page.unroute('**/api/v1/assistant/destination*');
+  await page.setViewportSize({ width: 320, height: 800 });
   await stubThread(page);
   await page.goto('/assistant');
-  const box = page.locator('main');
-  await expect(box).toContainText('Not set up');
+  await expect(page.locator('main')).toContainText(
+    'Assistant blocked: Server key missing',
+  );
   await expect(
-    box.getByRole('form', { name: 'Ask the assistant' }),
-  ).toHaveCount(0);
-
+    page.getByRole('button', { name: 'Ask', exact: true }),
+  ).toBeDisabled();
   await page.goto('/settings/ai');
   const settings = page.getByRole('region', { name: /^Assistant/ });
-  await expect(settings).toContainText('Not set up');
-  const model = settings.getByRole('textbox', { name: 'Model', exact: true });
-  const current = await model.inputValue();
-  await model.fill('not a model');
-  await settings.getByRole('button', { name: 'Save model' }).click();
-  await expect(settings.getByText(/Use an OpenRouter model ID/)).toBeVisible();
-  const next =
-    current === 'anthropic/claude-sonnet-5.5'
-      ? 'anthropic/claude-haiku-5.5'
-      : 'anthropic/claude-sonnet-5.5';
-  await model.fill(next);
-  await settings.getByRole('button', { name: 'Save model' }).click();
-  // Saved: the form reloads with the new value and nothing left to save.
+  await expect(settings).toContainText('Blocked: Server key missing');
   await expect(
     settings.getByRole('button', { name: 'Save model' }),
-  ).toBeDisabled();
-  await expect(model).toHaveValue(next);
-  await expect
-    .poll(
-      async () =>
-        (await (await page.request.get('/api/v1/assistant/settings')).json())
-          .settings.model,
-    )
-    .toBe(next);
+  ).toHaveCount(0);
+  const model = settings.getByRole('textbox', { name: 'Model', exact: true });
+  await model.fill('not a model');
+  await settings.getByRole('button', { name: 'Approve', exact: true }).click();
+  await expect(settings.getByText(/Use an OpenRouter model ID/)).toBeVisible();
+  await model.fill('anthropic/claude-haiku-5.5');
+  await settings
+    .getByRole('radio', { name: 'google-vertex', exact: true })
+    .check();
+  await settings.getByRole('button', { name: 'Approve', exact: true }).click();
+  await expect(settings.getByRole('button', { name: 'Revoke' })).toBeVisible();
+  const approved = (
+    await (await page.request.get('/api/v1/assistant/destination')).json()
+  ).destination;
+  expect(approved.approved).toEqual({
+    model: 'anthropic/claude-haiku-5.5',
+    upstream: 'google-vertex',
+  });
+  const help = settings.getByRole('button', {
+    name: 'Help: Destination',
+    exact: true,
+  });
+  await help.focus();
+  await help.press('Enter');
+  await expect(settings).toContainText(
+    'Requests go only to this host through OpenRouter',
+  );
+  await help.press('Escape');
+  await help.click();
+  await expect(settings).toContainText('there is no fallback');
+  await settings.getByRole('button', { name: 'Revoke' }).click();
+  await expect(settings.getByRole('button', { name: 'Revoke' })).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
 });
 
 test('proposed changes apply through the planner and can be undone', async ({
@@ -439,6 +460,7 @@ test('Use mail is remembered and each answer lists the mail that was sent', asyn
     });
     Object.assign(reply.turn, {
       useMail: true,
+      proposalAccess: 'read-only',
       mailWithheld: 2,
       mailNote: null,
       mail: [
@@ -485,9 +507,10 @@ test('Use mail is remembered and each answer lists the mail that was sent', asyn
   await expect(box).toContainText('Subject and sender only');
 });
 
-test('a turn shows the ask and reply as chat bubbles with a collapsible details line', async ({
+test('mail proposals are read-only chat cards with keyboard Help at 320px', async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
   await page.route('**/api/v1/assistant/settings', (route) =>
     route.fulfill({
       json: {
@@ -527,6 +550,7 @@ test('a turn shows the ask and reply as chat bubbles with a collapsible details 
     });
     Object.assign(reply.turn, {
       useMail: true,
+      proposalAccess: 'read-only',
       mailWithheld: 2,
       mailNote: null,
       mail: ['Field trip waiver', 'Lunch menu'].map((subject, index) => ({
@@ -535,6 +559,7 @@ test('a turn shows the ask and reply as chat bubbles with a collapsible details 
         from: 'School Office',
         receivedAt: new Date().toISOString(),
         read: index === 0,
+        truncated: index === 0,
       })),
     });
     return route.fulfill({ json: reply });
@@ -558,11 +583,28 @@ test('a turn shows the ask and reply as chat bubbles with a collapsible details 
   const sent = reply
     .getByRole('listitem')
     .filter({ hasText: 'Field trip waiver' });
-  await expect(sent).toContainText('Body sent');
-  const changes = reply.getByRole('group', { name: 'Proposed changes' });
-  await expect(
-    changes.getByRole('button', { name: 'Apply 1 change' }),
-  ).toBeEnabled();
+  await expect(sent).toContainText('Body sent (cut)');
+  const changes = reply.getByRole('group', { name: 'From mail · read only' });
+  await expect(changes.getByRole('button', { name: /Apply/ })).toHaveCount(0);
+  await expect(changes.getByRole('checkbox')).toHaveCount(0);
+  const help = changes.getByRole('button', {
+    name: 'Help: Read-only suggestions',
+  });
+  await help.focus();
+  await help.press('Enter');
+  await expect(changes).toContainText(
+    "Suggestions based on mail can't be applied",
+  );
+  await help.press('Escape');
+  await help.click();
+  await expect(changes).toContainText(
+    'Create the item yourself if you want it.',
+  );
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
 });
 
 /** Configured settings and a plain answer per ask, numbered from 1. */
@@ -642,4 +684,179 @@ test('after an answer the newest turn is in view and focus returns to the compos
   await expect(latest).toContainText('Answer 3');
   await expect(latest).toBeInViewport();
   await expect(ask).toBeFocused();
+});
+
+async function stubDestination(
+  page: Page,
+  override: Record<string, unknown> = {},
+) {
+  await page.route('**/api/v1/assistant/destination*', (route) =>
+    route.fulfill({
+      json: {
+        destination: {
+          status: 'ready',
+          reason: null,
+          approved: {
+            model: 'anthropic/claude-haiku-5.5',
+            upstream: 'google-vertex',
+          },
+          model: 'anthropic/claude-haiku-5.5',
+          hosts: ['anthropic', 'google-vertex', 'amazon-bedrock'],
+          personalMail: false,
+          version: 1,
+          ...override,
+        },
+      },
+    }),
+  );
+}
+
+for (const { theme, width, target } of [
+  { theme: 'standard', width: 1280, target: 44 },
+  { theme: 'eink', width: 320, target: 48 },
+]) {
+  for (const view of ['assistant', 'today']) {
+    test(`blocked destination offers an accessible Settings target (${view}, ${theme})`, async ({
+      page,
+    }) => {
+      await stubAnswers(page);
+      await stubDestination(page, {
+        status: 'blocked',
+        reason: 'approval-required',
+        approved: null,
+        version: 0,
+      });
+      await page.setViewportSize({ width, height: 800 });
+      await page.addInitScript((eink) => {
+        localStorage.setItem('hub:eink', String(eink));
+        localStorage.setItem('hub:command-mode', 'ask');
+      }, theme === 'eink');
+      await page.goto(`/${view}`);
+      await expect(page.locator('main')).toContainText(
+        'Assistant blocked: Not approved',
+      );
+      await expect(
+        page.getByRole('button', { name: 'Ask', exact: true }),
+      ).toBeDisabled();
+      const settings = page
+        .locator('main')
+        .getByRole('link', { name: 'Settings', exact: true });
+      await expect(settings).toBeVisible();
+      const box = (await settings.boundingBox())!;
+      expect(box.height).toBeGreaterThanOrEqual(target);
+      expect(box.width).toBeGreaterThanOrEqual(target);
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+      await settings.focus();
+      await settings.press('Enter');
+      await expect(page).toHaveURL(/settings\/ai$/);
+    });
+  }
+}
+
+test('earlier-messages note offers a new conversation and keyboard Help at 320px', async ({
+  page,
+}) => {
+  await stubAnswers(page);
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto('/assistant');
+  await page
+    .getByRole('textbox', { name: 'Ask', exact: true })
+    .fill('An older question');
+  await page.getByRole('button', { name: 'Ask', exact: true }).click();
+  await expect(page.locator('main')).toContainText('Answer 1');
+  lastTurn.inferenceHistory = 'unbound';
+  await page.reload();
+  await expect(page.locator('main')).toContainText(
+    "Older messages aren't sent with new asks.",
+  );
+  const help = page.getByRole('button', { name: 'Help: Earlier messages' });
+  await help.focus();
+  await help.press('Enter');
+  await expect(page.locator('main')).toContainText('They stay readable.');
+  await help.press('Escape');
+  await help.click();
+  await expect(page.locator('main')).toContainText('They stay readable.');
+  await page
+    .getByRole('button', { name: 'New conversation', exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/assistant$/);
+});
+
+test('a retained Apply control checks the server and refuses newly read-only mail proposals', async ({
+  page,
+}) => {
+  await stubAnswers(page);
+  let writes = 0;
+  await page.route('**/api/v1/tasks', (route) => {
+    if (route.request().method() === 'POST') writes += 1;
+    return route.continue();
+  });
+  await page.goto('/assistant');
+  const ask = page.getByRole('textbox', { name: 'Ask', exact: true });
+  await ask.fill('Suggest a task');
+  await page.getByRole('button', { name: 'Ask', exact: true }).click();
+  await expect(page.locator('main')).toContainText('Answer 1');
+  // A stored legacy turn is displayed as applicable. The server migration
+  // changes its access without a turn version bump while the page stays open.
+  const proposal = {
+    kind: 'task.create',
+    task: {
+      title: 'Mail-derived suggestion',
+      notes: '',
+      dueDate: null,
+      priority: 'normal',
+    },
+  };
+  Object.assign(lastTurn, {
+    request: {
+      ...(lastTurn.request as Record<string, unknown>),
+      proposals: [proposal],
+    },
+    items: [
+      {
+        state: 'proposed',
+        applied: null,
+        error: null,
+        applyId: crypto.randomUUID(),
+        undoId: crypto.randomUUID(),
+      },
+    ],
+  });
+  await page.reload();
+  const apply = page.getByRole('button', {
+    name: 'Apply 1 change',
+    exact: true,
+  });
+  await expect(apply).toBeVisible();
+  let unavailable = true;
+  await page.route(
+    `**/api/v1/assistant/conversations/${lastTurn.conversationId}`,
+    (route) =>
+      unavailable
+        ? route.fulfill({
+            status: 503,
+            json: { error: { code: 'SERVER_BUSY' } },
+          })
+        : route.fallback(),
+  );
+  await apply.click();
+  await expect(page.locator('main')).toContainText(
+    'Could not verify these suggestions. Nothing was changed.',
+  );
+  expect(writes).toBe(0);
+  unavailable = false;
+  lastTurn.proposalAccess = 'read-only';
+  await apply.click();
+  await expect(
+    page.getByRole('group', { name: 'From mail · read only' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: /Apply 1 change/ }),
+  ).toHaveCount(0);
+  await expect(page.locator('main')).toContainText('Nothing was changed.');
+  expect(writes).toBe(0);
 });

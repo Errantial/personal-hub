@@ -1,5 +1,9 @@
 # Decision register
 
+## Live admission choices (owner-confirmed 2026-10-15)
+
+The owner chose one-click destination approval in Settings and binding new history immediately. The narrow live adapter pins one declared OpenRouter model/upstream, stores explicit owner approval and its revision, and blocks absent/stale approval. Existing Personal-mail consent is an additional label ceiling; Restricted content is excluded. This adapter does not enable or modify the separate general gateway's provider profiles, routing policy or dispatch. Legacy conversation turns remain readable but withheld from inference; new bound turns remain eligible only while their retained sources and permissions permit redisclosure. See the [boundary plan](superpowers/plans/2026-10-15-live-context-admission-boundary-1.md).
+
 Status: pending unless explicitly confirmed. These entries prevent draft recommendations from becoming accidental requirements.
 
 Owner approval after the 2026-10-14 planning report: proceed autonomously according to [post-agents-development-plan.md](post-agents-development-plan.md), using its recommended implementation defaults. In particular, per-agent caps use atomic admission reservations before each actual exchange; Pause continues to let a running run finish. Future context work withholds unbound legacy history and preserves inherited labels. Approval does not establish account-specific permissions, MCP client/export destinations, live provider acceptance or authority explicitly excluded by the plan. Completed slices remain recorded separately.

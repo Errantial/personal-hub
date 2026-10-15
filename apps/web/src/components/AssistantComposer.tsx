@@ -3,8 +3,10 @@ import type { FormEvent, RefObject } from 'react';
 import {
   assistantRequestResponseSchema,
   assistantSettingsResponseSchema,
+  liveDestinationResponseSchema,
 } from '@hub/contracts';
 import type { AssistantTurn } from '@hub/contracts';
+import { destinationReason } from '../lib/assistant';
 import { getJson, liveRequestJson } from '../lib/api';
 import { useMutation, useOnline, useResource } from '../lib/hooks';
 import type { Route } from '../lib/router';
@@ -45,6 +47,15 @@ export function AssistantComposer({
 }) {
   const online = useOnline();
   const ask = useMutation();
+  const destination = useResource(
+    (signal) =>
+      getJson(
+        '/api/v1/assistant/destination',
+        liveDestinationResponseSchema,
+        signal,
+      ),
+    { failure: 'Destination status unavailable.', refreshMs: 15000 },
+  );
   const [text, setText] = useState('');
   const own = useRef<HTMLTextAreaElement>(null);
   const field = inputRef ?? own;
@@ -53,7 +64,13 @@ export function AssistantComposer({
   const [useMail, setUseMail] = useState(false);
   const [mailError, setMailError] = useState('');
   useEffect(() => setUseMail(!!saved?.useMail), [saved?.useMail]);
-  const ready = online && !ask.pending && configured;
+  const route = destination.data?.destination;
+  const ready =
+    online &&
+    !ask.pending &&
+    configured &&
+    !destination.error &&
+    route?.status === 'ready';
 
   /** Saves the box's state; a newer version elsewhere is reloaded. */
   async function rememberMail(value: boolean) {
@@ -81,6 +98,7 @@ export function AssistantComposer({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!ready) return;
     if (!text.trim()) {
       field.current?.focus();
       return;
@@ -104,6 +122,33 @@ export function AssistantComposer({
 
   return (
     <>
+      {(route?.status === 'blocked' || destination.error || !route) && (
+        <p role="status">
+          Assistant blocked:{' '}
+          {destination.error
+            ? 'Status unavailable'
+            : route?.reason
+              ? destinationReason[route.reason]
+              : 'Checking destination'}{' '}
+          <Link
+            className="link-button"
+            route={{ name: 'settings', section: 'ai' }}
+            navigate={navigate}
+          >
+            Settings
+          </Link>
+          {destination.error && (
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={!online}
+              onClick={() => void destination.reload()}
+            >
+              Retry status
+            </button>
+          )}
+        </p>
+      )}
       <form
         className="assistant__form"
         aria-label="Ask the assistant"
@@ -138,7 +183,7 @@ export function AssistantComposer({
             <input
               type="checkbox"
               checked={useMail}
-              disabled={!saved}
+              disabled={!saved || !online}
               onChange={(event) => {
                 void rememberMail(event.target.checked);
               }}
@@ -157,7 +202,12 @@ export function AssistantComposer({
       {ask.error && (
         <div role="alert" className="form-error">
           <p>{ask.error}</p>
-          {['BUDGET_UNSET', 'MONTHLY_BUDGET_EXCEEDED'].includes(ask.code) && (
+          {[
+            'BUDGET_UNSET',
+            'MONTHLY_BUDGET_EXCEEDED',
+            'ASSISTANT_ROUTE_UNSET',
+            'ASSISTANT_ROUTE_UNAVAILABLE',
+          ].includes(ask.code) && (
             <Link
               route={{ name: 'settings', section: 'ai' }}
               navigate={navigate}

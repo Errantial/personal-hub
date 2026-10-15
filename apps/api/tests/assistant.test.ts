@@ -1,3 +1,4 @@
+import { approveLiveDestination } from './helpers/openrouter.js';
 import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { Temporal } from '@hub/contracts';
@@ -11,6 +12,7 @@ import {
   zdrUrl,
 } from '../src/ai/openrouter-live.js';
 import { answerTurn, toProposal } from '../src/features/assistant.js';
+import { finishTurn } from '../src/features/assistant-conversations.js';
 import { plannedWrite } from '../src/features/planner-write.js';
 import { applyRequest } from '@hub/contracts';
 import type { AssistantProposal, Task } from '@hub/contracts';
@@ -26,6 +28,7 @@ let cookie: string;
 let chat: (body: Record<string, unknown>) => Promise<Response> | Response;
 let sent: Record<string, unknown>[];
 let config: Config;
+let catalogHook: (() => Promise<void>) | null = null;
 let fetcherInUse: Parameters<typeof answerTurn>[2];
 
 const catalog = () =>
@@ -100,7 +103,10 @@ async function start(key: string | null = 'sk-or-synthetic-test') {
   database = await openDatabase(config);
   sent = [];
   const fetcher = vi.fn(async (url: string, init: RequestInit) => {
-    if (url === modelsUrl) return catalog();
+    if (url === modelsUrl) {
+      await catalogHook?.();
+      return catalog();
+    }
     if (url === zdrUrl) return zdr();
     if (url === chatUrl) {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
@@ -124,6 +130,7 @@ async function start(key: string | null = 'sk-or-synthetic-test') {
     },
   });
   cookie = String(setup.headers['set-cookie']).split(';')[0]!;
+  if (key) await approveLiveDestination(call);
   return fetcher;
 }
 const call = (method: string, url: string, payload?: object) =>
@@ -147,6 +154,7 @@ const ask = (text: string, operationId = randomUUID()) =>
   });
 
 beforeEach(() => {
+  catalogHook = null;
   vi.stubGlobal(
     'fetch',
     vi.fn(() => {
@@ -267,7 +275,7 @@ it('proposes checked changes, withholds labeled items and settles the reported c
   expect(body).toMatchObject({
     model,
     provider: {
-      only: ['anthropic', 'google-vertex', 'amazon-bedrock'],
+      only: ['google-vertex'],
       allow_fallbacks: false,
       data_collection: 'deny',
       zdr: true,
@@ -744,6 +752,10 @@ it('blocks a model without an allowed zero-retention host before any hold', asyn
     model: bedrockOnly,
     expectedVersion: 1,
   });
+  await approveLiveDestination(call, {
+    model: bedrockOnly,
+    upstream: 'amazon-bedrock',
+  });
   expect((await ask('Plan my week')).json().error.code).toBe(
     'ASSISTANT_MODEL_NOT_PRIVATE',
   );
@@ -892,4 +904,411 @@ it('plannedWrite applies a task update at the target version, replays and confli
   expect(
     (await call('GET', `/api/v1/calendar/${event.id}`)).json().event.title,
   ).toBe('Study block');
+});
+
+const continueAsk = (conversationId: string, useMail = false) =>
+  call('POST', '/api/v1/assistant/requests', {
+    operationId: randomUUID(),
+    text: 'Follow up',
+    timeZone: 'UTC',
+    conversationId,
+    useMail,
+  });
+
+it('blocks before any hold without an approved destination', async () => {
+  await start();
+  await setBudget();
+  await call('DELETE', '/api/v1/assistant/destination', { expectedVersion: 1 });
+  expect((await ask('Blocked')).json().error.code).toBe(
+    'ASSISTANT_ROUTE_UNSET',
+  );
+  expect(await database.query('SELECT id FROM ai_assistant_requests')).toEqual(
+    [],
+  );
+  expect(await database.query('SELECT id FROM ai_budget_reservations')).toEqual(
+    [],
+  );
+});
+
+it('withholds legacy history but keeps it readable', async () => {
+  await start();
+  await setBudget();
+  const first = (await ask('LEGACY-ASK')).json().turn;
+  await database.query(
+    "UPDATE ai_conversation_turns SET inference_history='unbound',inference_digest=NULL,inference_sources=NULL WHERE id=$1",
+    [first.id],
+  );
+  const second = (await continueAsk(first.conversationId)).json().turn;
+  expect(JSON.stringify(sent[1])).not.toContain('LEGACY-ASK');
+  const [exchange] = await database.query(
+    'SELECT manifest FROM ai_live_exchanges WHERE request_id=$1',
+    [second.id],
+  );
+  expect(exchange!.manifest).toMatchObject({
+    history: { turns: [], withheld: 1 },
+  });
+  expect(
+    (
+      await call(
+        'GET',
+        `/api/v1/assistant/conversations/${first.conversationId}`,
+      )
+    ).json().turns[0].ask,
+  ).toBe('LEGACY-ASK');
+});
+
+it('ordinary source edits preserve history but deletion withholds its transitive history', async () => {
+  await start();
+  await setBudget();
+  const task = (
+    await call('POST', '/api/v1/tasks', {
+      title: 'Bound task',
+      operationId: randomUUID(),
+    })
+  ).json().task;
+  const first = (await ask('BOUND-ASK')).json().turn;
+  expect(first.inferenceHistory).toBe('bound');
+  await database.query(
+    "UPDATE tasks SET title='Edited task',version=version+1 WHERE id=$1",
+    [task.id],
+  );
+  await continueAsk(first.conversationId);
+  expect(JSON.stringify(sent[1])).toContain('BOUND-ASK');
+  await database.query(
+    'UPDATE tasks SET deleted_at=CURRENT_TIMESTAMP,version=version+1 WHERE id=$1',
+    [task.id],
+  );
+  const third = (await continueAsk(first.conversationId)).json().turn;
+  expect(JSON.stringify(sent[2])).not.toContain('BOUND-ASK');
+  const [exchange] = await database.query(
+    'SELECT manifest FROM ai_live_exchanges WHERE request_id=$1',
+    [third.id],
+  );
+  expect(exchange!.manifest).toMatchObject({
+    history: { turns: [], withheld: 2 },
+  });
+});
+
+it('a changed planner source blocks a later cumulative mail exchange and releases its hold', async () => {
+  await start();
+  await setBudget();
+  await importMail('unlabeled', ['Waiver']);
+  const task = (
+    await call('POST', '/api/v1/tasks', {
+      title: 'Original source',
+      operationId: randomUUID(),
+    })
+  ).json().task;
+  chat = async () => {
+    await database.query(
+      "UPDATE tasks SET title='Changed source',version=version+1 WHERE id=$1",
+      [task.id],
+    );
+    return completion({
+      reply: 'EARLIER-REPLY',
+      actions: [],
+      mailSearch: ['waiver'],
+    });
+  };
+  const turn = (await askWithMail('Find waiver')).json().turn;
+  expect(sent).toHaveLength(1);
+  expect(turn.request.reply).toBe('EARLIER-REPLY');
+  expect(turn.request.reason).toBe('context-changed');
+  expect(turn.mailNote).toMatch(/source changed/);
+  expect(turn.mail).toEqual([]);
+  const [later] = await database.query(
+    "SELECT b.status FROM ai_assistant_requests r JOIN ai_budget_reservations b ON b.id=r.reservation_id WHERE r.kind='planner-round'",
+  );
+  expect(later!.status).toBe('released');
+});
+
+it('mail-derived proposals are read-only and mail history is withheld when Use mail is off', async () => {
+  await start();
+  await setBudget();
+  await importMail('personal', ['Private waiver']);
+  const settings = (await call('GET', '/api/v1/assistant/settings')).json()
+    .settings;
+  await call('PUT', '/api/v1/assistant/settings', {
+    model,
+    expectedVersion: settings.version,
+    allowPersonalMail: true,
+  });
+  chat = () =>
+    completion(
+      sent.length === 1
+        ? { reply: 'Searching', actions: [], mailSearch: ['waiver'] }
+        : sent.length === 2
+          ? { reply: 'Reading', actions: [], read: ['m1'] }
+          : {
+              reply: 'PRIVATE-ANSWER',
+              actions: [action({ title: 'Mail-created item' })],
+            },
+    );
+  const first = (await askWithMail('Find waiver')).json().turn;
+  expect(first.proposalAccess).toBe('read-only');
+  expect(first.inferenceHistory).toBe('bound');
+  expect(
+    (
+      await call('PUT', `/api/v1/assistant/turns/${first.id}/items`, {
+        expectedVersion: first.version,
+        items: first.items.map((item: object) => ({
+          ...item,
+          state: 'applied',
+          applied: { id: randomUUID(), version: 1 },
+        })),
+      })
+    ).json().error.code,
+  ).toBe('PROPOSAL_READ_ONLY');
+  chat = () => completion({ reply: 'Follow-up', actions: [] });
+  const second = (await continueAsk(first.conversationId, true)).json().turn;
+  expect(JSON.stringify(sent[3])).toContain('PRIVATE-ANSWER');
+  expect(second.proposalAccess).toBe('read-only');
+  const third = (await continueAsk(first.conversationId, false)).json().turn;
+  expect(JSON.stringify(sent[4])).not.toContain('PRIVATE-ANSWER');
+  expect(JSON.stringify(sent[4])).not.toContain('Private waiver');
+  const [exchange] = await database.query(
+    'SELECT manifest FROM ai_live_exchanges WHERE request_id=$1',
+    [third.id],
+  );
+  expect(exchange!.manifest).toMatchObject({
+    history: { turns: [], withheld: 2 },
+  });
+});
+
+it('binds every cumulative source without prompt or mail text in manifests', async () => {
+  await start();
+  await setBudget();
+  await importMail('unlabeled', ['SECRET-SUBJECT']);
+  chat = () =>
+    completion(
+      sent.length === 1
+        ? { reply: 'Search', actions: [], mailSearch: ['SECRET'] }
+        : sent.length === 2
+          ? { reply: 'Read', actions: [], read: ['m1'] }
+          : { reply: 'Done', actions: [] },
+    );
+  const turn = (await askWithMail('SECRET-ASK')).json().turn;
+  const rows = await database.query(
+    'SELECT manifest FROM ai_live_exchanges ORDER BY created_at,request_id',
+  );
+  const manifests = rows
+    .map(
+      (row) =>
+        row.manifest as {
+          round: number;
+          sources: { projection: string; id: string }[];
+          priorRequestIds: string[];
+        },
+    )
+    .sort((a, b) => a.round - b.round);
+  expect(manifests).toHaveLength(3);
+  expect(manifests[2]!.priorRequestIds).toHaveLength(2);
+  for (const source of manifests[1]!.sources)
+    expect(manifests[2]!.sources).toContainEqual(
+      expect.objectContaining({ projection: source.projection, id: source.id }),
+    );
+  expect(JSON.stringify(manifests)).not.toContain('SECRET-SUBJECT');
+  expect(JSON.stringify(manifests)).not.toContain('SECRET-ASK');
+  expect(JSON.stringify(turn)).not.toContain('digest');
+  expect(JSON.stringify(turn)).not.toContain('integrity');
+});
+
+it('a provider reply cannot resurrect a conversation deleted while it was pending', async () => {
+  await start();
+  await setBudget();
+  const conversationId = randomUUID();
+  chat = async () => {
+    const [conversation] = await database.query(
+      'SELECT version FROM ai_conversations WHERE id=$1',
+      [conversationId],
+    );
+    expect(
+      (
+        await call(
+          'DELETE',
+          `/api/v1/assistant/conversations/${conversationId}`,
+          { expectedVersion: conversation!.version },
+        )
+      ).statusCode,
+    ).toBe(200);
+    return completion({
+      reply: 'DELETED-REPLY',
+      actions: [action({ title: 'DELETED-PROPOSAL' })],
+    });
+  };
+  const result = await call('POST', '/api/v1/assistant/requests', {
+    operationId: randomUUID(),
+    text: 'DELETED-ASK',
+    conversationId,
+    timeZone: 'UTC',
+  });
+  expect(result.statusCode).toBe(404);
+  const [turn] = await database.query(
+    'SELECT ask,reply,proposals,inference_history FROM ai_conversation_turns WHERE conversation_id=$1',
+    [conversationId],
+  );
+  expect(turn).toMatchObject({
+    ask: null,
+    reply: null,
+    proposals: [],
+    inference_history: 'unbound',
+  });
+  expect(
+    (await database.query('SELECT status FROM ai_budget_reservations'))[0]!
+      .status,
+  ).toBe('settled');
+});
+
+it('history overflow saves no partial binding', async () => {
+  await start();
+  await setBudget();
+  await call('POST', '/api/v1/tasks', {
+    title: 'One source',
+    operationId: randomUUID(),
+  });
+  const turn = (await ask('Overflow')).json().turn;
+  const [exchange] = await database.query(
+    'SELECT manifest FROM ai_live_exchanges WHERE request_id=$1',
+    [turn.id],
+  );
+  const manifest = exchange!.manifest as { history: { sources: unknown[] } };
+  manifest.history.sources = Array.from({ length: 1000 }, () => ({
+    kind: 'task',
+    id: randomUUID(),
+    labels: ['unlabeled'],
+  }));
+  await database.query(
+    'UPDATE ai_live_exchanges SET manifest=$2 WHERE request_id=$1',
+    [turn.id, JSON.stringify(manifest)],
+  );
+  await finishTurn(
+    database,
+    await ownerId(),
+    turn.id,
+    { reply: 'Overflow', proposals: [] },
+    {
+      mail: [],
+      mailWithheld: 0,
+      mailNote: null,
+      binding: { requestId: turn.id },
+    },
+  );
+  const [saved] = await database.query(
+    'SELECT inference_history,inference_digest,inference_sources FROM ai_conversation_turns WHERE id=$1',
+    [turn.id],
+  );
+  expect(saved).toMatchObject({
+    inference_history: 'unbound',
+    inference_digest: null,
+    inference_sources: null,
+  });
+});
+
+it('turning Personal mail off during the first exchange blocks the next one', async () => {
+  await start();
+  await setBudget();
+  await importMail('personal', ['Private waiver']);
+  const settings = (await call('GET', '/api/v1/assistant/settings')).json()
+    .settings;
+  await call('PUT', '/api/v1/assistant/settings', {
+    model,
+    expectedVersion: settings.version,
+    allowPersonalMail: true,
+  });
+  chat = async () => {
+    await database.query(
+      'UPDATE ai_assistant_settings SET allow_personal_mail=false,version=version+1',
+    );
+    return completion({
+      reply: 'Searching',
+      actions: [],
+      mailSearch: ['waiver'],
+    });
+  };
+  const turn = (await askWithMail('Find waiver')).json().turn;
+  expect(sent).toHaveLength(1);
+  expect(turn.request.reason).toBe('context-changed');
+  expect(turn.mailNote).toMatch(/source changed/);
+});
+
+it('relabeling an unchosen header hit blocks the cumulative body exchange', async () => {
+  await start();
+  await setBudget();
+  await importMail('unlabeled', ['Waiver first', 'Waiver second']);
+  chat = async () => {
+    if (sent.length === 1)
+      return completion({
+        reply: 'Search',
+        actions: [],
+        mailSearch: ['waiver'],
+      });
+    if (sent.length === 2) {
+      await database.query(
+        "UPDATE email_messages SET sensitivity='restricted',version=version+1 WHERE subject='Waiver first'",
+      );
+      return completion({ reply: 'Reading', actions: [], read: ['m1'] });
+    }
+    return completion({ reply: 'Unexpected', actions: [] });
+  };
+  const turn = (await askWithMail('Find waiver')).json().turn;
+  expect(sent).toHaveLength(2);
+  expect(turn.request.reason).toBe('context-changed');
+  expect(turn.request.reply).toBe('Reading');
+  expect(turn.mailNote).toMatch(/source changed/);
+});
+
+it('deleting a conversation during preparation releases the admitted but unsent hold', async () => {
+  await start();
+  await setBudget();
+  const conversationId = randomUUID();
+  catalogHook = async () => {
+    expect(
+      (
+        await call(
+          'DELETE',
+          `/api/v1/assistant/conversations/${conversationId}`,
+          { expectedVersion: 1 },
+        )
+      ).statusCode,
+    ).toBe(200);
+  };
+  const result = await call('POST', '/api/v1/assistant/requests', {
+    operationId: randomUUID(),
+    text: 'No resurrected ask',
+    conversationId,
+    timeZone: 'UTC',
+  });
+  expect(result.statusCode).toBe(404);
+  expect(sent).toEqual([]);
+  expect(
+    await database.query('SELECT status FROM ai_budget_reservations'),
+  ).toEqual([{ status: 'released' }]);
+  expect(await database.query('SELECT id FROM ai_conversation_turns')).toEqual(
+    [],
+  );
+});
+
+it('signing out during preparation blocks transmission and releases the hold', async () => {
+  await start();
+  await setBudget();
+  catalogHook = async () => {
+    await database.query('DELETE FROM sessions');
+  };
+  const result = await ask('Private ask');
+  expect(result.json().request).toMatchObject({
+    status: 'failed',
+    reason: 'context-changed',
+  });
+  expect(sent).toEqual([]);
+  expect(
+    await database.query('SELECT status FROM ai_budget_reservations'),
+  ).toEqual([{ status: 'released' }]);
+});
+
+it('rejects malformed destination preview models before response parsing', async () => {
+  await start();
+  expect(
+    (await call('GET', '/api/v1/assistant/destination?model=invalid'))
+      .statusCode,
+  ).toBe(400);
 });

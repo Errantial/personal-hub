@@ -95,7 +95,7 @@ export async function applyByPolicy(
       [owner, turn.id],
     );
     const [saved] = await tx.query(
-      'SELECT proposals,items,not_allowed FROM ai_conversation_turns WHERE owner_id=$1 AND id=$2',
+      'SELECT proposals,items,not_allowed,proposal_access FROM ai_conversation_turns WHERE owner_id=$1 AND id=$2',
       [owner, turn.id],
     );
     if (!saved)
@@ -104,6 +104,10 @@ export async function applyByPolicy(
       typeof value === 'string' ? JSON.parse(value) : value;
     const current = {
       ...turn,
+      proposalAccess:
+        saved.proposal_access === 'read-only'
+          ? ('read-only' as const)
+          : ('applicable' as const),
       items: parse(saved.items) as AssistantItem[],
       request: {
         ...turn.request,
@@ -204,6 +208,12 @@ async function applyInTransaction(
           error: error.message.slice(0, 300),
         });
       }
+      continue;
+    }
+    if (turn.proposalAccess === 'read-only') {
+      proposals.push(proposal);
+      items.push(item);
+      counts.proposed++;
       continue;
     }
     const mode = proposal.kind.startsWith('task.')

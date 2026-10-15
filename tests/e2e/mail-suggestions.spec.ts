@@ -120,7 +120,7 @@ test('Personal mail needs an explicit setting', async ({ page }) => {
   await page.goto('/settings/ai');
   const settings = page.getByRole('region', { name: /^Assistant/ });
   const toggle = settings.getByRole('checkbox', {
-    name: 'Allow Personal mail for category suggestions',
+    name: 'Allow Personal mail',
   });
   const before = await toggle.isChecked();
   await toggle.click();

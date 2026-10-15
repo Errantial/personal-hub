@@ -4,7 +4,11 @@ import type { Database, QueryExecutor } from '../db/database.js';
 import { ApiError } from '../errors.js';
 import { stamp } from '../features/common.js';
 import { lockBudget, reserveAIBudgetInTransaction } from './budget.js';
-import { hasPrivateHost, hostsFor, modelPrice } from './openrouter-live.js';
+import { resolveLiveDestination } from './live-destination.js';
+import type { LiveDestination } from './live-destination.js';
+import type { SealedEnvelope } from './live-envelope.js';
+import type { LiveManifest } from './live-manifest.js';
+import { hasPrivateHost, modelPrice } from './openrouter-live.js';
 import type {
   ExchangeResult,
   ModelPrice,
@@ -29,7 +33,9 @@ export type LiveReason =
   | 'timeout'
   | 'transport'
   | 'response'
-  | 'billing';
+  | 'billing'
+  | 'context-changed'
+  | 'route-blocked';
 
 export async function readAssistantSettings(tx: QueryExecutor, owner: string) {
   const [row] = await tx.query(
@@ -88,36 +94,29 @@ export async function findReplay(
   return liveReceipt(database, owner, row.id as string);
 }
 
-/** Key, model and published price, or the reason nothing can be sent. */
-export async function prepareLive(
+/**
+ * The approved destination, its published price and the key, or the reason
+ * nothing can be sent. Network checks run outside any transaction.
+ */
+export async function prepareLiveDestination(
   database: Database,
   config: Config,
   fetcher: OpenRouterFetch,
   owner: string,
 ): Promise<{
   key: string;
-  settings: Awaited<ReturnType<typeof readAssistantSettings>>;
+  destination: LiveDestination;
   cost: ModelPrice;
 }> {
-  const key = config.AI_SECRET_OPENROUTER;
-  if (!key)
-    throw new ApiError(
-      409,
-      'ASSISTANT_NOT_CONFIGURED',
-      'The server has no OpenRouter key.',
-    );
-  const settings = await readAssistantSettings(database, owner);
-  if (!hostsFor(settings.model))
-    throw new ApiError(
-      409,
-      'ASSISTANT_MODEL_UNSUPPORTED',
-      'Use a model from a supported provider.',
-    );
+  const destination = await database.transaction(async (tx) => {
+    await tx.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    return resolveLiveDestination(tx, config, owner);
+  });
   let cost, privateHost;
   try {
     [cost, privateHost] = await Promise.all([
-      modelPrice(fetcher, settings.model),
-      hasPrivateHost(fetcher, settings.model),
+      modelPrice(fetcher, destination.model),
+      hasPrivateHost(fetcher, destination.model, destination.upstream),
     ]);
   } catch {
     throw new ApiError(
@@ -126,13 +125,11 @@ export async function prepareLive(
       'Model availability could not be checked.',
     );
   }
-  // Checked before any hold: a model without an allowed zero-retention host
-  // could only fail at OpenRouter.
   if (!privateHost)
     throw new ApiError(
       409,
       'ASSISTANT_MODEL_NOT_PRIVATE',
-      'No allowed host serves this model with zero data retention. Choose another model in Settings › AI › Assistant.',
+      'The approved destination has no zero-retention endpoint for this model.',
     );
   if (!cost)
     throw new ApiError(
@@ -140,7 +137,7 @@ export async function prepareLive(
       'ASSISTANT_MODEL_UNAVAILABLE',
       'This model is not available as a text model.',
     );
-  return { key, settings, cost };
+  return { key: config.AI_SECRET_OPENROUTER!, destination, cost };
 }
 
 /**
@@ -161,8 +158,18 @@ export async function admitLive(
     withheld: number;
     /** Trusted worker attribution, never accepted from the public request. */
     agentId?: string | undefined;
+    /** The sealed envelope, bound in the same transaction as the hold. */
+    sealed?: SealedEnvelope<LiveManifest> | undefined;
   },
 ) {
+  const sealed = request.sealed;
+  if (
+    sealed &&
+    (sealed.requestId !== request.id ||
+      sealed.owner !== owner ||
+      sealed.manifest.destination.model !== request.model)
+  )
+    throw new Error('Sealed envelope does not match its request.');
   await database.transaction(async (tx) => {
     await lockBudget(tx, owner);
     if (request.agentId) {
@@ -234,6 +241,18 @@ export async function admitLive(
         request.agentId ?? null,
       ],
     );
+    if (sealed)
+      await tx.query(
+        'INSERT INTO ai_live_exchanges(request_id,owner_id,format_version,manifest,integrity_hash,destination_revision,source_count) VALUES($1,$2,1,$3,$4,$5,$6)',
+        [
+          request.id,
+          owner,
+          JSON.stringify(sealed.manifest),
+          sealed.integrityHash,
+          sealed.manifest.destination.revision,
+          sealed.manifest.sources.length,
+        ],
+      );
   });
 }
 

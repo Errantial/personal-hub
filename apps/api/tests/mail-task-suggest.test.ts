@@ -1,3 +1,4 @@
+import { approveLiveDestination } from './helpers/openrouter.js';
 import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
@@ -9,6 +10,7 @@ import { chatUrl, modelsUrl, zdrUrl } from '../src/ai/openrouter-live.js';
 const origin = 'http://127.0.0.1:5173';
 const model = 'anthropic/claude-haiku-5.5';
 let app: Awaited<ReturnType<typeof buildApp>>;
+let database: Awaited<ReturnType<typeof openDatabase>>;
 let cookie: string;
 let sent: Record<string, unknown>[];
 let chat: (body: Record<string, unknown>) => Response;
@@ -40,11 +42,12 @@ beforeEach(async () => {
   });
   sent = [];
   chat = () => completion({ results: [] });
+  database = await openDatabase(config);
   app = await buildApp(
     { logger: false },
     {
       config,
-      database: await openDatabase(config),
+      database,
       openRouterFetch: async (url, init) => {
         if (url === modelsUrl)
           return new Response(
@@ -87,6 +90,7 @@ beforeEach(async () => {
     payload: { email: 'classify@example.test', password: 'synthetic-password' },
   });
   cookie = String(setup.headers['set-cookie']).split(';')[0]!;
+  await approveLiveDestination(call);
   await call('PUT', '/api/v1/ai/budget', {
     operationId: randomUUID(),
     expectedVersion: 1,
@@ -245,4 +249,35 @@ it('does not send blocked mail and never resends a retry', async () => {
   expect(
     (await suggest({ ...open!, expectedVersion: 99 })).json().blocked,
   ).toBe('changed');
+});
+
+it('sends only the pinned host and binds the exact selected message and connector', async () => {
+  const [message] = await importMail('unlabeled', [
+    { key: 'pinned-task', subject: 'Pinned task' },
+  ]);
+  chat = () => completion({ tasks: [] });
+  const result = await suggest(message!);
+  expect(result.statusCode).toBe(200);
+  expect(sent[0]!.provider).toEqual({
+    only: ['google-vertex'],
+    order: ['google-vertex'],
+    allow_fallbacks: false,
+    require_parameters: true,
+    data_collection: 'deny',
+    zdr: true,
+  });
+  const [exchange] = await database.query(
+    'SELECT manifest FROM ai_live_exchanges',
+  );
+  expect(exchange!.manifest).toMatchObject({
+    sources: [
+      {
+        projection: 'mail-task-v1',
+        id: message!.id,
+        version: message!.expectedVersion,
+        connector: { id: expect.any(String), version: expect.any(Number) },
+      },
+    ],
+  });
+  expect(JSON.stringify(exchange!.manifest)).not.toContain('Pinned task');
 });

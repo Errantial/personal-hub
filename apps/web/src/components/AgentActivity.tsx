@@ -131,6 +131,9 @@ const progressLabels: Record<string, string> = {
 };
 
 function runErrorMessage(code: string) {
+  if (code === 'ASSISTANT_ROUTE_UNSET') return 'No approved destination';
+  if (code === 'ASSISTANT_ROUTE_UNAVAILABLE') return 'Destination unavailable';
+  if (code === 'LIVE_CONTEXT_CHANGED') return 'Context changed before sending';
   if (
     [
       'AGENT_BUDGET_EXCEEDED',
