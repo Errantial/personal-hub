@@ -101,6 +101,8 @@ Retain pre-migration backup and isolated restore proof. Check migration compatib
 
 ### B1. Specify one admission boundary
 
+The [live admission implementation specification](live-context-admission-design.md) records the next P5/P6 contract and code anchors. It is planning evidence, not completed live enforcement or expanded source access.
+
 Reuse the verified resolver, bounded projections, immutable captures and exact-envelope binding already implemented. Do not enable the disabled general gateway wholesale. Adapt the existing live lifecycle so both owner asks and scheduled agents use the same source/routing checks while retaining the narrow transport, budget reservations and no-resend behavior.
 
 Resolve selection, source/ancestor versions and projection in a consistent snapshot. Bind the actual outgoing envelope, including eligible history and each later mail round. Immediately before every transmission, revalidate owner authority, current labels, source/connector/memory state, routing permissions, provider availability and spending admission. Source or policy changes block that disclosure. Never turn an uncertain committed attempt into a safe retry merely because new context can be assembled.
