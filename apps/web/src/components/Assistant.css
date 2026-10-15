@@ -1,0 +1,238 @@
+.assistant__form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: end;
+  margin-top: var(--space-3);
+}
+.assistant__form > label {
+  display: grid;
+  flex: 1 1 18rem;
+  gap: var(--space-1);
+}
+.assistant__reply {
+  white-space: pre-wrap;
+}
+.assistant__changes {
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.assistant__changes legend {
+  font-weight: var(--weight-strong);
+}
+.assistant__changes ul {
+  margin: var(--space-2) 0;
+  padding: 0;
+  list-style: none;
+}
+.assistant__changes li {
+  padding: var(--space-2) 0;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+.assistant__state {
+  display: block;
+  margin-left: calc(var(--target) * 0.6);
+  color: var(--text-muted);
+}
+.mail-task-suggestions__list {
+  margin: var(--space-2) 0;
+  padding: 0;
+  list-style: none;
+}
+.mail-task-suggestions__list > li {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  overflow-wrap: anywhere;
+}
+.mail-task-suggestions__list blockquote {
+  margin: 0;
+  padding-left: var(--space-2);
+  border-left: var(--border-width) solid var(--border);
+  white-space: pre-wrap;
+}
+
+/* Assistant page (AssistantView). */
+.assistant-page__layout {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+/* Narrow screens: the conversation list is a panel behind a button. */
+.assistant-page__toggle {
+  margin-bottom: var(--space-3);
+}
+@media (max-width: 63.99rem) {
+  .assistant-page__list:not(.is-open) {
+    display: none;
+  }
+}
+@media (min-width: 64rem) {
+  .assistant-page__layout {
+    grid-template-columns: 16rem minmax(0, 1fr);
+  }
+  .assistant-page__toggle {
+    display: none;
+  }
+  .assistant-page__list {
+    position: sticky;
+    top: var(--space-3);
+    max-height: calc(100dvh - 2 * var(--space-3));
+    overflow-y: auto;
+  }
+}
+.assistant-page__list ul {
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.assistant-page__list li {
+  display: grid;
+  padding: var(--space-2) 0;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  overflow-wrap: anywhere;
+}
+.assistant-page__list a[aria-current='page'] {
+  font-weight: var(--weight-strong);
+}
+.assistant-page__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+.assistant-page__head h2 {
+  flex: 1 1 12rem;
+  font-size: var(--text-title-small);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.assistant-page__spend {
+  display: flex;
+  flex-basis: 100%;
+  gap: var(--space-1);
+  align-items: center;
+  margin: 0;
+}
+.assistant-page__composer {
+  position: sticky;
+  bottom: 0;
+  margin-top: var(--space-3);
+  padding: var(--space-2) 0;
+  background: var(--surface);
+  border-top: var(--border-width) solid var(--border-subtle);
+}
+.assistant-page__composer .assistant__form {
+  margin-top: 0;
+}
+.assistant-page__turns {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+}
+.assistant-page__list > a.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.assistant__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* Chat turn (AssistantTurnView): the ask on the right, the answer on the left. */
+.assistant-turn {
+  display: grid;
+  gap: var(--space-2);
+}
+.bubble {
+  max-width: 80%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-surface);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 30rem) {
+  .bubble {
+    max-width: 100%;
+  }
+}
+.bubble--me {
+  justify-self: end;
+  background: var(--selected-bg);
+  color: var(--selected-text);
+  white-space: pre-wrap;
+}
+.bubble--ai {
+  justify-self: start;
+  background: var(--surface-subtle);
+  border: var(--border-width) solid var(--border-subtle);
+}
+.bubble--ai > :first-child {
+  margin-top: 0;
+}
+.bubble--ai > p[role='status']:empty {
+  display: none;
+}
+.turn-changes {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-control);
+}
+.turn-changes li:last-child {
+  border-bottom: 0;
+}
+.turn-details {
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--text-small);
+}
+.turn-details summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--target);
+  cursor: pointer;
+}
+.turn-details ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text);
+}
+.turn-details li {
+  display: grid;
+  padding: var(--space-1) 0;
+}
+
+.assistant-page .panel {
+  padding: var(--space-4);
+}
+.bubble--ai .assistant__reply {
+  margin: 0;
+}
+@media (max-width: 63.99rem) {
+  .assistant-page .panel {
+    padding: var(--space-3);
+  }
+  /* Stay above the fixed bottom navigation. */
+  .assistant-page__composer {
+    bottom: calc(
+      3.5rem + 1px +
+        var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))
+    );
+  }
+}

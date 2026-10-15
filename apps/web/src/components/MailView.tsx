@@ -15,7 +15,7 @@ import { Link } from './Link';
 import { StatusChip } from './StatusChip';
 import { MailRules } from './MailRules';
 import { MailSuggestions } from './MailSuggestions';
-import '../components/AssistantBox.css';
+import '../components/Assistant.css';
 import { MailCategoryEditor } from './MailCategoryEditor';
 import { MailTaskCapture } from './MailTaskCapture';
 
