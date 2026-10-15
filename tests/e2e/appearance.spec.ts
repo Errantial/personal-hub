@@ -330,6 +330,7 @@ test('the dark theme keeps text contrast across the main pages', async ({
     '/calendar?view=month',
     '/inbox',
     '/settings',
+    '/settings/ai',
   ]) {
     await page.goto(path);
     await expect(page.locator('main')).toBeVisible();
