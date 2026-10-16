@@ -638,55 +638,6 @@ const askWithMail = (text: string, useMail = true) =>
     useMail,
   });
 
-it('with Use mail, searches, reads only chosen allowed mail and lists what was sent', async () => {
-  await start();
-  await setBudget();
-  await importMail('unlabeled', ['Field trip waiver', 'Lunch menu']);
-  await importMail('restricted', ['Waiver medical form']);
-  await importMail('personal', ['Waiver from family']);
-  const answers = [
-    { reply: 'Checking mail.', actions: [], mailSearch: ['waiver'] },
-    { reply: 'Reading it.', actions: [], read: ['m1', 'm9'] },
-    { reply: 'The field trip waiver is due Friday.', actions: [] },
-  ];
-  chat = () => completion(answers[sent.length - 1]);
-  const { turn } = (await askWithMail('When is the waiver due?')).json();
-  expect(sent).toHaveLength(3);
-  expect(turn.request.reply).toBe('The field trip waiver is due Friday.');
-  // Three calls, one turn: costs add up.
-  expect(turn.request.costMicros).toBe(369);
-  expect(turn.useMail).toBe(true);
-  expect(turn.mailWithheld).toBe(2);
-  expect(turn.mail).toEqual([
-    expect.objectContaining({
-      subject: 'Field trip waiver',
-      from: 'School Office',
-      read: true,
-    }),
-  ]);
-  const text = sent.map((body) => JSON.stringify(body.messages)).join('\n');
-  expect(text).toContain('Field trip waiver');
-  expect(text).toContain('return it by Friday');
-  expect(text).not.toContain('medical');
-  expect(text).not.toContain('family');
-  expect(text).not.toContain('Lunch menu');
-  // Only the first call may ask for a search, only the second for reads.
-  const schema = (index: number) =>
-    (
-      sent[index]!.response_format as {
-        json_schema: { schema: { required: string[] } };
-      }
-    ).json_schema.schema.required;
-  expect(schema(0)).toContain('mailSearch');
-  expect(schema(1)).toContain('read');
-  expect(schema(2)).toEqual(['reply', 'actions']);
-  // The stored conversation shows the same list.
-  const thread = (
-    await call('GET', `/api/v1/assistant/conversations/${turn.conversationId}`)
-  ).json();
-  expect(thread.turns[0].mail).toEqual(turn.mail);
-});
-
 it('without Use mail, mail is never searched or mentioned', async () => {
   await start();
   await setBudget();
@@ -696,28 +647,6 @@ it('without Use mail, mail is never searched or mentioned', async () => {
   expect(JSON.stringify(sent[0])).not.toContain('Mail:');
   expect(JSON.stringify(sent[0])).not.toContain('mailSearch');
   expect(turn.mail).toEqual([]);
-});
-
-it('keeps the earlier answer and says why when a later mail call fails', async () => {
-  await start();
-  await setBudget();
-  await importMail('unlabeled', ['Field trip waiver']);
-  chat = () =>
-    sent.length === 1
-      ? completion({
-          reply: 'Checking mail.',
-          actions: [],
-          mailSearch: ['waiver'],
-        })
-      : new Response('{}', { status: 400 });
-  const { turn } = (await askWithMail('When is the waiver due?')).json();
-  expect(sent).toHaveLength(2);
-  expect(turn.request.reply).toBe('Checking mail.');
-  expect(turn.request.reason).toBe('rejected');
-  expect(turn.mailNote).toMatch(/Mail reading stopped/);
-  expect(turn.mail).toEqual([
-    expect.objectContaining({ subject: 'Field trip waiver', read: false }),
-  ]);
 });
 
 it('remembers the Use mail choice in the assistant settings', async () => {
@@ -1131,130 +1060,6 @@ it('ordinary source edits preserve history but deletion withholds its transitive
   });
 });
 
-it('a changed planner source blocks a later cumulative mail exchange and releases its hold', async () => {
-  await start();
-  await setBudget();
-  await importMail('unlabeled', ['Waiver']);
-  const task = (
-    await call('POST', '/api/v1/tasks', {
-      title: 'Original source',
-      operationId: randomUUID(),
-    })
-  ).json().task;
-  chat = async () => {
-    await database.query(
-      "UPDATE tasks SET title='Changed source',version=version+1 WHERE id=$1",
-      [task.id],
-    );
-    return completion({
-      reply: 'EARLIER-REPLY',
-      actions: [],
-      mailSearch: ['waiver'],
-    });
-  };
-  const turn = (await askWithMail('Find waiver')).json().turn;
-  expect(sent).toHaveLength(1);
-  expect(turn.request.reply).toBe('EARLIER-REPLY');
-  expect(turn.request.reason).toBe('context-changed');
-  expect(turn.mailNote).toMatch(/source changed/);
-  expect(turn.mail).toEqual([]);
-  const [later] = await database.query(
-    "SELECT b.status FROM ai_assistant_requests r JOIN ai_budget_reservations b ON b.id=r.reservation_id WHERE r.kind='planner-round'",
-  );
-  expect(later!.status).toBe('released');
-});
-
-it('mail-derived proposals are read-only and mail history is withheld when Use mail is off', async () => {
-  await start();
-  await setBudget();
-  await importMail('personal', ['Private waiver']);
-  const settings = (await call('GET', '/api/v1/assistant/settings')).json()
-    .settings;
-  await call('PUT', '/api/v1/assistant/settings', {
-    model,
-    expectedVersion: settings.version,
-    allowPersonalMail: true,
-  });
-  chat = () =>
-    completion(
-      sent.length === 1
-        ? { reply: 'Searching', actions: [], mailSearch: ['waiver'] }
-        : sent.length === 2
-          ? { reply: 'Reading', actions: [], read: ['m1'] }
-          : {
-              reply: 'PRIVATE-ANSWER',
-              actions: [action({ title: 'Mail-created item' })],
-            },
-    );
-  const first = (await askWithMail('Find waiver')).json().turn;
-  expect(first.proposalAccess).toBe('read-only');
-  expect(first.inferenceHistory).toBe('bound');
-  expect(
-    (
-      await call('PUT', `/api/v1/assistant/turns/${first.id}/items`, {
-        expectedVersion: first.version,
-        items: first.items.map((item: object) => ({
-          ...item,
-          state: 'applied',
-          applied: { id: randomUUID(), version: 1 },
-        })),
-      })
-    ).json().error.code,
-  ).toBe('PROPOSAL_READ_ONLY');
-  chat = () => completion({ reply: 'Follow-up', actions: [] });
-  const second = (await continueAsk(first.conversationId, true)).json().turn;
-  expect(JSON.stringify(sent[3])).toContain('PRIVATE-ANSWER');
-  expect(second.proposalAccess).toBe('read-only');
-  const third = (await continueAsk(first.conversationId, false)).json().turn;
-  expect(JSON.stringify(sent[4])).not.toContain('PRIVATE-ANSWER');
-  expect(JSON.stringify(sent[4])).not.toContain('Private waiver');
-  const [exchange] = await database.query(
-    'SELECT manifest FROM ai_live_exchanges WHERE request_id=$1',
-    [third.id],
-  );
-  expect(exchange!.manifest).toMatchObject({
-    history: { turns: [], withheld: 2 },
-  });
-});
-
-it('binds every cumulative source without prompt or mail text in manifests', async () => {
-  await start();
-  await setBudget();
-  await importMail('unlabeled', ['SECRET-SUBJECT']);
-  chat = () =>
-    completion(
-      sent.length === 1
-        ? { reply: 'Search', actions: [], mailSearch: ['SECRET'] }
-        : sent.length === 2
-          ? { reply: 'Read', actions: [], read: ['m1'] }
-          : { reply: 'Done', actions: [] },
-    );
-  const turn = (await askWithMail('SECRET-ASK')).json().turn;
-  const rows = await database.query(
-    'SELECT manifest FROM ai_live_exchanges ORDER BY created_at,request_id',
-  );
-  const manifests = rows
-    .map(
-      (row) =>
-        row.manifest as {
-          round: number;
-          sources: { projection: string; id: string }[];
-          priorRequestIds: string[];
-        },
-    )
-    .sort((a, b) => a.round - b.round);
-  expect(manifests).toHaveLength(3);
-  expect(manifests[2]!.priorRequestIds).toHaveLength(2);
-  for (const source of manifests[1]!.sources)
-    expect(manifests[2]!.sources).toContainEqual(
-      expect.objectContaining({ projection: source.projection, id: source.id }),
-    );
-  expect(JSON.stringify(manifests)).not.toContain('SECRET-SUBJECT');
-  expect(JSON.stringify(manifests)).not.toContain('SECRET-ASK');
-  expect(JSON.stringify(turn)).not.toContain('digest');
-  expect(JSON.stringify(turn)).not.toContain('integrity');
-});
-
 it('a provider reply cannot resurrect a conversation deleted while it was pending', async () => {
   await start();
   await setBudget();
@@ -1344,59 +1149,6 @@ it('history overflow saves no partial binding', async () => {
     inference_digest: null,
     inference_sources: null,
   });
-});
-
-it('turning Personal mail off during the first exchange blocks the next one', async () => {
-  await start();
-  await setBudget();
-  await importMail('personal', ['Private waiver']);
-  const settings = (await call('GET', '/api/v1/assistant/settings')).json()
-    .settings;
-  await call('PUT', '/api/v1/assistant/settings', {
-    model,
-    expectedVersion: settings.version,
-    allowPersonalMail: true,
-  });
-  chat = async () => {
-    await database.query(
-      'UPDATE ai_assistant_settings SET allow_personal_mail=false,version=version+1',
-    );
-    return completion({
-      reply: 'Searching',
-      actions: [],
-      mailSearch: ['waiver'],
-    });
-  };
-  const turn = (await askWithMail('Find waiver')).json().turn;
-  expect(sent).toHaveLength(1);
-  expect(turn.request.reason).toBe('context-changed');
-  expect(turn.mailNote).toMatch(/source changed/);
-});
-
-it('relabeling an unchosen header hit blocks the cumulative body exchange', async () => {
-  await start();
-  await setBudget();
-  await importMail('unlabeled', ['Waiver first', 'Waiver second']);
-  chat = async () => {
-    if (sent.length === 1)
-      return completion({
-        reply: 'Search',
-        actions: [],
-        mailSearch: ['waiver'],
-      });
-    if (sent.length === 2) {
-      await database.query(
-        "UPDATE email_messages SET sensitivity='restricted',version=version+1 WHERE subject='Waiver first'",
-      );
-      return completion({ reply: 'Reading', actions: [], read: ['m1'] });
-    }
-    return completion({ reply: 'Unexpected', actions: [] });
-  };
-  const turn = (await askWithMail('Find waiver')).json().turn;
-  expect(sent).toHaveLength(2);
-  expect(turn.request.reason).toBe('context-changed');
-  expect(turn.request.reply).toBe('Reading');
-  expect(turn.mailNote).toMatch(/source changed/);
 });
 
 it('deleting a conversation during preparation releases the admitted but unsent hold', async () => {
@@ -1982,4 +1734,17 @@ it('drops invented, withheld and closed academic references instead of creating 
   expect(turn.request.proposals).toEqual([]);
   expect(turn.request.dropped).toBe(3);
   expect(turn.academic).toHaveLength(1);
+});
+
+it('legacy Use mail requires a separate broker grant and never falls back to search/read', async () => {
+  await start();
+  await setBudget();
+  await importMail('unlabeled', ['Private waiver']);
+  const result = await askWithMail('Find waiver');
+  expect(result.statusCode).toBe(409);
+  expect(result.json().error.code).toBe('MAIL_BROKER_APPROVAL_REQUIRED');
+  expect(sent).toEqual([]);
+  expect(await database.query('SELECT id FROM ai_budget_reservations')).toEqual(
+    [],
+  );
 });

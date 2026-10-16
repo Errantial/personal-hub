@@ -14,7 +14,6 @@ import { localReviewSlot } from '../src/features/responsibility-local-cadence.js
 import {
   action,
   approveLiveDestination,
-  completion,
   answer,
   rateLimited,
   startHarness,
@@ -738,81 +737,19 @@ it('a lease lost during catalog lookup never sends or leaves an uncertain hold',
   expect((await run(id)).error_code).toBe('AGENT_LEASE_LOST');
 });
 
-it('mail-derived agent proposals remain proposed under automatic task policy', async () => {
+it('existing mail-enabled agents block until an explicit broker grant is approved', async () => {
   h = await startHarness();
   const agent = await seedAgent({ daysAgo: -2 });
   await h.database.query(
     'UPDATE responsibilities SET use_mail=true WHERE id=$1',
     [agent.id],
   );
-  const { token } = (
-    await h.call('POST', '/api/v1/email/connectors', {
-      name: 'Synthetic mail',
-      sensitivity: 'unlabeled',
-      operationId: randomUUID(),
-    })
-  ).json();
-  expect(
-    (
-      await h.app.inject({
-        method: 'POST',
-        url: '/api/v1/email/connector/batch',
-        headers: { authorization: `Bearer ${token}` },
-        payload: {
-          path: 'INBOX',
-          role: null,
-          uidValidity: '1',
-          exists: 1,
-          inWindow: 1,
-          lastUid: 1,
-          messages: [
-            {
-              uid: 1,
-              messageKey: '<agent-mail@example.test>',
-              from: { name: 'Office', address: 'office@example.test' },
-              to: [],
-              cc: [],
-              subject: 'Waiver',
-              sentAt: null,
-              receivedAt: '2026-10-01T10:00:00.000Z',
-              body: 'Return waiver.',
-              bodyTruncated: false,
-              attachmentCount: 0,
-              textOrigin: 'message-body-v1',
-            },
-          ],
-        },
-      })
-    ).statusCode,
-  ).toBe(200);
-  await h.database.query(
-    `INSERT INTO ai_action_policies(owner_id,policy) VALUES($1,'{"tasks":"automatic","calendar":"automatic","email":"approval-required"}') ON CONFLICT(owner_id) DO UPDATE SET policy=EXCLUDED.policy`,
-    [h.owner],
-  );
-  h.state.chat = () =>
-    completion(
-      h.state.sent.length === 1
-        ? { reply: 'Search', actions: [], mailSearch: ['waiver'] }
-        : h.state.sent.length === 2
-          ? { reply: 'Read', actions: [], read: ['m1'] }
-          : {
-              reply: 'Create waiver task',
-              actions: [action({ title: 'Return waiver' })],
-            },
-    );
   const id = await queueRun(agent);
   await tick();
-  expect(h.chatCalls()).toBe(3);
+  expect(h.chatCalls()).toBe(0);
   expect(await run(id)).toMatchObject({
-    status: 'completed',
-    outcome: 'needs-approval',
+    status: 'failed',
+    error_code: 'MAIL_BROKER_APPROVAL_REQUIRED',
   });
-  expect((await h.call('GET', '/api/v1/tasks')).json().tasks).toEqual([]);
-  const turn = await readTurn(
-    h.database,
-    h.owner,
-    (await run(id)).turn_id as string,
-  );
-  expect(turn?.proposalAccess).toBe('read-only');
-  expect(turn?.items[0]!.state).toBe('proposed');
+  expect(await reservations()).toEqual([]);
 });

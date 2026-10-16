@@ -2,13 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { admitLive, settleLive } from '../src/ai/live-request.js';
 import { agentSpend } from '../src/features/agent-run.js';
-import { answerTurn } from '../src/features/assistant.js';
 import { migrate } from '../src/db/migrate.js';
 import {
   startTurn,
   recordRound,
 } from '../src/features/assistant-conversations.js';
-import { completion, startHarness } from './helpers/openrouter.js';
+import { startHarness } from './helpers/openrouter.js';
 import type { Harness } from './helpers/openrouter.js';
 
 let h: Harness;
@@ -115,39 +114,6 @@ it('releases confirmed refusals, retains uncertainty and uses settled charges wi
   expect(await agentSpend(h.database, h.owner, a.id)).toBe(123);
   await admitLive(h.database, h.owner, request(a.id, 877));
   expect(await agentSpend(h.database, h.owner, a.id)).toBe(1000);
-});
-
-it('stops a later mail exchange before its hold or dispatch when allowance was reduced', async () => {
-  h = await startHarness();
-  const a = await agent();
-  h.state.chat = async () => {
-    await h.database.query(
-      'UPDATE responsibilities SET monthly_cap_micros=124 WHERE id=$1',
-      [a.id],
-    );
-    return completion({
-      reply: 'Searching.',
-      actions: [],
-      mailSearch: ['deadline'],
-      read: [],
-    });
-  };
-  const turn = await answerTurn(h.database, h.config, h.fetcher, h.owner, {
-    operationId: randomUUID(),
-    prompt: 'Find deadlines',
-    ask: 'Run',
-    timeZone: 'UTC',
-    conversationId: a.conversation,
-    useMail: true,
-    trigger: 'agent',
-    agentId: a.id,
-  });
-  expect(h.chatCalls()).toBe(1);
-  expect(turn.mailNote).toContain('remaining agent allowance');
-  expect(
-    await h.database.query('SELECT id FROM ai_budget_reservations'),
-  ).toHaveLength(1);
-  expect(await agentSpend(h.database, h.owner, a.id)).toBe(123);
 });
 
 it('rejects deleted or foreign agent attribution without creating a hold', async () => {

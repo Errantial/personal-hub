@@ -1,5 +1,12 @@
 # UI agent ledger
 
+## J3 broker workflow contracts (development, 2026-10-15)
+
+[Brokered owner asks and scheduled agents](jev-mail-workflow.md) replace the raw model search/read loop. Existing Use mail requires a separately enabled owner/agent grant and both provider approvals; it can now return MAIL_BROKER_APPROVAL_REQUIRED or MAIL_BROKER_BLOCKED without a receiving-model call. Mail-disabled requests remain off. Preserve visible actionable errors and the coverage mailNote; mail-derived proposals remain read-only even under automatic agent policy.
+
+Turns add optional mailBroker {receipt, continuation}; owner asks accept optional mailContinuation only with Use mail. Coverage is eligible imported mail, never external inbox completeness. A continuation is an opaque older-window token, not a mail read capability. J4 must expose grants, readiness, explicit switch migration, continuation controls, provider-specific costs and blocked/pending/partial/failed/uncertain states with keyboard, tap and 320px checks. Readiness now reports dispatchConnectedToAgents=true; this means integration exists, not live account readiness. No new visual controls, live deployment or private-mail quality acceptance are claimed.
+
+
 ## Jev foundation endpoints (J1/J2 development, 2026-10-15)
 
 The [broker foundation](jev-mail-broker.md) now provides owner-authenticated grant list/save and readiness endpoints, shared bounded request/result contracts and metadata receipts. There are no new UI controls or public execution/read-message endpoints. Grant creation expects version zero; updates use optimistic versions and operation IDs. Only connector/date scopes are supported. Readiness distinguishes Jev blockers from downstream readiness and always reports `dispatchConnectedToAgents: false` in this slice. Do not treat a grant or ready adapter as agent integration or verified mailbox completeness. Coverage includes connector sync/import dates and distinguishes inspected, eligible and judged records; selection can stop at the current 350-source lineage capacity. Existing Use mail controls remain unchanged until J3/J4 migration. Existing agent allowance displays now include broker and reserved downstream amounts through the shared accounting query. Preserve pending/uncertain holds rather than presenting a retry invitation.

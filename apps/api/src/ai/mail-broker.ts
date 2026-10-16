@@ -112,6 +112,18 @@ export async function checkBrokerContext(
   owner: string,
   context: BrokerContext,
 ) {
+  const [workflow] = await tx.query(
+    `SELECT c.id FROM mail_broker_workflows w LEFT JOIN ai_conversations c
+    ON c.owner_id=w.owner_id AND c.id=w.conversation_id AND c.deleted_at IS NULL
+    WHERE w.owner_id=$1 AND w.id=$2`,
+    [owner, context.logicalRequestId],
+  );
+  if (workflow && !workflow.id)
+    throw new ApiError(
+      409,
+      'MAIL_CONVERSATION_CHANGED',
+      'The mail conversation is unavailable.',
+    );
   if (Date.parse(context.deadlineAt) <= Date.now())
     throw new ApiError(
       409,
@@ -222,6 +234,9 @@ type Retrieval = {
     policyVersion: number;
     settingsVersion: number;
     windowHasMore: boolean;
+    windowEnd?: { receivedAt: string; id: string };
+    snapshotAt?: string;
+    verificationDigest?: string;
   };
   cursor_token: string;
   position: number;
@@ -311,10 +326,59 @@ export async function beginBrokerRetrieval(
       'SELECT version FROM ai_budget_policies WHERE owner_id=$1',
       [owner],
     );
+    let boundary: { receivedAt: string; id: string } | undefined;
+    let snapshotAt = new Date().toISOString();
+    if (input.continuation) {
+      const [prior] = await tx.query(
+        'SELECT r.*,f.binding AS forwarding,f.digest AS forwarding_digest FROM mail_broker_retrievals r JOIN mail_broker_forwardings f ON f.owner_id=r.owner_id AND f.retrieval_id=r.id WHERE r.owner_id=$1 AND r.cursor_token=$2',
+        [owner, input.continuation],
+      );
+      if (
+        !prior ||
+        prior.grant_id !== grant.id ||
+        prior.grant_version !== grant.version ||
+        prior.agent_id !== (context.agent?.id ?? null) ||
+        Number(prior.position) < (prior.snapshot as unknown[]).length ||
+        !(prior.limits as Retrieval['limits']).windowHasMore
+      )
+        throw new ApiError(
+          409,
+          'MAIL_CONTINUATION_INVALID',
+          'Mail continuation is unavailable.',
+        );
+      boundary = (prior.limits as Retrieval['limits']).windowEnd;
+      const bindings = (prior.forwarding as { sources: BrokerBinding[] })
+        .sources;
+      const originals = await brokerCandidates(
+        tx,
+        owner,
+        grant,
+        bindings.map((s) => s.id),
+        policy.allowed,
+      );
+      if (
+        brokerDigest(prior.forwarding) !== prior.forwarding_digest ||
+        brokerDigest(originals.map(candidateBinding)) !== brokerDigest(bindings)
+      )
+        throw new ApiError(
+          409,
+          'MAIL_CONTINUATION_INVALID',
+          'A prior mail selection dependency changed.',
+        );
+      snapshotAt = (prior.limits as Retrieval['limits']).snapshotAt ?? '';
+      if (!boundary || !snapshotAt)
+        throw new ApiError(
+          409,
+          'MAIL_CONTINUATION_INVALID',
+          'Mail continuation has no stable boundary.',
+        );
+    }
     const rows = await tx.query(
-      `SELECT m.id FROM email_messages m JOIN email_connectors c ON c.owner_id=m.owner_id AND c.id=m.connector_id
+      `SELECT m.id,to_char(m.received_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "receivedAt" FROM email_messages m JOIN email_connectors c ON c.owner_id=m.owner_id AND c.id=m.connector_id
       WHERE m.owner_id=$1 AND m.connector_id=ANY($2::uuid[]) AND c.revoked_at IS NULL
       AND ($3::timestamptz IS NULL OR m.received_at >= $3) AND ($4::timestamptz IS NULL OR m.received_at < $4)
+      AND m.created_at <= $6::timestamptz
+      AND ($7::timestamptz IS NULL OR (m.received_at,m.id) < ($7::timestamptz,$8::uuid))
       ORDER BY m.received_at DESC,m.id DESC LIMIT $5`,
       [
         owner,
@@ -322,6 +386,9 @@ export async function beginBrokerRetrieval(
         grant.scope.receivedAfter,
         grant.scope.receivedBefore,
         input.maxCandidates + 1,
+        snapshotAt,
+        boundary?.receivedAt ?? null,
+        boundary?.id ?? null,
       ],
     );
     const window = rows.slice(0, input.maxCandidates);
@@ -385,6 +452,17 @@ export async function beginBrokerRetrieval(
           policyVersion: budget!.version,
           settingsVersion: policy.settingsVersion,
           windowHasMore: hasMore,
+          snapshotAt,
+          verificationDigest: brokerDigest(policy.verification),
+          windowEnd: (() => {
+            const end =
+              eligible.length > snapshot.length
+                ? window.find((r) => r.id === snapshot.at(-1)?.id)
+                : window.at(-1);
+            return end
+              ? { id: String(end.id), receivedAt: String(end.receivedAt) }
+              : undefined;
+          })(),
         }),
         cursor,
         JSON.stringify(coverage),
@@ -416,6 +494,9 @@ export async function guardBrokerRetrieval(
     brokerDigest(policy.downstream) !==
       brokerDigest(retrieval.limits.downstream) ||
     policy.settingsVersion !== retrieval.limits.settingsVersion ||
+    (retrieval.limits.verificationDigest !== undefined &&
+      retrieval.limits.verificationDigest !==
+        brokerDigest(policy.verification)) ||
     retrieval.context.requestLabels.some((l) => !policy.allowed.includes(l))
   )
     throw new ApiError(409, 'MAIL_ROUTE_CHANGED', 'Mail destinations changed.');

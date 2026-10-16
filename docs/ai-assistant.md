@@ -1,5 +1,7 @@
 # Planner assistant (first live AI flow)
 
+J3 development replaces mail-enabled asks and agent runs with the explicit-grant [Jev broker workflow](jev-mail-workflow.md). The historical search/read behavior below describes the deployed baseline, not the J3 runtime. J3 is not deployed; J4 controls and actual provider/owner acceptance remain pending.
+
 Implemented 2026-10-13 (plan step 4, D47). The Assistant on Today and its conversation page turn natural-language requests into proposed task and event changes through OpenRouter. Owner requests change nothing until Apply; changes use the ordinary versioned planner writes and can be undone. Since the P5/P6 boundary 2 slice, Apply and Undo are server-owned and derived records keep inherited labels and origin. The older general gateway remains separate from dispatch.
 
 ## Scheduled agents (D57, deployed 2026-10-14 as release 519054d)

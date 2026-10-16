@@ -1,5 +1,7 @@
 # Implementation backlog
 
+J3 workflow is implemented in development on ai/jev-broker-workflow; local validation is complete and remote CI remains pending. See [runtime/accounting/history contracts](jev-mail-workflow.md). J4 settings, coverage/continuation controls and staged live acceptance remain next, before P8 part 2.
+
 ## Current next milestone: Jev mail broker (2026-10-15)
 
 J1/J2 foundations are implemented in development on `ai/jev-broker-foundation`: shared contracts, owner-scoped grants, guarded snapshot pages/receipts, strict Jev transport, separate consent/account-evidence gates and combined owner/request/agent accounting. See [implemented boundaries](jev-mail-broker.md) and [delivery plan](jev-mail-broker-plan.md). Local validation passed `npm run check` (796 tests passed; three optional PostgreSQL cases skipped) and sequential `npm run test:e2e` (156 cases); remote CI remains pending. No deployment, real provider disclosure or agent workflow integration occurred. J3 is next: agent/Assistant workflow, downstream hold transfer, older-window continuation and full derived-history revocation. J4 follows with settings, imported freshness/coverage UI, existing Use mail migration and staged acceptance. Existing agent mail behavior remains unchanged until those slices replace it without fallback. Then finish P8 study proposals, P9 memory, P10 coverage/reconciliation, Canvas/Outlook and MCP. Academic PRs 39-41 are merged; deployment remains separate. Older entries below retain their dated history.

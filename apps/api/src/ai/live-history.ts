@@ -15,6 +15,10 @@ import {
   turnDigest,
 } from './live-manifest.js';
 import type { LiveHistorySource } from './live-manifest.js';
+import {
+  brokerLineageEligible,
+  brokerDependencyCount,
+} from './broker-lineage.js';
 
 // Bound conversation history (docs/live-context-admission-design.md). Only
 // turns whose kept reply came from a verified exchange are resent, together
@@ -39,12 +43,32 @@ export async function historySourcesEligible(
   refs: LiveHistorySource[],
   rules: { allowed: Sensitivity[]; useMail: boolean },
 ) {
+  const brokers = refs.filter((ref) => ref.kind === 'mail-broker');
+  if (brokers.length && !rules.useMail) return false;
+  if (
+    refs.length +
+      (await brokerDependencyCount(
+        tx,
+        owner,
+        brokers.map((ref) => ref.id),
+      )) >
+    maxHistorySources
+  )
+    return false;
+  for (const ref of brokers)
+    if (
+      !ref.brokerDigest ||
+      !(await brokerLineageEligible(tx, owner, ref.id, ref.brokerDigest))
+    )
+      return false;
   if (refs.some((ref) => ref.labels.some((l) => !rules.allowed.includes(l))))
     return false;
   const ids = (kind: LiveHistorySource['kind']) =>
     refs.filter((ref) => ref.kind === kind).map((ref) => ref.id);
   const mail = ids('mail-message');
   if (mail.length && !rules.useMail) return false;
+  // Legacy direct-mail history has no broker scope receipt to reauthorize it.
+  if (mail.length && !brokers.length) return false;
   const current = new Map<
     string,
     {
@@ -119,6 +143,7 @@ export async function historySourcesEligible(
           },
         });
   return refs.every((ref) => {
+    if (ref.kind === 'mail-broker') return true;
     const now = current.get(`${ref.kind}:${ref.id}`);
     return (
       !!now &&
@@ -183,10 +208,16 @@ export async function readBoundHistory(
     }
     if (!parsed.success) break;
     const refs = parsed.data;
+    if (
+      refs.some((ref) => ref.kind === 'mail-message') &&
+      !refs.some((ref) => ref.kind === 'mail-broker')
+    )
+      break;
     const merged = new Map(union);
     for (const ref of refs) merged.set(`${ref.kind}:${ref.id}`, ref);
     if (merged.size > maxHistorySources) break;
-    if (!(await historySourcesEligible(tx, owner, refs, rules))) break;
+    if (!(await historySourcesEligible(tx, owner, [...merged.values()], rules)))
+      break;
     union.clear();
     for (const [key, ref] of merged) union.set(key, ref);
     result.history.unshift({ ask: String(row.ask), reply: String(row.reply) });

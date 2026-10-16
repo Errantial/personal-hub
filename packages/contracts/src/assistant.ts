@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { taskSchema } from './core.js';
 import { calendarRecordSchema, dateOnly, instant, zone } from './features.js';
 import { runOutcomeSchema } from './responsibilities.js';
+import { mailBrokerReceiptSchema } from './mail-broker.js';
 
 /**
  * Natural-language planner assistant (live OpenRouter). The model only
@@ -107,10 +108,10 @@ export const assistantRequestInputSchema = z.strictObject({
    */
   conversationId: z.string().uuid().optional(),
   /**
-   * Allow searching eligible mail (D56): up to three model calls, at most
-   * five bodies read. Off: mail is never touched.
+   * Request brokered imported mail under an explicit grant and both approved routes.
    */
   useMail: z.boolean().default(false),
+  mailContinuation: z.string().uuid().optional(),
   /**
    * Manual academic work sent with this ask (docs/ai-academic-context.md):
    * allowlisted planning text only. A missing deadline or effort stays
@@ -300,6 +301,13 @@ export const assistantTurnSchema = z.object({
   mailWithheld: z.number().int().nonnegative().default(0),
   /** Why mail reading stopped early, if it did. */
   mailNote: z.string().nullable().default(null),
+  mailBroker: z
+    .object({
+      receipt: mailBrokerReceiptSchema,
+      continuation: z.string().uuid().nullable(),
+    })
+    .nullable()
+    .optional(),
   /** Selected manual academic work as sent, for coverage display. */
   academic: z.array(assistantAcademicSentSchema).default([]),
   /**

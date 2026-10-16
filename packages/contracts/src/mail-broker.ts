@@ -39,6 +39,7 @@ export const mailBrokerRequestSchema = z.strictObject({
   intent: z.string().trim().min(1).max(4000),
   maxCandidates: z.number().int().min(1).max(500).default(500),
   maxResults: z.number().int().min(1).max(50).default(50),
+  continuation: uuid.optional(),
 });
 export type MailBrokerRequest = z.infer<typeof mailBrokerRequestSchema>;
 export const mailBrokerCoverageSchema = z.object({
@@ -97,5 +98,5 @@ export const mailBrokerReadinessSchema = z.object({
   profileRevision: z.string().nullable(),
   approvalVersion: z.number().int().positive(),
   downstream: z.enum(['ready', 'blocked']),
-  dispatchConnectedToAgents: z.literal(false),
+  dispatchConnectedToAgents: z.boolean(),
 });

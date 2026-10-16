@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { mailBrokerReceiptSchema } from '@hub/contracts';
 import type { Config } from '../config.js';
 import type { Database, QueryExecutor } from '../db/database.js';
 import { ApiError } from '../errors.js';
@@ -219,7 +220,11 @@ export async function executeJevBatch(
   batchId: string,
   intent: string,
   fetcher: typeof fetch,
-  options: { timeoutMs?: number; beforeGuard?: () => Promise<void> } = {},
+  options: {
+    timeoutMs?: number;
+    beforeGuard?: () => Promise<void>;
+    authority?: (tx: QueryExecutor) => Promise<boolean>;
+  } = {},
 ) {
   const sealed = await database.transaction((tx) =>
     reserveBatch(tx, config, owner, batchId, intent),
@@ -233,6 +238,12 @@ export async function executeJevBatch(
       await tx.query(
         'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY',
       );
+      if (options.authority && !(await options.authority(tx)))
+        throw new ApiError(
+          401,
+          'MAIL_AUTHORITY_CHANGED',
+          'Owner authorization expired.',
+        );
       const { grant, policy } = await guardBrokerRetrieval(
         tx,
         config,
@@ -507,11 +518,11 @@ export async function selectedBrokerMail(
     return {
       messages,
       dependencies: sources,
-      receipt: {
+      receipt: mailBrokerReceiptSchema.parse({
         id: retrieval.id,
         status: retrieval.status,
         coverage,
-      },
+      }),
       cursor:
         retrieval.position < retrieval.snapshot.length
           ? retrieval.cursor_token

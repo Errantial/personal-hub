@@ -127,6 +127,7 @@ export async function finishTurn(
     mail: AssistantMailSent[];
     mailWithheld: number;
     mailNote: string | null;
+    mailBroker?: AssistantTurn['mailBroker'];
     academic?: AssistantAcademicSent[];
     proposalAccess?: 'read-only' | 'applicable';
     binding?: { requestId: string } | null;
@@ -172,7 +173,7 @@ export async function finishTurn(
       }
     }
     await tx.query(
-      `UPDATE ai_conversation_turns SET reply=$3,proposals=$4,items=$5,mail=$6,mail_withheld=$7,mail_note=$8,proposal_access=$9,inference_history=$10,inference_digest=$11,inference_sources=$12,academic=$13,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2`,
+      `UPDATE ai_conversation_turns SET reply=$3,proposals=$4,items=$5,mail=$6,mail_withheld=$7,mail_note=$8,proposal_access=$9,inference_history=$10,inference_digest=$11,inference_sources=$12,academic=$13,mail_broker=$14,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2`,
       [
         owner,
         id,
@@ -187,6 +188,7 @@ export async function finishTurn(
         digest,
         sources ? JSON.stringify(sources) : null,
         JSON.stringify(mail.academic ?? []),
+        JSON.stringify(mail.mailBroker ?? null),
       ],
     );
     if (mail.binding && answer?.proposals.length) {
@@ -202,7 +204,7 @@ export async function finishTurn(
   });
 }
 
-const turnColumns = `t.id,t.conversation_id AS "conversationId",t.ask,t.reply,t.proposals,t.items,t.version,t.use_mail AS "useMail",t.mail,t.mail_withheld AS "mailWithheld",t.mail_note AS "mailNote",t.academic,t.trigger,t.not_allowed AS "notAllowed",t.inference_history AS "inferenceHistory",t.proposal_access AS "proposalAccess"`;
+const turnColumns = `t.id,t.conversation_id AS "conversationId",t.ask,t.reply,t.proposals,t.items,t.version,t.use_mail AS "useMail",t.mail,t.mail_withheld AS "mailWithheld",t.mail_note AS "mailNote",t.mail_broker AS "mailBroker",t.academic,t.trigger,t.not_allowed AS "notAllowed",t.inference_history AS "inferenceHistory",t.proposal_access AS "proposalAccess"`;
 const json = (value: unknown) =>
   typeof value === 'string' ? JSON.parse(value) : value;
 
@@ -216,6 +218,14 @@ type Receipt = Awaited<ReturnType<typeof liveReceipt>> & {
  */
 async function turnReceipt(database: Database, owner: string, id: string) {
   const first = (await liveReceipt(database, owner, id)) as Receipt;
+  const [broker] = await database.query(
+    `SELECT COALESCE(SUM(b.actual_micros) FILTER(WHERE b.status='settled'),0)::text AS cost
+    FROM mail_broker_retrievals r JOIN mail_broker_batches p ON p.owner_id=r.owner_id AND p.retrieval_id=r.id
+    JOIN ai_budget_reservations b ON b.id=p.reservation_id AND b.owner_id=p.owner_id
+    WHERE r.owner_id=$1 AND r.context->>'logicalRequestId'=$2`,
+    [owner, id],
+  );
+  if (first.costMicros !== null) first.costMicros += Number(broker!.cost);
   const rounds = await database.query(
     'SELECT request_id FROM ai_conversation_turn_rounds WHERE turn_id=$1 ORDER BY round',
     [id],
@@ -272,6 +282,7 @@ function toTurn(
     })),
     mailWithheld: Number(row.mailWithheld ?? 0),
     mailNote: (row.mailNote as string | null) ?? null,
+    mailBroker: (json(row.mailBroker) ?? null) as AssistantTurn['mailBroker'],
     academic: (json(row.academic) ?? []) as AssistantAcademicSent[],
     inferenceHistory: row.inferenceHistory === 'bound' ? 'bound' : 'unbound',
     proposalAccess:

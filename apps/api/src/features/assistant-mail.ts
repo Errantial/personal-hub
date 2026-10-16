@@ -98,7 +98,9 @@ export async function readMail(
       ? [
           {
             ...hit(row),
-            body: String(row.body).slice(0, bodyLimit),
+            body: String(row.body)
+              .slice(0, bodyLimit)
+              .replace(/[\uD800-\uDBFF]$/, ''),
             truncated:
               row.body_truncated === true ||
               String(row.body).length > bodyLimit,
