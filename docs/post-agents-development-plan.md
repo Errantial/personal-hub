@@ -1,5 +1,9 @@
 # Development after scheduled agents
 
+## Owner-requested sequence update (2026-10-15)
+
+The next milestone is the [Jev mail broker](jev-mail-broker-plan.md): agents request relevant mail through a server-owned TypeSafe selector, with larger bounded forwarding, separate two-hop routing/approval, existing spending limits and honest imported-mail coverage. This scoped new provider addition supersedes the earlier no-new-provider assumption only for the broker. It is planned, not implemented or live-approved. Follow J1-J4, then remaining P8 study proposals, P9 explicit memory, P10 mail completeness, P11/P12 integrations and P13-P16 MCP. Minimal coverage reporting is a broker prerequisite. Academic PRs 39-41 are merged; merging is not deployment. Findings below retain their dated baseline, not a claim that their fixes are still unimplemented.
+
 Researched 2026-10-14; approved for autonomous development by the owner afterward. Implement the recommended defaults and sequence below, preserving capability-specific acceptance gates. Account access, external disclosure destinations, new credentials and explicitly excluded authority still require their stated gates. [Product scope](product.md), [decisions](decisions.md) and D57 remain authoritative where this plan preserves exclusions. Completed delivery and live acceptance are separate.
 
 ## Recommended direction

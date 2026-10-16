@@ -1,5 +1,9 @@
 # Decision register
 
+## Jev mail intermediary (owner direction 2026-10-15)
+
+Agents will request mail from a server-owned Jev broker selecting a larger bounded set as agent context. This is not an email send. Brokered access is the default for mail-enabled agents; direct mailbox access is not introduced. The finalized [plan](jev-mail-broker-plan.md) precedes remaining P8 study work and preserves two-hop approval, owner/inherited labels, spending admission, durable provenance and no fallback. Developing this specific provider is authorized; actual TypeSafe account retention/quote readiness, saved destination approval and concrete mail grants remain live-enablement gates. Existing Use mail never silently approves Jev. Operational limits and thresholds are implementation defaults subject to validation, not tested private-mail quality claims.
+
 ## Live admission choices (owner-confirmed 2026-10-15)
 
 The owner chose one-click destination approval in Settings and binding new history immediately. The narrow live adapter pins one declared OpenRouter model/upstream, stores explicit owner approval and its revision, and blocks absent/stale approval. Existing Personal-mail consent is an additional label ceiling; Restricted content is excluded. This adapter does not enable or modify the separate general gateway's provider profiles, routing policy or dispatch. Legacy conversation turns remain readable but withheld from inference; new bound turns remain eligible only while their retained sources and permissions permit redisclosure. See the [boundary plan](superpowers/plans/2026-10-15-live-context-admission-boundary-1.md).
