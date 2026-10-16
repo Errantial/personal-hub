@@ -1,5 +1,13 @@
 # Implementation log
 
+## 2026-10-16 - Capped synthetic broker experiment runner
+
+PR #47 merged as `eaf9a5e`; its full local check passed 823 tests with three optional PostgreSQL skips, and Linux/Windows/PostgreSQL CI passed on `129cad2`. Added an explicitly opted-in synthetic-only runner with an experiment cap of at most $0.25, dated quote expiry, canonical production envelopes, shared host-specific endpoint checks and existing bounded no-retry transport/decoder. Production broker policy still checks owner authority before the extracted capability helper. No production approvals, grants or budget semantics changed.
+
+The runner exclusively creates its journal directory and flushes admissions before dispatch. It refuses existing directories, retains uncertain reservations, records full confirmed overruns, and stops on endpoint failure, cap/quote blocking, invalid output or uncertainty. No resume or paid replay exists. Journals contain only synthetic metadata/decisions and billing. The standalone allowance is distinct from production owner accounting; filesystem loss and provider overbilling remain explicit limits. Tests use fake public catalogs and completions, never real providers.
+
+Focused validation passed all 78 tests (69 existing broker, three artifact-tooling and six new runner tests), covering durable admission order, strict request/response handling, existing-directory refusal, opt-in/key/cap/expiry guards, next-exchange cap admission, uncertain holds, endpoint price blocking and full overrun recording. CLI invocation without execution arguments rejected without dispatch. Full check and remote CI outcomes are recorded on the PR. No UI/auth behavior changed; browser checks are separate from this CLI slice. Actual paid evaluation, quality scoring, production configuration/deployment and live acceptance remain pending.
+
 ## 2026-10-16 - Broker evaluation artifact tooling
 
 PR #46 merged as `b52745c`; Linux, Windows and PostgreSQL checks passed on source commit `0530fc9`. This closes the earlier pending remote-CI gate without changing the recorded local timeout/retry history below. It does not establish deployment or model quality.

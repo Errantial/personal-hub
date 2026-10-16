@@ -62,7 +62,7 @@ node --import tsx scripts/prepare-mail-broker-evaluation.mjs decode .artifacts/b
 node scripts/evaluate-mail-broker.mjs .artifacts/broker-result.json
 ```
 
-The requests artifact contains corpus/rubric/model identity, a corpus hash and 60 entries with `caseId`, `requestSha256` and the exact serialized `envelope`. Expected judgments are excluded. A future separately authorized executor must send those exact bytes, perform current host-specific endpoint/price checks, enforce an explicit total cap, journal admission before dispatch and never automatically resend uncertain calls. The artifact alone authorizes no execution and its dated quote is not evidence of current prices or availability. No network executor is included here.
+The requests artifact contains corpus/rubric/model identity, a corpus hash and 60 entries with `caseId`, `requestSha256` and the exact serialized `envelope`. Expected judgments are excluded. The artifact alone authorizes no execution and its dated quote is not evidence of current prices or availability. The separately gated executor below rebuilds these same canonical requests rather than accepting arbitrary request files.
 
 For offline decoding, supply an array of `{ "caseId": "chemistry-exact", "requestSha256": "<hash from request artifact>", "completion": "<raw OpenRouter JSON response as a string>" }`. The decoder rebuilds the current corpus requests and rejects missing/duplicate/foreign/mismatched or oversized responses. The digest detects request mismatches; it does not authenticate who generated a response. It retains confirmed cost for rejected outputs and reports uncertain cases separately. These are offline diagnostics, not settlements in the production budget ledger. A receipt is valid only when every case passes the production decoder. The scorer accepts this receipt or the legacy prediction array; malformed/uncertain responses cannot be counted as valid zero-match answers. Keep artifacts local and uncommitted. Recreate them after corpus or rubric changes.
 
@@ -75,3 +75,18 @@ node scripts/evaluate-mail-broker.mjs predictions.json
 ```
 
 The scorer rejects missing/duplicate cases and foreign/duplicate references and requires at least 90% direct-relevance precision and recall. It has no provider transport or credentials. Fake-adapter integration tests prove enforcement and recovery, not these quality thresholds. No actual model run has been performed. Owner live acceptance must separately assess usefulness and completeness warnings before expanding use.
+
+### Separately authorized synthetic execution
+
+`scripts/run-mail-broker-evaluation.mjs` is an opt-in experiment runner, never a routine test. It accepts only the bundled synthetic corpus, uses the gateway's production request builder, pinned ZDR/no-fallback transport and strict decoder, and checks the existing public host-specific capability/price rules before every admission. It cannot read a mailbox, owner database, arbitrary corpus or external request artifact. It reads only the existing `AI_SECRET_OPENROUTER` process environment variable; it does not load `.env`, accept a key argument or print credentials. Production destination approvals, grants and owner budgets are unchanged.
+
+After separate owner authorization for paid synthetic evaluation, with the key already provisioned privately in the process environment, run:
+
+```sh
+node --import tsx scripts/run-mail-broker-evaluation.mjs --execute-synthetic --max-micros 250000 --journal .artifacts/broker-experiment-001
+node scripts/evaluate-mail-broker.mjs .artifacts/broker-experiment-001/result.json
+```
+
+The explicit experiment allowance is in millionths of a dollar, at most 250000 ($0.25). It is separate from the application's owner/agent ledger; ensure account and monthly headroom before authorizing it. Each next exchange needs its entire $0.004020 reservation to fit alongside confirmed costs and uncertain holds. With all 60 maximum reservations, the dated nominal bound is $0.241200. Confirmed actual charges replace reservations, including overruns; unexpected provider charges can exceed the declared cap and stop further requests. This is an admission bound, not a vendor billing guarantee. The example quote expires 2026-11-15 and expired quotes block execution; renew only after rechecking terms/prices.
+
+A new directory is required, with owner-only Unix permissions. A timestamped journal header and each admission are flushed to disk before sending. Results retain safe synthetic case decisions, cost and uncertainty, never raw provider responses or the key. An uncertain exchange keeps its full reservation and stops; an invalid billed output retains actual cost and also stops. The result is quality-scoreable only after all cases pass the decoder. There is no automatic retry or resume, even for a completed directory. A crash after admission may have incurred cost without a final outcome: preserve the journal, inspect the provider account and do not start a new directory as a retry. Do not delete journals to bypass this guard. A new experiment requires fresh authorization and allowance; this runner does not reconcile separate experiments or production invoices. Endpoint failures, cap exhaustion and quote expiry stop before the next paid admission. A journal-write failure also stops execution; inspect its last persisted admission conservatively. Local filesystem/disk loss is outside the durability guarantee. Windows access follows the enclosing directory's ACL.

@@ -159,6 +159,26 @@ export async function verifyBrokerCatalog(
   policy: Awaited<ReturnType<typeof brokerPolicy>>,
 ) {
   requireBrokerReady(policy);
+  return verifyBrokerEndpoint(fetcher, {
+    model: policy.profile!.model,
+    inputTokenLimit: policy.quote!.inputTokenLimit,
+    inputMicrosPerMillionTokens:
+      policy.profile!.pricing!.inputMicrosPerMillionTokens,
+    outputMicrosPerMillionTokens:
+      policy.profile!.pricing!.outputMicrosPerMillionTokens,
+  });
+}
+
+/** Capability checks only: this grants no owner disclosure or spending authority. */
+export async function verifyBrokerEndpoint(
+  fetcher: OpenRouterFetch,
+  bounds: {
+    model: string;
+    inputTokenLimit: number;
+    inputMicrosPerMillionTokens: number;
+    outputMicrosPerMillionTokens: number;
+  },
+) {
   try {
     // A model-wide catalog price can be lower than the pinned host's price.
     // Verify every eligible endpoint under that host before reserving money.
@@ -198,7 +218,7 @@ export async function verifyBrokerCatalog(
       .parse(JSON.parse(raw))
       .data.filter(
         (e) =>
-          e.model_id === policy.profile!.model &&
+          e.model_id === bounds.model &&
           e.tag.split('/')[0] === brokerUpstream &&
           e.supported_parameters.includes('structured_outputs'),
       );
@@ -220,31 +240,27 @@ export async function verifyBrokerCatalog(
           !e.supported_parameters.includes('max_tokens') ||
           !e.supported_parameters.includes('response_format') ||
           (e.max_prompt_tokens ?? e.context_length ?? 0) <
-            policy.quote!.inputTokenLimit ||
+            bounds.inputTokenLimit ||
           (e.context_length ?? 0) <
-            policy.quote!.inputTokenLimit + brokerOutputTokens ||
+            bounds.inputTokenLimit + brokerOutputTokens ||
           (e.max_completion_tokens ?? 0) < brokerOutputTokens ||
-          rate(e.pricing.prompt) >
-            policy.profile!.pricing!.inputMicrosPerMillionTokens ||
-          rate(e.pricing.completion) >
-            policy.profile!.pricing!.outputMicrosPerMillionTokens ||
+          rate(e.pricing.prompt) > bounds.inputMicrosPerMillionTokens ||
+          rate(e.pricing.completion) > bounds.outputMicrosPerMillionTokens ||
           rate(e.pricing.request ?? '0') !== 0 ||
           (e.pricing.internal_reasoning !== undefined &&
             rate(e.pricing.internal_reasoning) >
-              policy.profile!.pricing!.outputMicrosPerMillionTokens),
+              bounds.outputMicrosPerMillionTokens),
       )
     )
       throw new Error();
-    const price = await modelPrice(fetcher, policy.profile!.model);
+    const price = await modelPrice(fetcher, bounds.model);
     if (
       !price ||
       !Number.isFinite(price.prompt) ||
       !Number.isFinite(price.completion) ||
       price.request !== 0 ||
-      price.prompt * 1e12 >
-        policy.profile!.pricing!.inputMicrosPerMillionTokens ||
-      price.completion * 1e12 >
-        policy.profile!.pricing!.outputMicrosPerMillionTokens
+      price.prompt * 1e12 > bounds.inputMicrosPerMillionTokens ||
+      price.completion * 1e12 > bounds.outputMicrosPerMillionTokens
     )
       throw new Error();
   } catch {
