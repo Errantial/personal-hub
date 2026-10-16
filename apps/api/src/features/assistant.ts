@@ -40,13 +40,19 @@ import {
 } from '../ai/openrouter-live.js';
 import type { OpenRouterFetch } from '../ai/openrouter-live.js';
 import {
+  academicContext,
+  academicSources,
   livePlannerContext,
   projectEvent,
   projectTask,
   plannerSources,
   mailSources,
 } from '../ai/live-projections.js';
-import type { PlannerContext } from '../ai/live-projections.js';
+import type {
+  AcademicProjected,
+  AcademicSelected,
+  PlannerContext,
+} from '../ai/live-projections.js';
 import {
   approveLiveDestination,
   readLiveDestination,
@@ -193,6 +199,8 @@ Mail: the owner allowed you to use their email for this request, but you cannot 
 const chooseInstructions = `These messages matched (subject, sender and date only). To read bodies, put up to ${maxReads} refs in read, return no actions and reply in a few words. If this list already answers the request, or nothing matched, answer now with read empty.`;
 const answerInstructions =
   'Here are the messages you chose. Answer now; name the messages you used by sender and subject.';
+const academicInstructions = `
+Academic items: these are the owner's own manual records. A missing deadline or effort means unknown, not zero. Do not state or infer grades; none are provided.`;
 
 /** Which call of a mail-enabled ask this is, and what came before it. */
 export type MailRound = {
@@ -225,6 +233,8 @@ export function buildAssistantRequest(
   /** A scheduled or Run now agent turn (D57): no owner is present. */
   agent = false,
   upstream = 'google-vertex',
+  /** Selected manual academic items, allowlisted fields only. */
+  academic: AcademicProjected[] = [],
 ) {
   const current = now.toZonedDateTimeISO(timeZone);
   const payload = {
@@ -236,6 +246,7 @@ export function buildAssistantRequest(
     events: context.events.map((event, index) =>
       projectEvent(event, `e${index + 1}`, timeZone),
     ),
+    academic,
     request: text,
   };
   return {
@@ -248,7 +259,8 @@ export function buildAssistantRequest(
         content:
           instructions +
           (agent ? agentInstructions : '') +
-          (mail ? mailInstructions : ''),
+          (mail ? mailInstructions : '') +
+          (academic.length ? academicInstructions : ''),
       },
       ...history.flatMap((turn) => [
         { role: 'user', content: turn.ask },
@@ -470,6 +482,8 @@ export async function answerTurn(
     conversationId?: string | undefined;
     useMail: boolean;
     trigger: 'owner' | 'agent';
+    /** Explicit manual academic selections, pinned to work and class versions. */
+    academic?: AcademicSelected[];
     /** Internal scheduled-worker attribution for atomic per-exchange caps. */
     agentId?: string | undefined;
     agentGoal?: string;
@@ -485,6 +499,7 @@ export async function answerTurn(
         conversationId: input.conversationId ?? null,
         useMail: input.useMail,
         // Owner hashes are unchanged so in-flight retries still replay.
+        ...(input.academic?.length ? { academic: input.academic } : {}),
         ...(input.trigger === 'agent'
           ? { ask: input.ask, trigger: 'agent' }
           : {}),
@@ -541,6 +556,12 @@ export async function answerTurn(
       agentGoal = String(agent?.goal ?? '');
     }
     const context = await livePlannerContext(tx, owner, { limit: 150 });
+    const academic = await academicContext(
+      tx,
+      owner,
+      input.academic ?? [],
+      liveAllowedLabels(settings),
+    );
     const history = await readBoundHistory(tx, owner, conversationId, {
       allowed: liveAllowedLabels(settings),
       useMail: input.useMail,
@@ -555,6 +576,7 @@ export async function answerTurn(
       input.useMail ? { round: 1, followUps: [] } : undefined,
       input.trigger === 'agent',
       destination.upstream,
+      academic.items.map((item) => item.projected),
     );
     const manifest: LiveManifest = {
       formatVersion: 1,
@@ -590,18 +612,22 @@ export async function answerTurn(
         sources: history.sources,
         withheld: history.withheld,
       },
-      sources: plannerSources(owner, id, context, input.timeZone),
+      sources: [
+        ...plannerSources(owner, id, context, input.timeZone),
+        ...academicSources(owner, id, academic.items),
+      ],
       bytes: Buffer.byteLength(JSON.stringify(body)),
     };
     return {
       settings,
       context,
+      academic,
       history,
       body,
       sealed: sealEnvelope(owner, id, body, manifest),
     };
   });
-  const { settings, context, history, body } = prepared;
+  const { settings, context, academic, history, body } = prepared;
   try {
     await admitLive(database, owner, {
       id,
@@ -614,7 +640,7 @@ export async function answerTurn(
         Buffer.byteLength(JSON.stringify(body)),
         maxOutputTokens,
       ),
-      withheld: context.withheld,
+      withheld: context.withheld + academic.withheld,
       agentId: input.agentId,
       sealed: prepared.sealed,
     });
@@ -682,6 +708,19 @@ export async function answerTurn(
             sources,
             settings.allowPersonalMail,
           ),
+        reprojectAcademic: async (tx, requestId, sources) => {
+          const current = await academicContext(
+            tx,
+            owner,
+            sources.map((source) => ({
+              id: source.id,
+              expectedVersion: source.version,
+              expectedCourseVersion: source.academicCourse!.version,
+            })),
+            liveAllowedLabels(settings),
+          );
+          return academicSources(owner, requestId, current.items);
+        },
       },
     );
     if (result.status === 'withheld') {
@@ -834,10 +873,13 @@ export async function answerTurn(
                   source.ref,
                   input.timeZone,
                 )
-              : projections.find(
-                  (p) =>
-                    p.projection === source.projection && p.id === source.id,
-                )!.projected;
+              : source.kind === 'academic-work'
+                ? academic.items.find((item) => item.id === source.id)!
+                    .projected
+                : projections.find(
+                    (p) =>
+                      p.projection === source.projection && p.id === source.id,
+                  )!.projected;
         return {
           ...source,
           digest: sourceDigest(
@@ -912,6 +954,7 @@ export async function answerTurn(
     mail: [...sent.values()],
     mailWithheld,
     mailNote,
+    academic: academic.sent,
     proposalAccess:
       sent.size > 0 ||
       history.sources.some((source) => source.kind === 'mail-message')
@@ -1013,6 +1056,7 @@ export function registerAssistant(
       timeZone: input.timeZone,
       conversationId: input.conversationId,
       useMail: input.useMail,
+      academic: input.academic,
       trigger: 'owner',
       authority: async (tx) => !!(await auth.currentUser(request, tx)),
     });

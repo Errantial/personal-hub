@@ -5,10 +5,12 @@ import { transmitLive } from '../../src/ai/live-guard.js';
 import type { GuardContext, LiveSealed } from '../../src/ai/live-guard.js';
 import type { LiveManifest } from '../../src/ai/live-manifest.js';
 import {
+  academicSources,
   livePlannerContext,
   plannerSources,
   projectTask,
 } from '../../src/ai/live-projections.js';
+import type { AcademicContextItem } from '../../src/ai/live-projections.js';
 import { admitLive, readAssistantSettings } from '../../src/ai/live-request.js';
 import { model } from './openrouter.js';
 import { pinnedRouting } from '../../src/ai/openrouter-live.js';
@@ -25,7 +27,7 @@ export const createTask = async (h: Harness, title: string) =>
 export async function admitPlanner(
   h: Harness,
   edit?: (sealed: LiveSealed) => LiveSealed,
-  options: { conversationId?: string } = {},
+  options: { conversationId?: string; academic?: AcademicContextItem[] } = {},
 ) {
   const requestId = randomUUID();
   const operationId = randomUUID();
@@ -65,7 +67,10 @@ export async function admitPlanner(
     request: { provenance: 'owner-entered', labels: ['unlabeled'] },
     timeZone: 'UTC',
     history: { turns: [], sources: [], withheld: 0 },
-    sources: plannerSources(h.owner, requestId, context, 'UTC'),
+    sources: [
+      ...plannerSources(h.owner, requestId, context, 'UTC'),
+      ...academicSources(h.owner, requestId, options.academic ?? []),
+    ],
     bytes: Buffer.byteLength(JSON.stringify(body)),
   };
   let sealed: LiveSealed = sealEnvelope(h.owner, requestId, body, manifest);

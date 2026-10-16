@@ -1,12 +1,14 @@
 # Implementation backlog
 
-Updated 2026-10-14. This is the work queue; product.md remains the full scope, decisions.md records choices, and roadmap.md sets milestone order. Completed work and validation receipts are in [implementation-log.md](implementation-log.md).
+Updated 2026-10-15. This is the work queue; product.md remains the full scope, decisions.md records choices, and roadmap.md sets milestone order. Completed work and validation receipts are in [implementation-log.md](implementation-log.md).
 
 ## Approved next sequence (2026-10-14)
 
 P5 boundary 1 is implemented on `ai/live-context-admission` (merged in [PR #37](https://github.com/Errantial/personal-hub/pull/37), not deployed): one-click pinned-destination approval, exact live envelopes, cumulative source checks, bound new history and read-only mail-dependent proposals. See the [specification](live-context-admission-design.md) and [boundary plan](superpowers/plans/2026-10-15-live-context-admission-boundary-1.md).
 
 P5/P6 boundary 2 is implemented on `ai/derived-output-lineage` (not deployed; validation in progress): durable derived-record lineage (`ai_origin`/`ai_labels`, `ai_turn_origins`, `ai_planner_origins`; migration 062) and server-owned Apply/Undo in place of client-composed planner writes. Apply inherits the answer's conservative labels and origin, re-verifies proposal origin/digest, and the inherited floor survives edits, Undo, deletion and restore; legacy and unverified derived records stay ineligible for inference. No academic/memory/MCP expansion or deployment is claimed by this development status.
+
+P7 manual academic context (development, not deployed) is implemented on `ai/academic-context` ([plan](superpowers/plans/2026-10-15-academic-context-p7.md)): live owner asks carry explicit, version-pinned `academic` work selections (≤20), projected to the allowlisted planning fields only (never notes or grades); blocked selections fail before any hold, disallowed labels are withheld and counted, and the sealed manifest and final guard re-verify each bound source with history eligibility. Migration 063 records the sent summaries on the turn, and applied proposals inherit the academic labels and `bound-derived` origin. The composer picker and withheld-item coverage UI are the next slice; grounded academic proposals (P8) follow later. See the [implementation receipt](implementation-log.md).
 
 The owner approved autonomous development according to the [post-agents development plan](post-agents-development-plan.md): reliability and daily-use acceptance, shared live context/history/output provenance, manual academic assistance, explicit per-ask memory, source coverage improvements, then inbound and outbound MCP in separate gated slices. The recommended defaults are authorized for implementation; account-specific access, destinations and live acceptance retain their gates. Existing implemented editors/planners are reused. Work starts with P1/P2/P4; broader context expansion remains blocked on P5/P6.
 

@@ -43,6 +43,13 @@ export type MailReprojector = (
   sources: LiveSource[],
 ) => Promise<Map<string, MailProjected | null>>;
 
+/** Re-reads academic sources as the call site sent them; omits vanished. */
+export type AcademicReprojector = (
+  tx: QueryExecutor,
+  requestId: string,
+  sources: LiveSource[],
+) => Promise<LiveSource[]>;
+
 export type GuardContext = {
   /** HTTP exchanges: the owner's session must still be valid. */
   authority?: (tx: QueryExecutor) => Promise<boolean>;
@@ -50,6 +57,8 @@ export type GuardContext = {
   agentRun?: { runId: string; token: string; now: () => Date };
   /** Required when the manifest has mail sources. */
   reprojectMail?: MailReprojector;
+  /** Required when the manifest has academic sources. */
+  reprojectAcademic?: AcademicReprojector;
 };
 
 const key = (source: { projection: string; id: string }) =>
@@ -259,6 +268,33 @@ export async function verifyLive(
       );
     });
     if (!same) return 'context-changed';
+  }
+
+  const academic = manifest.sources.filter(
+    (source) => source.kind === 'academic-work',
+  );
+  if (academic.length) {
+    if (!context.reprojectAcademic) return 'context-changed';
+    let current: LiveSource[];
+    try {
+      current = await context.reprojectAcademic(tx, requestId, academic);
+    } catch {
+      return 'context-changed';
+    }
+    const byKey = new Map(current.map((source) => [key(source), source]));
+    for (const source of academic) {
+      const now = byKey.get(key(source));
+      if (
+        !now ||
+        now.version !== source.version ||
+        now.digest !== source.digest ||
+        now.academicCourse?.id !== source.academicCourse?.id ||
+        now.academicCourse?.version !== source.academicCourse?.version ||
+        now.labels.length !== source.labels.length ||
+        !now.labels.every((label) => source.labels.includes(label))
+      )
+        return 'context-changed';
+    }
   }
 
   const agent = manifest.request.agent;

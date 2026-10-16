@@ -47,7 +47,11 @@ export async function historySourcesEligible(
   if (mail.length && !rules.useMail) return false;
   const current = new Map<
     string,
-    { labels: Sensitivity[]; connector?: { id: string; version: number } }
+    {
+      labels: Sensitivity[];
+      connector?: { id: string; version: number };
+      academicCourse?: { id: string; version: number };
+    }
   >();
   for (const [kind, table] of [
     ['task', 'tasks'],
@@ -70,6 +74,30 @@ export async function historySourcesEligible(
         });
     }
   }
+  const academic = ids('academic-work');
+  if (academic.length)
+    for (const row of await tx.query(
+      `SELECT w.id,w.sensitivity,w.academic_labels AS "academicLabels",w.course_id AS "courseId",c.sensitivity AS "courseSensitivity",c.version AS "courseVersion"
+       FROM academic_work w JOIN courses c ON c.id=w.course_id AND c.owner_id=w.owner_id
+       WHERE w.owner_id=$1 AND w.id=ANY($2::uuid[]) AND w.deleted_at IS NULL AND c.deleted_at IS NULL`,
+      [owner, academic],
+    ))
+      current.set(`academic-work:${row.id}`, {
+        labels: [
+          ...new Set([
+            sensitivitySchema.parse(row.sensitivity),
+            sensitivitySchema.parse(row.courseSensitivity),
+            ...sensitivitySchema
+              .array()
+              .max(2)
+              .parse(row.academicLabels ?? []),
+          ]),
+        ],
+        academicCourse: {
+          id: String(row.courseId),
+          version: Number(row.courseVersion),
+        },
+      });
   if (mail.length)
     for (const row of await tx.query(
       `SELECT m.id,m.sensitivity,m.text_origin,c.id AS "connectorId",c.sensitivity AS "connectorSensitivity",c.version AS "connectorVersion"
@@ -96,7 +124,9 @@ export async function historySourcesEligible(
       !!now &&
       sameLabels(now.labels, ref.labels) &&
       now.connector?.id === ref.connector?.id &&
-      now.connector?.version === ref.connector?.version
+      now.connector?.version === ref.connector?.version &&
+      now.academicCourse?.id === ref.academicCourse?.id &&
+      now.academicCourse?.version === ref.academicCourse?.version
     );
   });
 }
