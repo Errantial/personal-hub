@@ -12,6 +12,7 @@ test('study settings save availability windows and keep edits through a conflict
 }) => {
   await page.goto('/settings/study');
   const form = page.getByRole('form', { name: 'Study settings' });
+  await expect(form).toBeVisible();
   // Start from no windows, whatever an earlier run saved.
   while (await form.getByRole('button', { name: 'Remove window 1' }).count())
     await form.getByRole('button', { name: 'Remove window 1' }).click();
