@@ -1559,6 +1559,238 @@ it('never sends academic sources on an agent run', async () => {
   ).toBe(false);
 });
 
+async function seedMemoryItem(
+  options: {
+    owner?: string;
+    kind?: 'preference' | 'goal' | 'fact';
+    title?: string;
+    content?: string;
+    observedOn?: string | null;
+    enabled?: boolean;
+    sensitivity?: 'unlabeled' | 'personal' | 'restricted';
+    labels?: string[];
+    version?: number;
+    deleted?: boolean;
+    settingsEnabled?: boolean;
+    settingsVersion?: number;
+  } = {},
+) {
+  const targetOwner = options.owner ?? (await ownerId());
+  const memoryId = randomUUID();
+  const settingsVersion = options.settingsVersion ?? 1;
+  const settingsEnabled = options.settingsEnabled ?? true;
+  await database.query(
+    'INSERT INTO memory_settings(owner_id,enabled,version) VALUES($1,$2,$3) ON CONFLICT (owner_id) DO UPDATE SET enabled=$2,version=$3',
+    [targetOwner, settingsEnabled, settingsVersion],
+  );
+  const sensitivity = options.sensitivity ?? 'unlabeled';
+  const labels = options.labels ?? [sensitivity];
+  const deleted = options.deleted ?? false;
+  await database.query(
+    `INSERT INTO memories(id,owner_id,kind,source,title,content,observed_on,enabled,sensitivity,labels,version,deleted_at)
+     VALUES($1,$2,$3,'owner-entered',$4,$5,$6,$7,$8,$9::text[],$10,$11)`,
+    [
+      memoryId,
+      targetOwner,
+      options.kind ?? 'preference',
+      deleted ? null : (options.title ?? 'Morning focus'),
+      deleted
+        ? null
+        : (options.content ?? 'Prefers quiet morning time for deep work'),
+      deleted ? null : (options.observedOn ?? '2026-10-15'),
+      deleted ? false : (options.enabled ?? true),
+      sensitivity,
+      labels,
+      options.version ?? 1,
+      deleted ? new Date() : null,
+    ],
+  );
+  return { memoryId, settingsVersion };
+}
+
+it('sends selected memory items, projects only allowlisted fields, stores turn.memory and replays the ask', async () => {
+  await start();
+  await setBudget();
+  const owner = await ownerId();
+  const { memoryId } = await seedMemoryItem({
+    kind: 'preference',
+    title: 'Morning focus',
+    content: 'Prefers quiet mornings',
+    observedOn: '2026-10-15',
+  });
+  chat = () => completion({ reply: 'Understood preference.', actions: [] });
+  const operationId = randomUUID();
+  const selection = [
+    { id: memoryId, expectedVersion: 1, expectedSettingsVersion: 1 },
+  ];
+  const { request, turn } = (
+    await call('POST', '/api/v1/assistant/requests', {
+      operationId,
+      text: 'Plan my day',
+      timeZone: 'America/Denver',
+      memory: selection,
+    })
+  ).json();
+  expect(request).toMatchObject({ status: 'completed', withheld: 0 });
+  const sentMemory = {
+    id: memoryId,
+    ref: 'm1',
+    kind: 'preference',
+    title: 'Morning focus',
+    content: 'Prefers quiet mornings',
+    observedOn: '2026-10-15',
+  };
+  expect(turn.memory).toEqual([sentMemory]);
+  expect(lastPayload(sent[0]!).memory).toEqual([
+    {
+      ref: 'm1',
+      kind: 'preference',
+      title: 'Morning focus',
+      content: 'Prefers quiet mornings',
+      observedOn: '2026-10-15',
+    },
+  ]);
+  const messages = sent[0]!.messages as { role: string; content: string }[];
+  expect(messages[0]!.content).toContain('Memory items:');
+  const [exchange] = await database.query<{
+    manifest: { sources: Record<string, unknown>[] };
+  }>(
+    'SELECT manifest FROM ai_live_exchanges WHERE owner_id=$1 AND request_id=$2',
+    [owner, request.id],
+  );
+  expect(
+    exchange!.manifest.sources.find((s) => s.kind === 'memory'),
+  ).toMatchObject({
+    projection: 'memory-item-v1',
+    id: memoryId,
+    version: 1,
+    ref: 'm1',
+    labels: ['unlabeled'],
+    memorySettings: { version: 1 },
+  });
+  // Retrying the same selection again replays the recorded turn.
+  const retried = (
+    await call('POST', '/api/v1/assistant/requests', {
+      operationId,
+      text: 'Plan my day',
+      timeZone: 'America/Denver',
+      memory: selection,
+    })
+  ).json();
+  expect(retried.turn.id).toBe(turn.id);
+  expect(retried.turn.memory).toEqual([sentMemory]);
+  expect(sent).toHaveLength(1);
+});
+
+it('withholds memory items whose labels exceed destination sensitivity', async () => {
+  await start();
+  await setBudget();
+  const { memoryId } = await seedMemoryItem({
+    sensitivity: 'restricted',
+    labels: ['restricted'],
+  });
+  const { request, turn } = (
+    await call('POST', '/api/v1/assistant/requests', {
+      operationId: randomUUID(),
+      text: 'Plan with secret',
+      timeZone: 'America/Denver',
+      memory: [
+        { id: memoryId, expectedVersion: 1, expectedSettingsVersion: 1 },
+      ],
+    })
+  ).json();
+  expect(request).toMatchObject({ status: 'completed', withheld: 1 });
+  expect(turn.memory).toEqual([]);
+  expect(lastPayload(sent[0]!).memory).toBeUndefined();
+});
+
+it('blocks a stale, deleted or disabled memory selection before any hold', async () => {
+  await start();
+  await setBudget();
+  const askMem = (memory: unknown[]) =>
+    call('POST', '/api/v1/assistant/requests', {
+      operationId: randomUUID(),
+      text: 'Test memory',
+      timeZone: 'America/Denver',
+      memory,
+    });
+
+  const { memoryId } = await seedMemoryItem();
+  // Stale memory version.
+  expect(
+    (
+      await askMem([
+        { id: memoryId, expectedVersion: 99, expectedSettingsVersion: 1 },
+      ])
+    ).json().error.code,
+  ).toBe('VERSION_CONFLICT');
+  // Stale settings version.
+  expect(
+    (
+      await askMem([
+        { id: memoryId, expectedVersion: 1, expectedSettingsVersion: 99 },
+      ])
+    ).json().error.code,
+  ).toBe('VERSION_CONFLICT');
+  // Forgotten memory.
+  const { memoryId: deletedId } = await seedMemoryItem({ deleted: true });
+  expect(
+    (
+      await askMem([
+        { id: deletedId, expectedVersion: 1, expectedSettingsVersion: 1 },
+      ])
+    ).json().error.code,
+  ).toBe('NOT_FOUND');
+  // Disabled memory item.
+  const { memoryId: disabledId } = await seedMemoryItem({ enabled: false });
+  expect(
+    (
+      await askMem([
+        { id: disabledId, expectedVersion: 1, expectedSettingsVersion: 1 },
+      ])
+    ).json().error.code,
+  ).toBe('MEMORY_DISABLED');
+  // Disabled global memory settings.
+  const { memoryId: disabledSettingsId } = await seedMemoryItem({
+    settingsEnabled: false,
+  });
+  expect(
+    (
+      await askMem([
+        {
+          id: disabledSettingsId,
+          expectedVersion: 1,
+          expectedSettingsVersion: 1,
+        },
+      ])
+    ).json().error.code,
+  ).toBe('MEMORY_DISABLED');
+});
+
+it('rejects memory selection on agent trigger', async () => {
+  await start();
+  await setBudget();
+  const { memoryId } = await seedMemoryItem();
+  const owner = await ownerId();
+  await expect(
+    answerTurn(database, config, fetcherInUse, owner, {
+      operationId: randomUUID(),
+      prompt: 'GOAL-TEXT',
+      ask: 'Scheduled run',
+      timeZone: 'America/Denver',
+      conversationId: randomUUID(),
+      useMail: false,
+      trigger: 'agent',
+      memory: [
+        { id: memoryId, expectedVersion: 1, expectedSettingsVersion: 1 },
+      ],
+    }),
+  ).rejects.toMatchObject({
+    statusCode: 400,
+    message: 'Agents do not have memory authority.',
+  });
+});
+
 it('applies an academic task through the source operation and retains its link through retry, Undo and restore', async () => {
   await start();
   await setBudget();

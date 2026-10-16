@@ -207,4 +207,84 @@ describe('history planner provenance', () => {
     );
     expect(await eligible()).toBe(false);
   });
+
+  it('allows ordinary content edits on memory but withholds forgotten, disabled, or relabeled memory, or disabled settings', async () => {
+    harness = await startHarness();
+    const memoryId = randomUUID();
+    await harness.database.query(
+      'INSERT INTO memory_settings(owner_id,enabled,version) VALUES($1,true,1)',
+      [harness.owner],
+    );
+    await harness.database.query(
+      `INSERT INTO memories(id,owner_id,kind,source,title,content,observed_on,enabled,sensitivity,labels,version)
+       VALUES($1,$2,'preference','owner-entered','Morning focus','Block mornings','2026-10-15',true,'unlabeled',ARRAY['unlabeled']::text[],1)`,
+      [memoryId, harness.owner],
+    );
+    const refs = [
+      { kind: 'memory' as const, id: memoryId, labels: ['unlabeled' as const] },
+    ];
+    const eligible = () =>
+      historySourcesEligible(
+        harness!.database,
+        harness!.owner,
+        refs,
+        allowed(),
+      );
+    // Initially eligible.
+    expect(await eligible()).toBe(true);
+
+    // Ordinary content edit retains eligibility.
+    await harness.database.query(
+      "UPDATE memories SET content='Updated morning block',version=version+1 WHERE id=$1",
+      [memoryId],
+    );
+    expect(await eligible()).toBe(true);
+
+    // Relabeling memory withholds history.
+    await harness.database.query(
+      "UPDATE memories SET sensitivity='restricted',labels=ARRAY['restricted']::text[],version=version+1 WHERE id=$1",
+      [memoryId],
+    );
+    expect(await eligible()).toBe(false);
+
+    // Resetting label restores eligibility.
+    await harness.database.query(
+      "UPDATE memories SET sensitivity='unlabeled',labels=ARRAY['unlabeled']::text[],version=version+1 WHERE id=$1",
+      [memoryId],
+    );
+    expect(await eligible()).toBe(true);
+
+    // Disabling the individual memory item withholds history.
+    await harness.database.query(
+      'UPDATE memories SET enabled=false,version=version+1 WHERE id=$1',
+      [memoryId],
+    );
+    expect(await eligible()).toBe(false);
+
+    // Re-enabling restores eligibility.
+    await harness.database.query(
+      'UPDATE memories SET enabled=true,version=version+1 WHERE id=$1',
+      [memoryId],
+    );
+    expect(await eligible()).toBe(true);
+
+    // Soft-deleting (forgetting) withholds history.
+    await harness.database.query(
+      'UPDATE memories SET deleted_at=CURRENT_TIMESTAMP,title=NULL,content=NULL,observed_on=NULL,enabled=false,version=version+1 WHERE id=$1',
+      [memoryId],
+    );
+    expect(await eligible()).toBe(false);
+
+    // Undeleting and disabling global memory settings withholds history.
+    await harness.database.query(
+      "UPDATE memories SET deleted_at=NULL,title='Morning focus',content='Block mornings',observed_on='2026-10-15',enabled=true,version=version+1 WHERE id=$1",
+      [memoryId],
+    );
+    expect(await eligible()).toBe(true);
+    await harness.database.query(
+      'UPDATE memory_settings SET enabled=false,version=version+1 WHERE owner_id=$1',
+      [harness.owner],
+    );
+    expect(await eligible()).toBe(false);
+  });
 });

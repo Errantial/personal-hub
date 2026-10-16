@@ -271,7 +271,7 @@ it('upgrades populated responsibilities, notifications and action policies throu
   }
 });
 
-it('upgrades populated assistant turns through 063 without rewriting them', async () => {
+it('upgrades populated assistant turns through 068 without rewriting them', async () => {
   const db = await openDatabase(
     readConfig({ NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' }),
   );
@@ -327,13 +327,20 @@ it('upgrades populated assistant turns through 063 without rewriting them', asyn
     // Every existing value is unchanged; the new column defaults to empty.
     expect(await retained()).toEqual(before);
     expect(
-      (await db.query('SELECT academic FROM ai_conversation_turns'))[0],
-    ).toEqual({ academic: [] });
+      (await db.query('SELECT academic, memory FROM ai_conversation_turns'))[0],
+    ).toEqual({ academic: [], memory: [] });
     // At most 20 academic summaries per turn.
     await expect(
       db.query(
         'UPDATE ai_conversation_turns SET academic=$2::jsonb WHERE id=$1',
         [turn, JSON.stringify(Array.from({ length: 21 }, () => ({ id: 'x' })))],
+      ),
+    ).rejects.toThrow();
+    // At most 10 memory items per turn.
+    await expect(
+      db.query(
+        'UPDATE ai_conversation_turns SET memory=$2::jsonb WHERE id=$1',
+        [turn, JSON.stringify(Array.from({ length: 11 }, () => ({ id: 'x' })))],
       ),
     ).rejects.toThrow();
     expect(await db.query('SELECT name FROM schema_migrations')).toHaveLength(

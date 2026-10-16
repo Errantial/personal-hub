@@ -1058,7 +1058,7 @@ test('academic selection pins versions, survives a refused ask and clears after 
   ).toBeVisible();
   await expect(page.locator('.turn-details')).toContainText('Effort unknown');
   await expect(page.locator('.turn-details')).toContainText(
-    '1 planner or academic item',
+    '1 planner, academic or memory item',
   );
   await expect(
     page.getByText(new RegExp('Source: ' + work.title)),

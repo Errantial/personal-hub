@@ -7,6 +7,7 @@ import { z } from 'zod';
 import type { QueryExecutor } from '../db/database.js';
 import { taskColumns } from '../planner/routes.js';
 import { eventColumns } from '../features/common.js';
+import { readMemorySettings } from '../features/memory.js';
 import { openTask, openEvent } from './live-projections.js';
 import {
   liveHistorySourceSchema,
@@ -122,6 +123,26 @@ export async function historySourcesEligible(
           version: Number(row.courseVersion),
         },
       });
+  const memory = ids('memory');
+  if (memory.length) {
+    const memorySettings = await readMemorySettings(tx, owner);
+    if (!memorySettings.enabled) return false;
+    for (const row of await tx.query(
+      `SELECT id, sensitivity, labels FROM memories WHERE owner_id=$1 AND id=ANY($2::uuid[]) AND deleted_at IS NULL AND enabled=true`,
+      [owner, memory],
+    ))
+      current.set(`memory:${row.id}`, {
+        labels: [
+          ...new Set([
+            sensitivitySchema.parse(row.sensitivity),
+            ...sensitivitySchema
+              .array()
+              .max(3)
+              .parse(row.labels ?? []),
+          ]),
+        ],
+      });
+  }
   if (mail.length)
     for (const row of await tx.query(
       `SELECT m.id,m.sensitivity,m.text_origin,c.id AS "connectorId",c.sensitivity AS "connectorSensitivity",c.version AS "connectorVersion"

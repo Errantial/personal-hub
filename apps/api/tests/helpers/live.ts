@@ -7,10 +7,14 @@ import type { LiveManifest } from '../../src/ai/live-manifest.js';
 import {
   academicSources,
   livePlannerContext,
+  memorySources,
   plannerSources,
   projectTask,
 } from '../../src/ai/live-projections.js';
-import type { AcademicContextItem } from '../../src/ai/live-projections.js';
+import type {
+  AcademicContextItem,
+  MemoryContextItem,
+} from '../../src/ai/live-projections.js';
 import { admitLive, readAssistantSettings } from '../../src/ai/live-request.js';
 import { model } from './openrouter.js';
 import { pinnedRouting } from '../../src/ai/openrouter-live.js';
@@ -27,7 +31,11 @@ export const createTask = async (h: Harness, title: string) =>
 export async function admitPlanner(
   h: Harness,
   edit?: (sealed: LiveSealed) => LiveSealed,
-  options: { conversationId?: string; academic?: AcademicContextItem[] } = {},
+  options: {
+    conversationId?: string;
+    academic?: AcademicContextItem[];
+    memory?: MemoryContextItem[];
+  } = {},
 ) {
   const requestId = randomUUID();
   const operationId = randomUUID();
@@ -70,6 +78,7 @@ export async function admitPlanner(
     sources: [
       ...plannerSources(h.owner, requestId, context, 'UTC'),
       ...academicSources(h.owner, requestId, options.academic ?? []),
+      ...memorySources(h.owner, requestId, options.memory ?? []),
     ],
     bytes: Buffer.byteLength(JSON.stringify(body)),
   };
