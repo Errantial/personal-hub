@@ -1,5 +1,9 @@
 # Implementation backlog
 
+## Current next milestone: Jev mail broker (2026-10-15)
+
+Owner requested and planned in [jev-mail-broker-plan.md](jev-mail-broker-plan.md); no broker code, live access or deployment is implemented by this update. J1 contracts/grants/paged selection and receipts; J2 approved TypeSafe adapter and accounting; J3 agent/Assistant workflow and lineage; J4 settings, coverage UI and staged acceptance. Brokered access becomes the default mail path; direct access is not added, and old Use mail choices need explicit Jev approval before new disclosure. Then finish P8 study proposals, P9 memory, P10 coverage/reconciliation, Canvas/Outlook and MCP. Academic PRs 39-41 are merged, with validation receipts in implementation-log.md; deployment remains separate. Older entries below retain their dated history.
+
 Updated 2026-10-15. This is the work queue; product.md remains the full scope, decisions.md records choices, and roadmap.md sets milestone order. Completed work and validation receipts are in [implementation-log.md](implementation-log.md).
 
 ## Approved next sequence (2026-10-14)

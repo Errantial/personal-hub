@@ -1,5 +1,11 @@
 # UI agent ledger
 
+## Jev mail broker contracts (planned, 2026-10-15)
+
+These are future requirements, not implemented controls. Preserve manual mailbox browsing. New mail-enabled agents use brokered retrieval; disabled agents remain off. Migrated Use mail choices require explicit Jev approval before disclosure. Settings show connector/date scope, effective message/byte/run limits and separate Jev/receiving-route readiness. Unsupported unread/folder scopes and a direct-mail bypass are not offered.
+
+Run/turn details distinguish blocked, selecting, forwarding, partial, failed, uncertain and completed outcomes, with safe imported-scope/freshness, inspected/forwarded counts, clipping/continuation and stop reasons. Missing approval/retention readiness and unavailable Jev stay visible; no fallback. Show which original messages reached the agent without revealing withheld subjects/content. Keyboard/tap Help explains forwarding is context, not an email send. Budgets include both hops; deletion/relabeling/grant revocation govern derived history. See [the plan](jev-mail-broker-plan.md).
+
 ## Manual academic sources in owner asks (P7, backend implemented, UI next, 2026-10-15)
 
 `POST /api/v1/assistant/requests` now accepts an optional per-ask `academic` selection list: up to 20 `{ id, expectedVersion, expectedCourseVersion }` entries, unique ids. The composer slice must let the owner pick work items for the current ask — per item, never a class-level "all open work" mode — and must never surface notes or grades. Conversation turns echo the sent items as `academic` (ref, title, kind, dueDate, estimatedMinutes, status, priority; ≤20) so a coverage/withheld read can be added later.
