@@ -1,8 +1,11 @@
 # UI agent ledger
 
-## Planned small OpenRouter mail broker (2026-10-16)
+## Small OpenRouter mail broker (development, 2026-10-16)
 
-Planning only; see [replacement plan](openrouter-mail-broker-plan.md). Preserve J4 scope/grant editing, conflict drafts, offline read-only controls, keyboard/tap Help, 320px/e-ink layout, coverage/freshness and safe older-mail continuations when adapting the newer broker branch. Show the broker model/OpenRouter/host and its approval separately from the receiving Assistant destination. Existing Use mail or Jev approval never approves the replacement destination. Keep missing/stale approval, missing key, unavailable/non-ZDR/unsupported endpoint, budget blocked, pending/partial/failed/uncertain states actionable and visible. Replace TypeSafe account-verification instructions only for the new adapter; retain historical receipts. No UI change or live model acceptance is implemented by this entry.
+See [implemented contracts and limits](openrouter-mail-broker.md). Mail access displays broker model/OpenRouter/host separately from the receiving Assistant. A dedicated Broker destination section exposes the safe profile, retention terms, input/output pricing, current/stale approval and versioned Approve/Revoke with registry guards. Existing Use mail and Jev approval never approve the replacement. Writes require fresh noncached profile/consent reads and connectivity; conflicts show one combined Reload that refreshes profile and consent, and offline controls remain disabled. Loading/error/cache indicators remain per read; suppress duplicate reload buttons in this form. Provider registry inspection remains read-only.
+
+Preserve grants, pending/error/conflict drafts, keyboard/tap Help, 320px/e-ink layout and existing coverage/continuations. Local configured readiness explicitly leaves endpoint availability unchecked; public ZDR/schema/host-price/context checks run before each paid batch. Blocked disclosure, stale/revoked approval, missing key/quote/route, budget limits and pending/partial/failed/uncertain outcomes stay visible. Actual model quality, deployment and hardware acceptance remain unverified. Historical J4 controls below describe the inherited behavior.
+
 ## J3 broker workflow contracts (development, 2026-10-15)
 
 [Brokered owner asks and scheduled agents](jev-mail-workflow.md) replace the raw model search/read loop. Existing Use mail requires a separately enabled owner/agent grant and both provider approvals; it can now return MAIL_BROKER_APPROVAL_REQUIRED or MAIL_BROKER_BLOCKED without a receiving-model call. Mail-disabled requests remain off. Preserve visible actionable errors and the coverage mailNote; mail-derived proposals remain read-only even under automatic agent policy.

@@ -20,11 +20,11 @@ import {
 } from '../src/ai/mail-broker.js';
 import type { BrokerContext } from '../src/ai/mail-broker.js';
 import {
-  executeJevBatch,
+  executeBrokerBatch as admittedExecute,
   selectedBrokerMail,
   releaseBrokerHeadroom,
-} from '../src/ai/jev-execution.js';
-import { buildJevEnvelope, jevRubric } from '../src/ai/jev-protocol.js';
+} from '../src/ai/broker-execution.js';
+import { buildBrokerEnvelope, brokerModel } from '../src/ai/broker-protocol.js';
 import { agentSpend } from '../src/ai/agent-spend.js';
 import { admitLive } from '../src/ai/live-request.js';
 import { answerTurn } from '../src/features/assistant.js';
@@ -81,22 +81,22 @@ const environment = {
   NODE_ENV: 'test',
   PGLITE_DATA_DIR: 'memory://',
   AI_SECRET_OPENROUTER: 'synthetic-openrouter',
-  AI_SECRET_JEV: 'synthetic-typesafe',
   AI_PROVIDER_PROFILES: JSON.stringify([
     {
-      alias: 'jev-mail',
-      adapter: 'typesafe',
-      model: 'jev-1.14.0',
-      credentialEnv: 'AI_SECRET_JEV',
+      alias: 'mail-broker',
+      adapter: 'openrouter',
+      upstreamProvider: 'google-vertex',
+      model: brokerModel,
+      credentialEnv: 'AI_SECRET_OPENROUTER',
       enabled: true,
       maxInputCharacters: 20480,
-      maxOutputTokens: 1000,
+      maxOutputTokens: 2048,
       pricing: {
         revision: 'synthetic-price',
         validUntil: '2099-01-01T00:00:00Z',
         inputTokenLimit: 32000,
-        inputMicrosPerMillionTokens: 42000,
-        outputMicrosPerMillionTokens: 0,
+        inputMicrosPerMillionTokens: 100000,
+        outputMicrosPerMillionTokens: 400000,
       },
       retentionDisclosure: {
         revision: 'synthetic-terms',
@@ -108,20 +108,7 @@ const environment = {
 };
 const profile = publicAIRegistry(readConfig(environment).AI_PROVIDER_PROFILES)
   .profiles[0]!;
-const verification = {
-  revision: 'synthetic-evidence',
-  profileRevision: profile.policyRevision,
-  expiresAt: '2099-01-01T00:00:00Z',
-  accountTermsZeroRetention: true,
-  completeEnvelopeTokenBound: true,
-  authoritativeUsageBilling: true,
-  envelopeByteLimit: 20480,
-  inputTokenUpperBound: 32000,
-};
-const config = readConfig({
-  ...environment,
-  TYPESAFE_VERIFICATION: JSON.stringify(verification),
-});
+const config = readConfig(environment);
 let db: Awaited<ReturnType<typeof openDatabase>>,
   app: Awaited<ReturnType<typeof buildApp>>,
   owner: string,
@@ -194,10 +181,10 @@ beforeEach(async () => {
   );
   await db.query(
     'INSERT INTO ai_provider_consents(owner_id,alias,approved,profile_revision,profile_snapshot) VALUES($1,$2,true,$3,$4) ON CONFLICT(owner_id,alias) DO UPDATE SET version=1,approved=true,profile_revision=$3,profile_snapshot=$4',
-    [owner, 'jev-mail', profile.policyRevision, JSON.stringify(profile)],
+    [owner, 'mail-broker', profile.policyRevision, JSON.stringify(profile)],
   );
   const policy = {
-    unlabeled: { allowed: ['jev-mail'], preferred: 'jev-mail' },
+    unlabeled: { allowed: ['mail-broker'], preferred: 'mail-broker' },
     personal: { allowed: [], preferred: null },
     restricted: { allowed: [], preferred: null },
   };
@@ -306,33 +293,72 @@ async function page(b: Awaited<ReturnType<typeof begin>>) {
     b.request.intent,
   );
 }
+const catalogResponse = (url: string) => {
+  if (url === modelsUrl)
+    return Response.json({
+      data: [model, brokerModel].map((id) => ({
+        id,
+        architecture: {
+          input_modalities: ['text'],
+          output_modalities: ['text'],
+        },
+        pricing: {
+          prompt: '0.0000001',
+          completion: id === brokerModel ? '0.0000004' : '0.0000005',
+        },
+      })),
+    });
+  if (url === zdrUrl)
+    return Response.json({
+      data: [model, brokerModel].map((model_id) => ({
+        model_id,
+        tag: 'google-vertex/global',
+        supported_parameters: [
+          'structured_outputs',
+          'response_format',
+          'max_tokens',
+        ],
+        context_length: 1048576,
+        max_completion_tokens: 65535,
+        pricing: { prompt: '0.0000001', completion: '0.0000004' },
+      })),
+    });
+  return null;
+};
+// Keep assertions about paid handoffs separate from public catalog reads.
+async function executeBrokerBatch(...args: Parameters<typeof admittedExecute>) {
+  const paid = args[5];
+  args[5] = ((url, init) =>
+    catalogResponse(String(url)) ?? paid(url, init)) as typeof fetch;
+  return admittedExecute(...args);
+}
 const answer = (
   bytes: string,
   change?: (value: Record<string, unknown>) => void,
 ) => {
-  const request = JSON.parse(bytes) as {
-    model: string;
-    questions: Record<string, unknown>;
-  };
+  const request = JSON.parse(bytes);
   const value: Record<string, unknown> = {
+    id: 'gen-broker-test',
     model: request.model,
-    usage: { input_tokens: 100, output_tokens: 10 },
+    usage: {
+      prompt_tokens: 100,
+      completion_tokens: 10,
+      total_tokens: 110,
+      cost: 0.000005,
+    },
     answers: Object.fromEntries(
-      Object.keys(request.questions).map((key) => [
-        key,
-        {
-          type: 'score',
-          score: 3,
-          confidence: 1,
-          probabilities: { '0': 0, '1': 0, '2': 0, '3': 1 },
-          legend: Object.fromEntries(jevRubric.map((v, i) => [String(i), v])),
-        },
-      ]),
+      Object.keys(request.response_format.json_schema.schema.properties).map(
+        (key) => [key, 'directly_relevant'],
+      ),
     ),
   };
   change?.(value);
-  return new Response(JSON.stringify(value), {
-    headers: { 'content-type': 'application/json' },
+  const { answers, ...outer } = value;
+  return Response.json({
+    ...outer,
+    choices: [
+      { finish_reason: 'stop', message: { content: JSON.stringify(answers) } },
+    ],
   });
 };
 const transport = (change?: (value: Record<string, unknown>) => void) =>
@@ -340,33 +366,19 @@ const transport = (change?: (value: Record<string, unknown>) => void) =>
 
 function workflowTransport(change?: (value: Record<string, unknown>) => void) {
   const sent: Record<string, unknown>[] = [];
-  const jev: string[] = [];
+  const broker: string[] = [];
   const fetcher = vi.fn(async (url: string, init: RequestInit) => {
-    if (url === modelsUrl)
-      return Response.json({
-        data: [
-          {
-            id: model,
-            architecture: {
-              input_modalities: ['text'],
-              output_modalities: ['text'],
-            },
-            pricing: { prompt: '0.0000001', completion: '0.0000005' },
-          },
-        ],
-      });
-    if (url === zdrUrl)
-      return Response.json({
-        data: [
-          {
-            model_id: model,
-            tag: 'google-vertex/global',
-            supported_parameters: ['structured_outputs'],
-          },
-        ],
-      });
+    const catalog = catalogResponse(url);
+    if (catalog) return catalog;
+    if (
+      url === chatUrl &&
+      JSON.parse(String(init!.body)).model === brokerModel
+    ) {
+      broker.push(String(init!.body));
+      return answer(String(init!.body), change);
+    }
     if (url === chatUrl) {
-      sent.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      sent.push(JSON.parse(String(init!.body)) as Record<string, unknown>);
       return completion({
         reply: 'BROKER-ANSWER',
         actions: [action({ title: 'Mail proposal' })],
@@ -374,13 +386,9 @@ function workflowTransport(change?: (value: Record<string, unknown>) => void) {
         read: ['m999'],
       });
     }
-    if (url === 'https://api.typesafe.ai/v1/systemone') {
-      jev.push(String(init.body));
-      return answer(String(init.body), change);
-    }
     throw new Error('Unexpected synthetic destination');
   });
-  return { fetcher, sent, jev };
+  return { fetcher, sent, broker };
 }
 const ownerAsk = (operationId = randomUUID()) => ({
   operationId,
@@ -391,13 +399,117 @@ const ownerAsk = (operationId = randomUUID()) => ({
   trigger: 'owner' as const,
 });
 
+it.each([
+  'catalog-down',
+  'not-zdr',
+  'schema',
+  'host-price',
+  'context',
+  'output',
+  'fee',
+] as const)(
+  'blocks %s before any broker or downstream charge',
+  async (kind) => {
+    await messages(1);
+    const b = await begin(),
+      p = await page(b);
+    const sent: string[] = [];
+    const fake = vi.fn<typeof fetch>(async (url) => {
+      if (String(url) === chatUrl) {
+        sent.push(String(url));
+        throw new Error('Must not send');
+      }
+      if (kind === 'catalog-down') throw new Error('Synthetic catalog outage');
+      const response = catalogResponse(String(url));
+      if (!response) throw new Error('Unexpected destination');
+      if (String(url) !== zdrUrl) return response;
+      const value = JSON.parse(await response.text());
+      const endpoint = value.data.find(
+        (e: { model_id: string }) => e.model_id === brokerModel,
+      );
+      if (kind === 'not-zdr') value.data = [];
+      if (kind === 'schema') endpoint.supported_parameters = ['max_tokens'];
+      if (kind === 'host-price') endpoint.pricing.completion = '0.000004';
+      if (kind === 'context') endpoint.context_length = 1000;
+      if (kind === 'output') endpoint.max_completion_tokens = 100;
+      if (kind === 'fee') endpoint.pricing.request = '0.01';
+      return Response.json(value);
+    });
+    await expect(
+      admittedExecute(db, config, owner, p.id, b.request.intent, fake),
+    ).rejects.toMatchObject({ code: 'MAIL_BROKER_BLOCKED' });
+    expect(sent).toEqual([]);
+    expect(
+      await db.query('SELECT id FROM ai_budget_reservations'),
+    ).toHaveLength(0);
+  },
+);
+
+it('replays legacy uncertain receipts without a new destination handoff', async () => {
+  await messages(1);
+  const b = await begin(),
+    p = await page(b),
+    fake = transport();
+  await db.query(
+    "UPDATE mail_broker_batches SET status='uncertain',rubric_revision='mail-relevance-v1',verification_revision='legacy-typesafe' WHERE id=$1",
+    [p.id],
+  );
+  expect(
+    await admittedExecute(db, config, owner, p.id, b.request.intent, fake),
+  ).toMatchObject({ status: 'uncertain' });
+  expect(fake).not.toHaveBeenCalled();
+});
+
+it('settles authoritative charges but discards output when the router reports a cache hit', async () => {
+  await messages(1);
+  const b = await begin(),
+    p = await page(b);
+  const fake = vi.fn<typeof fetch>(async (_url, init) => {
+    const response = answer(String(init!.body));
+    response.headers.set('X-OpenRouter-Cache-Status', 'HIT');
+    return response;
+  });
+  expect(
+    await executeBrokerBatch(db, config, owner, p.id, b.request.intent, fake),
+  ).toMatchObject({ status: 'blocked', usage: { actualMicros: 5 } });
+  await executeBrokerBatch(db, config, owner, p.id, b.request.intent, fake);
+  expect(fake).toHaveBeenCalledTimes(1);
+  await expect(
+    selectedBrokerMail(db, config, owner, b.receipt.id),
+  ).rejects.toMatchObject({ code: 'MAIL_SELECTION_UNAVAILABLE' });
+});
+
+it('records a confirmed billing overrun rather than understating it as an uncertain hold', async () => {
+  await messages(1);
+  const b = await begin(),
+    p = await page(b);
+  const fake = transport((value) => {
+    (value.usage as { cost: number }).cost = 0.3;
+  });
+  expect(
+    await executeBrokerBatch(db, config, owner, p.id, b.request.intent, fake),
+  ).toMatchObject({ status: 'blocked', usage: { actualMicros: 300000 } });
+  await executeBrokerBatch(db, config, owner, p.id, b.request.intent, fake);
+  expect(fake).toHaveBeenCalledTimes(1);
+  await expect(
+    selectedBrokerMail(db, config, owner, b.receipt.id),
+  ).rejects.toMatchObject({ code: 'MAIL_SELECTION_UNAVAILABLE' });
+  await releaseBrokerHeadroom(db, owner, b.receipt.id);
+  expect(await readBudgetUsage(db, owner)).toMatchObject({
+    spentMicros: '300000',
+    heldMicros: '0',
+    uncertainMicros: '0',
+    overruns: 1,
+  });
+});
+
 it('J3 forwards more than five original bodies in one guarded answer, transfers headroom, and replays without calls', async () => {
   await messages(8);
   await grant();
   const fake = workflowTransport();
   const input = ownerAsk();
   const turn = await answerTurn(db, config, fake.fetcher, owner, input);
-  expect(fake.jev).toHaveLength(1);
+  expect(fake.broker).toHaveLength(1);
   expect(fake.sent).toHaveLength(1);
   expect(turn.mail).toHaveLength(8);
   expect(turn.proposalAccess).toBe('read-only');
@@ -450,13 +562,8 @@ it.each(['grant', 'loser-body', 'connector', 'label'] as const)(
     const ids = await messages(2);
     await grant();
     const fake = workflowTransport((value) => {
-      const answers = value.answers as Record<
-        string,
-        { score: number; probabilities: Record<string, number> }
-      >;
-      const loser = Object.values(answers)[1]!;
-      loser.score = 0;
-      loser.probabilities = { '0': 1, '1': 0, '2': 0, '3': 0 };
+      const answers = value.answers as Record<string, string>;
+      answers[Object.keys(answers)[1]!] = 'irrelevant';
     });
     const turn = await answerTurn(db, config, fake.fetcher, owner, ownerAsk());
     expect(turn.mail).toHaveLength(1);
@@ -510,11 +617,11 @@ it('J3 never forwards uncertain selection or resends it on a workflow retry', as
     answerTurn(db, config, fake.fetcher, owner, input),
   ).rejects.toMatchObject({ code: 'MAIL_BROKER_INCOMPLETE' });
   expect(fake.sent).toEqual([]);
-  expect(fake.jev).toHaveLength(1);
+  expect(fake.broker).toHaveLength(1);
   await expect(
     answerTurn(db, config, fake.fetcher, owner, input),
   ).rejects.toMatchObject({ code: 'MAIL_BROKER_INCOMPLETE' });
-  expect(fake.jev).toHaveLength(1);
+  expect(fake.broker).toHaveLength(1);
 });
 
 it('J3 resumes confirmed checkpoints with the pinned workflow identity and no duplicate batch charge', async () => {
@@ -563,7 +670,7 @@ it('J3 resumes confirmed checkpoints with the pinned workflow identity and no du
     'Find deadline evidence',
   );
   const fake = workflowTransport();
-  await executeJevBatch(
+  await executeBrokerBatch(
     db,
     config,
     owner,
@@ -582,7 +689,7 @@ it('J3 resumes confirmed checkpoints with the pinned workflow identity and no du
     100,
   );
   expect(result.messages).toHaveLength(30);
-  expect(fake.jev).toHaveLength(2);
+  expect(fake.broker).toHaveLength(2);
   expect(
     (
       await retrieveBrokerMail(
@@ -597,7 +704,7 @@ it('J3 resumes confirmed checkpoints with the pinned workflow identity and no du
       )
     ).messages,
   ).toHaveLength(30);
-  expect(fake.jev).toHaveLength(2);
+  expect(fake.broker).toHaveLength(2);
 });
 
 it('J3 binds stable older-window continuations and rejects foreign or revoked cursors', async () => {
@@ -627,7 +734,7 @@ it('J3 binds stable older-window continuations and rejects foreign or revoked cu
     b.cursor,
     'Find deadline evidence',
   );
-  await executeJevBatch(
+  await executeBrokerBatch(
     db,
     config,
     owner,
@@ -800,7 +907,7 @@ it('bounds broad scans and retains every eligible dependency up to current linea
   expect(p.candidates.length).toBeGreaterThan(5);
   expect(p.candidates.length).toBeLessThanOrEqual(25);
 });
-it('filters origin and both message/connector labels before exposing any candidate to Jev', async () => {
+it('filters origin and both message/connector labels before exposing any candidate to broker', async () => {
   await messages(2);
   await messages(1, { label: 'personal' });
   await messages(1, { label: 'restricted' });
@@ -819,7 +926,10 @@ it('requires Personal routing at both hops, including the request labels', async
   await messages(1, { label: 'personal' });
   await db.query(
     "UPDATE ai_routing_policies SET policy=jsonb_set(policy,'{personal}', $2::jsonb) WHERE owner_id=$1",
-    [owner, JSON.stringify({ allowed: ['jev-mail'], preferred: 'jev-mail' })],
+    [
+      owner,
+      JSON.stringify({ allowed: ['mail-broker'], preferred: 'mail-broker' }),
+    ],
   );
   const b = await begin();
   expect(b.receipt.coverage.eligible).toBe(0);
@@ -918,22 +1028,30 @@ it('clips Unicode body text and splits complete envelopes under UTF-8 and charac
   const b = await begin();
   const p = await page(b);
   expect(p.candidates.length).toBeLessThan(25);
-  const bytes = buildJevEnvelope(profile.model, b.request.intent, p.candidates);
+  const bytes = buildBrokerEnvelope(
+    profile.model,
+    b.request.intent,
+    p.candidates,
+  );
   expect(Buffer.byteLength(bytes)).toBeLessThanOrEqual(20480);
   expect(p.candidates.every((c) => c.truncated)).toBe(true);
 });
-it('checks account evidence, provider consent, pinned model and quote before dispatch', async () => {
+it('requires the new broker profile and independent consent, without TypeSafe account evidence', async () => {
   const ready = (await call('GET', '/api/v1/mail-broker/readiness')).json();
   expect(ready.status).toBe('ready');
+  expect(ready.destination).toMatchObject({
+    model: brokerModel,
+    upstream: 'google-vertex',
+  });
   const b = await begin();
   for (const unready of [
-    readConfig(environment),
+    readConfig({ ...environment, AI_PROVIDER_PROFILES: '[]' }),
     readConfig({
       ...environment,
-      TYPESAFE_VERIFICATION: JSON.stringify({
-        ...verification,
-        expiresAt: '2020-01-01T00:00:00Z',
-      }),
+      AI_PROVIDER_PROFILES: environment.AI_PROVIDER_PROFILES.replace(
+        brokerModel,
+        'google/auto',
+      ),
     }),
   ]) {
     await expect(
@@ -947,7 +1065,7 @@ it('checks account evidence, provider consent, pinned model and quote before dis
     ).rejects.toMatchObject({ code: 'MAIL_BROKER_BLOCKED' });
   }
   await db.query(
-    "UPDATE ai_provider_consents SET approved=false WHERE owner_id=$1 AND alias='jev-mail'",
+    "UPDATE ai_provider_consents SET approved=false WHERE owner_id=$1 AND alias='mail-broker'",
     [owner],
   );
   expect(
@@ -962,7 +1080,7 @@ it('settles valid judgments once, preserves original bodies and records metadata
   const b = await begin();
   const p = await page(b);
   const fetcher = transport();
-  const receipt = await executeJevBatch(
+  const receipt = await executeBrokerBatch(
     db,
     config,
     owner,
@@ -974,11 +1092,9 @@ it('settles valid judgments once, preserves original bodies and records metadata
     status: 'completed',
     usage: { actualMicros: 5 },
   });
-  await executeJevBatch(db, config, owner, p.id, b.request.intent, fetcher);
+  await executeBrokerBatch(db, config, owner, p.id, b.request.intent, fetcher);
   expect(fetcher).toHaveBeenCalledTimes(1);
-  expect(fetcher.mock.calls[0]![0]).toBe(
-    'https://api.typesafe.ai/v1/systemone',
-  );
+  expect(fetcher.mock.calls[0]![0]).toBe(chatUrl);
   expect(fetcher.mock.calls[0]![1]!.redirect).toBe('error');
   const selected = await selectedBrokerMail(db, config, owner, b.receipt.id);
   expect(selected.messages).toHaveLength(12);
@@ -992,7 +1108,7 @@ it('settles valid judgments once, preserves original bodies and records metadata
   expect(audit).not.toContain('Original evidence');
   expect(audit).not.toContain(b.request.intent);
   await migrate(db);
-  await executeJevBatch(db, config, owner, p.id, b.request.intent, fetcher);
+  await executeBrokerBatch(db, config, owner, p.id, b.request.intent, fetcher);
   expect(fetcher).toHaveBeenCalledTimes(1);
   await releaseBrokerHeadroom(db, owner, b.receipt.id);
   expect(await readBudgetUsage(db, owner)).toMatchObject({
@@ -1004,8 +1120,8 @@ it('settles valid judgments once, preserves original bodies and records metadata
 it.each([
   'missing',
   'foreign',
-  'distribution',
-  'legend',
+  'invalid-enum',
+  'extra-field',
   'model',
   'duplicate',
 ] as const)(
@@ -1016,24 +1132,23 @@ it.each([
     const p = await page(b);
     const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
       const response = answer(String(init!.body), (v) => {
-        const answers = v.answers as Record<string, Record<string, unknown>>;
+        const answers = v.answers as Record<string, unknown>;
         if (kind === 'missing') delete answers.m1;
         if (kind === 'foreign') {
           answers.forged = answers.m1!;
           delete answers.m1;
         }
-        if (kind === 'distribution')
-          answers.m1!.probabilities = { '0': 0, '1': 0, '2': 0, '3': 0.4 };
-        if (kind === 'legend') answers.m1!.legend = {};
-        if (kind === 'model') v.model = 'jev-latest';
+        if (kind === 'invalid-enum') answers.m1 = 'certain';
+        if (kind === 'extra-field') answers.extra = 'directly_relevant';
+        if (kind === 'model') v.model = 'google/auto';
       });
       if (kind !== 'duplicate') return response;
-      const text = await response.text();
-      return new Response(text.replace('"answers":{', '"answers":{"m1":{},'), {
-        headers: { 'content-type': 'application/json' },
-      });
+      const outer = JSON.parse(await response.text());
+      outer.choices[0].message.content =
+        '{"m1":"irrelevant",' + outer.choices[0].message.content.slice(1);
+      return Response.json(outer);
     });
-    const receipt = await executeJevBatch(
+    const receipt = await executeBrokerBatch(
       db,
       config,
       owner,
@@ -1041,10 +1156,15 @@ it.each([
       b.request.intent,
       fetcher,
     );
-    expect(receipt.status).toBe(
-      ['model', 'duplicate'].includes(kind) ? 'uncertain' : 'blocked',
+    expect(receipt.status).toBe('blocked');
+    await executeBrokerBatch(
+      db,
+      config,
+      owner,
+      p.id,
+      b.request.intent,
+      fetcher,
     );
-    await executeJevBatch(db, config, owner, p.id, b.request.intent, fetcher);
     expect(fetcher).toHaveBeenCalledTimes(1);
     await expect(
       selectedBrokerMail(db, config, owner, b.receipt.id),
@@ -1077,7 +1197,7 @@ it.each([
       });
     });
     expect(
-      await executeJevBatch(
+      await executeBrokerBatch(
         db,
         config,
         owner,
@@ -1088,12 +1208,19 @@ it.each([
       ),
     ).toMatchObject({ status: 'uncertain' });
     await migrate(db);
-    await executeJevBatch(db, config, owner, p.id, b.request.intent, fetcher);
+    await executeBrokerBatch(
+      db,
+      config,
+      owner,
+      p.id,
+      b.request.intent,
+      fetcher,
+    );
     expect(fetcher).toHaveBeenCalledTimes(1);
     await releaseBrokerHeadroom(db, owner, b.receipt.id);
     expect(await readBudgetUsage(db, owner)).toMatchObject({
-      heldMicros: '1344',
-      uncertainMicros: '1344',
+      heldMicros: '4020',
+      uncertainMicros: '4020',
     });
   },
 );
@@ -1129,7 +1256,7 @@ it.each([
         );
       if (kind === 'consent')
         await db.query(
-          "UPDATE ai_provider_consents SET version=version+1,approved=false WHERE owner_id=$1 AND alias='jev-mail'",
+          "UPDATE ai_provider_consents SET version=version+1,approved=false WHERE owner_id=$1 AND alias='mail-broker'",
           [owner],
         );
       if (kind === 'downstream')
@@ -1144,7 +1271,7 @@ it.each([
         );
     };
     expect(
-      await executeJevBatch(
+      await executeBrokerBatch(
         db,
         config,
         owner,
@@ -1158,27 +1285,27 @@ it.each([
     expect(await readBudgetUsage(db, owner)).toMatchObject({ heldMicros: '0' });
   },
 );
-it('shares worst-case Jev and downstream reservations under logical-request and monthly caps', async () => {
+it('shares worst-case broker and downstream reservations under logical-request and monthly caps', async () => {
   await messages(30);
   const b = await begin();
   const p = await page(b);
   const fetcher = transport();
   await db.query(
-    'UPDATE ai_budget_policies SET per_request_limit_micros=2300 WHERE owner_id=$1',
+    'UPDATE ai_budget_policies SET per_request_limit_micros=5000 WHERE owner_id=$1',
     [owner],
   );
   await expect(
-    executeJevBatch(db, config, owner, p.id, b.request.intent, fetcher),
+    executeBrokerBatch(db, config, owner, p.id, b.request.intent, fetcher),
   ).rejects.toMatchObject({ code: 'REQUEST_BUDGET_EXCEEDED' });
   expect(fetcher).not.toHaveBeenCalled();
   expect(await db.query('SELECT id FROM ai_budget_reservations')).toHaveLength(
     0,
   );
   await db.query(
-    'UPDATE ai_budget_policies SET per_request_limit_micros=2346 WHERE owner_id=$1',
+    'UPDATE ai_budget_policies SET per_request_limit_micros=5022 WHERE owner_id=$1',
     [owner],
   );
-  await executeJevBatch(db, config, owner, p.id, b.request.intent, fetcher);
+  await executeBrokerBatch(db, config, owner, p.id, b.request.intent, fetcher);
   const saved = await readBrokerRetrieval(db, owner, b.receipt.id);
   const next = await prepareBrokerPage(
     db,
@@ -1189,7 +1316,7 @@ it('shares worst-case Jev and downstream reservations under logical-request and 
     b.request.intent,
   );
   await expect(
-    executeJevBatch(db, config, owner, next.id, b.request.intent, fetcher),
+    executeBrokerBatch(db, config, owner, next.id, b.request.intent, fetcher),
   ).rejects.toMatchObject({ code: 'REQUEST_BUDGET_EXCEEDED' });
   expect(fetcher).toHaveBeenCalledTimes(1);
   expect(await readBudgetUsage(db, owner)).toMatchObject({
@@ -1212,7 +1339,14 @@ it('caps selection at fifty, keeps unselected dependencies, and blocks redisclos
       saved.cursor_token,
       b.request.intent,
     );
-    await executeJevBatch(db, config, owner, p.id, b.request.intent, fetcher);
+    await executeBrokerBatch(
+      db,
+      config,
+      owner,
+      p.id,
+      b.request.intent,
+      fetcher,
+    );
   }
   const selected = await selectedBrokerMail(db, config, owner, b.receipt.id);
   expect(selected.messages).toHaveLength(50);
@@ -1236,7 +1370,14 @@ it.each(['rubric_revision', 'bounds_revision', 'threshold_revision'] as const)(
     const b = await begin(),
       p = await page(b),
       fetcher = transport();
-    await executeJevBatch(db, config, owner, p.id, b.request.intent, fetcher);
+    await executeBrokerBatch(
+      db,
+      config,
+      owner,
+      p.id,
+      b.request.intent,
+      fetcher,
+    );
     await db.query(
       `UPDATE mail_broker_batches SET ${column}='older-policy' WHERE id=$1`,
       [p.id],
@@ -1244,7 +1385,14 @@ it.each(['rubric_revision', 'bounds_revision', 'threshold_revision'] as const)(
     await expect(
       selectedBrokerMail(db, config, owner, b.receipt.id),
     ).rejects.toMatchObject({ code: 'MAIL_SELECTION_POLICY_CHANGED' });
-    await executeJevBatch(db, config, owner, p.id, b.request.intent, fetcher);
+    await executeBrokerBatch(
+      db,
+      config,
+      owner,
+      p.id,
+      b.request.intent,
+      fetcher,
+    );
     expect(fetcher).toHaveBeenCalledTimes(1);
   },
 );
@@ -1253,20 +1401,16 @@ it('records no-match judgments as successful selection with no forwarded mail', 
   const b = await begin();
   const p = await page(b);
   const fetcher = transport((v) => {
-    for (const a of Object.values(
-      v.answers as Record<string, Record<string, unknown>>,
-    )) {
-      a.score = 0;
-      a.probabilities = { '0': 1, '1': 0, '2': 0, '3': 0 };
-    }
+    const values = v.answers as Record<string, string>;
+    for (const key of Object.keys(values)) values[key] = 'irrelevant';
   });
-  await executeJevBatch(db, config, owner, p.id, b.request.intent, fetcher);
+  await executeBrokerBatch(db, config, owner, p.id, b.request.intent, fetcher);
   expect(
     (await selectedBrokerMail(db, config, owner, b.receipt.id)).messages,
   ).toHaveLength(0);
 });
 
-async function agentContext(cap = 3000) {
+async function agentContext(cap = 6000) {
   const id = randomUUID(),
     conversation = randomUUID(),
     runId = randomUUID(),
@@ -1325,7 +1469,7 @@ it('attributes both hops to the agent and ordinary live admission shares the sam
     'Find deadlines',
   );
   const fetcher = transport();
-  await executeJevBatch(db, config, owner, p.id, 'Find deadlines', fetcher);
+  await executeBrokerBatch(db, config, owner, p.id, 'Find deadlines', fetcher);
   expect(await agentSpend(db, owner, a.ctx.agent.id)).toBe(1005n);
   await expect(
     admitLive(db, owner, {
@@ -1334,7 +1478,7 @@ it('attributes both hops to the agent and ordinary live admission shares the sam
       operationId: randomUUID(),
       hash: brokerDigest('agent'),
       model: 'anthropic/claude-haiku-5.5',
-      maximumMicros: 1996,
+      maximumMicros: 4996,
       withheld: 0,
       agentId: a.ctx.agent.id,
     }),
@@ -1385,7 +1529,7 @@ it('rechecks a lowered agent cap after admission and releases both unsent holds'
       'Find deadlines',
     ),
     fetcher = transport();
-  const receipt = await executeJevBatch(
+  const receipt = await executeBrokerBatch(
     db,
     config,
     owner,
@@ -1405,7 +1549,7 @@ it('rechecks a lowered agent cap after admission and releases both unsent holds'
   expect(fetcher).not.toHaveBeenCalled();
   expect(await readBudgetUsage(db, owner)).toMatchObject({ heldMicros: '0' });
 });
-it('J3 refuses the answer exchange when the agent allowance shrinks during retrieval, keeping the settled Jev charge', async () => {
+it('J3 refuses the answer exchange when the agent allowance shrinks during retrieval, keeping the settled broker charge', async () => {
   await messages(1);
   const a = await agentContext(300000);
   const agent = a.ctx.agent!;
@@ -1413,7 +1557,7 @@ it('J3 refuses the answer exchange when the agent allowance shrinks during retri
   const fetcher = vi.fn<typeof fetch>(async (url, init) => {
     const response = await fake.fetcher(url as string, init!);
     // The owner lowers the agent cap while the broker exchange is in flight.
-    if (url === 'https://api.typesafe.ai/v1/systemone')
+    if (url === chatUrl && JSON.parse(String(init!.body)).model === brokerModel)
       await db.query(
         'UPDATE responsibilities SET monthly_cap_micros=1 WHERE id=$1',
         [agent.id],
@@ -1438,7 +1582,7 @@ it('J3 refuses the answer exchange when the agent allowance shrinks during retri
     }),
   ).rejects.toMatchObject({ code: 'AGENT_BUDGET_EXCEEDED' });
   // The receiving model is never dispatched and the answer hold is never taken.
-  expect(fake.jev).toHaveLength(1);
+  expect(fake.broker).toHaveLength(1);
   expect(fake.sent).toEqual([]);
   expect(
     await db.query(
@@ -1446,7 +1590,7 @@ it('J3 refuses the answer exchange when the agent allowance shrinks during retri
       [owner],
     ),
   ).toEqual([]);
-  // The settled Jev charge is not refunded; only the unsent answer headroom was released.
+  // The settled broker charge is not refunded; only the unsent answer headroom was released.
   expect(await agentSpend(db, owner, agent.id)).toBeGreaterThan(0n);
   expect(await readBudgetUsage(db, owner)).toMatchObject({ heldMicros: '0' });
 });
@@ -1502,7 +1646,7 @@ it('serializes competing claims and includes worst-case headroom in monthly admi
   const p = await page(b);
   const fetcher = transport();
   await db.query(
-    'UPDATE ai_budget_policies SET monthly_limit_micros=2400,per_request_limit_micros=2400 WHERE owner_id=$1',
+    'UPDATE ai_budget_policies SET monthly_limit_micros=5050,per_request_limit_micros=5050 WHERE owner_id=$1',
     [owner],
   );
   await reserveAIBudget(db, owner, {
@@ -1513,16 +1657,16 @@ it('serializes competing claims and includes worst-case headroom in monthly admi
     maximumChargeMicros: 100,
   });
   await expect(
-    executeJevBatch(db, config, owner, p.id, b.request.intent, fetcher),
+    executeBrokerBatch(db, config, owner, p.id, b.request.intent, fetcher),
   ).rejects.toMatchObject({ code: 'MONTHLY_BUDGET_EXCEEDED' });
   expect(fetcher).not.toHaveBeenCalled();
   await db.query(
-    'UPDATE ai_budget_policies SET monthly_limit_micros=2444 WHERE owner_id=$1',
+    'UPDATE ai_budget_policies SET monthly_limit_micros=5120 WHERE owner_id=$1',
     [owner],
   );
   await Promise.all([
-    executeJevBatch(db, config, owner, p.id, b.request.intent, fetcher),
-    executeJevBatch(db, config, owner, p.id, b.request.intent, fetcher),
+    executeBrokerBatch(db, config, owner, p.id, b.request.intent, fetcher),
+    executeBrokerBatch(db, config, owner, p.id, b.request.intent, fetcher),
   ]);
   expect(fetcher).toHaveBeenCalledTimes(1);
 });
@@ -1532,7 +1676,7 @@ it('keeps uncertain admitted receipts across an actual database close/reopen wit
   const p = await page(b);
   const fetcher = transport();
   await expect(
-    executeJevBatch(db, config, owner, p.id, b.request.intent, fetcher, {
+    executeBrokerBatch(db, config, owner, p.id, b.request.intent, fetcher, {
       beforeGuard: async () => {
         throw new Error('Synthetic process loss after admission');
       },
@@ -1590,7 +1734,7 @@ it('keeps uncertain admitted receipts across an actual database close/reopen wit
     disk = await openDatabase(diskConfig);
     await migrate(disk);
     expect(
-      await executeJevBatch(
+      await executeBrokerBatch(
         disk,
         config,
         owner,
@@ -1601,8 +1745,8 @@ it('keeps uncertain admitted receipts across an actual database close/reopen wit
     ).toMatchObject({ status: 'uncertain' });
     expect(fetcher).not.toHaveBeenCalled();
     expect(await readBudgetUsage(disk, owner)).toMatchObject({
-      heldMicros: '2344',
-      uncertainMicros: '1344',
+      heldMicros: '5020',
+      uncertainMicros: '4020',
     });
   } finally {
     await disk?.close();
@@ -1617,13 +1761,8 @@ it.each(['grant', 'loser', 'route', 'session', 'budget'] as const)(
     await grant();
     let authorized = true;
     const fake = workflowTransport((value) => {
-      const answers = value.answers as Record<
-        string,
-        { score: number; probabilities: Record<string, number> }
-      >;
-      const loser = Object.values(answers)[1]!;
-      loser.score = 0;
-      loser.probabilities = { '0': 1, '1': 0, '2': 0, '3': 0 };
+      const answers = value.answers as Record<string, string>;
+      answers[Object.keys(answers)[1]!] = 'irrelevant';
     });
     const guarded = changeAfterAdmission(async (tx) => {
       if (mutation === 'grant')
@@ -1646,7 +1785,7 @@ it.each(['grant', 'loser', 'route', 'session', 'budget'] as const)(
       }
       if (mutation === 'route')
         await tx.query(
-          "UPDATE ai_provider_consents SET approved=false,version=version+1 WHERE owner_id=$1 AND alias='jev-mail'",
+          "UPDATE ai_provider_consents SET approved=false,version=version+1 WHERE owner_id=$1 AND alias='mail-broker'",
           [owner],
         );
       if (mutation === 'session') authorized = false;
@@ -1660,7 +1799,7 @@ it.each(['grant', 'loser', 'route', 'session', 'budget'] as const)(
       ...ownerAsk(),
       authority: async () => authorized,
     });
-    expect(fake.jev).toHaveLength(1);
+    expect(fake.broker).toHaveLength(1);
     expect(fake.sent).toEqual([]);
     expect(turn.request).toMatchObject({
       status: 'failed',
@@ -1712,9 +1851,11 @@ it.each([false, true])(
       },
       conversationId: String(row!.conversation_id),
     });
-    expect(fake.jev).toHaveLength(1);
-    expect(JSON.parse(fake.jev[0]!).state.request).toBe('Plan');
-    expect(fake.jev[0]).not.toContain('Server scheduled prompt');
+    expect(fake.broker).toHaveLength(1);
+    expect(
+      JSON.parse(JSON.parse(fake.broker[0]!).messages[1].content).request,
+    ).toBe('Plan');
+    expect(fake.broker[0]).not.toContain('Server scheduled prompt');
     expect(fake.sent).toHaveLength(lost ? 0 : 1);
     expect(turn.request.status).toBe(lost ? 'failed' : 'completed');
     if (!lost) {
@@ -1724,13 +1865,13 @@ it.each([false, true])(
   },
 );
 
-it('J3 owner authorization is checked before each Jev send, without charging an unsent batch', async () => {
+it('J3 owner authorization is checked before each broker send, without charging an unsent batch', async () => {
   await messages(1);
   const b = await begin();
   const p = await page(b);
   const fake = transport();
   expect(
-    await executeJevBatch(db, config, owner, p.id, b.request.intent, fake, {
+    await executeBrokerBatch(db, config, owner, p.id, b.request.intent, fake, {
       authority: async () => false,
     }),
   ).toMatchObject({ status: 'blocked' });
@@ -1779,13 +1920,13 @@ it('J3 cannot reauthorize an older direct-mail turn by merging a newer broker tu
   expect(history.withheld).toBe(1);
 });
 
-it('J3 conversation deletion after a confirmed page stops later Jev admissions', async () => {
+it('J3 conversation deletion after a confirmed page stops later broker admissions', async () => {
   await messages(30);
   await grant();
   const fake = workflowTransport();
   const delegated = async (url: string, init: RequestInit) => {
     const response = await fake.fetcher(url, init);
-    if (url === 'https://api.typesafe.ai/v1/systemone')
+    if (url === chatUrl && JSON.parse(String(init!.body)).model === brokerModel)
       await db.query(
         'UPDATE ai_conversations SET deleted_at=CURRENT_TIMESTAMP WHERE owner_id=$1',
         [owner],
@@ -1795,7 +1936,7 @@ it('J3 conversation deletion after a confirmed page stops later Jev admissions',
   await expect(
     answerTurn(db, config, delegated, owner, ownerAsk()),
   ).rejects.toMatchObject({ code: 'MAIL_CONVERSATION_CHANGED' });
-  expect(fake.jev).toHaveLength(1);
+  expect(fake.broker).toHaveLength(1);
   expect(fake.sent).toEqual([]);
   expect((await readBudgetUsage(db, owner)).heldMicros).toBe('0');
 });

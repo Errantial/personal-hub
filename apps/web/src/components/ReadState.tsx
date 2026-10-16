@@ -3,6 +3,7 @@ import { formatInstant } from '../lib/format';
 export function ReadState({
   resource,
   label,
+  showReload = true,
 }: {
   resource: {
     loading: boolean;
@@ -11,6 +12,7 @@ export function ReadState({
     reload: () => Promise<unknown>;
   };
   label: string;
+  showReload?: boolean;
 }) {
   return (
     <>
@@ -21,16 +23,18 @@ export function ReadState({
           Cached {label}: {formatInstant(resource.data.cachedAt)}
         </p>
       )}
-      <button
-        type="button"
-        className="text-button"
-        disabled={resource.loading}
-        onClick={() => {
-          void resource.reload();
-        }}
-      >
-        {resource.error ? 'Retry' : 'Reload'} {label}
-      </button>
+      {showReload && (
+        <button
+          type="button"
+          className="text-button"
+          disabled={resource.loading}
+          onClick={() => {
+            void resource.reload();
+          }}
+        >
+          {resource.error ? 'Retry' : 'Reload'} {label}
+        </button>
+      )}
     </>
   );
 }

@@ -1,6 +1,6 @@
 # Small OpenRouter mail broker
 
-Owner direction: 2026-10-16. The owner selected the small OpenRouter model approach and authorized this plan. Status: proposed implementation; no runtime, configuration, disclosure approval or deployment changes are made by this document.
+Owner direction: 2026-10-16. The owner selected the small OpenRouter model approach and authorized this plan. Implementation was subsequently authorized and is now in development; see [runtime, setup and remaining gates](openrouter-mail-broker.md). The following preserves the planning baseline; configuration, live approval and deployment are not implied.
 
 ## Outcome and baseline
 

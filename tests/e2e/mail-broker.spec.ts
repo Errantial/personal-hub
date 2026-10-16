@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { authenticate } from './auth';
-import { openSettings } from './shell';
+import { openSettings, toggleEink } from './shell';
 
 const origin = 'http://127.0.0.1:5180';
 
@@ -51,6 +51,189 @@ async function connector(page: Page, name: string) {
 
 const ownerForm = (page: Page) =>
   page.getByRole('form', { name: 'Mail access for Assistant asks' });
+
+for (const width of [1280, 320]) {
+  test(`broker approval stays separate, versioned and offline-safe at ${width}px`, async ({
+    page,
+  }) => {
+    await authenticate(page);
+    await page.setViewportSize({ width, height: 900 });
+    const revision = 'a'.repeat(64);
+    let approved = false,
+      version = 1,
+      conflict = false;
+    const writes: Record<string, unknown>[] = [];
+    const profile = {
+      alias: 'mail-broker',
+      adapter: 'openrouter',
+      accessMode: 'api-key',
+      upstreamProvider: 'google-vertex',
+      model: 'google/gemini-2.5-flash-lite',
+      configuration: 'configured',
+      maxInputCharacters: 20480,
+      maxOutputTokens: 2048,
+      policyRevision: revision,
+      pricing: {
+        revision: 'synthetic-price',
+        validUntil: '2099-01-01T00:00:00Z',
+        inputTokenLimit: 32000,
+        inputMicrosPerMillionTokens: 100000,
+        outputMicrosPerMillionTokens: 400000,
+      },
+      retentionDisclosure: {
+        revision: 'synthetic-terms',
+        summary: 'Synthetic OpenRouter and Google Vertex zero-retention terms.',
+      },
+    };
+    const consent = () => ({
+      alias: 'mail-broker',
+      version,
+      approved,
+      profileRevision: approved ? revision : null,
+      updatedAt: null,
+    });
+    await page.route('**/api/v1/ai/providers', (route) =>
+      route.fulfill({
+        json: {
+          revision,
+          dispatchEnabled: false,
+          health: 'not_checked',
+          profiles: [profile],
+        },
+      }),
+    );
+    await page.route('**/api/v1/ai/provider-readiness', (route) =>
+      route.fulfill({
+        json: {
+          registryRevision: revision,
+          dispatchEnabled: false,
+          profiles: [
+            {
+              alias: 'mail-broker',
+              consent: consent(),
+              consentCurrent: approved,
+              blockers: [],
+              quote: {
+                basis: 'configured_token_allowance',
+                currency: 'USD',
+                priceRevision: 'synthetic-price',
+                validUntil: '2099-01-01T00:00:00Z',
+                inputTokenLimit: 32000,
+                outputTokenLimit: 2048,
+                inputMaximumMicros: 3200,
+                outputMaximumMicros: 820,
+                maximumChargeMicros: 4020,
+              },
+            },
+          ],
+        },
+      }),
+    );
+    await page.route('**/api/v1/mail-broker/readiness', (route) =>
+      route.fulfill({
+        json: {
+          status: approved ? 'ready' : 'blocked',
+          blockers: approved ? [] : ['CONSENT_REQUIRED'],
+          profileRevision: revision,
+          approvalVersion: version,
+          downstream: 'ready',
+          dispatchConnectedToAgents: true,
+          destination: {
+            alias: 'mail-broker',
+            model: profile.model,
+            router: 'openrouter',
+            upstream: 'google-vertex',
+          },
+          endpointStatus: 'unchecked',
+        },
+      }),
+    );
+    await page.route(
+      '**/api/v1/ai/provider-consents/mail-broker',
+      async (route) => {
+        const body = route.request().postDataJSON();
+        writes.push(body);
+        if (conflict) {
+          await route.fulfill({
+            status: 409,
+            json: {
+              error: {
+                code: 'VERSION_CONFLICT',
+                message: 'Reload broker approval.',
+              },
+            },
+          });
+          return;
+        }
+        expect(body.expectedVersion).toBe(version);
+        expect(body.expectedRegistryRevision).toBe(revision);
+        expect(body.operationId).toMatch(/^[a-f0-9-]{36}$/);
+        approved = body.approved;
+        version++;
+        await route.fulfill({ json: consent() });
+      },
+    );
+    await page.goto('/');
+    if (width === 320) await toggleEink(page);
+    await openSettings(page, 'AI');
+    const panel = page.getByRole('region', {
+      name: 'Broker destination approval',
+    });
+    await expect(
+      panel.getByText('Broker approval required', { exact: true }),
+    ).toBeVisible();
+    await expect(
+      panel.getByText(profile.retentionDisclosure.summary),
+    ).toBeVisible();
+    const approve = panel.getByRole('button', {
+      name: 'Approve broker',
+      exact: true,
+    });
+    await approve.click();
+    await expect(
+      panel.getByText('Broker approved', { exact: true }),
+    ).toBeVisible();
+    await expect(approve).toBeDisabled();
+    expect(writes).toHaveLength(1);
+    await panel
+      .getByRole('button', { name: 'Revoke broker', exact: true })
+      .click();
+    await expect(
+      panel.getByText('Broker approval required', { exact: true }),
+    ).toBeVisible();
+    conflict = true;
+    await approve.click();
+    await expect(
+      panel.getByText('Broker approval changed. Reload before saving.'),
+    ).toBeVisible();
+    await panel
+      .getByRole('button', { name: 'Reload broker approval', exact: true })
+      .click();
+    await expect(panel.getByRole('alert')).toHaveCount(0);
+    await page.context().setOffline(true);
+    await expect(approve).toBeDisabled();
+    await expect(
+      panel.getByText('Offline · broker approval cannot be changed.'),
+    ).toBeVisible();
+    await page.context().setOffline(false);
+    const help = panel.getByRole('button', {
+      name: 'Help: Broker approval',
+      exact: true,
+    });
+    await help.focus();
+    await page.keyboard.press('Enter');
+    await expect(help).toHaveAttribute('aria-expanded', 'true');
+    const axe = await new AxeBuilder({ page })
+      .include('[aria-label="Broker destination approval"]')
+      .analyze();
+    expect(axe.violations).toEqual([]);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  });
+}
 
 test('mail access grants save per owner, report blocked dispatch and never invent a grant', async ({
   page,

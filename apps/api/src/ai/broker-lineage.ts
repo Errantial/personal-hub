@@ -10,12 +10,12 @@ import {
   validateBrokerScope,
 } from './mail-broker.js';
 import type { BrokerBinding } from './mail-broker.js';
-import { jevPolicy, requireJevReady } from './jev-policy.js';
+import { brokerPolicy, requireBrokerReady } from './broker-policy.js';
 import {
-  jevBoundsRevision,
-  jevRubricRevision,
-  jevThresholdRevision,
-} from './jev-protocol.js';
+  brokerBoundsRevision,
+  brokerRubricRevision,
+  brokerThresholdRevision,
+} from './broker-protocol.js';
 import type { LiveSource } from './live-manifest.js';
 
 export type ForwardingBinding = {
@@ -31,8 +31,8 @@ export async function brokerPolicyDigest(
   config: Config,
   owner: string,
 ) {
-  const policy = await jevPolicy(tx, config, owner);
-  requireJevReady(policy);
+  const policy = await brokerPolicy(tx, config, owner);
+  requireBrokerReady(policy);
   return brokerDigest([
     policy.profile!.policyRevision,
     policy.consent.version,
@@ -40,9 +40,9 @@ export async function brokerPolicyDigest(
     policy.downstream,
     policy.settingsVersion,
     policy.allowed,
-    jevRubricRevision,
-    jevBoundsRevision,
-    jevThresholdRevision,
+    brokerRubricRevision,
+    brokerBoundsRevision,
+    brokerThresholdRevision,
   ]);
 }
 
@@ -75,9 +75,9 @@ export async function bindBrokerForwarding(
         b.profile_revision !== guarded.policy.profile!.policyRevision ||
         b.approval_version !== guarded.policy.consent.version ||
         b.verification_revision !== guarded.policy.verification!.revision ||
-        b.rubric_revision !== jevRubricRevision ||
-        b.bounds_revision !== jevBoundsRevision ||
-        b.threshold_revision !== jevThresholdRevision,
+        b.rubric_revision !== brokerRubricRevision ||
+        b.bounds_revision !== brokerBoundsRevision ||
+        b.threshold_revision !== brokerThresholdRevision,
     )
   )
     throw new ApiError(

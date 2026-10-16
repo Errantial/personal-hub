@@ -1,5 +1,7 @@
 # Brokered Assistant and agent mail (J3)
 
+Historical TypeSafe delivery record. The owner selected a small OpenRouter replacement on 2026-10-16; current development behavior and remaining gates are in [OpenRouter mail broker](openrouter-mail-broker.md). Older validation receipts below apply to the Jev implementation.
+
 Implemented in development on `ai/jev-broker-workflow`, stacked on J1/J2. Not deployed. Routine validation uses fake providers and synthetic mail; actual TypeSafe account terms, full-envelope token/billing evidence, owner provider approval, label routing and explicit mail grants remain required for live use. J4 controls and staged acceptance remain pending.
 
 ## Workflow

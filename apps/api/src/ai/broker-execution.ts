@@ -5,7 +5,12 @@ import type { Database, QueryExecutor } from '../db/database.js';
 import { ApiError } from '../errors.js';
 import { reserveAIBudgetInTransaction, lockBudget } from './budget.js';
 import { agentSpend } from './agent-spend.js';
-import { jevAlias } from './jev-policy.js';
+import {
+  brokerAlias,
+  brokerPolicy,
+  requireBrokerReady,
+  verifyBrokerCatalog,
+} from './broker-policy.js';
 import {
   brokerCandidates,
   brokerDigest,
@@ -15,13 +20,13 @@ import {
 } from './mail-broker.js';
 import type { BrokerBinding } from './mail-broker.js';
 import {
-  buildJevEnvelope,
-  exchangeJev,
-  jevThresholdRevision,
-  jevRubricRevision,
-  jevBoundsRevision,
-} from './jev-protocol.js';
-import type { JevDecision, JevExchange } from './jev-protocol.js';
+  buildBrokerEnvelope,
+  exchangeBroker,
+  brokerThresholdRevision,
+  brokerRubricRevision,
+  brokerBoundsRevision,
+} from './broker-protocol.js';
+import type { BrokerDecision, BrokerExchange } from './broker-protocol.js';
 
 async function reserveBatch(
   tx: QueryExecutor,
@@ -74,11 +79,12 @@ async function reserveBatch(
   );
   if (brokerDigest(candidates.map(candidateBinding)) !== brokerDigest(bindings))
     throw new ApiError(409, 'MAIL_SOURCE_CHANGED', 'Mail source changed.');
-  const bytes = buildJevEnvelope(policy.profile!.model, intent, candidates);
+  const bytes = buildBrokerEnvelope(policy.profile!.model, intent, candidates);
   if (
     Buffer.byteLength(bytes) >
       Math.min(20480, policy.verification!.envelopeByteLimit) ||
     bytes.length > policy.profile!.maxInputCharacters ||
+    Buffer.byteLength(bytes) + 500 > policy.quote!.inputTokenLimit ||
     policy.quote!.inputTokenLimit < policy.verification!.inputTokenUpperBound
   )
     throw new ApiError(
@@ -158,7 +164,7 @@ async function reserveBatch(
   const held = await reserveAIBudgetInTransaction(tx, owner, {
     requestId: batchId,
     expectedPolicyVersion: Number(budget!.version),
-    provider: jevAlias,
+    provider: brokerAlias,
     model: policy.profile!.model,
     maximumChargeMicros: policy.quote!.maximumChargeMicros,
   });
@@ -174,9 +180,9 @@ async function reserveBatch(
     verificationDigest: brokerDigest(policy.verification),
     downstream: policy.downstream,
     requestLabels: context.requestLabels,
-    rubric: jevRubricRevision,
-    bounds: jevBoundsRevision,
-    threshold: jevThresholdRevision,
+    rubric: brokerRubricRevision,
+    bounds: brokerBoundsRevision,
+    threshold: brokerThresholdRevision,
   };
   const hash = brokerDigest([owner, batchId, bytes, metadata]);
   await tx.query(
@@ -205,15 +211,14 @@ async function reserveBatch(
     quote: {
       inputTokenLimit: policy.quote!.inputTokenLimit,
       outputTokenLimit: policy.profile!.maxOutputTokens,
-      inputRate: policy.profile!.pricing!.inputMicrosPerMillionTokens,
-      outputRate: policy.profile!.pricing!.outputMicrosPerMillionTokens,
+      maximumChargeMicros: policy.quote!.maximumChargeMicros,
     },
     retrievalId: retrieval.id,
   };
 }
 
-/** INTERNAL admitted transport. No route/worker invokes this until J3. */
-export async function executeJevBatch(
+/** INTERNAL admitted transport; never exposed as an arbitrary-message endpoint. */
+export async function executeBrokerBatch(
   database: Database,
   config: Config,
   owner: string,
@@ -226,10 +231,24 @@ export async function executeJevBatch(
     authority?: (tx: QueryExecutor) => Promise<boolean>;
   } = {},
 ) {
+  const existing = await readBrokerBatch(database, owner, batchId);
+  if (existing.status !== 'prepared') return existing;
+  const checkedPolicy = await brokerPolicy(database, config, owner);
+  requireBrokerReady(checkedPolicy);
+  await verifyBrokerCatalog(fetcher, checkedPolicy);
   const sealed = await database.transaction((tx) =>
-    reserveBatch(tx, config, owner, batchId, intent),
+    (async () => {
+      const current = await brokerPolicy(tx, config, owner);
+      if (brokerDigest(current) !== brokerDigest(checkedPolicy))
+        throw new ApiError(
+          409,
+          'MAIL_ROUTE_CHANGED',
+          'Mail broker policy changed.',
+        );
+      return reserveBatch(tx, config, owner, batchId, intent);
+    })(),
   );
-  if (!sealed) return readJevBatch(database, owner, batchId);
+  if (!sealed) return readBrokerBatch(database, owner, batchId);
   await options.beforeGuard?.();
   // Immediately before handoff, reproject sources and verify both routes,
   // grant, lease, budget and exact serialized bytes against the durable claim.
@@ -299,9 +318,9 @@ export async function executeJevBatch(
       );
     });
     await releaseBrokerHeadroom(database, owner, sealed.retrievalId);
-    return readJevBatch(database, owner, batchId);
+    return readBrokerBatch(database, owner, batchId);
   }
-  const result = await exchangeJev(
+  const result = await exchangeBroker(
     fetcher,
     sealed.secret,
     sealed.bytes,
@@ -310,15 +329,15 @@ export async function executeJevBatch(
     sealed.quote,
     options.timeoutMs,
   );
-  await settleJevBatch(database, owner, batchId, result);
-  return readJevBatch(database, owner, batchId);
+  await settleBrokerBatch(database, owner, batchId, result);
+  return readBrokerBatch(database, owner, batchId);
 }
 
-async function settleJevBatch(
+async function settleBrokerBatch(
   database: Database,
   owner: string,
   batchId: string,
-  result: JevExchange,
+  result: BrokerExchange,
 ) {
   await database.transaction(async (tx) => {
     await lockBudget(tx, owner);
@@ -383,7 +402,7 @@ async function settleJevBatch(
     );
   });
 }
-export async function readJevBatch(
+export async function readBrokerBatch(
   tx: QueryExecutor,
   owner: string,
   batchId: string,
@@ -395,7 +414,7 @@ export async function readJevBatch(
   if (!row) throw new ApiError(404, 'NOT_FOUND', 'Mail batch not available.');
   return row;
 }
-/** Unsent downstream headroom may be abandoned; uncertain Jev charges remain held. */
+/** Unsent downstream headroom may be abandoned; uncertain broker charges remain held. */
 export async function releaseBrokerHeadroom(
   database: Database,
   owner: string,
@@ -466,9 +485,8 @@ export async function selectedBrokerMail(
         'A selection dependency changed.',
       );
     const decisions = batches
-      .flatMap((b) => b.decisions as JevDecision[])
-      .filter((d) => d.selected)
-      .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+      .flatMap((b) => b.decisions as BrokerDecision[])
+      .filter((d) => d.selected);
     const messages = [];
     let bytes = 2,
       clipped = 0;
@@ -534,9 +552,9 @@ export async function selectedBrokerMail(
 
 function requireCurrentSelectionPolicy(batch: Record<string, unknown>) {
   if (
-    batch.rubric_revision !== jevRubricRevision ||
-    batch.bounds_revision !== jevBoundsRevision ||
-    batch.threshold_revision !== jevThresholdRevision
+    batch.rubric_revision !== brokerRubricRevision ||
+    batch.bounds_revision !== brokerBoundsRevision ||
+    batch.threshold_revision !== brokerThresholdRevision
   )
     throw new ApiError(
       409,

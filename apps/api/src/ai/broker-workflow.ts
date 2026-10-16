@@ -9,10 +9,10 @@ import {
 } from './mail-broker.js';
 import type { BrokerContext } from './mail-broker.js';
 import {
-  executeJevBatch,
+  executeBrokerBatch,
   selectedBrokerMail,
   releaseBrokerHeadroom,
-} from './jev-execution.js';
+} from './broker-execution.js';
 import type { OpenRouterFetch } from './openrouter-live.js';
 import { lockBudget } from './budget.js';
 
@@ -52,7 +52,7 @@ export async function openBrokerWorkflow(
   });
 }
 
-/** Only raw owner asks or server-read agent goals become Jev intents. No model-generated request. */
+/** Only raw owner asks or server-read agent goals become broker intents. No model-generated request. */
 export async function retrieveBrokerMail(
   database: Database,
   config: Config,
@@ -103,6 +103,8 @@ export async function retrieveBrokerMail(
   );
   // Each durable batch is claimed at most once. A confirmed page can be resumed;
   // uncertain transport never authorizes a retry, a raw read or a downstream answer.
+  const brokerFetch = ((url, init) =>
+    fetcher(String(url), init!)) as typeof fetch;
   try {
     for (;;) {
       const row = await readBrokerRetrieval(database, owner, retrievalId);
@@ -121,13 +123,13 @@ export async function retrieveBrokerMail(
         row.cursor_token,
         intent,
       );
-      const result = await executeJevBatch(
+      const result = await executeBrokerBatch(
         database,
         config,
         owner,
         batch.id,
         intent,
-        ((url, init) => fetcher(String(url), init!)) as typeof fetch,
+        brokerFetch,
         { ...(authority ? { authority } : {}) },
       );
       if (result.status === 'uncertain' || result.status === 'blocked') {

@@ -12,15 +12,16 @@ import { getSnapshot } from '../lib/api';
 import { useMutation, useOnline, useResource } from '../lib/hooks';
 import { Help } from './Help';
 import { ReadState } from './ReadState';
+import { BrokerDestinationApproval } from './BrokerDestinationApproval';
 
 /** Why the broker cannot run yet. Server codes stay internal; this is the copy. */
 const blockers: Record<string, string> = {
   PROVIDER_UNAVAILABLE: 'The broker profile is not configured on the server.',
   PINNED_MODEL_REQUIRED:
     'The broker profile needs a pinned model before it can judge mail.',
-  ACCOUNT_VERIFICATION_REQUIRED:
-    'The broker account evidence is missing or expired. The operator must verify the account terms and token-bound billing.',
-  CONSENT_REQUIRED: 'Approve the broker provider under Providers first.',
+  RETENTION_REQUIRED:
+    'The broker profile needs OpenRouter and upstream retention terms before approval.',
+  CONSENT_REQUIRED: 'Approve the broker destination below.',
   QUOTE_REQUIRED:
     'The broker profile needs verified pricing that covers the whole envelope.',
   DOWNSTREAM_BLOCKED:
@@ -103,10 +104,22 @@ export function MailBrokerSettings() {
         this.
       </Help>
       <ReadState resource={readiness} label="broker status" />
+      {state?.destination && (
+        <p className="meta">
+          Broker: {state.destination.model} · OpenRouter ·{' '}
+          {state.destination.upstream}
+        </p>
+      )}
+      <Help label="Broker endpoint checks">
+        Broker approval is separate from the Assistant destination. The server
+        checks the pinned endpoint's zero retention, structured outputs and
+        published price before each batch. Configured status does not prove
+        availability or mail quality.
+      </Help>
       {state &&
         (state.status === 'ready' ? (
           <p role="status">
-            Broker ready ·{' '}
+            Broker configured ·{' '}
             {state.downstream === 'ready'
               ? 'destination ready'
               : 'destination blocked'}
@@ -122,6 +135,7 @@ export function MailBrokerSettings() {
           </div>
         ))}
       <ReadState resource={grants} label="mail access" />
+      {state?.destination && <BrokerDestinationApproval onSaved={reload} />}
       <BrokerGrantForm
         target="owner"
         heading="Assistant asks"

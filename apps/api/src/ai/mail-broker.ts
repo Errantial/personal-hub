@@ -9,15 +9,15 @@ import type { MailBrokerGrant, MailBrokerRequest } from '@hub/contracts';
 import type { Database, QueryExecutor } from '../db/database.js';
 import type { Config } from '../config.js';
 import { ApiError } from '../errors.js';
-import { jevPolicy, requireJevReady } from './jev-policy.js';
+import { brokerPolicy, requireBrokerReady } from './broker-policy.js';
 import { maxLiveSources } from './live-manifest.js';
 import { lockBudget } from './budget.js';
 import {
-  fitJevCandidates,
-  jevBoundsRevision,
-  jevRubricRevision,
-  jevThresholdRevision,
-} from './jev-protocol.js';
+  fitBrokerCandidates,
+  brokerBoundsRevision,
+  brokerRubricRevision,
+  brokerThresholdRevision,
+} from './broker-protocol.js';
 import { agentSpend } from './agent-spend.js';
 
 const canonical = (value: unknown): unknown =>
@@ -314,8 +314,8 @@ export async function beginBrokerRetrieval(
           'This run has used its mail retrieval allowance.',
         );
     }
-    const policy = await jevPolicy(tx, config, owner);
-    requireJevReady(policy);
+    const policy = await brokerPolicy(tx, config, owner);
+    requireBrokerReady(policy);
     if (context.requestLabels.some((label) => !policy.allowed.includes(label)))
       throw new ApiError(
         409,
@@ -488,8 +488,8 @@ export async function guardBrokerRetrieval(
     throw new ApiError(409, 'MAIL_GRANT_CHANGED', 'Mail grant changed.');
   await checkBrokerContext(tx, owner, retrieval.context);
   await validateBrokerScope(tx, owner, grant.scope);
-  const policy = await jevPolicy(tx, config, owner);
-  requireJevReady(policy);
+  const policy = await brokerPolicy(tx, config, owner);
+  requireBrokerReady(policy);
   if (
     brokerDigest(policy.downstream) !==
       brokerDigest(retrieval.limits.downstream) ||
@@ -553,7 +553,7 @@ export async function prepareBrokerPage(
         'MAIL_SOURCE_CHANGED',
         'Mail changed since selection began.',
       );
-    const candidates = fitJevCandidates(
+    const candidates = fitBrokerCandidates(
       policy.profile!.model,
       intent,
       page,
@@ -588,9 +588,9 @@ export async function prepareBrokerPage(
         retrieval.position,
         retrieval.position + candidates.length,
         JSON.stringify(candidates.map(candidateBinding)),
-        jevBoundsRevision,
-        jevRubricRevision,
-        jevThresholdRevision,
+        brokerBoundsRevision,
+        brokerRubricRevision,
+        brokerThresholdRevision,
       ],
     );
     return {
