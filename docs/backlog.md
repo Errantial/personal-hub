@@ -91,3 +91,5 @@ Prefer concise titles and labels. Use keyboard/tap-accessible contextual Help fo
 
 
 P7 composer follow-up is implemented on ai/academic-selection-ui (not deployed; check and all 156 browser cases passed): explicit per-ask version-pinned manual work selection, guarded active-class browsing, retained failed-ask selections and recorded academic coverage/aggregate withholding. P8 grounded study proposals remain next. See ui-agent-ledger.md and implementation-log.md.
+
+P8 part 1 is implemented in development on ai/academic-proposals (not deployed; check and all 156 browser cases passed): grounded manual-work task creates through existing academic planner operations, source review, fresh version/open-state checks and retained source/AI lineage through retry and Undo. P8 part 2 remains deterministic study preview/approval integration with capacity/conflict checks; no AI study reservation or automatic workload-plan provenance is claimed.

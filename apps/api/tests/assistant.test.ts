@@ -1796,3 +1796,190 @@ it('never sends academic sources on an agent run', async () => {
     exchange!.manifest.sources.some((s) => s.kind === 'academic-work'),
   ).toBe(false);
 });
+
+it('applies an academic task through the source operation and retains its link through retry, Undo and restore', async () => {
+  await start();
+  await setBudget();
+  const { workId, courseId } = await seedAcademic({
+    title: 'Essay',
+    dueDate: '2036-05-20',
+    estimatedMinutes: 90,
+  });
+  chat = () =>
+    completion({
+      reply: 'Review the task.',
+      actions: [
+        action({ ref: 'w1', title: 'Draft outline', dueDate: '2036-05-18' }),
+      ],
+    });
+  const { turn } = (
+    await askAcademic('Make an outline task', [
+      { id: workId, expectedVersion: 1, expectedCourseVersion: 1 },
+    ])
+  ).json();
+  expect(turn.request.proposals[0].academicSource).toEqual({
+    id: workId,
+    expectedWorkVersion: 1,
+    expectedCourseVersion: 1,
+    title: 'Essay',
+  });
+  const apply = {
+    expectedVersion: turn.version,
+    indexes: [0],
+    operationId: randomUUID(),
+  };
+  const result = await call(
+    'POST',
+    `/api/v1/assistant/turns/${turn.id}/apply`,
+    apply,
+  );
+  expect(result.statusCode).toBe(200);
+  const saved = result.json().turn;
+  expect(saved.items[0]).toMatchObject({ state: 'applied', error: null });
+  const task = saved.items[0].applied;
+  expect(
+    (
+      await call('POST', `/api/v1/assistant/turns/${turn.id}/apply`, apply)
+    ).json().turn.items[0].applied,
+  ).toEqual(task);
+  const source = (
+    await call('GET', `/api/v1/tasks/${task.id}/academic-source`)
+  ).json().source;
+  expect(source).toMatchObject({
+    workId,
+    snapshot: {
+      id: workId,
+      courseId,
+      dueDate: '2036-05-20',
+      estimatedMinutes: 90,
+    },
+  });
+  expect(
+    (await call('GET', `/api/v1/tasks/${task.id}`)).json().task,
+  ).toMatchObject({ dueDate: '2036-05-18', completed: false });
+  const undone = (
+    await call('POST', `/api/v1/assistant/turns/${turn.id}/undo`, {
+      expectedVersion: saved.version,
+      indexes: [0],
+      operationId: randomUUID(),
+    })
+  ).json().turn;
+  expect(undone.items[0].state).toBe('undone');
+  const deleted = (await call('GET', `/api/v1/tasks/${task.id}`)).json().task;
+  expect(deleted.deletedAt).not.toBeNull();
+  const restored = await call('POST', `/api/v1/tasks/${task.id}/restore`, {
+    operationId: randomUUID(),
+    expectedVersion: deleted.version,
+  });
+  expect(restored.statusCode).toBe(200);
+  expect(
+    (await call('GET', `/api/v1/tasks/${task.id}/academic-source`)).json()
+      .source.id,
+  ).toBe(source.id);
+  const [work] = await database.query(
+    'SELECT status,estimated_minutes FROM academic_work WHERE id=$1',
+    [workId],
+  );
+  expect(work).toEqual({ status: 'planned', estimated_minutes: 90 });
+  const [count] = await database.query(
+    'SELECT count(*)::int AS count FROM academic_planner_sources WHERE work_id=$1',
+    [workId],
+  );
+  expect(count!.count).toBe(1);
+});
+
+it.each(['work-edit', 'class-edit', 'closed', 'archived', 'deleted'])(
+  'refuses an academic task when its source is %s before Apply',
+  async (change) => {
+    await start();
+    await setBudget();
+    const { workId, courseId } = await seedAcademic();
+    chat = () =>
+      completion({
+        reply: 'Review.',
+        actions: [action({ ref: 'w1', title: 'Source task' })],
+      });
+    const { turn } = (
+      await askAcademic('Add a task', [
+        { id: workId, expectedVersion: 1, expectedCourseVersion: 1 },
+      ])
+    ).json();
+    if (change === 'work-edit')
+      await database.query(
+        'UPDATE academic_work SET version=version+1 WHERE id=$1',
+        [workId],
+      );
+    if (change === 'class-edit')
+      await database.query('UPDATE courses SET version=version+1 WHERE id=$1', [
+        courseId,
+      ]);
+    if (change === 'closed')
+      await database.query(
+        "UPDATE academic_work SET status='submitted',version=version+1 WHERE id=$1",
+        [workId],
+      );
+    if (change === 'archived')
+      await database.query(
+        'UPDATE courses SET deleted_at=CURRENT_TIMESTAMP,version=version+1 WHERE id=$1',
+        [courseId],
+      );
+    if (change === 'deleted')
+      await database.query(
+        'UPDATE academic_work SET deleted_at=CURRENT_TIMESTAMP,version=version+1 WHERE id=$1',
+        [workId],
+      );
+    const response = await call(
+      'POST',
+      `/api/v1/assistant/turns/${turn.id}/apply`,
+      {
+        expectedVersion: turn.version,
+        indexes: [0],
+        operationId: randomUUID(),
+      },
+    );
+    if (change === 'work-edit' || change === 'closed') {
+      expect(response.statusCode).toBe(200);
+      expect(response.json().turn.items[0]).toMatchObject({
+        state: 'failed',
+        applied: null,
+      });
+    } else expect(response.statusCode).toBe(409);
+    const [count] = await database.query(
+      'SELECT count(*)::int AS count FROM tasks WHERE owner_id=$1',
+      [await ownerId()],
+    );
+    expect(count!.count).toBe(0);
+  },
+);
+
+it('drops invented, withheld and closed academic references instead of creating unlinked fallback tasks', async () => {
+  await start();
+  await setBudget();
+  const closed = await seedAcademic({ status: 'submitted' });
+  const hidden = await seedAcademic({
+    workSensitivity: 'restricted',
+    academicLabels: ['restricted'],
+  });
+  chat = () =>
+    completion({
+      reply: 'No open work.',
+      actions: [
+        action({ ref: 'w1', title: 'Closed' }),
+        action({ ref: 'w2', title: 'Withheld' }),
+        action({ ref: 'w99', title: 'Invented' }),
+      ],
+    });
+  const { turn } = (
+    await askAcademic(
+      'Make tasks',
+      [closed, hidden].map((source) => ({
+        id: source.workId,
+        expectedVersion: 1,
+        expectedCourseVersion: 1,
+      })),
+    )
+  ).json();
+  expect(turn.request.proposals).toEqual([]);
+  expect(turn.request.dropped).toBe(3);
+  expect(turn.academic).toHaveLength(1);
+});

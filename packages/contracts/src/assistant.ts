@@ -133,6 +133,15 @@ const priority = z.enum(['low', 'normal', 'high']);
 export const assistantProposalSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('task.create'),
+    /** Server-resolved explicit manual academic source; absent on ordinary tasks. */
+    academicSource: z
+      .strictObject({
+        id: z.string().uuid(),
+        expectedWorkVersion: z.number().int().positive(),
+        expectedCourseVersion: z.number().int().positive(),
+        title: z.string().max(200),
+      })
+      .optional(),
     task: z.object({
       title,
       notes: z.string().max(2000),

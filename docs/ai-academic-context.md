@@ -41,3 +41,11 @@ The composer picker and withheld-item coverage UI are the next slice; grounded a
 ### Per-ask selection UI (2026-10-15)
 
 The shared Today/Assistant composer now supports explicit manual work selection (maximum 20) through active-class browsing with guarded pagination. Selection sends only owned IDs and pinned work/class versions. Reloading the list does not silently update selected versions; remove and select again to resolve stale context. Failed asks retain selections; answered asks clear them. Answer details expose the recorded planning projection and aggregate planner/academic withheld count. Notes, grades and provider data remain excluded. This implements the P7 composer/coverage follow-up; grounded study-operation proposals remain P8 work. Validation receipts are recorded separately in the implementation log.
+
+## Grounded academic task proposals (P8 part 1, 2026-10-15)
+
+Implemented in development on ai/academic-proposals; not deployed. A task.create action may refer to an explicitly admitted open manual work item using its w reference. The server resolves that reference to the work identity and work/class versions and records the source title in the reviewable proposal. Invented, withheld and submitted/cancelled references are dropped; they never silently become unlinked task creates. An ordinary create with no reference remains an ordinary task, with the answer's conservative AI lineage.
+
+Apply uses the same academic planner operation as manual source-linked creation, under the existing schedule lock and server-owned proposal digest. It rechecks source versions/open status, retains the immutable academic capture, inherits labels and saves AI output lineage atomically. Receipt retry creates no duplicate; Undo tombstones the new task and retains both origins. The task's planning deadline can differ from the captured academic deadline; task completion never changes work submission or estimated effort.
+
+This part does not add AI study reservations or certify workload-plan provenance. P8 part 2 must use deterministic study preview/approval with fresh context, capacity and conflict checks; the direct academic study endpoint alone is not sufficient. Existing study UI remains the planning route, and external calendar conflicts remain unchecked.
