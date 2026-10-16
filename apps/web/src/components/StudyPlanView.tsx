@@ -5,9 +5,11 @@ import {
   studyPlansResponseSchema,
   studyPreviewSchema,
   studyProgressSchema,
+  assistantTurnResponseSchema,
 } from '@hub/contracts';
 import type { StudyPlan, StudyPreview, StudySlot } from '@hub/contracts';
-import { getJson, requestJson } from '../lib/api';
+import { getJson, requestJson, liveRequestJson } from '../lib/api';
+import { ReadState } from './ReadState';
 import { minutesLabel } from '../lib/classes';
 import { formatDate, formatInstant } from '../lib/format';
 import { useMutation, useResource, useToday } from '../lib/hooks';
@@ -27,7 +29,8 @@ import { Link } from './Link';
 import { StatusChip } from './StatusChip';
 
 type Navigate = (route: Route) => void;
-type Range = { from: string; to: string };
+type AssistantRef = { turnId: string; suggestionId: string };
+type Range = { from: string; to: string; assistant?: AssistantRef };
 
 const statusText: Record<StudyPlan['status'], string> = {
   draft: 'Draft',
@@ -49,11 +52,91 @@ const errorText = (caught: unknown, fallback: string) =>
  * it, and approve it into Calendar. Nothing is scheduled until approval.
  * Online only.
  */
-export function StudyPlanView({ navigate }: { navigate: Navigate }) {
+export function StudyPlanView({
+  navigate,
+  assistant,
+}: {
+  navigate: Navigate;
+  assistant?: AssistantRef;
+}) {
+  return assistant ? (
+    <SuggestionPlan
+      key={`${assistant.turnId}:${assistant.suggestionId}`}
+      navigate={navigate}
+      assistant={assistant}
+    />
+  ) : (
+    <StudyPlanEditor navigate={navigate} />
+  );
+}
+
+function SuggestionPlan({
+  navigate,
+  assistant,
+}: {
+  navigate: Navigate;
+  assistant: AssistantRef;
+}) {
+  const resource = useResource(
+    (signal) =>
+      liveRequestJson(
+        `/api/v1/assistant/turns/${assistant.turnId}`,
+        assistantTurnResponseSchema,
+        { signal },
+      ),
+    {
+      failure: 'The study suggestion needs a connection.',
+      key: assistant.turnId,
+    },
+  );
+  const suggestion =
+    resource.data?.turn.proposalAccess === 'applicable' &&
+    resource.data.turn.trigger === 'owner'
+      ? resource.data.turn.studySuggestions?.find(
+          (s) => s.id === assistant.suggestionId,
+        )
+      : undefined;
+  return (
+    <>
+      <ReadState
+        resource={{ ...resource, data: undefined }}
+        label="Study suggestion"
+      />
+      {resource.data && !suggestion && (
+        <p role="alert">This study suggestion is no longer available.</p>
+      )}
+      {suggestion && (
+        <StudyPlanEditor
+          key={suggestion.id}
+          navigate={navigate}
+          initial={{ from: suggestion.from, to: suggestion.to, assistant }}
+        />
+      )}
+    </>
+  );
+}
+
+function StudyPlanEditor({
+  navigate,
+  initial,
+}: {
+  navigate: Navigate;
+  initial?: Range;
+}) {
   const today = useToday(Intl.DateTimeFormat().resolvedOptions().timeZone);
-  const [from, setFrom] = useState(today);
-  const [days, setDays] = useState(7);
-  const range = { from, to: rangeEnd(from, days) };
+  const [from, setFrom] = useState(initial?.from ?? today);
+  const [days, setDays] = useState(
+    initial
+      ? Temporal.PlainDate.from(initial.from).until(
+          Temporal.PlainDate.from(initial.to),
+        ).days
+      : 7,
+  );
+  const range: Range = {
+    from,
+    to: rangeEnd(from, days),
+    ...(initial?.assistant ? { assistant: initial.assistant } : {}),
+  };
   const [historyKey, setHistoryKey] = useState(0);
   const [openId, setOpenId] = useState<string | null>(null);
   const showPlan = (plan: StudyPlan) => {
@@ -80,6 +163,8 @@ export function StudyPlanView({ navigate }: { navigate: Navigate }) {
         draft, remove blocks you do not want, then approve it to add the blocks
         to Calendar. Approved blocks are ordinary study events you can edit.
         Weekly goals are set in each class’s Study blocks.
+        {initial?.assistant &&
+          ' The suggested range stays fixed to its saved answer. Open a manual study plan to choose different dates.'}
       </Help>
       <Link
         className="study-plan__settings"
@@ -96,6 +181,7 @@ export function StudyPlanView({ navigate }: { navigate: Navigate }) {
         <label>
           Starting
           <input
+            disabled={!!initial?.assistant}
             type="date"
             value={from}
             onChange={(event) => {
@@ -106,11 +192,17 @@ export function StudyPlanView({ navigate }: { navigate: Navigate }) {
         <label>
           Length
           <select
+            disabled={!!initial?.assistant}
             value={days}
             onChange={(event) => setDays(Number(event.target.value))}
           >
             <option value={7}>7 days</option>
             <option value={14}>14 days</option>
+            {days !== 7 && days !== 14 && (
+              <option value={days}>
+                {days} {days === 1 ? 'day' : 'days'}
+              </option>
+            )}
           </select>
         </label>
       </form>
@@ -205,7 +297,9 @@ function PreviewSection({
           <button
             type="button"
             className="secondary-button"
-            disabled={!result.slots.length || save.pending}
+            disabled={
+              !result.slots.length || save.pending || loading || !!error
+            }
             onClick={() => {
               void saveDraft();
             }}
@@ -458,7 +552,11 @@ function PlanDetail({
     let revision: string;
     try {
       revision = (
-        await preview({ from: plan.preview.from, to: plan.preview.to })
+        await preview({
+          from: plan.preview.from,
+          to: plan.preview.to,
+          ...(plan.assistant ? { assistant: plan.assistant } : {}),
+        })
       ).contextRevision;
     } catch (caught) {
       setRecheckError(errorText(caught, 'Recheck needs a connection.'));
@@ -632,7 +730,7 @@ function ProgressSection({ range }: { range: Range }) {
   const progress = useResource(
     (signal) =>
       getJson(
-        `/api/v1/study/progress?${new URLSearchParams(range)}`,
+        `/api/v1/study/progress?${new URLSearchParams({ from: range.from, to: range.to })}`,
         studyProgressSchema,
         signal,
       ),

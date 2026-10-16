@@ -177,7 +177,12 @@ export function ClassesView({
             />
           </section>
         )}
-        {route.id === 'plan' && <StudyPlanView navigate={navigate} />}
+        {route.id === 'plan' && (
+          <StudyPlanView
+            navigate={navigate}
+            {...(route.assistant ? { assistant: route.assistant } : {})}
+          />
+        )}
         {route.id && route.id !== 'new' && route.id !== 'plan' && (
           <ClassDetail
             key={route.id}

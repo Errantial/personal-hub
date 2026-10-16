@@ -146,8 +146,22 @@ export const studyPreviewSchema = z.object({
   ),
 });
 export const studyDraftWriteSchema = studyRangeSchema.safeExtend({
+  assistant: z
+    .strictObject({
+      turnId: z.string().uuid(),
+      suggestionId: z.string().uuid(),
+    })
+    .optional(),
   operationId: z.string().uuid(),
   expectedContextRevision: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export const studyPreviewInputSchema = studyRangeSchema.safeExtend({
+  assistant: z
+    .strictObject({
+      turnId: z.string().uuid(),
+      suggestionId: z.string().uuid(),
+    })
+    .optional(),
 });
 export const studyDraftEditSchema = z.strictObject({
   ...change,
@@ -155,6 +169,13 @@ export const studyDraftEditSchema = z.strictObject({
   slots: z.array(studySlotSchema).min(1).max(200),
 });
 export const studyPlanSchema = z.object({
+  assistant: z
+    .strictObject({
+      turnId: z.string().uuid(),
+      suggestionId: z.string().uuid(),
+    })
+    .nullable()
+    .optional(),
   id: z.string().uuid(),
   version: z.number().int().positive(),
   status: z.enum(['draft', 'approved', 'cancelled']),

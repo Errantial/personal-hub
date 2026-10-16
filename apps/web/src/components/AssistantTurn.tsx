@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   assistantTurnResponseSchema,
   assistantConversationResponseSchema,
+  Temporal,
 } from '@hub/contracts';
 import type { AssistantRequest, AssistantTurn } from '@hub/contracts';
 import { RequestError, liveRequestJson } from '../lib/api';
@@ -11,7 +12,7 @@ import {
   formatCost,
 } from '../lib/assistant';
 import { runLine } from '../lib/agents';
-import { formatInstant } from '../lib/format';
+import { formatInstant, formatDate } from '../lib/format';
 import { useOnline } from '../lib/hooks';
 import { Help } from './Help';
 import { MailBrokerCoverage } from './MailBrokerCoverage';
@@ -254,6 +255,37 @@ export function AssistantTurnView({
           </button>
         )}
         {request.reply && <p className="assistant__reply">{request.reply}</p>}
+        {(turn.studySuggestions ?? []).map((suggestion) => (
+          <section key={suggestion.id} aria-label="Study suggestion">
+            <h4>Study plan</h4>
+            <p>
+              {formatDate(suggestion.from)} to{' '}
+              {formatDate(
+                Temporal.PlainDate.from(suggestion.to)
+                  .subtract({ days: 1 })
+                  .toString(),
+              )}
+            </p>
+            <ul>
+              {suggestion.sources.map((source) => (
+                <li key={source.id}>{source.title}</li>
+              ))}
+            </ul>
+            {!readOnly && (
+              <a
+                className="secondary-button"
+                href={`/classes/plan?turn=${turn.id}&suggestion=${suggestion.id}`}
+              >
+                Review study plan
+              </a>
+            )}
+            <Help label="Study suggestion">
+              Review a fresh deterministic preview, save a draft, then approve
+              it. Nothing is scheduled by this suggestion. Study time does not
+              establish assignment completion. External calendars are unchecked.
+            </Help>
+          </section>
+        ))}
         {turn.mailNote && (
           <p role="alert" className="form-error">
             {turn.mailNote}

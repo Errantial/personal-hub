@@ -1,6 +1,10 @@
 ﻿import { createHash } from 'node:crypto';
 import { sensitivitySchema } from '@hub/contracts';
-import type { AssistantItem, AssistantProposal } from '@hub/contracts';
+import type {
+  AssistantItem,
+  AssistantProposal,
+  AssistantStudySuggestion,
+} from '@hub/contracts';
 import { z } from 'zod';
 import type { QueryExecutor } from '../db/database.js';
 import { ApiError } from '../errors.js';
@@ -64,7 +68,7 @@ export const proposalDigest = (
   owner: string,
   turnId: string,
   applyId: string,
-  proposal: AssistantProposal,
+  proposal: AssistantProposal | AssistantStudySuggestion,
 ) =>
   createHash('sha256')
     .update(JSON.stringify([owner, turnId, applyId, canonical(proposal)]))
@@ -77,6 +81,7 @@ export async function captureTurnOrigin(
   requestId: string,
   proposals: AssistantProposal[],
   items: AssistantItem[],
+  studySuggestions: AssistantStudySuggestion[] = [],
 ): Promise<void> {
   if (proposals.length !== items.length) return;
   const [exchange] = await tx.query(
@@ -93,6 +98,13 @@ export async function captureTurnOrigin(
   if (sources.length > maxHistorySources) return;
 
   const proposalDigests: Record<string, string> = {};
+  for (const suggestion of studySuggestions)
+    proposalDigests[suggestion.id] = proposalDigest(
+      owner,
+      turnId,
+      suggestion.id,
+      suggestion,
+    );
   for (const [index, proposal] of proposals.entries()) {
     const item = items[index]!;
     proposalDigests[item.applyId] = proposalDigest(

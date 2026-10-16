@@ -8,6 +8,7 @@ import {
   assistantItemsUpdateSchema,
   assistantTurnActionSchema,
   assistantProposalSchema,
+  assistantStudySuggestionSchema,
   assistantTurnResponseSchema,
 } from '@hub/contracts';
 import type {
@@ -15,6 +16,7 @@ import type {
   AssistantItem,
   AssistantMailSent,
   AssistantProposal,
+  AssistantStudySuggestion,
   AssistantTurn,
 } from '@hub/contracts';
 import { z } from 'zod';
@@ -122,7 +124,11 @@ export async function finishTurn(
   database: Database,
   owner: string,
   id: string,
-  answer: { reply: string | null; proposals: AssistantProposal[] } | null,
+  answer: {
+    reply: string | null;
+    proposals: AssistantProposal[];
+    studySuggestions?: AssistantStudySuggestion[];
+  } | null,
   mail: {
     mail: AssistantMailSent[];
     mailWithheld: number;
@@ -148,6 +154,12 @@ export async function finishTurn(
       [owner, id],
     );
     if (!parent.length) return;
+    const [trigger] = await tx.query(
+      'SELECT trigger FROM ai_conversation_turns WHERE owner_id=$1 AND id=$2',
+      [owner, id],
+    );
+    const studySuggestions =
+      trigger?.trigger === 'owner' ? (answer?.studySuggestions ?? []) : [];
     let digest: string | null = null;
     let sources: ReturnType<typeof historyRefs> | null = null;
     if (mail.binding && answer?.reply) {
@@ -173,7 +185,7 @@ export async function finishTurn(
       }
     }
     await tx.query(
-      `UPDATE ai_conversation_turns SET reply=$3,proposals=$4,items=$5,mail=$6,mail_withheld=$7,mail_note=$8,proposal_access=$9,inference_history=$10,inference_digest=$11,inference_sources=$12,academic=$13,mail_broker=$14,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2`,
+      `UPDATE ai_conversation_turns SET reply=$3,proposals=$4,items=$5,mail=$6,mail_withheld=$7,mail_note=$8,proposal_access=$9,inference_history=$10,inference_digest=$11,inference_sources=$12,academic=$13,mail_broker=$14,study_suggestions=$15,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2`,
       [
         owner,
         id,
@@ -189,9 +201,14 @@ export async function finishTurn(
         sources ? JSON.stringify(sources) : null,
         JSON.stringify(mail.academic ?? []),
         JSON.stringify(mail.mailBroker ?? null),
+        JSON.stringify(studySuggestions),
       ],
     );
-    if (mail.binding && answer?.proposals.length) {
+    if (
+      mail.binding &&
+      answer &&
+      (answer.proposals.length || studySuggestions.length)
+    ) {
       await captureTurnOrigin(
         tx,
         owner,
@@ -199,12 +216,13 @@ export async function finishTurn(
         mail.binding.requestId,
         answer.proposals,
         items,
+        studySuggestions,
       );
     }
   });
 }
 
-const turnColumns = `t.id,t.conversation_id AS "conversationId",t.ask,t.reply,t.proposals,t.items,t.version,t.use_mail AS "useMail",t.mail,t.mail_withheld AS "mailWithheld",t.mail_note AS "mailNote",t.mail_broker AS "mailBroker",t.academic,t.trigger,t.not_allowed AS "notAllowed",t.inference_history AS "inferenceHistory",t.proposal_access AS "proposalAccess"`;
+const turnColumns = `t.study_suggestions,t.id,t.conversation_id AS "conversationId",t.ask,t.reply,t.proposals,t.items,t.version,t.use_mail AS "useMail",t.mail,t.mail_withheld AS "mailWithheld",t.mail_note AS "mailNote",t.mail_broker AS "mailBroker",t.academic,t.trigger,t.not_allowed AS "notAllowed",t.inference_history AS "inferenceHistory",t.proposal_access AS "proposalAccess"`;
 const json = (value: unknown) =>
   typeof value === 'string' ? JSON.parse(value) : value;
 
@@ -216,7 +234,7 @@ type Receipt = Awaited<ReturnType<typeof liveReceipt>> & {
  * The turn's receipt: the first call's, with costs and holds summed over
  * every call and the status and reason of the last one.
  */
-async function turnReceipt(database: Database, owner: string, id: string) {
+async function turnReceipt(database: QueryExecutor, owner: string, id: string) {
   const first = (await liveReceipt(database, owner, id)) as Receipt;
   const [broker] = await database.query(
     `SELECT COALESCE(SUM(b.actual_micros) FILTER(WHERE b.status='settled'),0)::text AS cost
@@ -268,6 +286,9 @@ function toTurn(
   ) as AssistantItem[];
   const answered = row.reply !== null || proposals.length > 0;
   return {
+    studySuggestions: z
+      .array(assistantStudySuggestionSchema)
+      .parse(json(row.study_suggestions) ?? []),
     id: row.id as string,
     conversationId: row.conversationId as string,
     ask: (row.ask as string | null) ?? '',
@@ -297,7 +318,11 @@ function toTurn(
 }
 
 /** One turn with its request receipt; null when it does not exist yet. */
-export async function readTurn(database: Database, owner: string, id: string) {
+export async function readTurn(
+  database: QueryExecutor,
+  owner: string,
+  id: string,
+) {
   const [row] = await database.query(
     `SELECT ${turnColumns} FROM ai_conversation_turns t JOIN ai_conversations c ON c.id=t.conversation_id WHERE t.owner_id=$1 AND t.id=$2 AND c.deleted_at IS NULL`,
     [owner, id],
@@ -312,6 +337,20 @@ export function registerAssistantConversations(
   auth: ReturnType<typeof authService>,
 ) {
   const base = '/api/v1/assistant/conversations';
+  app.get('/api/v1/assistant/turns/:id', async (request) => {
+    const owner = await auth.requireUser(request);
+    const { id } = idSchema.parse(request.params);
+    return database.transaction(async (tx) => {
+      await tx.query(
+        'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY',
+      );
+      if (!(await auth.currentUser(request, tx)))
+        throw new ApiError(401, 'UNAUTHENTICATED', 'Sign in again.');
+      const turn = await readTurn(tx, owner.id, id);
+      if (!turn) throw notFound();
+      return assistantTurnResponseSchema.parse({ turn });
+    });
+  });
 
   app.get(base, async (request) => {
     const owner = await auth.requireUser(request);
@@ -371,7 +410,7 @@ export function registerAssistantConversations(
         [id],
       );
       await tx.query(
-        `UPDATE ai_conversation_turns SET ask=NULL,reply=NULL,proposals='[]',items='[]',inference_history='unbound',inference_digest=NULL,inference_sources=NULL,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE conversation_id=$1`,
+        `UPDATE ai_conversation_turns SET ask=NULL,reply=NULL,study_suggestions='[]',proposals='[]',items='[]',inference_history='unbound',inference_digest=NULL,inference_sources=NULL,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE conversation_id=$1`,
         [id],
       );
     });

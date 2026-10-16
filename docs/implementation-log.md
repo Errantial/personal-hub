@@ -1,5 +1,15 @@
 # Implementation log
 
+## 2026-10-16 - Grounded deterministic study suggestions (P8 part 2)
+
+PR #48 merged as `f895cb6`; 829 local tests passed (three optional PostgreSQL skips) and Linux/Windows/PostgreSQL CI passed on `831d065`. Actual broker model-quality evaluation remains unperformed.
+
+Implemented owner-only bounded study suggestions from explicit open manual work, server-resolved references and digests, append-only migration 067 with owned draft/answer origins, and fresh saved-turn reads. Optional study origin inputs revalidate sources, versions, labels, destination and exact range. Draft/origin/receipt creation is atomic; edit/approval retain origin checks alongside the existing deterministic capacity/conflict/context checks. Approved blocks retain answer/workload labels and lineage while staying inference-ineligible. Existing cancellation preserves later owner edits. The review link reuses the current Study plan view with a fixed suggested range, explicit preview/save/approve and visible warnings. Mail-derived suggestions are read-only; agents/memory/imported academic sources gain no new authority.
+
+Focused validation: the combined Assistant/study/router run passed 101 cases with one populated-upgrade fixture failure. The fixture now removes migration 067's dependent test table before reconstructing its older schema, and the failed upgrade case passed unchanged afterward. Two additional tests prove durable draft/receipt replay across an isolated disk-database restart with no new inference, and atomic rollback when origin insertion fails. The new two-lifecycle disk test uses a 60-second integration budget after its default 20-second limit proved too short under concurrent suite load; no production/provider deadlines changed. Type checks and lint passed. Both new Chromium cases passed at 1280px and 320px e-ink, including scoped axe/overflow checks and the existing preview/save/approve/cancel flow. Browser origin adaptation is explicitly separate from real origin API tests.
+
+Full `npm run check`, followed sequentially by the full browser suite, is running at PR submission; final outcomes and remote CI are recorded on the PR. Tests use synthetic sources and fake provider replies. No owner database reset, real provider, paid inference, production migration/deployment or hardware test occurred.
+
 ## 2026-10-16 - Capped synthetic broker experiment runner
 
 PR #47 merged as `eaf9a5e`; its full local check passed 823 tests with three optional PostgreSQL skips, and Linux/Windows/PostgreSQL CI passed on `129cad2`. Added an explicitly opted-in synthetic-only runner with an experiment cap of at most $0.25, dated quote expiry, canonical production envelopes, shared host-specific endpoint checks and existing bounded no-retry transport/decoder. Production broker policy still checks owner authority before the extracted capability helper. No production approvals, grants or budget semantics changed.

@@ -1,5 +1,11 @@
 # UI agent ledger
 
+## Grounded study suggestions (P8 part 2, development)
+
+See [contracts and limits](ai-study-suggestions.md). Owner answers can show one date range and admitted source titles with Review study plan. The existing Study plan view loads the owned saved turn afresh, fixes the suggested range, and passes its origin through preview/draft creation. No slot or approval comes from the model. Keep explicit preview, save, trimming/recheck, approval, cancellation, warnings and later-edit preservation. Pending/offline/stale-source errors remain visible; retry cannot silently rebase a source. Mail-derived suggestions are read-only and have no review link; agents gain no academic scope.
+
+Preserve the normal manual study view and existing URL routes; the optional bound-turn/suggestion query applies only to the plan route. Missing/foreign/deleted suggestions fail visibly. Keep keyboard/tap Help, 320px/e-ink layout and external-calendar/incomplete-data warnings. Browser accessibility evidence is separate from hardware and owner acceptance. Workload blocks remain inference-ineligible even though retained AI origin/labels are inspectable server-side.
+
 ## Broker evaluation tooling (2026-10-16)
 
 The opt-in synthetic runner has a separate experiment allowance and journal; it does not approve production disclosure, change owner/agent budget state or establish live availability. A completed execution receipt still needs quality scoring and owner usefulness acceptance. Preserve pending/blocked/uncertain production states until their actual gates pass.

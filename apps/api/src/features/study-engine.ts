@@ -561,7 +561,7 @@ export function validateStudySlots(
     accepted.push(slot);
   }
 }
-export const studyPlanColumns = `id,version,status,preview,event_links AS "eventLinks",preserved_event_ids AS "preservedEventIds",${stamp('created_at', 'createdAt')},${stamp('updated_at', 'updatedAt')},${stamp('deleted_at', 'deletedAt')}`;
+export const studyPlanColumns = `(SELECT json_build_object('turnId',o.turn_id,'suggestionId',o.suggestion_id) FROM study_plan_ai_origins o WHERE o.owner_id=study_plans.owner_id AND o.plan_id=study_plans.id) AS assistant,id,version,status,preview,event_links AS "eventLinks",preserved_event_ids AS "preservedEventIds",${stamp('created_at', 'createdAt')},${stamp('updated_at', 'updatedAt')},${stamp('deleted_at', 'deletedAt')}`;
 export async function readStudyPlan(
   tx: QueryExecutor,
   owner: string,

@@ -198,17 +198,17 @@ export async function verifyBrokerEndpoint(
             model_id: z.string(),
             tag: z.string(),
             supported_parameters: z.array(z.string()),
-            context_length: z.number().int().positive().optional(),
+            context_length: z.number().int().nonnegative().optional(),
             max_prompt_tokens: z
               .number()
               .int()
-              .positive()
+              .nonnegative()
               .nullable()
               .optional(),
             max_completion_tokens: z
               .number()
               .int()
-              .positive()
+              .nonnegative()
               .nullable()
               .optional(),
             pricing: z.record(z.string(), z.unknown()).optional(),

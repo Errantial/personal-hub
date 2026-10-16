@@ -1,6 +1,6 @@
-# P8 part 2: deterministic study proposals (proposed)
+# P8 part 2: deterministic study proposals
 
-Status: implementation plan only. P8 part 1 adds source-linked tasks; no study proposal behavior below is implemented by that change.
+Status: implemented in development with validation in progress; see [contracts and limitations](../../ai-study-suggestions.md). P8 part 1 supplies source-linked tasks. The following design records P8 part 2's behavior; deployment and owner acceptance remain pending.
 
 ## Intended behavior
 

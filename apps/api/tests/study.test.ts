@@ -81,7 +81,10 @@ async function workload(id: string, query = '') {
   return studyWorkloadResponseSchema.parse(response.json());
 }
 async function removeWorkloadMigration() {
-  await db.exec(`ALTER TABLE reminders DROP CONSTRAINT reminders_owned_academic_work;
+  await db.exec(`DROP TABLE study_plan_ai_origins;
+    ALTER TABLE ai_conversation_turns DROP COLUMN study_suggestions;
+    ALTER TABLE ai_conversation_turns DROP CONSTRAINT ai_study_turn_owned;
+    ALTER TABLE reminders DROP CONSTRAINT reminders_owned_academic_work;
     ALTER TABLE reminders DROP COLUMN academic_work_id;
     DROP TABLE academic_planner_sources;
     ALTER TABLE tasks DROP CONSTRAINT tasks_owned_id;
@@ -92,7 +95,7 @@ async function removeWorkloadMigration() {
     ALTER TABLE events DROP CONSTRAINT events_owned_id;
     ALTER TABLE academic_work DROP CONSTRAINT academic_work_owned_id`);
   await db.query(
-    "DELETE FROM schema_migrations WHERE name IN ('027_study_workload_sources.sql','028_academic_planner_sources.sql','029_academic_work_reminders.sql','045_academic_origin_guard.sql')",
+    "DELETE FROM schema_migrations WHERE name IN ('027_study_workload_sources.sql','028_academic_planner_sources.sql','029_academic_work_reminders.sql','045_academic_origin_guard.sql','067_ai_study_suggestions.sql')",
   );
 }
 beforeEach(async () => {
