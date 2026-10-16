@@ -1,5 +1,11 @@
 # UI agent ledger
 
+## Small OpenRouter mail broker (development, 2026-10-16)
+
+See [implemented contracts and limits](openrouter-mail-broker.md). Mail access displays broker model/OpenRouter/host separately from the receiving Assistant. A dedicated Broker destination section exposes the safe profile, retention terms, input/output pricing, current/stale approval and versioned Approve/Revoke with registry guards. Existing Use mail and Jev approval never approve the replacement. Writes require fresh noncached profile/consent reads and connectivity; conflicts show one combined Reload that refreshes profile and consent, and offline controls remain disabled. Loading/error/cache indicators remain per read; suppress duplicate reload buttons in this form. Provider registry inspection remains read-only.
+
+Preserve grants, pending/error/conflict drafts, keyboard/tap Help, 320px/e-ink layout and existing coverage/continuations. Local configured readiness explicitly leaves endpoint availability unchecked; public ZDR/schema/host-price/context checks run before each paid batch. Blocked disclosure, stale/revoked approval, missing key/quote/route, budget limits and pending/partial/failed/uncertain outcomes stay visible. Actual model quality, deployment and hardware acceptance remain unverified. Historical J4 controls below describe the inherited behavior.
+
 ## J3 broker workflow contracts (development, 2026-10-15)
 
 [Brokered owner asks and scheduled agents](jev-mail-workflow.md) replace the raw model search/read loop. Existing Use mail requires a separately enabled owner/agent grant and both provider approvals; it can now return MAIL_BROKER_APPROVAL_REQUIRED or MAIL_BROKER_BLOCKED without a receiving-model call. Mail-disabled requests remain off. Preserve visible actionable errors and the coverage mailNote; mail-derived proposals remain read-only even under automatic agent policy.

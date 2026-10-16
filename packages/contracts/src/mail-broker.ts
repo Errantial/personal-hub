@@ -93,6 +93,16 @@ export const mailBrokerResultSchema = z.object({
     .max(50),
 });
 export const mailBrokerReadinessSchema = z.object({
+  destination: z
+    .object({
+      alias: z.string(),
+      model: z.string(),
+      router: z.literal('openrouter'),
+      upstream: z.string(),
+    })
+    .nullable()
+    .default(null),
+  endpointStatus: z.literal('unchecked').default('unchecked'),
   status: z.enum(['ready', 'blocked']),
   blockers: z.array(z.string()),
   profileRevision: z.string().nullable(),

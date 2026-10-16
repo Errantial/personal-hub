@@ -1,5 +1,7 @@
 # Jev-mediated mail access and next steps
 
+Historical TypeSafe delivery record. The owner selected a small OpenRouter replacement on 2026-10-16; current development behavior and remaining gates are in [OpenRouter mail broker](openrouter-mail-broker.md). Older validation receipts below apply to the Jev implementation.
+
 Owner direction recorded 2026-10-15. This is the finalized implementation plan. J1/J2 foundations are now implemented in development; see [implemented boundaries and pending integration](jev-mail-broker.md). J3 workflows and J4 controls are implemented in development on ai/jev-broker-workflow with local validation complete; [workflow boundaries](jev-mail-workflow.md) and [owner controls](jev-mail-controls.md) apply. Live TypeSafe disclosure is not approved by this document; real account evidence, provider approval, routing, spending limits, staged deployment and owner acceptance remain owner-gated. The broker precedes remaining P8 study proposals. Academic context, selection and source-linked task proposals merged in PRs 39-41; merging is separate from deployment.
 
 ## Product contract

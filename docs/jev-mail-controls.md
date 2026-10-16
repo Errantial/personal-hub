@@ -1,5 +1,7 @@
 # Brokered mail controls (J4)
 
+Historical TypeSafe delivery record. The owner selected a small OpenRouter replacement on 2026-10-16; current development behavior and remaining gates are in [OpenRouter mail broker](openrouter-mail-broker.md). Older validation receipts below apply to the Jev implementation.
+
 Implemented in development on `ai/jev-broker-workflow`, stacked on J1–J3. Not deployed. The controls below are the owner-facing surface for the [J3 workflow](jev-mail-workflow.md); they do not enable live TypeSafe disclosure, which still needs operator account evidence, owner approval and staged release.
 
 ## Settings › AI › Mail access

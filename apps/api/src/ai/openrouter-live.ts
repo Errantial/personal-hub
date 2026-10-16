@@ -89,7 +89,7 @@ const catalogs = new WeakMap<
 >();
 
 /** Bounded read of a response body; null when it exceeds the limit. */
-async function readBody(response: Response, limit: number) {
+export async function readBody(response: Response, limit: number) {
   if (!response.body) return '';
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];

@@ -1,5 +1,7 @@
 # Jev mail broker foundation (J1/J2)
 
+Historical TypeSafe delivery record. The owner selected a small OpenRouter replacement on 2026-10-16; current development behavior and remaining gates are in [OpenRouter mail broker](openrouter-mail-broker.md). Older validation receipts below apply to the Jev implementation.
+
 Historical J1/J2 foundation receipt: current owner-ask/agent integration and changed runtime behavior are documented in [J3 workflow](jev-mail-workflow.md). Statements below about disconnected dispatch and pending J3 describe the foundation slice before J3.
 
 Implemented in development on `ai/jev-broker-foundation`; not deployed or connected to live owner asks/scheduled agents. J3 owns workflow integration, downstream transmission and conversation lineage; J4 owns settings controls, old Use mail migration and staged acceptance. Existing agent mail behavior is unchanged in this foundation release. The [delivery plan](jev-mail-broker-plan.md) remains the product contract.

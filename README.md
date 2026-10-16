@@ -1,5 +1,7 @@
 # Personal Productivity Hub
 
+The [small OpenRouter mail broker](docs/openrouter-mail-broker.md) replaces the TypeSafe dependency in development, preserving scoped two-hop mail access. Deployment, actual model-quality evaluation and owner acceptance remain pending.
+
 [Tasks from mail](docs/mail-tasks.md) now support owner-reviewed capture with an exact body quote, retained source labels and explicit deadline confirmation. AI suggestions from a selected message fill the owner-reviewed capture form; automatic creation remains excluded.
 
 Schedule, task, email, and study hub targeting the web, Android, and Windows.

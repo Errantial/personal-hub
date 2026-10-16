@@ -10,7 +10,7 @@ import type { Database } from '../db/database.js';
 import type { authService } from '../auth/routes.js';
 import { ApiError } from '../errors.js';
 import { mutate } from '../planner/mutations.js';
-import { jevReadiness } from '../ai/jev-policy.js';
+import { brokerReadiness } from '../ai/broker-policy.js';
 import { grantColumns, validateBrokerScope } from '../ai/mail-broker.js';
 
 // Owner-only settings groundwork. There is deliberately no public candidate,
@@ -29,7 +29,7 @@ export function registerMailBroker(
       );
       if (!(await auth.currentUser(request, tx)))
         throw new ApiError(401, 'UNAUTHENTICATED', 'Sign in again.');
-      return jevReadiness(tx, config, user.id);
+      return brokerReadiness(tx, config, user.id);
     });
   });
   app.get('/api/v1/mail-broker/grants', async (request) => {

@@ -1,5 +1,8 @@
 # Decision register
 
+## Small OpenRouter broker direction (2026-10-16)
+
+Owner selected the small OpenRouter model approach for bounded mail-broker judgments and authorized creation of the [replacement plan](openrouter-mail-broker-plan.md). This supersedes TypeSafe as the intended broker dependency in the prior thread direction; it does not approve a concrete disclosure destination or change the receiving Assistant model. Gemini 2.5 Flash-Lite on Google Vertex is the proposed first candidate, pending capability/privacy/billing checks and evaluation. Existing grants, independent approvals at both hops, inherited labels, spending limits and no fallback remain required. Implementation was authorized afterward and the replacement is now in development; see [runtime and gates](openrouter-mail-broker.md). Live enablement and model-quality acceptance remain pending.
 ## Jev mail intermediary (owner direction 2026-10-15)
 
 Agents will request mail from a server-owned Jev broker selecting a larger bounded set as agent context. This is not an email send. Brokered access is the default for mail-enabled agents; direct mailbox access is not introduced. The finalized [plan](jev-mail-broker-plan.md) precedes remaining P8 study work and preserves two-hop approval, owner/inherited labels, spending admission, durable provenance and no fallback. Developing this specific provider is authorized; actual TypeSafe account retention/quote readiness, saved destination approval and concrete mail grants remain live-enablement gates. Existing Use mail never silently approves Jev. Operational limits and thresholds are implementation defaults subject to validation, not tested private-mail quality claims.
