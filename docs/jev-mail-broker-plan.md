@@ -1,6 +1,6 @@
 # Jev-mediated mail access and next steps
 
-Owner direction recorded 2026-10-15. This is the finalized implementation plan, not implemented behavior or approval to send live mail to TypeSafe. The Jev broker is the next milestone, before remaining P8 study proposals. Academic context, selection and source-linked task proposals merged in PRs 39-41; merging is separate from deployment.
+Owner direction recorded 2026-10-15. This is the finalized implementation plan. J1/J2 foundations are now implemented in development; see [implemented boundaries and pending integration](jev-mail-broker.md). J3/J4 workflows and controls remain planned, and no live TypeSafe disclosure is approved by this document. The broker precedes remaining P8 study proposals. Academic context, selection and source-linked task proposals merged in PRs 39-41; merging is separate from deployment.
 
 ## Product contract
 

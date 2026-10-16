@@ -7,6 +7,7 @@ export const aiProviderAdapterSchema = z.enum([
   'codex-subscription',
   'openrouter',
   'prem-confidential',
+  'typesafe',
 ]);
 export const aiProviderAccessModeSchema = z.enum([
   'api-key',

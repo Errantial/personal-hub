@@ -49,6 +49,7 @@ import { registerEmailDrafts } from './features/email-drafts.js';
 import { registerMemory } from './features/memory.js';
 import { registerMailOrganization } from './features/mail-organization.js';
 import { registerMailTasks } from './features/mail-tasks.js';
+import { registerMailBroker } from './features/mail-broker.js';
 import { registerResponsibilities } from './features/responsibilities.js';
 import { registerResponsibilityInbox } from './features/responsibility-inbox.js';
 import { registerPlanner } from './planner/routes.js';
@@ -146,6 +147,7 @@ export async function buildApp(
   registerEmailIngestion(app, database, auth);
   registerMailOrganization(app, database, auth);
   registerMailTasks(app, database, auth);
+  registerMailBroker(app, database, auth, config);
   registerMemory(app, database, auth);
   registerResponsibilities(app, database, auth);
   registerResponsibilityInbox(app, database, auth);

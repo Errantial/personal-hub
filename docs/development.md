@@ -1,5 +1,7 @@
 # Development and operating guide
 
+Jev mail broker J1/J2 foundations are implemented in development: [contracts, grants, paged receipts, provider evidence and accounting](jev-mail-broker.md). They add append-only migrations 064/065 and owner grant/readiness endpoints. Internal TypeSafe transport has no connected owner-ask/agent execution route; existing Use mail behavior is unchanged until J3/J4. No real account evidence, live disclosure or deployment is established by synthetic checks.
+
 ## Current implementation
 
 Status reconciled 2026-10-14 against release `519054d` (migration 057), the [deployment receipt](../deploy/oracle-linux/README.md#release-519054d-2026-10-14) and dated [implementation log](implementation-log.md). This summary does not substitute for a fresh production audit. Use the [agent acceptance checklist](agents-acceptance.md) for outstanding authenticated/live checks and the [post-agents development plan](post-agents-development-plan.md) for the next gated slices.
