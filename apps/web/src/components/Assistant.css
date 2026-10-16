@@ -276,3 +276,16 @@
   margin: 0;
   text-align: center;
 }
+
+.assistant__academic {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.assistant__academic fieldset {
+  min-width: 0;
+}
+.assistant__academic .checkbox-label {
+  display: flex;
+  margin-block: var(--space-2);
+}

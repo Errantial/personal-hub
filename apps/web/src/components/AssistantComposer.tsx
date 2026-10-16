@@ -11,6 +11,8 @@ import { getJson, liveRequestJson } from '../lib/api';
 import { useMutation, useOnline, useResource } from '../lib/hooks';
 import type { Route } from '../lib/router';
 import { Link } from './Link';
+import { AssistantAcademicPicker } from './AssistantAcademicPicker';
+import type { AcademicSelection } from './AssistantAcademicPicker';
 
 export function useAssistantSettings() {
   return useResource(
@@ -57,6 +59,8 @@ export function AssistantComposer({
     { failure: 'Destination status unavailable.', refreshMs: 15000 },
   );
   const [text, setText] = useState('');
+  const [academic, setAcademic] = useState<AcademicSelection[]>([]);
+  useEffect(() => setAcademic([]), [conversationId]);
   const own = useRef<HTMLTextAreaElement>(null);
   const field = inputRef ?? own;
   const saved = settings.data?.settings;
@@ -112,11 +116,17 @@ export function AssistantComposer({
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         conversationId,
         useMail,
+        academic: academic.map((item) => ({
+          id: item.id,
+          expectedVersion: item.version,
+          expectedCourseVersion: item.courseVersion,
+        })),
       },
       'Could not send the request. Try again.',
     );
     if (!result) return;
     setText('');
+    setAcademic([]);
     onAnswered(result.turn);
   }
 
@@ -178,6 +188,11 @@ export function AssistantComposer({
             }}
           />
         </label>
+        <AssistantAcademicPicker
+          selected={academic}
+          onChange={setAcademic}
+          disabled={!online || ask.pending}
+        />
         <div className="assistant__actions">
           <label className="checkbox-label">
             <input

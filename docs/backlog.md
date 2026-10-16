@@ -88,3 +88,6 @@ The standard PostgreSQL check is opt-in via TEST_DATABASE_URL and configured in 
 ## Interface guideline
 
 Prefer concise titles and labels. Use keyboard/tap-accessible contextual Help for useful secondary explanations. Keep errors, pending/offline/conflict state and essential warnings visible. Marketing/welcome copy has been removed from the current screens.
+
+
+P7 composer follow-up is implemented on ai/academic-selection-ui (not deployed; check and all 156 browser cases passed): explicit per-ask version-pinned manual work selection, guarded active-class browsing, retained failed-ask selections and recorded academic coverage/aggregate withholding. P8 grounded study proposals remain next. See ui-agent-ledger.md and implementation-log.md.
