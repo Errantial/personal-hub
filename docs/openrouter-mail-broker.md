@@ -54,6 +54,18 @@ Configured readiness is local configuration/permission readiness. `endpointStatu
 
 ## Synthetic quality evaluation
 
+Offline preparation uses the production envelope builder and strict response decoder. Run with Node 24 after installing dependencies and building contracts. These commands never read a provider key or make network requests, and refuse to overwrite existing output files:
+
+```sh
+node --import tsx scripts/prepare-mail-broker-evaluation.mjs prepare .artifacts/broker-requests.json
+node --import tsx scripts/prepare-mail-broker-evaluation.mjs decode .artifacts/broker-responses.json .artifacts/broker-result.json
+node scripts/evaluate-mail-broker.mjs .artifacts/broker-result.json
+```
+
+The requests artifact contains corpus/rubric/model identity, a corpus hash and 60 entries with `caseId`, `requestSha256` and the exact serialized `envelope`. Expected judgments are excluded. A future separately authorized executor must send those exact bytes, perform current host-specific endpoint/price checks, enforce an explicit total cap, journal admission before dispatch and never automatically resend uncertain calls. The artifact alone authorizes no execution and its dated quote is not evidence of current prices or availability. No network executor is included here.
+
+For offline decoding, supply an array of `{ "caseId": "chemistry-exact", "requestSha256": "<hash from request artifact>", "completion": "<raw OpenRouter JSON response as a string>" }`. The decoder rebuilds the current corpus requests and rejects missing/duplicate/foreign/mismatched or oversized responses. The digest detects request mismatches; it does not authenticate who generated a response. It retains confirmed cost for rejected outputs and reports uncertain cases separately. These are offline diagnostics, not settlements in the production budget ledger. A receipt is valid only when every case passes the production decoder. The scorer accepts this receipt or the legacy prediction array; malformed/uncertain responses cannot be counted as valid zero-match answers. Keep artifacts local and uncommitted. Recreate them after corpus or rubric changes.
+
 `tests/fixtures/mail-broker-evaluation.json` supplies 60 labeled cases: exact evidence, paraphrases/multiple matches, topic-only/no matches, prompt injection, ambiguity and clipped excerpts. No real mail is included. Expected labels are hand-specified product fixtures, not model outputs or private-mail calibration.
 
 For a separately authorized model run, send only each case's intent and candidate excerpts through the production rubric; keep expected labels out of the model input. Then supply one prediction per case as `{ "caseId": "chemistry-exact", "selectedKeys": ["m1"] }` in a JSON array. Score offline:

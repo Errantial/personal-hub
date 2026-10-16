@@ -1,5 +1,9 @@
 # UI agent ledger
 
+## Broker evaluation tooling (2026-10-16)
+
+Offline CLI artifacts do not change owner controls or readiness. A valid completion-decoding receipt means all synthetic outputs passed the production decoder, not that quality thresholds, provider availability, owner disclosure approval or live usefulness passed. Preserve the existing Mail access and answer contracts below; do not display this receipt as live readiness.
+
 ## Small OpenRouter mail broker (development, 2026-10-16)
 
 See [implemented contracts and limits](openrouter-mail-broker.md). Mail access displays broker model/OpenRouter/host separately from the receiving Assistant. A dedicated Broker destination section exposes the safe profile, retention terms, input/output pricing, current/stale approval and versioned Approve/Revoke with registry guards. Existing Use mail and Jev approval never approve the replacement. Writes require fresh noncached profile/consent reads and connectivity; conflicts show one combined Reload that refreshes profile and consent, and offline controls remain disabled. Loading/error/cache indicators remain per read; suppress duplicate reload buttons in this form. Provider registry inspection remains read-only.
