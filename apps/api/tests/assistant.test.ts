@@ -638,55 +638,6 @@ const askWithMail = (text: string, useMail = true) =>
     useMail,
   });
 
-it('with Use mail, searches, reads only chosen allowed mail and lists what was sent', async () => {
-  await start();
-  await setBudget();
-  await importMail('unlabeled', ['Field trip waiver', 'Lunch menu']);
-  await importMail('restricted', ['Waiver medical form']);
-  await importMail('personal', ['Waiver from family']);
-  const answers = [
-    { reply: 'Checking mail.', actions: [], mailSearch: ['waiver'] },
-    { reply: 'Reading it.', actions: [], read: ['m1', 'm9'] },
-    { reply: 'The field trip waiver is due Friday.', actions: [] },
-  ];
-  chat = () => completion(answers[sent.length - 1]);
-  const { turn } = (await askWithMail('When is the waiver due?')).json();
-  expect(sent).toHaveLength(3);
-  expect(turn.request.reply).toBe('The field trip waiver is due Friday.');
-  // Three calls, one turn: costs add up.
-  expect(turn.request.costMicros).toBe(369);
-  expect(turn.useMail).toBe(true);
-  expect(turn.mailWithheld).toBe(2);
-  expect(turn.mail).toEqual([
-    expect.objectContaining({
-      subject: 'Field trip waiver',
-      from: 'School Office',
-      read: true,
-    }),
-  ]);
-  const text = sent.map((body) => JSON.stringify(body.messages)).join('\n');
-  expect(text).toContain('Field trip waiver');
-  expect(text).toContain('return it by Friday');
-  expect(text).not.toContain('medical');
-  expect(text).not.toContain('family');
-  expect(text).not.toContain('Lunch menu');
-  // Only the first call may ask for a search, only the second for reads.
-  const schema = (index: number) =>
-    (
-      sent[index]!.response_format as {
-        json_schema: { schema: { required: string[] } };
-      }
-    ).json_schema.schema.required;
-  expect(schema(0)).toContain('mailSearch');
-  expect(schema(1)).toContain('read');
-  expect(schema(2)).toEqual(['reply', 'actions']);
-  // The stored conversation shows the same list.
-  const thread = (
-    await call('GET', `/api/v1/assistant/conversations/${turn.conversationId}`)
-  ).json();
-  expect(thread.turns[0].mail).toEqual(turn.mail);
-});
-
 it('without Use mail, mail is never searched or mentioned', async () => {
   await start();
   await setBudget();
@@ -696,28 +647,6 @@ it('without Use mail, mail is never searched or mentioned', async () => {
   expect(JSON.stringify(sent[0])).not.toContain('Mail:');
   expect(JSON.stringify(sent[0])).not.toContain('mailSearch');
   expect(turn.mail).toEqual([]);
-});
-
-it('keeps the earlier answer and says why when a later mail call fails', async () => {
-  await start();
-  await setBudget();
-  await importMail('unlabeled', ['Field trip waiver']);
-  chat = () =>
-    sent.length === 1
-      ? completion({
-          reply: 'Checking mail.',
-          actions: [],
-          mailSearch: ['waiver'],
-        })
-      : new Response('{}', { status: 400 });
-  const { turn } = (await askWithMail('When is the waiver due?')).json();
-  expect(sent).toHaveLength(2);
-  expect(turn.request.reply).toBe('Checking mail.');
-  expect(turn.request.reason).toBe('rejected');
-  expect(turn.mailNote).toMatch(/Mail reading stopped/);
-  expect(turn.mail).toEqual([
-    expect.objectContaining({ subject: 'Field trip waiver', read: false }),
-  ]);
 });
 
 it('remembers the Use mail choice in the assistant settings', async () => {
@@ -1131,130 +1060,6 @@ it('ordinary source edits preserve history but deletion withholds its transitive
   });
 });
 
-it('a changed planner source blocks a later cumulative mail exchange and releases its hold', async () => {
-  await start();
-  await setBudget();
-  await importMail('unlabeled', ['Waiver']);
-  const task = (
-    await call('POST', '/api/v1/tasks', {
-      title: 'Original source',
-      operationId: randomUUID(),
-    })
-  ).json().task;
-  chat = async () => {
-    await database.query(
-      "UPDATE tasks SET title='Changed source',version=version+1 WHERE id=$1",
-      [task.id],
-    );
-    return completion({
-      reply: 'EARLIER-REPLY',
-      actions: [],
-      mailSearch: ['waiver'],
-    });
-  };
-  const turn = (await askWithMail('Find waiver')).json().turn;
-  expect(sent).toHaveLength(1);
-  expect(turn.request.reply).toBe('EARLIER-REPLY');
-  expect(turn.request.reason).toBe('context-changed');
-  expect(turn.mailNote).toMatch(/source changed/);
-  expect(turn.mail).toEqual([]);
-  const [later] = await database.query(
-    "SELECT b.status FROM ai_assistant_requests r JOIN ai_budget_reservations b ON b.id=r.reservation_id WHERE r.kind='planner-round'",
-  );
-  expect(later!.status).toBe('released');
-});
-
-it('mail-derived proposals are read-only and mail history is withheld when Use mail is off', async () => {
-  await start();
-  await setBudget();
-  await importMail('personal', ['Private waiver']);
-  const settings = (await call('GET', '/api/v1/assistant/settings')).json()
-    .settings;
-  await call('PUT', '/api/v1/assistant/settings', {
-    model,
-    expectedVersion: settings.version,
-    allowPersonalMail: true,
-  });
-  chat = () =>
-    completion(
-      sent.length === 1
-        ? { reply: 'Searching', actions: [], mailSearch: ['waiver'] }
-        : sent.length === 2
-          ? { reply: 'Reading', actions: [], read: ['m1'] }
-          : {
-              reply: 'PRIVATE-ANSWER',
-              actions: [action({ title: 'Mail-created item' })],
-            },
-    );
-  const first = (await askWithMail('Find waiver')).json().turn;
-  expect(first.proposalAccess).toBe('read-only');
-  expect(first.inferenceHistory).toBe('bound');
-  expect(
-    (
-      await call('PUT', `/api/v1/assistant/turns/${first.id}/items`, {
-        expectedVersion: first.version,
-        items: first.items.map((item: object) => ({
-          ...item,
-          state: 'applied',
-          applied: { id: randomUUID(), version: 1 },
-        })),
-      })
-    ).json().error.code,
-  ).toBe('PROPOSAL_READ_ONLY');
-  chat = () => completion({ reply: 'Follow-up', actions: [] });
-  const second = (await continueAsk(first.conversationId, true)).json().turn;
-  expect(JSON.stringify(sent[3])).toContain('PRIVATE-ANSWER');
-  expect(second.proposalAccess).toBe('read-only');
-  const third = (await continueAsk(first.conversationId, false)).json().turn;
-  expect(JSON.stringify(sent[4])).not.toContain('PRIVATE-ANSWER');
-  expect(JSON.stringify(sent[4])).not.toContain('Private waiver');
-  const [exchange] = await database.query(
-    'SELECT manifest FROM ai_live_exchanges WHERE request_id=$1',
-    [third.id],
-  );
-  expect(exchange!.manifest).toMatchObject({
-    history: { turns: [], withheld: 2 },
-  });
-});
-
-it('binds every cumulative source without prompt or mail text in manifests', async () => {
-  await start();
-  await setBudget();
-  await importMail('unlabeled', ['SECRET-SUBJECT']);
-  chat = () =>
-    completion(
-      sent.length === 1
-        ? { reply: 'Search', actions: [], mailSearch: ['SECRET'] }
-        : sent.length === 2
-          ? { reply: 'Read', actions: [], read: ['m1'] }
-          : { reply: 'Done', actions: [] },
-    );
-  const turn = (await askWithMail('SECRET-ASK')).json().turn;
-  const rows = await database.query(
-    'SELECT manifest FROM ai_live_exchanges ORDER BY created_at,request_id',
-  );
-  const manifests = rows
-    .map(
-      (row) =>
-        row.manifest as {
-          round: number;
-          sources: { projection: string; id: string }[];
-          priorRequestIds: string[];
-        },
-    )
-    .sort((a, b) => a.round - b.round);
-  expect(manifests).toHaveLength(3);
-  expect(manifests[2]!.priorRequestIds).toHaveLength(2);
-  for (const source of manifests[1]!.sources)
-    expect(manifests[2]!.sources).toContainEqual(
-      expect.objectContaining({ projection: source.projection, id: source.id }),
-    );
-  expect(JSON.stringify(manifests)).not.toContain('SECRET-SUBJECT');
-  expect(JSON.stringify(manifests)).not.toContain('SECRET-ASK');
-  expect(JSON.stringify(turn)).not.toContain('digest');
-  expect(JSON.stringify(turn)).not.toContain('integrity');
-});
-
 it('a provider reply cannot resurrect a conversation deleted while it was pending', async () => {
   await start();
   await setBudget();
@@ -1346,59 +1151,6 @@ it('history overflow saves no partial binding', async () => {
   });
 });
 
-it('turning Personal mail off during the first exchange blocks the next one', async () => {
-  await start();
-  await setBudget();
-  await importMail('personal', ['Private waiver']);
-  const settings = (await call('GET', '/api/v1/assistant/settings')).json()
-    .settings;
-  await call('PUT', '/api/v1/assistant/settings', {
-    model,
-    expectedVersion: settings.version,
-    allowPersonalMail: true,
-  });
-  chat = async () => {
-    await database.query(
-      'UPDATE ai_assistant_settings SET allow_personal_mail=false,version=version+1',
-    );
-    return completion({
-      reply: 'Searching',
-      actions: [],
-      mailSearch: ['waiver'],
-    });
-  };
-  const turn = (await askWithMail('Find waiver')).json().turn;
-  expect(sent).toHaveLength(1);
-  expect(turn.request.reason).toBe('context-changed');
-  expect(turn.mailNote).toMatch(/source changed/);
-});
-
-it('relabeling an unchosen header hit blocks the cumulative body exchange', async () => {
-  await start();
-  await setBudget();
-  await importMail('unlabeled', ['Waiver first', 'Waiver second']);
-  chat = async () => {
-    if (sent.length === 1)
-      return completion({
-        reply: 'Search',
-        actions: [],
-        mailSearch: ['waiver'],
-      });
-    if (sent.length === 2) {
-      await database.query(
-        "UPDATE email_messages SET sensitivity='restricted',version=version+1 WHERE subject='Waiver first'",
-      );
-      return completion({ reply: 'Reading', actions: [], read: ['m1'] });
-    }
-    return completion({ reply: 'Unexpected', actions: [] });
-  };
-  const turn = (await askWithMail('Find waiver')).json().turn;
-  expect(sent).toHaveLength(2);
-  expect(turn.request.reason).toBe('context-changed');
-  expect(turn.request.reply).toBe('Reading');
-  expect(turn.mailNote).toMatch(/source changed/);
-});
-
 it('deleting a conversation during preparation releases the admitted but unsent hold', async () => {
   await start();
   await setBudget();
@@ -1453,4 +1205,546 @@ it('rejects malformed destination preview models before response parsing', async
     (await call('GET', '/api/v1/assistant/destination?model=invalid'))
       .statusCode,
   ).toBe(400);
+});
+
+async function seedAcademic(
+  options: {
+    owner?: string;
+    courseSensitivity?: string;
+    workSensitivity?: string;
+    academicLabels?: string[];
+    title?: string;
+    kind?: string;
+    notes?: string;
+    dueDate?: string | null;
+    estimatedMinutes?: number | null;
+    status?: string;
+    priority?: number;
+    workVersion?: number;
+    courseVersion?: number;
+    workDeleted?: boolean;
+    courseArchived?: boolean;
+  } = {},
+) {
+  const owner = options.owner ?? (await ownerId());
+  const courseId = randomUUID();
+  const workId = randomUUID();
+  await database.query(
+    'INSERT INTO courses(id,owner_id,name,sensitivity,version,deleted_at) VALUES($1,$2,$3,$4,$5,$6)',
+    [
+      courseId,
+      owner,
+      'Synthetic class',
+      options.courseSensitivity ?? 'unlabeled',
+      options.courseVersion ?? 1,
+      options.courseArchived ? '2026-10-01T00:00:00Z' : null,
+    ],
+  );
+  await database.query(
+    `INSERT INTO academic_work(id,owner_id,course_id,title,kind,notes,due_date,estimated_minutes,priority,status,sensitivity,academic_labels,version,deleted_at)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      workId,
+      owner,
+      courseId,
+      options.title ?? 'Synthetic work',
+      options.kind ?? 'assignment',
+      options.notes ?? 'Private working note',
+      options.dueDate ?? null,
+      options.estimatedMinutes ?? null,
+      options.priority ?? 3,
+      options.status ?? 'planned',
+      options.workSensitivity ?? 'unlabeled',
+      options.academicLabels ?? [],
+      options.workVersion ?? 1,
+      options.workDeleted ? '2026-10-01T00:00:00Z' : null,
+    ],
+  );
+  return { courseId, workId };
+}
+
+const askAcademic = (text: string, academic: unknown[]) =>
+  call('POST', '/api/v1/assistant/requests', {
+    operationId: randomUUID(),
+    text,
+    timeZone: 'America/Denver',
+    academic,
+  });
+
+const lastPayload = (body: Record<string, unknown>) =>
+  JSON.parse(
+    (body.messages as { content: string }[]).at(-1)!.content,
+  ) as Record<string, unknown>;
+
+it('sends selected academic work, projects only planning fields and replays the ask', async () => {
+  await start();
+  await setBudget();
+  const owner = await ownerId();
+  const { courseId, workId } = await seedAcademic({
+    title: 'Final essay',
+    kind: 'exam',
+    notes: 'SECRET working notes',
+    dueDate: '2026-11-01',
+    estimatedMinutes: 90,
+    priority: 2,
+  });
+  chat = () => completion({ reply: 'Planned it.', actions: [] });
+  const operationId = randomUUID();
+  const selection = [
+    { id: workId, expectedVersion: 1, expectedCourseVersion: 1 },
+  ];
+  const { request, turn } = (
+    await call('POST', '/api/v1/assistant/requests', {
+      operationId,
+      text: 'Plan my essay',
+      timeZone: 'America/Denver',
+      academic: selection,
+    })
+  ).json();
+  expect(request).toMatchObject({ status: 'completed', withheld: 0 });
+  const sentWork = {
+    id: workId,
+    ref: 'w1',
+    title: 'Final essay',
+    kind: 'exam',
+    dueDate: '2026-11-01',
+    estimatedMinutes: 90,
+    status: 'planned',
+    priority: 2,
+  };
+  expect(turn.academic).toEqual([sentWork]);
+  expect(lastPayload(sent[0]!).academic).toEqual([
+    {
+      ref: 'w1',
+      title: 'Final essay',
+      kind: 'exam',
+      dueDate: '2026-11-01',
+      estimatedMinutes: 90,
+      status: 'planned',
+      priority: 2,
+    },
+  ]);
+  // Notes never leave the server.
+  expect(JSON.stringify(sent[0])).not.toContain('SECRET');
+  const [exchange] = await database.query<{
+    manifest: { sources: Record<string, unknown>[] };
+  }>(
+    'SELECT manifest FROM ai_live_exchanges WHERE owner_id=$1 AND request_id=$2',
+    [owner, request.id],
+  );
+  expect(
+    exchange!.manifest.sources.find((s) => s.kind === 'academic-work'),
+  ).toMatchObject({
+    projection: 'academic-work-v1',
+    id: workId,
+    version: 1,
+    ref: 'w1',
+    labels: ['unlabeled'],
+    academicCourse: { id: courseId, version: 1 },
+  });
+  // Retrying the same selection again replays the recorded turn.
+  const retried = (
+    await call('POST', '/api/v1/assistant/requests', {
+      operationId,
+      text: 'Plan my essay',
+      timeZone: 'America/Denver',
+      academic: selection,
+    })
+  ).json().turn;
+  expect(retried.id).toBe(turn.id);
+  expect(sent).toHaveLength(1);
+});
+
+it('withholds restricted and disallowed personal work until personal mail is allowed', async () => {
+  await start();
+  await setBudget();
+  const restricted = await seedAcademic({
+    title: 'Restricted essay',
+    academicLabels: ['restricted'],
+  });
+  const personal = await seedAcademic({
+    title: 'Personal reading',
+    academicLabels: ['personal'],
+  });
+  const plain = await seedAcademic({ title: 'Open lab' });
+  chat = () => completion({ reply: 'Ok.', actions: [] });
+  const selection = [restricted, personal, plain].map((s) => ({
+    id: s.workId,
+    expectedVersion: 1,
+    expectedCourseVersion: 1,
+  }));
+  const { request, turn } = (
+    await call('POST', '/api/v1/assistant/requests', {
+      operationId: randomUUID(),
+      text: 'Plan my week',
+      timeZone: 'America/Denver',
+      academic: selection,
+    })
+  ).json();
+  expect(request).toMatchObject({ status: 'completed', withheld: 2 });
+  expect(turn.academic.map((a: { ref: string }) => a.ref)).toEqual(['w1']);
+  expect(turn.academic[0]).toMatchObject({ id: plain.workId });
+  expect(lastPayload(sent[0]!).academic).toHaveLength(1);
+  const wire = JSON.stringify(sent[0]);
+  expect(wire).not.toContain('Restricted essay');
+  expect(wire).not.toContain('Personal reading');
+
+  const settings = (await call('GET', '/api/v1/assistant/settings')).json()
+    .settings;
+  await call('PUT', '/api/v1/assistant/settings', {
+    model,
+    expectedVersion: settings.version,
+    allowPersonalMail: true,
+  });
+  const second = (
+    await call('POST', '/api/v1/assistant/requests', {
+      operationId: randomUUID(),
+      text: 'Plan again',
+      timeZone: 'America/Denver',
+      academic: [restricted, personal].map((s) => ({
+        id: s.workId,
+        expectedVersion: 1,
+        expectedCourseVersion: 1,
+      })),
+    })
+  ).json();
+  expect(second.request).toMatchObject({ withheld: 1 });
+  expect(second.turn.academic.map((a: { title: string }) => a.title)).toEqual([
+    'Personal reading',
+  ]);
+  expect(sent).toHaveLength(2);
+});
+
+it('blocks a stale, deleted or archived academic selection before any hold', async () => {
+  await start();
+  await setBudget();
+  const stale = await seedAcademic({ title: 'Moved on', workVersion: 3 });
+  const archived = await seedAcademic({ courseArchived: true });
+  const deleted = await seedAcademic({ workDeleted: true });
+  const select = (id: string) => [
+    { id, expectedVersion: 1, expectedCourseVersion: 1 },
+  ];
+  expect(
+    (await askAcademic('Plan', select(stale.workId))).json().error.code,
+  ).toBe('VERSION_CONFLICT');
+  expect(
+    (await askAcademic('Plan', select(archived.workId))).json().error.code,
+  ).toBe('ACADEMIC_CLASS_ARCHIVED');
+  expect(
+    (await askAcademic('Plan', select(deleted.workId))).json().error.code,
+  ).toBe('NOT_FOUND');
+  expect(sent).toHaveLength(0);
+  expect(
+    await database.query('SELECT 1 FROM ai_assistant_requests'),
+  ).toHaveLength(0);
+});
+
+it('treats an omitted academic selection as an empty one', async () => {
+  await start();
+  await setBudget();
+  chat = () => completion({ reply: 'Ok.', actions: [] });
+  const operationId = randomUUID();
+  const first = (
+    await call('POST', '/api/v1/assistant/requests', {
+      operationId,
+      text: 'Plan my week',
+      timeZone: 'America/Denver',
+      academic: [],
+    })
+  ).json().turn;
+  const second = (
+    await call('POST', '/api/v1/assistant/requests', {
+      operationId,
+      text: 'Plan my week',
+      timeZone: 'America/Denver',
+    })
+  ).json().turn;
+  expect(second.id).toBe(first.id);
+  expect(second.academic).toEqual([]);
+  expect(sent).toHaveLength(1);
+});
+
+it('binds academic labels onto a proposal applied from the turn', async () => {
+  await start();
+  await setBudget();
+  const { workId } = await seedAcademic({ title: 'Term paper' });
+  chat = () =>
+    completion({
+      reply: 'Added it.',
+      actions: [action({ title: 'Draft outline' })],
+    });
+  const { turn } = (
+    await call('POST', '/api/v1/assistant/requests', {
+      operationId: randomUUID(),
+      text: 'Break it down',
+      timeZone: 'America/Denver',
+      academic: [{ id: workId, expectedVersion: 1, expectedCourseVersion: 1 }],
+    })
+  ).json();
+  expect(turn.proposalAccess).toBe('applicable');
+  const applied = (
+    await call('POST', `/api/v1/assistant/turns/${turn.id}/apply`, {
+      expectedVersion: turn.version,
+      indexes: [0],
+      operationId: randomUUID(),
+    })
+  ).json().turn;
+  expect(applied.items[0]).toMatchObject({ state: 'applied' });
+  const [row] = await database.query<{
+    ai_origin: string;
+    ai_labels: string[];
+  }>('SELECT ai_origin,ai_labels FROM tasks WHERE owner_id=$1 AND id=$2', [
+    await ownerId(),
+    applied.items[0].applied.id,
+  ]);
+  expect(row).toMatchObject({ ai_origin: 'bound-derived' });
+  expect(row!.ai_labels).toEqual(['unlabeled']);
+});
+
+it('refuses an academic selection owned by someone else', async () => {
+  await start();
+  await setBudget();
+  const other = randomUUID();
+  await database.query(
+    "INSERT INTO users(id,email,password_hash) VALUES($1,'intruder@example.test','unused')",
+    [other],
+  );
+  const foreign = await seedAcademic({ owner: other, title: 'Not mine' });
+  const result = (
+    await askAcademic('Plan', [
+      { id: foreign.workId, expectedVersion: 1, expectedCourseVersion: 1 },
+    ])
+  ).json();
+  expect(result.error.code).toBe('NOT_FOUND');
+  expect(sent).toHaveLength(0);
+  expect(
+    await database.query('SELECT 1 FROM ai_assistant_requests'),
+  ).toHaveLength(0);
+});
+
+it('never sends academic sources on an agent run', async () => {
+  await start();
+  await setBudget();
+  await seedAcademic({ title: 'Should not leave' });
+  const owner = await ownerId();
+  const turn = await answerTurn(database, config, fetcherInUse, owner, {
+    operationId: randomUUID(),
+    prompt: 'GOAL-TEXT',
+    ask: 'Scheduled run',
+    timeZone: 'America/Denver',
+    conversationId: randomUUID(),
+    useMail: false,
+    trigger: 'agent',
+  });
+  expect(turn.academic).toEqual([]);
+  expect(lastPayload(sent[0]!).academic).toEqual([]);
+  const [exchange] = await database.query<{
+    manifest: { sources: { kind: string }[] };
+  }>(
+    'SELECT manifest FROM ai_live_exchanges WHERE owner_id=$1 AND request_id=$2',
+    [owner, turn.id],
+  );
+  expect(
+    exchange!.manifest.sources.some((s) => s.kind === 'academic-work'),
+  ).toBe(false);
+});
+
+it('applies an academic task through the source operation and retains its link through retry, Undo and restore', async () => {
+  await start();
+  await setBudget();
+  const { workId, courseId } = await seedAcademic({
+    title: 'Essay',
+    dueDate: '2036-05-20',
+    estimatedMinutes: 90,
+  });
+  chat = () =>
+    completion({
+      reply: 'Review the task.',
+      actions: [
+        action({ ref: 'w1', title: 'Draft outline', dueDate: '2036-05-18' }),
+      ],
+    });
+  const { turn } = (
+    await askAcademic('Make an outline task', [
+      { id: workId, expectedVersion: 1, expectedCourseVersion: 1 },
+    ])
+  ).json();
+  expect(turn.request.proposals[0].academicSource).toEqual({
+    id: workId,
+    expectedWorkVersion: 1,
+    expectedCourseVersion: 1,
+    title: 'Essay',
+  });
+  const apply = {
+    expectedVersion: turn.version,
+    indexes: [0],
+    operationId: randomUUID(),
+  };
+  const result = await call(
+    'POST',
+    `/api/v1/assistant/turns/${turn.id}/apply`,
+    apply,
+  );
+  expect(result.statusCode).toBe(200);
+  const saved = result.json().turn;
+  expect(saved.items[0]).toMatchObject({ state: 'applied', error: null });
+  const task = saved.items[0].applied;
+  expect(
+    (
+      await call('POST', `/api/v1/assistant/turns/${turn.id}/apply`, apply)
+    ).json().turn.items[0].applied,
+  ).toEqual(task);
+  const source = (
+    await call('GET', `/api/v1/tasks/${task.id}/academic-source`)
+  ).json().source;
+  expect(source).toMatchObject({
+    workId,
+    snapshot: {
+      id: workId,
+      courseId,
+      dueDate: '2036-05-20',
+      estimatedMinutes: 90,
+    },
+  });
+  expect(
+    (await call('GET', `/api/v1/tasks/${task.id}`)).json().task,
+  ).toMatchObject({ dueDate: '2036-05-18', completed: false });
+  const undone = (
+    await call('POST', `/api/v1/assistant/turns/${turn.id}/undo`, {
+      expectedVersion: saved.version,
+      indexes: [0],
+      operationId: randomUUID(),
+    })
+  ).json().turn;
+  expect(undone.items[0].state).toBe('undone');
+  const deleted = (await call('GET', `/api/v1/tasks/${task.id}`)).json().task;
+  expect(deleted.deletedAt).not.toBeNull();
+  const restored = await call('POST', `/api/v1/tasks/${task.id}/restore`, {
+    operationId: randomUUID(),
+    expectedVersion: deleted.version,
+  });
+  expect(restored.statusCode).toBe(200);
+  expect(
+    (await call('GET', `/api/v1/tasks/${task.id}/academic-source`)).json()
+      .source.id,
+  ).toBe(source.id);
+  const [work] = await database.query(
+    'SELECT status,estimated_minutes FROM academic_work WHERE id=$1',
+    [workId],
+  );
+  expect(work).toEqual({ status: 'planned', estimated_minutes: 90 });
+  const [count] = await database.query(
+    'SELECT count(*)::int AS count FROM academic_planner_sources WHERE work_id=$1',
+    [workId],
+  );
+  expect(count!.count).toBe(1);
+});
+
+it.each(['work-edit', 'class-edit', 'closed', 'archived', 'deleted'])(
+  'refuses an academic task when its source is %s before Apply',
+  async (change) => {
+    await start();
+    await setBudget();
+    const { workId, courseId } = await seedAcademic();
+    chat = () =>
+      completion({
+        reply: 'Review.',
+        actions: [action({ ref: 'w1', title: 'Source task' })],
+      });
+    const { turn } = (
+      await askAcademic('Add a task', [
+        { id: workId, expectedVersion: 1, expectedCourseVersion: 1 },
+      ])
+    ).json();
+    if (change === 'work-edit')
+      await database.query(
+        'UPDATE academic_work SET version=version+1 WHERE id=$1',
+        [workId],
+      );
+    if (change === 'class-edit')
+      await database.query('UPDATE courses SET version=version+1 WHERE id=$1', [
+        courseId,
+      ]);
+    if (change === 'closed')
+      await database.query(
+        "UPDATE academic_work SET status='submitted',version=version+1 WHERE id=$1",
+        [workId],
+      );
+    if (change === 'archived')
+      await database.query(
+        'UPDATE courses SET deleted_at=CURRENT_TIMESTAMP,version=version+1 WHERE id=$1',
+        [courseId],
+      );
+    if (change === 'deleted')
+      await database.query(
+        'UPDATE academic_work SET deleted_at=CURRENT_TIMESTAMP,version=version+1 WHERE id=$1',
+        [workId],
+      );
+    const response = await call(
+      'POST',
+      `/api/v1/assistant/turns/${turn.id}/apply`,
+      {
+        expectedVersion: turn.version,
+        indexes: [0],
+        operationId: randomUUID(),
+      },
+    );
+    if (change === 'work-edit' || change === 'closed') {
+      expect(response.statusCode).toBe(200);
+      expect(response.json().turn.items[0]).toMatchObject({
+        state: 'failed',
+        applied: null,
+      });
+    } else expect(response.statusCode).toBe(409);
+    const [count] = await database.query(
+      'SELECT count(*)::int AS count FROM tasks WHERE owner_id=$1',
+      [await ownerId()],
+    );
+    expect(count!.count).toBe(0);
+  },
+);
+
+it('drops invented, withheld and closed academic references instead of creating unlinked fallback tasks', async () => {
+  await start();
+  await setBudget();
+  const closed = await seedAcademic({ status: 'submitted' });
+  const hidden = await seedAcademic({
+    workSensitivity: 'restricted',
+    academicLabels: ['restricted'],
+  });
+  chat = () =>
+    completion({
+      reply: 'No open work.',
+      actions: [
+        action({ ref: 'w1', title: 'Closed' }),
+        action({ ref: 'w2', title: 'Withheld' }),
+        action({ ref: 'w99', title: 'Invented' }),
+      ],
+    });
+  const { turn } = (
+    await askAcademic(
+      'Make tasks',
+      [closed, hidden].map((source) => ({
+        id: source.workId,
+        expectedVersion: 1,
+        expectedCourseVersion: 1,
+      })),
+    )
+  ).json();
+  expect(turn.request.proposals).toEqual([]);
+  expect(turn.request.dropped).toBe(3);
+  expect(turn.academic).toHaveLength(1);
+});
+
+it('legacy Use mail requires a separate broker grant and never falls back to search/read', async () => {
+  await start();
+  await setBudget();
+  await importMail('unlabeled', ['Private waiver']);
+  const result = await askWithMail('Find waiver');
+  expect(result.statusCode).toBe(409);
+  expect(result.json().error.code).toBe('MAIL_BROKER_APPROVAL_REQUIRED');
+  expect(sent).toEqual([]);
+  expect(await database.query('SELECT id FROM ai_budget_reservations')).toEqual(
+    [],
+  );
 });

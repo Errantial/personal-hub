@@ -936,3 +936,146 @@ test('a retained Apply control checks the server and refuses newly read-only mai
   await expect(page.locator('main')).toContainText('Nothing was changed.');
   expect(writes).toBe(0);
 });
+
+test('academic selection pins versions, survives a refused ask and clears after an answer', async ({
+  page,
+}) => {
+  const courseReply = await page.request.post('/api/v1/courses', {
+    headers,
+    data: { name: 'Academic picker', operationId: crypto.randomUUID() },
+  });
+  expect(courseReply.ok()).toBe(true);
+  const course = (await courseReply.json()).course;
+  const workReply = await page.request.post('/api/v1/academic-work', {
+    headers,
+    data: {
+      courseId: course.id,
+      title: `Picker essay ${crypto.randomUUID()}`,
+      operationId: crypto.randomUUID(),
+    },
+  });
+  expect(workReply.ok()).toBe(true);
+  const work = (await workReply.json()).work;
+  await page.route('**/api/v1/assistant/settings', (route) =>
+    route.fulfill({
+      json: {
+        settings: {
+          model: 'anthropic/claude-haiku-5.5',
+          version: 1,
+          configured: true,
+        },
+      },
+    }),
+  );
+  await stubThread(page);
+  await stubOperations(page);
+  let attempts = 0;
+  await page.route('**/api/v1/assistant/requests', (route) => {
+    const body = route.request().postDataJSON();
+    expect(body.academic).toEqual([
+      {
+        id: work.id,
+        expectedVersion: work.version,
+        expectedCourseVersion: course.version,
+      },
+    ]);
+    attempts++;
+    if (attempts === 1)
+      return route.fulfill({
+        status: 409,
+        json: {
+          error: {
+            code: 'VERSION_CONFLICT',
+            message: 'Reload academic context.',
+          },
+        },
+      });
+    const reply = answer(route, {
+      proposals: [
+        {
+          kind: 'task.create',
+          academicSource: {
+            id: work.id,
+            expectedWorkVersion: work.version,
+            expectedCourseVersion: course.version,
+            title: work.title,
+          },
+          task: {
+            title: 'Draft selected essay',
+            dueDate: null,
+            notes: '',
+            priority: 'normal',
+          },
+        },
+      ],
+      status: 'completed',
+      reason: null,
+      model: 'anthropic/claude-haiku-5.5',
+      resultAvailable: true,
+      reply: 'Review the essay.',
+      dropped: 0,
+      withheld: 1,
+      costMicros: 1,
+      heldMicros: 0,
+      createdAt: new Date().toISOString(),
+    });
+    Object.assign(reply.turn, {
+      academic: [
+        {
+          id: work.id,
+          ref: 'w1',
+          title: work.title,
+          kind: 'assignment',
+          dueDate: null,
+          estimatedMinutes: null,
+          status: 'planned',
+          priority: 3,
+        },
+      ],
+    });
+    lastTurn = reply.turn;
+    return route.fulfill({ json: reply });
+  });
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto('/assistant');
+  await page.getByText('Academic work (0/20)', { exact: true }).click();
+  await page.getByRole('button', { name: 'Reload academic work' }).click();
+  await page.getByRole('checkbox', { name: new RegExp(work.title) }).check();
+  await page
+    .getByRole('textbox', { name: 'Ask', exact: true })
+    .fill('Help with this essay');
+  await page.getByRole('button', { name: 'Ask', exact: true }).click();
+  await expect(
+    page.getByText('Academic work (1/20)', { exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Ask', exact: true }).click();
+  await expect(
+    page.getByText('Academic work (0/20)', { exact: true }),
+  ).toBeVisible();
+  await page.locator('.turn-details summary').click();
+  await expect(
+    page.getByText('Manual academic work sent with this ask'),
+  ).toBeVisible();
+  await expect(page.locator('.turn-details')).toContainText('Effort unknown');
+  await expect(page.locator('.turn-details')).toContainText(
+    '1 planner or academic item',
+  );
+  await expect(
+    page.getByText(new RegExp('Source: ' + work.title)),
+  ).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Apply 1 change', exact: true })
+    .click();
+  await expect(
+    page.locator('.assistant__state').getByText('Applied', { exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(
+    page.locator('.assistant__state').getByText('Undone', { exact: true }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+});

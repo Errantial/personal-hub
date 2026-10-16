@@ -44,3 +44,4 @@ export * from './mail-source.js';
 export * from './mail-tasks.js';
 export * from './mail-classify.js';
 export * from './mail-task-suggest.js';
+export * from './mail-broker.js';

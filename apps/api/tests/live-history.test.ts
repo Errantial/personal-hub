@@ -87,49 +87,33 @@ describe('bound history', () => {
     expect(query).toHaveBeenCalledTimes(1);
   });
 
-  it('requires connector identity even when the replacement has the same version and labels', async () => {
+  it('withholds legacy mail history without a broker scope receipt', async () => {
     const id = randomUUID();
-    const connector = randomUUID();
-    const { tx } = reader([
-      {
-        id,
-        sensitivity: 'unlabeled',
-        text_origin: 'message-body-v1',
-        connectorSensitivity: 'unlabeled',
-        connectorId: connector,
-        connectorVersion: 1,
-      },
-    ]);
-    const refs = [
-      {
-        kind: 'mail-message' as const,
-        id,
-        labels: ['unlabeled' as const],
-        connector: { id: connector, version: 1 },
-      },
-    ];
+    const { tx } = reader([]);
     expect(
-      await historySourcesEligible(tx, owner, refs, {
-        allowed: ['unlabeled'],
-        useMail: true,
-      }),
-    ).toBe(true);
-    refs[0]!.connector.id = randomUUID();
-    expect(
-      await historySourcesEligible(tx, owner, refs, {
-        allowed: ['unlabeled'],
-        useMail: true,
-      }),
+      await historySourcesEligible(
+        tx,
+        owner,
+        [
+          {
+            kind: 'mail-message',
+            id,
+            labels: ['unlabeled'],
+            connector: { id: randomUUID(), version: 1 },
+          },
+        ],
+        { allowed: ['unlabeled'], useMail: true },
+      ),
     ).toBe(false);
   });
 
   it('stops before a second turn would exceed the transitive source union bound', async () => {
     const connector = { id: randomUUID(), version: 1 };
     const refs = Array.from({ length: 1001 }, () => ({
-      kind: 'mail-message' as const,
+      kind: 'academic-work' as const,
       id: randomUUID(),
       labels: ['unlabeled' as const],
-      connector,
+      academicCourse: connector,
     }));
     const recent = {
       ...bound(),
@@ -148,10 +132,10 @@ describe('bound history', () => {
         refs.slice(0, 600).map((ref) => ({
           id: ref.id,
           sensitivity: 'unlabeled',
-          text_origin: 'message-body-v1',
-          connectorId: connector.id,
-          connectorVersion: 1,
-          connectorSensitivity: 'unlabeled',
+          courseId: connector.id,
+          courseVersion: 1,
+          courseSensitivity: 'unlabeled',
+          academicLabels: [],
         })),
       );
     const result = await readBoundHistory(

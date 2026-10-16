@@ -4,7 +4,12 @@ import {
   sensitivitySchema,
   taskSchema,
 } from '@hub/contracts';
-import type { CalendarRecord, Task } from '@hub/contracts';
+import type {
+  AssistantAcademicSent,
+  CalendarRecord,
+  Task,
+} from '@hub/contracts';
+import { z } from 'zod';
 import type { QueryExecutor } from '../db/database.js';
 import { ApiError } from '../errors.js';
 import { eventColumns } from '../features/common.js';
@@ -177,6 +182,177 @@ export function plannerSources(
       };
     }),
   ];
+}
+
+type Sensitivity = z.infer<typeof sensitivitySchema>;
+
+/** One explicitly selected work item, pinned to work and class versions. */
+export type AcademicSelected = {
+  id: string;
+  expectedVersion: number;
+  expectedCourseVersion: number;
+};
+
+/** Exactly the allowlisted planning fields; nothing else may be sent. */
+export type AcademicProjected = {
+  ref: string;
+  title: string;
+  kind: string;
+  dueDate: string | null;
+  estimatedMinutes: number | null;
+  status: string;
+  priority: number;
+};
+
+export type AcademicContextItem = {
+  id: string;
+  version: number;
+  courseId: string;
+  courseVersion: number;
+  labels: Sensitivity[];
+  ref: string;
+  projected: AcademicProjected;
+};
+
+export type AcademicContext = {
+  items: AcademicContextItem[];
+  /** Selected items the destination's labels kept out. */
+  withheld: number;
+  /** The same items as persisted on the turn, for later coverage display. */
+  sent: AssistantAcademicSent[];
+};
+
+export const projectAcademic = (
+  work: {
+    title: string;
+    kind: string;
+    dueDate: string | null;
+    estimatedMinutes: number | null;
+    status: string;
+    priority: number;
+  },
+  ref: string,
+): AcademicProjected => ({
+  ref,
+  title: work.title,
+  kind: work.kind,
+  dueDate: work.dueDate,
+  estimatedMinutes: work.estimatedMinutes,
+  status: work.status,
+  priority: work.priority,
+});
+
+/**
+ * Resolves explicit academic selections to projections, labels and manifest
+ * entries. Identity, deletion and version problems block the ask before any
+ * hold; a label the destination may not receive withholds that item instead.
+ */
+export async function academicContext(
+  tx: QueryExecutor,
+  owner: string,
+  select: AcademicSelected[],
+  allowed: Sensitivity[],
+): Promise<AcademicContext> {
+  const items: AcademicContextItem[] = [];
+  let withheld = 0;
+  for (const ref of select) {
+    const [row] = await tx.query(
+      `SELECT w.id,w.version,w.title,w.kind,to_char(w.due_date,'YYYY-MM-DD') AS "dueDate",w.estimated_minutes AS "estimatedMinutes",w.priority,w.status,w.sensitivity,w.academic_labels AS "academicLabels",w.course_id AS "courseId",(w.deleted_at IS NOT NULL) AS "workDeleted",c.version AS "courseVersion",c.sensitivity AS "courseSensitivity",(c.deleted_at IS NOT NULL) AS "courseArchived"
+       FROM academic_work w JOIN courses c ON c.id=w.course_id AND c.owner_id=w.owner_id
+       WHERE w.owner_id=$1 AND w.id=$2`,
+      [owner, ref.id],
+    );
+    if (!row || row.workDeleted)
+      throw new ApiError(
+        404,
+        'NOT_FOUND',
+        'This academic item is no longer available.',
+      );
+    if (Number(row.version) !== ref.expectedVersion)
+      throw new ApiError(409, 'VERSION_CONFLICT', 'Reload academic context.');
+    if (Number(row.courseVersion) !== ref.expectedCourseVersion)
+      throw new ApiError(409, 'VERSION_CONFLICT', 'Reload academic context.');
+    if (row.courseArchived)
+      throw new ApiError(
+        409,
+        'ACADEMIC_CLASS_ARCHIVED',
+        'This class is archived.',
+      );
+    const history = sensitivitySchema
+      .array()
+      .max(2)
+      .parse(row.academicLabels ?? []);
+    const labels = [
+      ...new Set<Sensitivity>([
+        sensitivitySchema.parse(row.sensitivity),
+        sensitivitySchema.parse(row.courseSensitivity),
+        ...history,
+      ]),
+    ];
+    if (labels.some((label) => !allowed.includes(label))) {
+      withheld += 1;
+      continue;
+    }
+    const name = `w${items.length + 1}`;
+    const projected = projectAcademic(
+      {
+        title: String(row.title),
+        kind: String(row.kind),
+        dueDate: (row.dueDate as string | null) ?? null,
+        estimatedMinutes: (row.estimatedMinutes as number | null) ?? null,
+        status: String(row.status),
+        priority: Number(row.priority),
+      },
+      name,
+    );
+    items.push({
+      id: String(row.id),
+      version: Number(row.version),
+      courseId: String(row.courseId),
+      courseVersion: Number(row.courseVersion),
+      labels,
+      ref: name,
+      projected,
+    });
+  }
+  return {
+    items,
+    withheld,
+    sent: items.map((item) => ({
+      id: item.id,
+      ref: item.ref,
+      title: item.projected.title,
+      kind: item.projected.kind as AssistantAcademicSent['kind'],
+      dueDate: item.projected.dueDate,
+      estimatedMinutes: item.projected.estimatedMinutes,
+      status: item.projected.status as AssistantAcademicSent['status'],
+      priority: item.projected.priority,
+    })),
+  };
+}
+
+/** Manifest entries for selected academic work, refs w1… as sent. */
+export function academicSources(
+  owner: string,
+  requestId: string,
+  items: AcademicContextItem[],
+): LiveSource[] {
+  return items.map((item): LiveSource => ({
+    projection: 'academic-work-v1',
+    kind: 'academic-work',
+    id: item.id,
+    version: item.version,
+    ref: item.ref,
+    labels: item.labels,
+    academicCourse: { id: item.courseId, version: item.courseVersion },
+    digest: sourceDigest(
+      owner,
+      requestId,
+      'academic-work-v1',
+      item.id,
+      item.projected,
+    ),
+  }));
 }
 
 /** What one mail source looked like when sent: header, or header and body. */

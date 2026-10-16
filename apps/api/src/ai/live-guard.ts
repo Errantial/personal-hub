@@ -11,6 +11,8 @@ import {
   liveHistorySourceSchema,
 } from './live-manifest.js';
 import type { LiveManifest, LiveSource } from './live-manifest.js';
+import { brokerLineageEligible } from './broker-lineage.js';
+import { guardBrokerRetrieval } from './mail-broker.js';
 import {
   livePlannerContext,
   mailSources,
@@ -43,6 +45,13 @@ export type MailReprojector = (
   sources: LiveSource[],
 ) => Promise<Map<string, MailProjected | null>>;
 
+/** Re-reads academic sources as the call site sent them; omits vanished. */
+export type AcademicReprojector = (
+  tx: QueryExecutor,
+  requestId: string,
+  sources: LiveSource[],
+) => Promise<LiveSource[]>;
+
 export type GuardContext = {
   /** HTTP exchanges: the owner's session must still be valid. */
   authority?: (tx: QueryExecutor) => Promise<boolean>;
@@ -50,6 +59,8 @@ export type GuardContext = {
   agentRun?: { runId: string; token: string; now: () => Date };
   /** Required when the manifest has mail sources. */
   reprojectMail?: MailReprojector;
+  /** Required when the manifest has academic sources. */
+  reprojectAcademic?: AcademicReprojector;
 };
 
 const key = (source: { projection: string; id: string }) =>
@@ -164,6 +175,8 @@ export async function verifyLive(
           .safeParse(refs);
         return (
           parsed.success &&
+          (!parsed.data.some((ref) => ref.kind === 'mail-message') ||
+            parsed.data.some((ref) => ref.kind === 'mail-broker')) &&
           parsed.data.every((ref) =>
             manifest.history.sources.some(
               (bound) =>
@@ -171,7 +184,8 @@ export async function verifyLive(
                 ref.id === bound.id &&
                 ref.labels.every((label) => bound.labels.includes(label)) &&
                 ref.connector?.id === bound.connector?.id &&
-                ref.connector?.version === bound.connector?.version,
+                ref.connector?.version === bound.connector?.version &&
+                ref.brokerDigest === bound.brokerDigest,
             ),
           ) &&
           current.id === turn.id &&
@@ -194,6 +208,33 @@ export async function verifyLive(
   )
     return 'context-changed';
 
+  for (const source of [
+    ...manifest.sources,
+    ...manifest.history.sources,
+  ].filter((s) => s.kind === 'mail-broker')) {
+    if (
+      !manifest.useMail ||
+      !source.brokerDigest ||
+      !(await brokerLineageEligible(
+        tx,
+        owner,
+        source.id,
+        source.brokerDigest,
+        config,
+        manifest.sources.includes(source as LiveSource) ? requestId : undefined,
+      ))
+    )
+      return 'context-changed';
+  }
+  for (const source of manifest.sources.filter(
+    (s) => s.kind === 'mail-broker',
+  )) {
+    try {
+      await guardBrokerRetrieval(tx, config, owner, source.id);
+    } catch {
+      return 'context-changed';
+    }
+  }
   const planner = manifest.sources.filter(
     (source) => source.kind === 'task' || source.kind === 'event',
   );
@@ -259,6 +300,33 @@ export async function verifyLive(
       );
     });
     if (!same) return 'context-changed';
+  }
+
+  const academic = manifest.sources.filter(
+    (source) => source.kind === 'academic-work',
+  );
+  if (academic.length) {
+    if (!context.reprojectAcademic) return 'context-changed';
+    let current: LiveSource[];
+    try {
+      current = await context.reprojectAcademic(tx, requestId, academic);
+    } catch {
+      return 'context-changed';
+    }
+    const byKey = new Map(current.map((source) => [key(source), source]));
+    for (const source of academic) {
+      const now = byKey.get(key(source));
+      if (
+        !now ||
+        now.version !== source.version ||
+        now.digest !== source.digest ||
+        now.academicCourse?.id !== source.academicCourse?.id ||
+        now.academicCourse?.version !== source.academicCourse?.version ||
+        now.labels.length !== source.labels.length ||
+        !now.labels.every((label) => source.labels.includes(label))
+      )
+        return 'context-changed';
+    }
   }
 
   const agent = manifest.request.agent;

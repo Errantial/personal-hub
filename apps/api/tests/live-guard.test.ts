@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { sealEnvelope } from '../src/ai/live-envelope.js';
 import { admitLive, findReplay } from '../src/ai/live-request.js';
 import {
+  academicContext,
+  academicSources,
+} from '../src/ai/live-projections.js';
+import {
   admitPlanner as admit,
   createTask,
   exchangeState as state,
@@ -13,6 +17,8 @@ import {
 } from './helpers/live.js';
 import { model, startHarness } from './helpers/openrouter.js';
 import type { Harness } from './helpers/openrouter.js';
+import type { QueryExecutor } from '../src/db/database.js';
+import type { LiveSource } from '../src/ai/live-manifest.js';
 
 // Admission binding and the final transmission guard
 // (docs/live-context-admission-design.md). Exchanges are injected.
@@ -22,6 +28,55 @@ afterEach(async () => {
   await harness?.app.close();
   harness = undefined;
 });
+
+const academicLabels: Parameters<typeof academicContext>[3] = [
+  'unlabeled',
+  'personal',
+  'restricted',
+];
+
+/** Seeds one unlabeled class and work item, and projects it as sent. */
+async function seedAcademic(h: Harness, title = 'Synthetic essay') {
+  const courseId = randomUUID();
+  const workId = randomUUID();
+  await h.database.query(
+    'INSERT INTO courses(id,owner_id,name,sensitivity,version) VALUES($1,$2,$3,$4,1)',
+    [courseId, h.owner, 'Synthetic class', 'unlabeled'],
+  );
+  await h.database.query(
+    `INSERT INTO academic_work(id,owner_id,course_id,title,kind,notes,due_date,estimated_minutes,priority,status,sensitivity,academic_labels,version)
+     VALUES($1,$2,$3,$4,'assignment','Private working note','2026-11-01',60,3,'planned','unlabeled','{}',1)`,
+    [workId, h.owner, courseId, title],
+  );
+  const { items } = await academicContext(
+    h.database,
+    h.owner,
+    [{ id: workId, expectedVersion: 1, expectedCourseVersion: 1 }],
+    academicLabels,
+  );
+  return { courseId, workId, items };
+}
+
+/** Re-projects bound academic sources as the production callback does. */
+const reprojectAcademic =
+  (h: Harness) =>
+  async (tx: QueryExecutor, requestId: string, sources: LiveSource[]) =>
+    academicSources(
+      h.owner,
+      requestId,
+      (
+        await academicContext(
+          tx,
+          h.owner,
+          sources.map((source) => ({
+            id: source.id,
+            expectedVersion: source.version,
+            expectedCourseVersion: source.academicCourse!.version,
+          })),
+          academicLabels,
+        )
+      ).items,
+    );
 
 describe('admission binding', () => {
   it.each([undefined, { only: ['anthropic'], allow_fallbacks: true }])(
@@ -134,6 +189,83 @@ describe('final transmission guard', () => {
     expect((await send(harness, sealed)).status).toBe('confirmed');
     expect(harness.chatCalls()).toBe(1);
     expect((await state(harness, sealed.requestId))!.guard).toBe('verified');
+  });
+
+  it('sends a verified academic exchange once and marks it verified', async () => {
+    harness = await startHarness();
+    const { items } = await seedAcademic(harness);
+    const { sealed } = await admit(harness, undefined, { academic: items });
+    expect(
+      (
+        await send(harness, sealed, {
+          reprojectAcademic: reprojectAcademic(harness),
+        })
+      ).status,
+    ).toBe('confirmed');
+    expect(harness.chatCalls()).toBe(1);
+    expect((await state(harness, sealed.requestId))!.guard).toBe('verified');
+  });
+
+  it('withholds an academic edit without a version change', async () => {
+    harness = await startHarness();
+    const { workId, items } = await seedAcademic(harness);
+    const { sealed } = await admit(harness, undefined, { academic: items });
+    await harness.database.query(
+      "UPDATE academic_work SET title='Changed' WHERE id=$1",
+      [workId],
+    );
+    expect(
+      await send(harness, sealed, {
+        reprojectAcademic: reprojectAcademic(harness),
+      }),
+    ).toMatchObject({ status: 'withheld', reason: 'context-changed' });
+    expect(harness.chatCalls()).toBe(0);
+    expect(await state(harness, sealed.requestId)).toMatchObject({
+      hold: 'released',
+      guard: 'blocked',
+    });
+  });
+
+  it('withholds an academic deletion', async () => {
+    harness = await startHarness();
+    const { workId, items } = await seedAcademic(harness);
+    const { sealed } = await admit(harness, undefined, { academic: items });
+    await harness.database.query(
+      'UPDATE academic_work SET deleted_at=CURRENT_TIMESTAMP,version=version+1 WHERE id=$1',
+      [workId],
+    );
+    expect(
+      await send(harness, sealed, {
+        reprojectAcademic: reprojectAcademic(harness),
+      }),
+    ).toMatchObject({ reason: 'context-changed' });
+    expect(harness.chatCalls()).toBe(0);
+  });
+
+  it('withholds an academic source after its class is relabelled', async () => {
+    harness = await startHarness();
+    const { courseId, items } = await seedAcademic(harness);
+    const { sealed } = await admit(harness, undefined, { academic: items });
+    await harness.database.query(
+      "UPDATE courses SET sensitivity='personal',version=version+1 WHERE id=$1",
+      [courseId],
+    );
+    expect(
+      await send(harness, sealed, {
+        reprojectAcademic: reprojectAcademic(harness),
+      }),
+    ).toMatchObject({ reason: 'context-changed' });
+    expect(harness.chatCalls()).toBe(0);
+  });
+
+  it('withholds academic sources when no reprojector is provided', async () => {
+    harness = await startHarness();
+    const { items } = await seedAcademic(harness);
+    const { sealed } = await admit(harness, undefined, { academic: items });
+    expect(await send(harness, sealed)).toMatchObject({
+      reason: 'context-changed',
+    });
+    expect(harness.chatCalls()).toBe(0);
   });
 
   it('withholds a post-hash mutation and releases the hold', async () => {

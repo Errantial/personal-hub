@@ -271,6 +271,79 @@ it('upgrades populated responsibilities, notifications and action policies throu
   }
 });
 
+it('upgrades populated assistant turns through 063 without rewriting them', async () => {
+  const db = await openDatabase(
+    readConfig({ NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' }),
+  );
+  try {
+    const directory = new URL('../migrations/', import.meta.url);
+    const names = (await readdir(directory))
+      .filter((name) => /^\d+_.+\.sql$/.test(name))
+      .sort();
+    await db.exec(
+      'CREATE TABLE schema_migrations (name TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)',
+    );
+    for (const name of names.filter((name) => Number(name.slice(0, 3)) <= 62)) {
+      const sql = await readFile(new URL(name, directory), 'utf8');
+      await db.exec(sql);
+      await db.query(
+        'INSERT INTO schema_migrations(name,checksum) VALUES($1,$2)',
+        [name, createHash('sha256').update(sql).digest('hex')],
+      );
+    }
+    const owner = randomUUID();
+    const conversation = randomUUID();
+    const turn = randomUUID();
+    const reservation = randomUUID();
+    await db.query(
+      "INSERT INTO users(id,email,password_hash) VALUES($1,'academic-upgrade@example.test','unused')",
+      [owner],
+    );
+    await db.query('INSERT INTO ai_budget_policies(owner_id) VALUES($1)', [
+      owner,
+    ]);
+    await db.query(
+      "INSERT INTO ai_budget_reservations(id,owner_id,request_id,request_hash,month,provider,model,policy_version,reserved_micros,actual_micros,status) VALUES($1,$2,$3,'h','2026-10-01','openrouter','anthropic/claude-haiku-5.5',1,10,0,'released')",
+      [reservation, owner, turn],
+    );
+    await db.query(
+      "INSERT INTO ai_assistant_requests(id,owner_id,operation_id,request_hash,model,reservation_id,status,reason) VALUES($1,$2,$3,'h','anthropic/claude-haiku-5.5',$4,'failed',NULL)",
+      [turn, owner, randomUUID(), reservation],
+    );
+    await db.query(
+      "INSERT INTO ai_conversations(id,owner_id,title) VALUES($1,$2,'Legacy')",
+      [conversation, owner],
+    );
+    await db.query(
+      `INSERT INTO ai_conversation_turns(id,owner_id,conversation_id,position,ask,reply,proposals,items,mail) VALUES($1,$2,$3,0,'Synthetic ask','Synthetic reply','[]','[]','[{"id":"m1"}]')`,
+      [turn, owner, conversation],
+    );
+    const retained = () =>
+      db.query(
+        'SELECT id,ask,reply,proposals,items,mail,version FROM ai_conversation_turns',
+      );
+    const before = await retained();
+    await migrate(db);
+    // Every existing value is unchanged; the new column defaults to empty.
+    expect(await retained()).toEqual(before);
+    expect(
+      (await db.query('SELECT academic FROM ai_conversation_turns'))[0],
+    ).toEqual({ academic: [] });
+    // At most 20 academic summaries per turn.
+    await expect(
+      db.query(
+        'UPDATE ai_conversation_turns SET academic=$2::jsonb WHERE id=$1',
+        [turn, JSON.stringify(Array.from({ length: 21 }, () => ({ id: 'x' })))],
+      ),
+    ).rejects.toThrow();
+    expect(await db.query('SELECT name FROM schema_migrations')).toHaveLength(
+      names.length,
+    );
+  } finally {
+    await db.close();
+  }
+});
+
 it('upgrades populated assistant turns and requests through 060 without rewriting them', async () => {
   const db = await openDatabase(
     readConfig({ NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' }),

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { boundLiveHash } from '../src/ai/context-binding.js';
 import { sealEnvelope } from '../src/ai/live-envelope.js';
 import {
@@ -11,6 +11,14 @@ import {
   zdrUrl,
 } from '../src/ai/openrouter-live.js';
 import type { OpenRouterFetch } from '../src/ai/openrouter-live.js';
+import { academicContext } from '../src/ai/live-projections.js';
+import {
+  liveManifestSchema,
+  liveSourceSchema,
+} from '../src/ai/live-manifest.js';
+import { openDatabase } from '../src/db/database.js';
+import { migrate } from '../src/db/migrate.js';
+import { readConfig } from '../src/config.js';
 import { completion, model } from './helpers/openrouter.js';
 
 // Live context admission (docs/live-context-admission-design.md). Every
@@ -126,5 +134,259 @@ describe('pinned destinations', () => {
     expect(destinationRevision('anthropic/other', 'google-vertex')).not.toBe(
       base,
     );
+  });
+});
+
+describe('academic projections', () => {
+  let db: Awaited<ReturnType<typeof openDatabase>>;
+  let ownerId: string;
+  beforeAll(async () => {
+    db = await openDatabase(
+      readConfig({ NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' }),
+    );
+    await migrate(db);
+    ownerId = randomUUID();
+    await db.query(
+      "INSERT INTO users(id,email,password_hash) VALUES($1,'academic-live@example.test','unused')",
+      [ownerId],
+    );
+  });
+  afterAll(async () => {
+    await db.close();
+  });
+
+  async function seed(
+    options: {
+      courseSensitivity?: string;
+      workSensitivity?: string;
+      academicLabels?: string[];
+      workVersion?: number;
+      courseVersion?: number;
+      title?: string;
+      kind?: string;
+      notes?: string;
+      dueDate?: string | null;
+      estimatedMinutes?: number | null;
+      status?: string;
+      priority?: number;
+      grade?: { earned: number; possible: number } | null;
+      workDeleted?: boolean;
+      courseArchived?: boolean;
+    } = {},
+  ) {
+    const courseId = randomUUID();
+    const workId = randomUUID();
+    await db.query(
+      'INSERT INTO courses(id,owner_id,name,sensitivity,version,deleted_at) VALUES($1,$2,$3,$4,$5,$6)',
+      [
+        courseId,
+        ownerId,
+        'Synthetic class',
+        options.courseSensitivity ?? 'unlabeled',
+        options.courseVersion ?? 1,
+        options.courseArchived ? '2026-10-01T00:00:00Z' : null,
+      ],
+    );
+    await db.query(
+      `INSERT INTO academic_work(id,owner_id,course_id,title,kind,notes,due_date,estimated_minutes,priority,status,sensitivity,academic_labels,version,grade,deleted_at)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+      [
+        workId,
+        ownerId,
+        courseId,
+        options.title ?? 'Synthetic work',
+        options.kind ?? 'assignment',
+        options.notes ?? 'Private working note',
+        options.dueDate ?? null,
+        options.estimatedMinutes ?? null,
+        options.priority ?? 3,
+        options.status ?? 'planned',
+        options.workSensitivity ?? 'unlabeled',
+        options.academicLabels ?? [],
+        options.workVersion ?? 1,
+        options.grade ? JSON.stringify(options.grade) : null,
+        options.workDeleted ? '2026-10-01T00:00:00Z' : null,
+      ],
+    );
+    return { courseId, workId };
+  }
+
+  it('projects exactly the allowlisted planning fields, never notes or grades', async () => {
+    const { workId } = await seed({
+      title: 'Final essay',
+      kind: 'exam',
+      notes: 'SECRET working notes',
+      dueDate: '2026-11-01',
+      estimatedMinutes: 90,
+      status: 'submitted',
+      priority: 2,
+      grade: { earned: 9, possible: 10 },
+    });
+    const context = await academicContext(
+      db,
+      ownerId,
+      [{ id: workId, expectedVersion: 1, expectedCourseVersion: 1 }],
+      ['unlabeled', 'personal', 'restricted'],
+    );
+    expect(context.withheld).toBe(0);
+    expect(context.items).toHaveLength(1);
+    const projected = context.items[0]!.projected;
+    expect(projected).toEqual({
+      ref: 'w1',
+      title: 'Final essay',
+      kind: 'exam',
+      dueDate: '2026-11-01',
+      estimatedMinutes: 90,
+      status: 'submitted',
+      priority: 2,
+    });
+    expect(Object.keys(projected).sort()).toEqual([
+      'dueDate',
+      'estimatedMinutes',
+      'kind',
+      'priority',
+      'ref',
+      'status',
+      'title',
+    ]);
+    const wire = JSON.stringify(projected);
+    expect(wire).not.toContain('SECRET');
+    expect(wire).not.toContain('earned');
+    expect(wire).not.toContain('possible');
+    // Missing deadline and effort stay unknown, never zero or "none".
+    const unknown = await seed({ dueDate: null, estimatedMinutes: null });
+    const bare = await academicContext(
+      db,
+      ownerId,
+      [{ id: unknown.workId, expectedVersion: 1, expectedCourseVersion: 1 }],
+      ['unlabeled'],
+    );
+    expect(bare.items[0]!.projected).toMatchObject({
+      dueDate: null,
+      estimatedMinutes: null,
+    });
+  });
+
+  it('blocks stale versions, deleted work and archived classes before any hold', async () => {
+    const stale = await seed({ workVersion: 3, courseVersion: 2 });
+    const select = [
+      { id: stale.workId, expectedVersion: 3, expectedCourseVersion: 2 },
+    ];
+    await expect(
+      academicContext(
+        db,
+        ownerId,
+        [{ ...select[0]!, expectedVersion: 2 }],
+        ['unlabeled'],
+      ),
+    ).rejects.toMatchObject({ statusCode: 409, code: 'VERSION_CONFLICT' });
+    await expect(
+      academicContext(
+        db,
+        ownerId,
+        [{ ...select[0]!, expectedCourseVersion: 1 }],
+        ['unlabeled'],
+      ),
+    ).rejects.toMatchObject({ statusCode: 409, code: 'VERSION_CONFLICT' });
+    const deleted = await seed({ workDeleted: true });
+    await expect(
+      academicContext(
+        db,
+        ownerId,
+        [
+          {
+            id: deleted.workId,
+            expectedVersion: 1,
+            expectedCourseVersion: 1,
+          },
+        ],
+        ['unlabeled'],
+      ),
+    ).rejects.toMatchObject({ statusCode: 404, code: 'NOT_FOUND' });
+    const archived = await seed({ courseArchived: true });
+    await expect(
+      academicContext(
+        db,
+        ownerId,
+        [
+          {
+            id: archived.workId,
+            expectedVersion: 1,
+            expectedCourseVersion: 1,
+          },
+        ],
+        ['unlabeled'],
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'ACADEMIC_CLASS_ARCHIVED',
+    });
+  });
+
+  it('withholds restricted and disallowed personal work and counts it', async () => {
+    const restricted = await seed({ workSensitivity: 'restricted' });
+    const personal = await seed({ academicLabels: ['personal'] });
+    const withheld = await academicContext(
+      db,
+      ownerId,
+      [
+        { id: restricted.workId, expectedVersion: 1, expectedCourseVersion: 1 },
+        { id: personal.workId, expectedVersion: 1, expectedCourseVersion: 1 },
+      ],
+      ['unlabeled'],
+    );
+    expect(withheld.items).toEqual([]);
+    expect(withheld.withheld).toBe(2);
+    const allowed = await academicContext(
+      db,
+      ownerId,
+      [{ id: personal.workId, expectedVersion: 1, expectedCourseVersion: 1 }],
+      ['unlabeled', 'personal'],
+    );
+    expect(allowed.withheld).toBe(0);
+    expect(allowed.items[0]!.labels).toEqual(['unlabeled', 'personal']);
+    expect(allowed.sent[0]).toMatchObject({ id: personal.workId, ref: 'w1' });
+  });
+
+  it('accepts an academic manifest source and rejects a duplicate', async () => {
+    const source = {
+      projection: 'academic-work-v1' as const,
+      kind: 'academic-work' as const,
+      id: randomUUID(),
+      version: 1,
+      ref: 'w1',
+      labels: ['unlabeled'] as const,
+      academicCourse: { id: randomUUID(), version: 1 },
+      digest: 'a'.repeat(64),
+    };
+    expect(liveSourceSchema.parse(source)).toMatchObject({
+      projection: 'academic-work-v1',
+    });
+    const manifest = (sources: unknown[]) => ({
+      formatVersion: 1,
+      owner: ownerId,
+      requestId: randomUUID(),
+      kind: 'planner',
+      round: 1,
+      conversationId: null,
+      priorRequestIds: [],
+      destination: {
+        model,
+        upstream: 'google-vertex',
+        revision: 'a'.repeat(64),
+        version: 1,
+      },
+      settingsVersion: 1,
+      useMail: false,
+      request: { provenance: 'owner-entered', labels: ['unlabeled'] },
+      timeZone: 'UTC',
+      history: { turns: [], sources: [], withheld: 0 },
+      sources,
+      bytes: 1,
+    });
+    expect(liveManifestSchema.safeParse(manifest([source])).success).toBe(true);
+    expect(
+      liveManifestSchema.safeParse(manifest([source, source])).success,
+    ).toBe(false);
   });
 });

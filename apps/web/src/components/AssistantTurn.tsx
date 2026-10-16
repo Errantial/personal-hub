@@ -208,6 +208,9 @@ export function AssistantTurnView({
   const summary = [
     request.model,
     request.costMicros !== null ? formatCost(request.costMicros) : '',
+    turn.academic.length
+      ? plural(turn.academic.length, 'academic item') + ' sent'
+      : '',
     turn.mail.length ? `${plural(turn.mail.length, 'message')} sent` : '',
     leftOut ? `${leftOut} left out` : '',
     request.dropped
@@ -344,6 +347,27 @@ export function AssistantTurnView({
         )}
         <details className="turn-details">
           <summary>{summary}</summary>
+          {turn.academic.length > 0 && (
+            <>
+              <p>Manual academic work sent with this ask</p>
+              <ul>
+                {turn.academic.map((item) => (
+                  <li key={item.id}>
+                    {item.ref}: {item.title} - {item.kind} -{' '}
+                    {item.dueDate ?? 'Deadline unknown'} -{' '}
+                    {item.estimatedMinutes === null
+                      ? 'Effort unknown'
+                      : `${item.estimatedMinutes} min`}{' '}
+                    - {item.status} - Priority {item.priority}
+                  </li>
+                ))}
+              </ul>
+              <p className="meta">
+                Recorded at ask time. Completion and study time do not establish
+                submission or mastery.
+              </p>
+            </>
+          )}
           {turn.mail.length > 0 && (
             <ul>
               {turn.mail.map((item) => (
@@ -364,12 +388,14 @@ export function AssistantTurnView({
           )}
           {request.withheld > 0 && (
             <p className="meta">
-              {plural(request.withheld, 'planner item')} left out by labels.
+              {plural(request.withheld, 'planner or academic item')} left out by
+              labels or context eligibility.
             </p>
           )}
           {turn.mailWithheld > 0 && (
             <p className="meta">
-              {plural(turn.mailWithheld, 'message')} left out by labels.
+              {plural(turn.mailWithheld, 'message')} left out by labels or
+              context eligibility.
             </p>
           )}
         </details>

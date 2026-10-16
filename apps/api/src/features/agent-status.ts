@@ -1,3 +1,4 @@
+import { agentSpendingComponents } from '../ai/agent-spend.js';
 import { agentRunSchema, agentSpendingSchema } from '@hub/contracts';
 import type { AgentRun } from '@hub/contracts';
 import type { QueryExecutor } from '../db/database.js';
@@ -118,21 +119,7 @@ export async function readAgentSpending(
   id: string,
   capMicros: number,
 ) {
-  const [row] = await tx.query(
-    `WITH turns AS (SELECT t.id FROM ai_conversation_turns t JOIN responsibilities r ON r.conversation_id=t.conversation_id
-      WHERE t.owner_id=$1 AND r.id=$2 AND t.trigger='agent'),
-    requests AS (SELECT id FROM turns UNION SELECT request_id FROM ai_conversation_turn_rounds WHERE turn_id IN (SELECT id FROM turns)
-      UNION SELECT id FROM ai_assistant_requests WHERE owner_id=$1 AND agent_id=$2)
-    SELECT to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC','YYYY-MM') AS month,
-      to_char((date_trunc('month',CURRENT_TIMESTAMP AT TIME ZONE 'UTC') + interval '1 month'),'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "resetsAt",
-      COALESCE(sum(b.actual_micros) FILTER(WHERE b.status='settled'),0)::text AS settled,
-      COALESCE(sum(b.reserved_micros) FILTER(WHERE b.status IN ('reserved','uncertain')),0)::text AS held,
-      COALESCE(sum(b.reserved_micros) FILTER(WHERE b.status='uncertain'),0)::text AS uncertain
-    FROM ai_assistant_requests a JOIN ai_budget_reservations b ON b.id=a.reservation_id
-    WHERE a.owner_id=$1 AND a.id IN (SELECT id FROM requests)
-      AND b.month=date_trunc('month',CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date`,
-    [owner, id],
-  );
+  const row = await agentSpendingComponents(tx, owner, id);
   const settledMicros = Number(row!.settled),
     heldMicros = Number(row!.held);
   return agentSpendingSchema.parse({

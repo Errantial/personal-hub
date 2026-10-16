@@ -1,3 +1,5 @@
+import { agentSpend } from './agent-spend.js';
+import { checkBrokerContext, readBrokerRetrieval } from './mail-broker.js';
 import { defaultAssistantModel } from '@hub/contracts';
 import type { Config } from '../config.js';
 import type { Database, QueryExecutor } from '../db/database.js';
@@ -158,6 +160,8 @@ export async function admitLive(
     withheld: number;
     /** Trusted worker attribution, never accepted from the public request. */
     agentId?: string | undefined;
+    /** Internal broker receipt whose existing downstream headroom is transferred once. */
+    brokerRetrievalId?: string | undefined;
     /** The sealed envelope, bound in the same transaction as the hold. */
     sealed?: SealedEnvelope<LiveManifest> | undefined;
   },
@@ -172,6 +176,52 @@ export async function admitLive(
     throw new Error('Sealed envelope does not match its request.');
   await database.transaction(async (tx) => {
     await lockBudget(tx, owner);
+    let brokerHold: { id: string; maximum: number } | undefined;
+    if (request.brokerRetrievalId) {
+      const retrieval = await readBrokerRetrieval(
+        tx,
+        owner,
+        request.brokerRetrievalId,
+      );
+      await checkBrokerContext(tx, owner, retrieval.context);
+      if (
+        retrieval.context.logicalRequestId !== request.id ||
+        retrieval.context.agent?.id !== request.agentId
+      )
+        throw new ApiError(
+          409,
+          'MAIL_DOWNSTREAM_HOLD_CHANGED',
+          'Broker request attribution changed.',
+        );
+      const [hold] = await tx.query(
+        'SELECT id,status,model,provider,reserved_micros,policy_version FROM ai_budget_reservations WHERE owner_id=$1 AND request_id=$2 FOR UPDATE',
+        [owner, request.id],
+      );
+      if (hold) {
+        const [policy] = await tx.query(
+          'SELECT version FROM ai_budget_policies WHERE owner_id=$1',
+          [owner],
+        );
+        if (
+          hold.status !== 'reserved' ||
+          hold.model !== request.model ||
+          hold.provider !== 'openrouter' ||
+          hold.policy_version !== policy?.version ||
+          Number(hold.reserved_micros) !==
+            retrieval.context.downstreamMaximumMicros ||
+          Number(hold.reserved_micros) < request.maximumMicros
+        )
+          throw new ApiError(
+            409,
+            'MAIL_DOWNSTREAM_HOLD_CHANGED',
+            'Broker answer reservation changed.',
+          );
+        brokerHold = {
+          id: String(hold.id),
+          maximum: Number(hold.reserved_micros),
+        };
+      }
+    }
     if (request.agentId) {
       const [agent] = await tx.query(
         "SELECT monthly_cap_micros FROM responsibilities WHERE owner_id=$1 AND id=$2 AND template IS NOT NULL AND deleted_at IS NULL AND status IN ('active','paused') FOR UPDATE",
@@ -186,23 +236,9 @@ export async function admitLive(
       // Include legacy turn-linked requests and new pre-turn attribution. UNION
       // deduplicates rows that have both. The owner budget lock serializes all
       // holds/settlements; a crash before startTurn/recordRound retains its hold.
-      const [usage] = await tx.query(
-        `WITH turns AS (
-          SELECT t.id FROM ai_conversation_turns t JOIN responsibilities r ON r.conversation_id=t.conversation_id
-          WHERE t.owner_id=$1 AND r.id=$2 AND t.trigger='agent'),
-        requests AS (
-          SELECT id FROM ai_assistant_requests WHERE owner_id=$1 AND agent_id=$2
-          UNION SELECT id FROM turns
-          UNION SELECT request_id FROM ai_conversation_turn_rounds WHERE turn_id IN (SELECT id FROM turns))
-        SELECT COALESCE(SUM(CASE WHEN b.status='settled' THEN b.actual_micros
-          WHEN b.status IN ('reserved','uncertain') THEN b.reserved_micros ELSE 0 END),0)::text AS used
-        FROM ai_assistant_requests a JOIN ai_budget_reservations b ON b.id=a.reservation_id
-        WHERE a.owner_id=$1 AND a.id IN (SELECT id FROM requests)
-          AND b.month=date_trunc('month',CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date`,
-        [owner, request.agentId],
-      );
+      const usage = await agentSpend(tx, owner, request.agentId);
       if (
-        BigInt(String(usage!.used)) + BigInt(request.maximumMicros) >
+        usage + BigInt(brokerHold ? 0 : request.maximumMicros) >
         BigInt(String(agent.monthly_cap_micros))
       )
         throw new ApiError(
@@ -215,13 +251,15 @@ export async function admitLive(
       'SELECT version FROM ai_budget_policies WHERE owner_id=$1',
       [owner],
     );
-    const reservation = await reserveAIBudgetInTransaction(tx, owner, {
-      requestId: request.id,
-      expectedPolicyVersion: policy!.version as number,
-      provider: 'openrouter',
-      model: request.model,
-      maximumChargeMicros: request.maximumMicros,
-    });
+    const reservation =
+      brokerHold ??
+      (await reserveAIBudgetInTransaction(tx, owner, {
+        requestId: request.id,
+        expectedPolicyVersion: policy!.version as number,
+        provider: 'openrouter',
+        model: request.model,
+        maximumChargeMicros: request.maximumMicros,
+      }));
     // Uncertain before transmission: a crash after this point keeps the hold.
     await tx.query(
       "UPDATE ai_budget_reservations SET status='uncertain',version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2 AND status='reserved'",

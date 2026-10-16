@@ -1,5 +1,9 @@
 # Product requirements
 
+## Planned Jev-mediated mail access
+
+Owner direction (2026-10-15): mail-enabled agents submit bounded requests to a server-owned TypeSafe Jev selector and receive relevant original mail text in larger bounded batches. Agents have no direct mailbox access by default. Separate routing/approval applies to Jev and the receiving agent; owner labels and inherited provenance remain authoritative. No email is sent by this forwarding step. Coverage refers to eligible imported mail with visible omissions/limits, not a guarantee that external inbox ingestion is complete. See the [delivery plan](jev-mail-broker-plan.md). J1/J2 foundations and [J3 owner-ask/agent workflow](jev-mail-workflow.md) are implemented in development. J3 validation is in progress; J4 UI, switch migration and live acceptance remain pending.
+
 ## Purpose
 
 Help a student manage commitments, correspondence, and learning progress in one place. The app should answer: What needs my attention today, what should I study next, and what changed in my connected accounts?
