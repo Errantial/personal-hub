@@ -38,6 +38,8 @@ export function AssistantComposer({
   inputRef,
   navigate,
   onAnswered,
+  continuation,
+  onClearContinuation,
 }: {
   conversationId: string;
   settings: ReturnType<typeof useAssistantSettings>;
@@ -46,6 +48,9 @@ export function AssistantComposer({
   inputRef?: RefObject<HTMLTextAreaElement | null>;
   navigate: (route: Route) => void;
   onAnswered: (turn: AssistantTurn) => void;
+  /** J4: searches older imported mail from the previous answer. */
+  continuation?: string | null;
+  onClearContinuation?: () => void;
 }) {
   const online = useOnline();
   const ask = useMutation();
@@ -100,6 +105,11 @@ export function AssistantComposer({
     void settings.reload();
   }
 
+  // Searching older mail needs mail access, so the switch follows the request.
+  useEffect(() => {
+    if (continuation && !useMail && saved && online) void rememberMail(true);
+  }, [continuation, useMail, saved, online]);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!ready) return;
@@ -116,6 +126,7 @@ export function AssistantComposer({
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         conversationId,
         useMail,
+        ...(continuation ? { mailContinuation: continuation } : {}),
         academic: academic.map((item) => ({
           id: item.id,
           expectedVersion: item.version,
@@ -127,6 +138,7 @@ export function AssistantComposer({
     if (!result) return;
     setText('');
     setAcademic([]);
+    onClearContinuation?.();
     onAnswered(result.turn);
   }
 
@@ -167,6 +179,21 @@ export function AssistantComposer({
           void submit(event);
         }}
       >
+        {continuation && (
+          <p role="status" className="assistant__continuation">
+            The next ask searches older imported mail from the answer above. It
+            reads mail again within the same limits.{' '}
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => {
+                onClearContinuation?.();
+              }}
+            >
+              Cancel
+            </button>
+          </p>
+        )}
         <label>
           <span className="visually-hidden">Ask</span>
           <textarea
@@ -222,6 +249,7 @@ export function AssistantComposer({
             'MONTHLY_BUDGET_EXCEEDED',
             'ASSISTANT_ROUTE_UNSET',
             'ASSISTANT_ROUTE_UNAVAILABLE',
+            'MAIL_BROKER_APPROVAL_REQUIRED',
           ].includes(ask.code) && (
             <Link
               route={{ name: 'settings', section: 'ai' }}

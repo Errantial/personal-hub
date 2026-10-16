@@ -43,6 +43,9 @@ export function AssistantView({
   const settings = useAssistantSettings();
   const [dialog, confirm] = useConfirm();
   const [deleteError, setDeleteError] = useState('');
+  // J4: a brokered turn's owner-bound token for searching older imported mail.
+  const [continuation, setContinuation] = useState<string | null>(null);
+  useEffect(() => setContinuation(null), [route.id]);
   const list = useResource(
     (signal) =>
       getJson(
@@ -485,6 +488,7 @@ export function AssistantView({
                           ? () => void retry()
                           : undefined
                       }
+                      onContinueMail={setContinuation}
                       timeZone={agent?.timeZone}
                     />
                   </li>
@@ -495,6 +499,8 @@ export function AssistantView({
                   conversationId={id}
                   settings={settings}
                   inputRef={input}
+                  continuation={continuation}
+                  onClearContinuation={() => setContinuation(null)}
                   placeholder={
                     turns.length
                       ? 'Ask a follow-up'

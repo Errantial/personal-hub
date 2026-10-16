@@ -4,12 +4,14 @@ import { AIPreflights } from './AIPreflights';
 import { AIProviders } from './AIProviders';
 import { AIRoutingSettings } from './AIRoutingSettings';
 import { AssistantSettings } from './AssistantSettings';
+import { MailBrokerSettings } from './MailBrokerSettings';
 import { Help } from './Help';
 import { StatusChip } from './StatusChip';
 import './AIView.css';
 
 const sections = [
   ['ai-assistant', 'Assistant'],
+  ['ai-mail', 'Mail access'],
   ['ai-actions', 'Actions'],
   ['ai-permissions', 'Permissions'],
   ['ai-spending', 'Spending limits'],
@@ -50,6 +52,9 @@ export function AIView() {
       <div className="preferences-grid">
         <div id="ai-assistant">
           <AssistantSettings />
+        </div>
+        <div id="ai-mail">
+          <MailBrokerSettings />
         </div>
         <div id="ai-permissions">
           <AIRoutingSettings />
