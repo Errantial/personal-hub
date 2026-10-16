@@ -170,6 +170,18 @@ export async function liveRequestJson<T>(
       VERSION_CONFLICT:
         'This item changed elsewhere. Your edits are still in the form. Reload the list before trying again.',
       MAIL_RULE_LIMIT: 'Remove a mail rule before adding more.',
+      MAIL_BROKER_APPROVAL_REQUIRED:
+        'Mail access is off. Choose the mail sources to allow under Settings › AI › Mail access, then ask again.',
+      MAIL_BROKER_INCOMPLETE:
+        'The mail search did not finish, so no mail was sent to the Assistant. Nothing is resent automatically.',
+      MAIL_CONTINUATION_INVALID:
+        'That older-mail search is no longer valid. Ask again as a new request.',
+      MAIL_FORWARDING_CHANGED:
+        'The selected mail changed before it could be sent. Ask again.',
+      MAIL_SELECTION_CHANGED:
+        'The mail selection could not be verified, so nothing was sent.',
+      MAIL_LEASE_CHANGED:
+        'The scheduled run no longer holds this request. Nothing more was sent.',
       OPERATION_CONFLICT:
         'This operation already has a different saved result. Reload before trying again.',
     };

@@ -294,8 +294,9 @@ function PersonalMailSwitch({
       </label>
       <Help label="Personal mail">
         Mail labeled Personal may be sent to the approved destination when this
-        is on. Assistant asks also need Use mail. Restricted mail is never sent.
-        Off by default.
+        is on. Assistant asks also need Use mail and an allowed mail scope under
+        Settings › AI › Mail access. Restricted mail is never sent. Off by
+        default.
       </Help>
       {save.error && (
         <div role="alert" className="form-error">

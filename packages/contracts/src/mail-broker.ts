@@ -100,3 +100,9 @@ export const mailBrokerReadinessSchema = z.object({
   downstream: z.enum(['ready', 'blocked']),
   dispatchConnectedToAgents: z.boolean(),
 });
+export const mailBrokerGrantsResponseSchema = z.object({
+  grants: z.array(mailBrokerGrantSchema),
+});
+export const mailBrokerGrantResponseSchema = z.object({
+  grant: mailBrokerGrantSchema,
+});

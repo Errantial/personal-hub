@@ -14,6 +14,7 @@ import { runLine } from '../lib/agents';
 import { formatInstant } from '../lib/format';
 import { useOnline } from '../lib/hooks';
 import { Help } from './Help';
+import { MailBrokerCoverage } from './MailBrokerCoverage';
 
 export const reasons: Record<
   NonNullable<AssistantRequest['reason']>,
@@ -54,6 +55,7 @@ export function AssistantTurnView({
   onApplied,
   onStale,
   onRetry,
+  onContinueMail,
   timeZone: zone,
 }: {
   turn: AssistantTurn;
@@ -65,6 +67,8 @@ export function AssistantTurnView({
   onStale: () => void;
   /** Agent runs (D57): queue Run now again after a failure. */
   onRetry?: (() => void) | undefined;
+  /** J4: search older imported mail with the next ask in this conversation. */
+  onContinueMail?: ((token: string) => void) | undefined;
   /** The agent's zone for run times; defaults to the device's. */
   timeZone?: string | undefined;
 }) {
@@ -254,6 +258,15 @@ export function AssistantTurnView({
           <p role="alert" className="form-error">
             {turn.mailNote}
           </p>
+        )}
+        {turn.mailBroker && (
+          <MailBrokerCoverage
+            receipt={turn.mailBroker.receipt}
+            continuation={turn.mailBroker.continuation}
+            {...(turn.trigger === 'owner' && onContinueMail
+              ? { onContinue: onContinueMail }
+              : {})}
+          />
         )}
         {request.resultAvailable &&
           !turn.items.length &&
