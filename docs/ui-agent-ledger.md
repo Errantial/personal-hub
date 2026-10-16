@@ -1,5 +1,9 @@
 # UI agent ledger
 
+## Jev foundation endpoints (J1/J2 development, 2026-10-15)
+
+The [broker foundation](jev-mail-broker.md) now provides owner-authenticated grant list/save and readiness endpoints, shared bounded request/result contracts and metadata receipts. There are no new UI controls or public execution/read-message endpoints. Grant creation expects version zero; updates use optimistic versions and operation IDs. Only connector/date scopes are supported. Readiness distinguishes Jev blockers from downstream readiness and always reports `dispatchConnectedToAgents: false` in this slice. Do not treat a grant or ready adapter as agent integration or verified mailbox completeness. Coverage includes connector sync/import dates and distinguishes inspected, eligible and judged records; selection can stop at the current 350-source lineage capacity. Existing Use mail controls remain unchanged until J3/J4 migration. Existing agent allowance displays now include broker and reserved downstream amounts through the shared accounting query. Preserve pending/uncertain holds rather than presenting a retry invitation.
+
 ## Jev mail broker contracts (planned, 2026-10-15)
 
 These are future requirements, not implemented controls. Preserve manual mailbox browsing. New mail-enabled agents use brokered retrieval; disabled agents remain off. Migrated Use mail choices require explicit Jev approval before disclosure. Settings show connector/date scope, effective message/byte/run limits and separate Jev/receiving-route readiness. Unsupported unread/folder scopes and a direct-mail bypass are not offered.

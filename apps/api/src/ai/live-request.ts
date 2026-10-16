@@ -1,3 +1,4 @@
+import { agentSpend } from './agent-spend.js';
 import { defaultAssistantModel } from '@hub/contracts';
 import type { Config } from '../config.js';
 import type { Database, QueryExecutor } from '../db/database.js';
@@ -186,23 +187,9 @@ export async function admitLive(
       // Include legacy turn-linked requests and new pre-turn attribution. UNION
       // deduplicates rows that have both. The owner budget lock serializes all
       // holds/settlements; a crash before startTurn/recordRound retains its hold.
-      const [usage] = await tx.query(
-        `WITH turns AS (
-          SELECT t.id FROM ai_conversation_turns t JOIN responsibilities r ON r.conversation_id=t.conversation_id
-          WHERE t.owner_id=$1 AND r.id=$2 AND t.trigger='agent'),
-        requests AS (
-          SELECT id FROM ai_assistant_requests WHERE owner_id=$1 AND agent_id=$2
-          UNION SELECT id FROM turns
-          UNION SELECT request_id FROM ai_conversation_turn_rounds WHERE turn_id IN (SELECT id FROM turns))
-        SELECT COALESCE(SUM(CASE WHEN b.status='settled' THEN b.actual_micros
-          WHEN b.status IN ('reserved','uncertain') THEN b.reserved_micros ELSE 0 END),0)::text AS used
-        FROM ai_assistant_requests a JOIN ai_budget_reservations b ON b.id=a.reservation_id
-        WHERE a.owner_id=$1 AND a.id IN (SELECT id FROM requests)
-          AND b.month=date_trunc('month',CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date`,
-        [owner, request.agentId],
-      );
+      const usage = await agentSpend(tx, owner, request.agentId);
       if (
-        BigInt(String(usage!.used)) + BigInt(request.maximumMicros) >
+        usage + BigInt(request.maximumMicros) >
         BigInt(String(agent.monthly_cap_micros))
       )
         throw new ApiError(

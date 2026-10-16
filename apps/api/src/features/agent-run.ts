@@ -1,3 +1,4 @@
+import { agentSpendingComponents } from '../ai/agent-spend.js';
 import {
   Temporal,
   agentTemplates,
@@ -41,19 +42,8 @@ export async function agentSpend(
   responsibilityId: string,
   now = new Date(),
 ): Promise<number> {
-  const [row] = await tx.query(
-    `WITH turns AS (
-       SELECT t.id FROM ai_conversation_turns t JOIN responsibilities r ON r.conversation_id=t.conversation_id
-       WHERE t.owner_id=$1 AND r.id=$2 AND t.trigger='agent'),
-     requests AS (
-       SELECT id FROM turns UNION SELECT request_id FROM ai_conversation_turn_rounds WHERE turn_id IN (SELECT id FROM turns)
-       UNION SELECT id FROM ai_assistant_requests WHERE owner_id=$1 AND agent_id=$2)
-     SELECT COALESCE(SUM(CASE WHEN b.status='settled' THEN b.actual_micros WHEN b.status IN ('reserved','uncertain') THEN b.reserved_micros ELSE 0 END),0)::text AS spent
-     FROM ai_assistant_requests a JOIN ai_budget_reservations b ON b.id=a.reservation_id
-     WHERE a.owner_id=$1 AND a.id IN (SELECT id FROM requests) AND b.month=date_trunc('month',$3::timestamptz AT TIME ZONE 'UTC')::date`,
-    [owner, responsibilityId, now.toISOString()],
-  );
-  return Number(row?.spent ?? 0);
+  const row = await agentSpendingComponents(tx, owner, responsibilityId, now);
+  return Number(row.settled) + Number(row.held);
 }
 
 const weekdays = [

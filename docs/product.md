@@ -2,7 +2,7 @@
 
 ## Planned Jev-mediated mail access
 
-Owner direction (2026-10-15): mail-enabled agents submit bounded requests to a server-owned TypeSafe Jev selector and receive relevant original mail text in larger bounded batches. Agents have no direct mailbox access by default. Separate routing/approval applies to Jev and the receiving agent; owner labels and inherited provenance remain authoritative. No email is sent by this forwarding step. Coverage refers to eligible imported mail with visible omissions/limits, not a guarantee that external inbox ingestion is complete. See the [delivery plan](jev-mail-broker-plan.md); this addition is planned, not implemented.
+Owner direction (2026-10-15): mail-enabled agents submit bounded requests to a server-owned TypeSafe Jev selector and receive relevant original mail text in larger bounded batches. Agents have no direct mailbox access by default. Separate routing/approval applies to Jev and the receiving agent; owner labels and inherited provenance remain authoritative. No email is sent by this forwarding step. Coverage refers to eligible imported mail with visible omissions/limits, not a guarantee that external inbox ingestion is complete. See the [delivery plan](jev-mail-broker-plan.md). J1/J2 backend foundations are implemented in development; [agent integration, UI, switch migration and live acceptance remain pending](jev-mail-broker.md).
 
 ## Purpose
 
