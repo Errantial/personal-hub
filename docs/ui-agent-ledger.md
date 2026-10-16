@@ -2,6 +2,8 @@
 
 ## Broker evaluation tooling (2026-10-16)
 
+The opt-in synthetic runner has a separate experiment allowance and journal; it does not approve production disclosure, change owner/agent budget state or establish live availability. A completed execution receipt still needs quality scoring and owner usefulness acceptance. Preserve pending/blocked/uncertain production states until their actual gates pass.
+
 Offline CLI artifacts do not change owner controls or readiness. A valid completion-decoding receipt means all synthetic outputs passed the production decoder, not that quality thresholds, provider availability, owner disclosure approval or live usefulness passed. Preserve the existing Mail access and answer contracts below; do not display this receipt as live readiness.
 
 ## Small OpenRouter mail broker (development, 2026-10-16)
