@@ -1,5 +1,9 @@
 # UI agent ledger
 
+## Planned small OpenRouter mail broker (2026-10-16)
+
+Planning only; see [replacement plan](openrouter-mail-broker-plan.md). Preserve J4 scope/grant editing, conflict drafts, offline read-only controls, keyboard/tap Help, 320px/e-ink layout, coverage/freshness and safe older-mail continuations when adapting the newer broker branch. Show the broker model/OpenRouter/host and its approval separately from the receiving Assistant destination. Existing Use mail or Jev approval never approves the replacement destination. Keep missing/stale approval, missing key, unavailable/non-ZDR/unsupported endpoint, budget blocked, pending/partial/failed/uncertain states actionable and visible. Replace TypeSafe account-verification instructions only for the new adapter; retain historical receipts. No UI change or live model acceptance is implemented by this entry.
+
 ## Durable output lineage and server-owned Apply (P5/P6 boundary 2, development branch, 2026-10-15)
 
 The Assistant no longer composes planner writes in the browser. `AssistantTurnView` sends only `{ expectedVersion, indexes, operationId }` to `POST /api/v1/assistant/turns/:id/apply` or `/undo` and renders the returned turn. `PUT /api/v1/assistant/turns/:id/items` is retained for compatibility but refuses any client-chosen state or write ID with `SERVER_OWNED_APPLY` (mail-derived turns keep `PROPOSAL_READ_ONLY` first). Preserve the per-turn pending/offline/conflict states and the exact-operation retry: a lost response retains the same `operationId` and expected version rather than inventing a second write, and `VERSION_CONFLICT`/`NOT_FOUND` reload the answer. Read-only (mail-dependent) suggestions still show no Apply control.

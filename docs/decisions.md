@@ -1,5 +1,9 @@
 # Decision register
 
+## Small OpenRouter broker direction (2026-10-16)
+
+Owner selected the small OpenRouter model approach for bounded mail-broker judgments and authorized creation of the [replacement plan](openrouter-mail-broker-plan.md). This supersedes TypeSafe as the intended broker dependency in the prior thread direction; it does not approve a concrete disclosure destination or change the receiving Assistant model. Gemini 2.5 Flash-Lite on Google Vertex is the proposed first candidate, pending capability/privacy/billing checks and evaluation. Existing grants, independent approvals at both hops, inherited labels, spending limits and no fallback remain required. Plan creation is complete; implementation and live enablement are not claimed.
+
 ## Live admission choices (owner-confirmed 2026-10-15)
 
 The owner chose one-click destination approval in Settings and binding new history immediately. The narrow live adapter pins one declared OpenRouter model/upstream, stores explicit owner approval and its revision, and blocks absent/stale approval. Existing Personal-mail consent is an additional label ceiling; Restricted content is excluded. This adapter does not enable or modify the separate general gateway's provider profiles, routing policy or dispatch. Legacy conversation turns remain readable but withheld from inference; new bound turns remain eligible only while their retained sources and permissions permit redisclosure. See the [boundary plan](superpowers/plans/2026-10-15-live-context-admission-boundary-1.md).

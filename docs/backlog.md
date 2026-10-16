@@ -1,5 +1,9 @@
 # Implementation backlog
 
+## Small OpenRouter mail broker plan (2026-10-16)
+
+The owner selected a small OpenRouter model in place of the TypeSafe-specific mail broker and authorized [planning](openrouter-mail-broker-plan.md). Adapt existing J1-J4 after reconciling the newer broker branch with main; this checkout predates that work. Candidate: Gemini 2.5 Flash-Lite on pinned Google Vertex, subject to endpoint/ZDR/schema/billing checks and separate broker approval. Preserve grants, two-hop labels/provenance, bounded original-text forwarding, caps and no fallback. Implementation, model-quality evaluation, configuration, deployment and live acceptance remain pending; this entry is not an implementation receipt.
+
 Updated 2026-10-14. This is the work queue; product.md remains the full scope, decisions.md records choices, and roadmap.md sets milestone order. Completed work and validation receipts are in [implementation-log.md](implementation-log.md).
 
 ## Approved next sequence (2026-10-14)
