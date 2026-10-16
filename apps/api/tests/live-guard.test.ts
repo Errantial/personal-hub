@@ -8,6 +8,8 @@ import { admitLive, findReplay } from '../src/ai/live-request.js';
 import {
   academicContext,
   academicSources,
+  memoryContext,
+  memorySources,
 } from '../src/ai/live-projections.js';
 import {
   admitPlanner as admit,
@@ -74,6 +76,54 @@ const reprojectAcademic =
             expectedCourseVersion: source.academicCourse!.version,
           })),
           academicLabels,
+        )
+      ).items,
+    );
+
+const memoryLabels: Parameters<typeof memoryContext>[3] = [
+  'unlabeled',
+  'personal',
+  'restricted',
+];
+
+/** Seeds enabled memory settings and one memory item, and projects it as sent. */
+async function seedMemory(h: Harness, title = 'Prefers morning focus') {
+  const memoryId = randomUUID();
+  await h.database.query(
+    'INSERT INTO memory_settings(owner_id,enabled,version) VALUES($1,true,1) ON CONFLICT (owner_id) DO UPDATE SET enabled=true,version=1',
+    [h.owner],
+  );
+  await h.database.query(
+    `INSERT INTO memories(id,owner_id,kind,source,title,content,observed_on,enabled,sensitivity,labels,version)
+     VALUES($1,$2,'preference','owner-entered',$3,'Focus blocks 8am-11am','2026-10-15',true,'unlabeled',ARRAY['unlabeled']::text[],1)`,
+    [memoryId, h.owner, title],
+  );
+  const { items } = await memoryContext(
+    h.database,
+    h.owner,
+    [{ id: memoryId, expectedVersion: 1, expectedSettingsVersion: 1 }],
+    memoryLabels,
+  );
+  return { memoryId, items };
+}
+
+/** Re-projects bound memory sources as the production callback does. */
+const reprojectMemory =
+  (h: Harness) =>
+  async (tx: QueryExecutor, requestId: string, sources: LiveSource[]) =>
+    memorySources(
+      h.owner,
+      requestId,
+      (
+        await memoryContext(
+          tx,
+          h.owner,
+          sources.map((source) => ({
+            id: source.id,
+            expectedVersion: source.version,
+            expectedSettingsVersion: source.memorySettings!.version,
+          })),
+          memoryLabels,
         )
       ).items,
     );
@@ -262,6 +312,99 @@ describe('final transmission guard', () => {
     harness = await startHarness();
     const { items } = await seedAcademic(harness);
     const { sealed } = await admit(harness, undefined, { academic: items });
+    expect(await send(harness, sealed)).toMatchObject({
+      reason: 'context-changed',
+    });
+    expect(harness.chatCalls()).toBe(0);
+  });
+
+  it('sends a verified memory exchange once and marks it verified', async () => {
+    harness = await startHarness();
+    const { items } = await seedMemory(harness);
+    const { sealed } = await admit(harness, undefined, { memory: items });
+    expect(
+      (
+        await send(harness, sealed, {
+          reprojectMemory: reprojectMemory(harness),
+        })
+      ).status,
+    ).toBe('confirmed');
+    expect(harness.chatCalls()).toBe(1);
+    expect((await state(harness, sealed.requestId))!.guard).toBe('verified');
+  });
+
+  it('withholds a memory edit without a version change', async () => {
+    harness = await startHarness();
+    const { memoryId, items } = await seedMemory(harness);
+    const { sealed } = await admit(harness, undefined, { memory: items });
+    await harness.database.query(
+      "UPDATE memories SET content='Changed content' WHERE id=$1",
+      [memoryId],
+    );
+    expect(
+      await send(harness, sealed, {
+        reprojectMemory: reprojectMemory(harness),
+      }),
+    ).toMatchObject({ status: 'withheld', reason: 'context-changed' });
+    expect(harness.chatCalls()).toBe(0);
+    expect(await state(harness, sealed.requestId)).toMatchObject({
+      hold: 'released',
+      guard: 'blocked',
+    });
+  });
+
+  it('withholds a forgotten memory', async () => {
+    harness = await startHarness();
+    const { memoryId, items } = await seedMemory(harness);
+    const { sealed } = await admit(harness, undefined, { memory: items });
+    await harness.database.query(
+      'UPDATE memories SET deleted_at=CURRENT_TIMESTAMP,title=NULL,content=NULL,observed_on=NULL,enabled=false,version=version+1 WHERE id=$1',
+      [memoryId],
+    );
+    expect(
+      await send(harness, sealed, {
+        reprojectMemory: reprojectMemory(harness),
+      }),
+    ).toMatchObject({ reason: 'context-changed' });
+    expect(harness.chatCalls()).toBe(0);
+  });
+
+  it('withholds memory when settings are disabled', async () => {
+    harness = await startHarness();
+    const { items } = await seedMemory(harness);
+    const { sealed } = await admit(harness, undefined, { memory: items });
+    await harness.database.query(
+      'UPDATE memory_settings SET enabled=false,version=version+1 WHERE owner_id=$1',
+      [harness.owner],
+    );
+    expect(
+      await send(harness, sealed, {
+        reprojectMemory: reprojectMemory(harness),
+      }),
+    ).toMatchObject({ reason: 'context-changed' });
+    expect(harness.chatCalls()).toBe(0);
+  });
+
+  it('withholds a memory source after it is relabelled', async () => {
+    harness = await startHarness();
+    const { memoryId, items } = await seedMemory(harness);
+    const { sealed } = await admit(harness, undefined, { memory: items });
+    await harness.database.query(
+      "UPDATE memories SET sensitivity='personal',labels=ARRAY['personal']::text[],version=version+1 WHERE id=$1",
+      [memoryId],
+    );
+    expect(
+      await send(harness, sealed, {
+        reprojectMemory: reprojectMemory(harness),
+      }),
+    ).toMatchObject({ reason: 'context-changed' });
+    expect(harness.chatCalls()).toBe(0);
+  });
+
+  it('withholds memory sources when no reprojector is provided', async () => {
+    harness = await startHarness();
+    const { items } = await seedMemory(harness);
+    const { sealed } = await admit(harness, undefined, { memory: items });
     expect(await send(harness, sealed)).toMatchObject({
       reason: 'context-changed',
     });

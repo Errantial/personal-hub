@@ -13,6 +13,8 @@ import type { Route } from '../lib/router';
 import { Link } from './Link';
 import { AssistantAcademicPicker } from './AssistantAcademicPicker';
 import type { AcademicSelection } from './AssistantAcademicPicker';
+import { AssistantMemoryPicker } from './AssistantMemoryPicker';
+import type { MemorySelection } from './AssistantMemoryPicker';
 
 export function useAssistantSettings() {
   return useResource(
@@ -65,7 +67,11 @@ export function AssistantComposer({
   );
   const [text, setText] = useState('');
   const [academic, setAcademic] = useState<AcademicSelection[]>([]);
-  useEffect(() => setAcademic([]), [conversationId]);
+  const [memory, setMemory] = useState<MemorySelection[]>([]);
+  useEffect(() => {
+    setAcademic([]);
+    setMemory([]);
+  }, [conversationId]);
   const own = useRef<HTMLTextAreaElement>(null);
   const field = inputRef ?? own;
   const saved = settings.data?.settings;
@@ -132,12 +138,18 @@ export function AssistantComposer({
           expectedVersion: item.version,
           expectedCourseVersion: item.courseVersion,
         })),
+        memory: memory.map((item) => ({
+          id: item.id,
+          expectedVersion: item.version,
+          expectedSettingsVersion: item.settingsVersion,
+        })),
       },
       'Could not send the request. Try again.',
     );
     if (!result) return;
     setText('');
     setAcademic([]);
+    setMemory([]);
     onClearContinuation?.();
     onAnswered(result.turn);
   }
@@ -218,6 +230,11 @@ export function AssistantComposer({
         <AssistantAcademicPicker
           selected={academic}
           onChange={setAcademic}
+          disabled={!online || ask.pending}
+        />
+        <AssistantMemoryPicker
+          selected={memory}
+          onChange={setMemory}
           disabled={!online || ask.pending}
         />
         <div className="assistant__actions">

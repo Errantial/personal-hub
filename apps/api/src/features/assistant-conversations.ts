@@ -15,6 +15,7 @@ import type {
   AssistantAcademicSent,
   AssistantItem,
   AssistantMailSent,
+  AssistantMemorySent,
   AssistantProposal,
   AssistantStudySuggestion,
   AssistantTurn,
@@ -135,9 +136,10 @@ export async function finishTurn(
     mailNote: string | null;
     mailBroker?: AssistantTurn['mailBroker'];
     academic?: AssistantAcademicSent[];
+    memory?: AssistantMemorySent[];
     proposalAccess?: 'read-only' | 'applicable';
     binding?: { requestId: string } | null;
-  } = { mail: [], mailWithheld: 0, mailNote: null, academic: [] },
+  } = { mail: [], mailWithheld: 0, mailNote: null, academic: [], memory: [] },
 ) {
   const items: AssistantItem[] = (answer?.proposals ?? []).map(() => ({
     state: 'proposed',
@@ -185,7 +187,7 @@ export async function finishTurn(
       }
     }
     await tx.query(
-      `UPDATE ai_conversation_turns SET reply=$3,proposals=$4,items=$5,mail=$6,mail_withheld=$7,mail_note=$8,proposal_access=$9,inference_history=$10,inference_digest=$11,inference_sources=$12,academic=$13,mail_broker=$14,study_suggestions=$15,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2`,
+      `UPDATE ai_conversation_turns SET reply=$3,proposals=$4,items=$5,mail=$6,mail_withheld=$7,mail_note=$8,proposal_access=$9,inference_history=$10,inference_digest=$11,inference_sources=$12,academic=$13,mail_broker=$14,study_suggestions=$15,memory=$16,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2`,
       [
         owner,
         id,
@@ -202,6 +204,7 @@ export async function finishTurn(
         JSON.stringify(mail.academic ?? []),
         JSON.stringify(mail.mailBroker ?? null),
         JSON.stringify(studySuggestions),
+        JSON.stringify(mail.memory ?? []),
       ],
     );
     if (
@@ -222,7 +225,7 @@ export async function finishTurn(
   });
 }
 
-const turnColumns = `t.study_suggestions,t.id,t.conversation_id AS "conversationId",t.ask,t.reply,t.proposals,t.items,t.version,t.use_mail AS "useMail",t.mail,t.mail_withheld AS "mailWithheld",t.mail_note AS "mailNote",t.mail_broker AS "mailBroker",t.academic,t.trigger,t.not_allowed AS "notAllowed",t.inference_history AS "inferenceHistory",t.proposal_access AS "proposalAccess"`;
+const turnColumns = `t.study_suggestions,t.id,t.conversation_id AS "conversationId",t.ask,t.reply,t.proposals,t.items,t.version,t.use_mail AS "useMail",t.mail,t.mail_withheld AS "mailWithheld",t.mail_note AS "mailNote",t.mail_broker AS "mailBroker",t.academic,t.memory,t.trigger,t.not_allowed AS "notAllowed",t.inference_history AS "inferenceHistory",t.proposal_access AS "proposalAccess"`;
 const json = (value: unknown) =>
   typeof value === 'string' ? JSON.parse(value) : value;
 
@@ -305,6 +308,7 @@ function toTurn(
     mailNote: (row.mailNote as string | null) ?? null,
     mailBroker: (json(row.mailBroker) ?? null) as AssistantTurn['mailBroker'],
     academic: (json(row.academic) ?? []) as AssistantAcademicSent[],
+    memory: (json(row.memory) ?? []) as AssistantMemorySent[],
     inferenceHistory: row.inferenceHistory === 'bound' ? 'bound' : 'unbound',
     proposalAccess:
       row.proposalAccess === 'read-only' ? 'read-only' : 'applicable',

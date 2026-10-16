@@ -216,6 +216,9 @@ export function AssistantTurnView({
     turn.academic.length
       ? plural(turn.academic.length, 'academic item') + ' sent'
       : '',
+    turn.memory?.length
+      ? plural(turn.memory.length, 'memory item') + ' sent'
+      : '',
     turn.mail.length ? `${plural(turn.mail.length, 'message')} sent` : '',
     leftOut ? `${leftOut} left out` : '',
     request.dropped
@@ -413,6 +416,22 @@ export function AssistantTurnView({
               </p>
             </>
           )}
+          {turn.memory && turn.memory.length > 0 && (
+            <>
+              <p>Memory items sent with this ask</p>
+              <ul>
+                {turn.memory.map((item) => (
+                  <li key={item.id}>
+                    {item.ref}: {item.title} ({item.kind})
+                  </li>
+                ))}
+              </ul>
+              <p className="meta">
+                Allowlisted personal facts, goals and preferences sent for this
+                ask only.
+              </p>
+            </>
+          )}
           {turn.mail.length > 0 && (
             <ul>
               {turn.mail.map((item) => (
@@ -433,8 +452,8 @@ export function AssistantTurnView({
           )}
           {request.withheld > 0 && (
             <p className="meta">
-              {plural(request.withheld, 'planner or academic item')} left out by
-              labels or context eligibility.
+              {plural(request.withheld, 'planner, academic or memory item')}{' '}
+              left out by labels or context eligibility.
             </p>
           )}
           {turn.mailWithheld > 0 && (

@@ -99,6 +99,18 @@ export const assistantAcademicRefSchema = z.strictObject({
   expectedVersion: z.number().int().positive(),
   expectedCourseVersion: z.number().int().positive(),
 });
+
+/**
+ * Explicitly selected owner memory, pinned to its version and the global memory
+ * settings version so a stale selection or disabled memory blocks before transmission.
+ */
+export const assistantMemoryRefSchema = z.strictObject({
+  id: z.string().uuid(),
+  expectedVersion: z.number().int().positive(),
+  expectedSettingsVersion: z.number().int().positive(),
+});
+export type AssistantMemoryRef = z.infer<typeof assistantMemoryRefSchema>;
+
 export const assistantRequestInputSchema = z.strictObject({
   operationId: z.string().uuid(),
   text: z.string().trim().min(1).max(1000),
@@ -122,6 +134,20 @@ export const assistantRequestInputSchema = z.strictObject({
   academic: z
     .array(assistantAcademicRefSchema)
     .max(20)
+    .refine(
+      (values) =>
+        new Set(values.map((value) => value.id)).size === values.length,
+      'Select each item once.',
+    )
+    .default([]),
+  /**
+   * Explicit owner memory items sent with this ask (docs/memory.md):
+   * allowlisted plain text only (kind, title, content, observedOn).
+   * A labeled item outside the approved destination's labels is withheld and counted.
+   */
+  memory: z
+    .array(assistantMemoryRefSchema)
+    .max(10)
     .refine(
       (values) =>
         new Set(values.map((value) => value.id)).size === values.length,
@@ -300,6 +326,20 @@ export const assistantAcademicSentSchema = z.object({
 });
 export type AssistantAcademicSent = z.infer<typeof assistantAcademicSentSchema>;
 
+const memoryKind = z.enum(['preference', 'goal', 'fact']);
+/**
+ * One selected memory item as sent: allowlisted plain text only.
+ */
+export const assistantMemorySentSchema = z.object({
+  id: z.string().uuid(),
+  ref: z.string(),
+  kind: memoryKind,
+  title: z.string(),
+  content: z.string(),
+  observedOn: dateOnly.nullable(),
+});
+export type AssistantMemorySent = z.infer<typeof assistantMemorySentSchema>;
+
 export const assistantTurnSchema = z.object({
   studySuggestions: z.array(assistantStudySuggestionSchema).max(1).optional(),
   id: z.string().uuid(),
@@ -331,6 +371,8 @@ export const assistantTurnSchema = z.object({
     .optional(),
   /** Selected manual academic work as sent, for coverage display. */
   academic: z.array(assistantAcademicSentSchema).default([]),
+  /** Selected memory items as sent, for coverage display. */
+  memory: z.array(assistantMemorySentSchema).default([]),
   /**
    * bound: this ask and reply may be sent again as history while their
    * sources stay eligible. unbound: readable only (legacy or ineligible).

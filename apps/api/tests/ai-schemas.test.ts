@@ -122,3 +122,48 @@ it('academic selection pins both versions and unique work items', () => {
     }).success,
   ).toBe(false);
 });
+
+it('memory selection pins both versions and unique memory items', () => {
+  const base = {
+    operationId: '00000000-0000-4000-8000-000000000000',
+    text: 'plan my week',
+    timeZone: 'UTC',
+  };
+  // Omitted selection defaults to none.
+  expect(assistantRequestInputSchema.parse(base).memory).toEqual([]);
+  const id = '11111111-1111-4111-8111-111111111111';
+  expect(
+    assistantRequestInputSchema.safeParse({
+      ...base,
+      memory: [{ id, expectedVersion: 2, expectedSettingsVersion: 3 }],
+    }).success,
+  ).toBe(true);
+  // The settings version is required for memory selection.
+  expect(
+    assistantRequestInputSchema.safeParse({
+      ...base,
+      memory: [{ id, expectedVersion: 2 }],
+    }).success,
+  ).toBe(false);
+  // Each memory item is selected once.
+  expect(
+    assistantRequestInputSchema.safeParse({
+      ...base,
+      memory: [
+        { id, expectedVersion: 2, expectedSettingsVersion: 3 },
+        { id, expectedVersion: 2, expectedSettingsVersion: 3 },
+      ],
+    }).success,
+  ).toBe(false);
+  // At most 10 memory items allowed.
+  expect(
+    assistantRequestInputSchema.safeParse({
+      ...base,
+      memory: Array.from({ length: 11 }, (_, i) => ({
+        id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+        expectedVersion: 1,
+        expectedSettingsVersion: 1,
+      })),
+    }).success,
+  ).toBe(false);
+});

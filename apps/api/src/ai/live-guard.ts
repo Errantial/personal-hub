@@ -52,6 +52,13 @@ export type AcademicReprojector = (
   sources: LiveSource[],
 ) => Promise<LiveSource[]>;
 
+/** Re-reads memory sources as the call site sent them; omits vanished. */
+export type MemoryReprojector = (
+  tx: QueryExecutor,
+  requestId: string,
+  sources: LiveSource[],
+) => Promise<LiveSource[]>;
+
 export type GuardContext = {
   /** HTTP exchanges: the owner's session must still be valid. */
   authority?: (tx: QueryExecutor) => Promise<boolean>;
@@ -61,6 +68,8 @@ export type GuardContext = {
   reprojectMail?: MailReprojector;
   /** Required when the manifest has academic sources. */
   reprojectAcademic?: AcademicReprojector;
+  /** Required when the manifest has memory sources. */
+  reprojectMemory?: MemoryReprojector;
 };
 
 const key = (source: { projection: string; id: string }) =>
@@ -322,6 +331,30 @@ export async function verifyLive(
         now.digest !== source.digest ||
         now.academicCourse?.id !== source.academicCourse?.id ||
         now.academicCourse?.version !== source.academicCourse?.version ||
+        now.labels.length !== source.labels.length ||
+        !now.labels.every((label) => source.labels.includes(label))
+      )
+        return 'context-changed';
+    }
+  }
+
+  const memory = manifest.sources.filter((source) => source.kind === 'memory');
+  if (memory.length) {
+    if (!context.reprojectMemory) return 'context-changed';
+    let current: LiveSource[];
+    try {
+      current = await context.reprojectMemory(tx, requestId, memory);
+    } catch {
+      return 'context-changed';
+    }
+    const byKey = new Map(current.map((source) => [key(source), source]));
+    for (const source of memory) {
+      const now = byKey.get(key(source));
+      if (
+        !now ||
+        now.version !== source.version ||
+        now.digest !== source.digest ||
+        now.memorySettings?.version !== source.memorySettings?.version ||
         now.labels.length !== source.labels.length ||
         !now.labels.every((label) => source.labels.includes(label))
       )

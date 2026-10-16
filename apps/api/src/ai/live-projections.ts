@@ -6,6 +6,7 @@ import {
 } from '@hub/contracts';
 import type {
   AssistantAcademicSent,
+  AssistantMemorySent,
   CalendarRecord,
   Task,
 } from '@hub/contracts';
@@ -14,6 +15,7 @@ import type { QueryExecutor } from '../db/database.js';
 import { ApiError } from '../errors.js';
 import { eventColumns } from '../features/common.js';
 import { taskColumns } from '../planner/routes.js';
+import { readMemorySettings } from '../features/memory.js';
 import { sourceDigest } from './live-manifest.js';
 import type { LiveSource } from './live-manifest.js';
 
@@ -349,6 +351,168 @@ export function academicSources(
       owner,
       requestId,
       'academic-work-v1',
+      item.id,
+      item.projected,
+    ),
+  }));
+}
+
+/** One explicitly selected memory item, pinned to record and global settings versions. */
+export type MemorySelected = {
+  id: string;
+  expectedVersion: number;
+  expectedSettingsVersion: number;
+};
+
+/** Exactly the allowlisted planning fields; nothing else may be sent. */
+export type MemoryProjected = {
+  ref: string;
+  kind: 'preference' | 'goal' | 'fact';
+  title: string;
+  content: string;
+  observedOn: string | null;
+};
+
+export type MemoryContextItem = {
+  id: string;
+  version: number;
+  settingsVersion: number;
+  labels: Sensitivity[];
+  ref: string;
+  projected: MemoryProjected;
+};
+
+export type MemoryContext = {
+  items: MemoryContextItem[];
+  /** Selected items the destination's labels kept out. */
+  withheld: number;
+  /** The same items as persisted on the turn, for later coverage display. */
+  sent: AssistantMemorySent[];
+};
+
+export const projectMemory = (
+  memory: {
+    kind: 'preference' | 'goal' | 'fact';
+    title: string;
+    content: string;
+    observedOn: string | null;
+  },
+  ref: string,
+): MemoryProjected => ({
+  ref,
+  kind: memory.kind,
+  title: memory.title,
+  content: memory.content,
+  observedOn: memory.observedOn,
+});
+
+/**
+ * Resolves explicit memory selections to projections, labels and manifest
+ * entries. Identity, deletion, disabled state and version problems block the ask before
+ * any hold; a label the destination may not receive withholds that item instead.
+ */
+export async function memoryContext(
+  tx: QueryExecutor,
+  owner: string,
+  select: MemorySelected[],
+  allowed: Sensitivity[],
+): Promise<MemoryContext> {
+  if (!select.length) return { items: [], withheld: 0, sent: [] };
+  const settings = await readMemorySettings(tx, owner);
+  if (!settings.enabled)
+    throw new ApiError(
+      409,
+      'MEMORY_DISABLED',
+      'Memory is disabled in settings.',
+    );
+  const items: MemoryContextItem[] = [];
+  let withheld = 0;
+  for (const ref of select) {
+    if (ref.expectedSettingsVersion !== settings.version)
+      throw new ApiError(409, 'VERSION_CONFLICT', 'Reload memory settings.');
+    const [row] = await tx.query(
+      `SELECT id,version,kind,title,content,to_char(observed_on,'YYYY-MM-DD') AS "observedOn",enabled,sensitivity,labels,(deleted_at IS NOT NULL) AS "forgotten"
+       FROM memories WHERE owner_id=$1 AND id=$2`,
+      [owner, ref.id],
+    );
+    if (!row || row.forgotten)
+      throw new ApiError(
+        404,
+        'NOT_FOUND',
+        'This memory item is no longer available.',
+      );
+    if (Number(row.version) !== ref.expectedVersion)
+      throw new ApiError(409, 'VERSION_CONFLICT', 'Reload memory context.');
+    if (!row.enabled)
+      throw new ApiError(
+        409,
+        'MEMORY_DISABLED',
+        'This memory item is disabled.',
+      );
+    const labels = [
+      ...new Set<Sensitivity>([
+        sensitivitySchema.parse(row.sensitivity),
+        ...sensitivitySchema
+          .array()
+          .max(3)
+          .parse(row.labels ?? []),
+      ]),
+    ];
+    if (labels.some((label) => !allowed.includes(label))) {
+      withheld += 1;
+      continue;
+    }
+    const name = `m${items.length + 1}`;
+    const projected = projectMemory(
+      {
+        kind: row.kind as MemoryProjected['kind'],
+        title: String(row.title),
+        content: String(row.content),
+        observedOn: (row.observedOn as string | null) ?? null,
+      },
+      name,
+    );
+    items.push({
+      id: String(row.id),
+      version: Number(row.version),
+      settingsVersion: settings.version,
+      labels,
+      ref: name,
+      projected,
+    });
+  }
+  return {
+    items,
+    withheld,
+    sent: items.map((item) => ({
+      id: item.id,
+      ref: item.ref,
+      kind: item.projected.kind,
+      title: item.projected.title,
+      content: item.projected.content,
+      observedOn: item.projected.observedOn,
+    })),
+  };
+}
+
+/** Manifest entries for selected memory items, refs m1… as sent. */
+export function memorySources(
+  owner: string,
+  requestId: string,
+  items: MemoryContextItem[],
+): LiveSource[] {
+  return items.map((item): LiveSource => ({
+    projection: 'memory-item-v1',
+    kind: 'memory',
+    id: item.id,
+    version: item.version,
+    ref: item.ref,
+    labels: item.labels,
+    memorySettings: { version: item.settingsVersion },
+    digest: sourceDigest(
+      owner,
+      requestId,
+      'memory-item-v1',
       item.id,
       item.projected,
     ),

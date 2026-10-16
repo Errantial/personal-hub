@@ -119,3 +119,4 @@ export const memoryPageSchema = z.object({
   nextAfter: z.object({ id: z.string().uuid(), version: positive }).nullable(),
 });
 export type Memory = z.infer<typeof memorySchema>;
+export type MemoryPage = z.infer<typeof memoryPageSchema>;
