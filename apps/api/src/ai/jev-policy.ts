@@ -129,7 +129,7 @@ export async function jevReadiness(
     profileRevision: policy.profile?.policyRevision ?? null,
     approvalVersion: policy.consent.version,
     downstream: policy.downstream ? 'ready' : 'blocked',
-    dispatchConnectedToAgents: false,
+    dispatchConnectedToAgents: true,
   });
 }
 export function requireJevReady(policy: Awaited<ReturnType<typeof jevPolicy>>) {

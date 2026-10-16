@@ -25,9 +25,16 @@ export const liveProjectionSchema = z.enum([
   'mail-classify-v1',
   'mail-task-v1',
   'academic-work-v1',
+  'mail-broker-v1',
 ]);
 export type LiveProjection = z.infer<typeof liveProjectionSchema>;
-const kind = z.enum(['task', 'event', 'mail-message', 'academic-work']);
+const kind = z.enum([
+  'task',
+  'event',
+  'mail-message',
+  'academic-work',
+  'mail-broker',
+]);
 const academicCourse = z.strictObject({ id: uuid, version: positive });
 
 /** One projected source exactly as sent, bound by a private digest. */
@@ -42,6 +49,7 @@ export const liveSourceSchema = z.strictObject({
   academicCourse: academicCourse.optional(),
   truncated: z.boolean().optional(),
   digest: sha256Hex,
+  brokerDigest: sha256Hex.optional(),
 });
 export type LiveSource = z.infer<typeof liveSourceSchema>;
 
@@ -56,6 +64,7 @@ export const liveHistorySourceSchema = z.strictObject({
   labels,
   connector: connector.optional(),
   academicCourse: academicCourse.optional(),
+  brokerDigest: sha256Hex.optional(),
 });
 export type LiveHistorySource = z.infer<typeof liveHistorySourceSchema>;
 
@@ -141,6 +150,7 @@ export function historyRefs(manifest: LiveManifest): LiveHistorySource[] {
       kind: source.kind,
       id: source.id,
       labels: source.labels,
+      ...(source.brokerDigest ? { brokerDigest: source.brokerDigest } : {}),
       ...(source.connector ? { connector: source.connector } : {}),
       ...(source.academicCourse
         ? { academicCourse: source.academicCourse }

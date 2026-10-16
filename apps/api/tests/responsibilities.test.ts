@@ -826,10 +826,10 @@ it('upgrades populated storage through all three new migrations without changing
   // Later agent migrations reference these tables; reverse their additions in
   // this synthetic upgrade fixture before rebuilding the legacy schema.
   await db.exec(
-    'DROP TABLE mail_broker_batches; DROP TABLE mail_broker_retrievals; DROP TABLE mail_broker_grants; ALTER TABLE ai_assistant_requests DROP COLUMN agent_id; ALTER TABLE notifications DROP CONSTRAINT notifications_source, DROP COLUMN run_id, DROP COLUMN conversation_id; ALTER TABLE ai_conversations DROP COLUMN responsibility_id; ALTER TABLE ai_conversation_turns DROP COLUMN trigger, DROP COLUMN not_allowed; DROP TABLE responsibility_activities; DROP TABLE responsibility_runs; DROP TABLE responsibility_schedules; DROP TABLE responsibilities; DROP FUNCTION hub_valid_local_times;',
+    'DROP TABLE mail_broker_forwardings; DROP TABLE mail_broker_workflows; ALTER TABLE ai_conversation_turns DROP COLUMN mail_broker; DROP TABLE mail_broker_batches; DROP TABLE mail_broker_retrievals; DROP TABLE mail_broker_grants; ALTER TABLE ai_assistant_requests DROP COLUMN agent_id; ALTER TABLE notifications DROP CONSTRAINT notifications_source, DROP COLUMN run_id, DROP COLUMN conversation_id; ALTER TABLE ai_conversations DROP COLUMN responsibility_id; ALTER TABLE ai_conversation_turns DROP COLUMN trigger, DROP COLUMN not_allowed; DROP TABLE responsibility_activities; DROP TABLE responsibility_runs; DROP TABLE responsibility_schedules; DROP TABLE responsibilities; DROP FUNCTION hub_valid_local_times;',
   );
   await db.query(
-    "DELETE FROM schema_migrations WHERE name IN ('034_responsibilities.sql','035_responsibility_schedules.sql','036_responsibility_runs.sql','037_responsibility_local_schedules.sql','057_persistent_agents.sql','058_agent_request_budget.sql','059_agent_run_visibility.sql','064_mail_broker.sql','065_mail_broker_selection_receipts.sql')",
+    "DELETE FROM schema_migrations WHERE name IN ('034_responsibilities.sql','035_responsibility_schedules.sql','036_responsibility_runs.sql','037_responsibility_local_schedules.sql','057_persistent_agents.sql','058_agent_request_budget.sql','059_agent_run_visibility.sql','064_mail_broker.sql','065_mail_broker_selection_receipts.sql','066_mail_broker_workflows.sql')",
   );
   await migrate(db);
   expect(

@@ -27,12 +27,54 @@ import {
 import { buildJevEnvelope, jevRubric } from '../src/ai/jev-protocol.js';
 import { agentSpend } from '../src/ai/agent-spend.js';
 import { admitLive } from '../src/ai/live-request.js';
+import { answerTurn } from '../src/features/assistant.js';
+import { completion, model, action } from './helpers/openrouter.js';
+import { chatUrl, modelsUrl, zdrUrl } from '../src/ai/openrouter-live.js';
+import {
+  bindBrokerForwarding,
+  brokerLineageEligible,
+} from '../src/ai/broker-lineage.js';
+import {
+  historySourcesEligible,
+  readBoundHistory,
+} from '../src/ai/live-history.js';
+import {
+  openBrokerWorkflow,
+  retrieveBrokerMail,
+} from '../src/ai/broker-workflow.js';
 import { readBudgetUsage, reserveAIBudget } from '../src/ai/budget.js';
 import { migrate } from '../src/db/migrate.js';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join, resolve, dirname, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Pool } from 'pg';
+import type { Database, QueryExecutor } from '../src/db/database.js';
+
+function changeAfterAdmission(
+  change: (tx: QueryExecutor) => Promise<void>,
+): Database {
+  let changed = false;
+  return {
+    ...db,
+    transaction: (work) =>
+      db.transaction((tx) =>
+        work({
+          ...tx,
+          query: async <T extends Record<string, unknown>>(
+            sql: string,
+            values?: unknown[],
+          ) => {
+            const rows = await tx.query<T>(sql, values);
+            if (!changed && sql.startsWith('INSERT INTO ai_live_exchanges')) {
+              changed = true;
+              await change(tx);
+            }
+            return rows;
+          },
+        }),
+      ),
+  };
+}
 
 const origin = 'http://127.0.0.1:5173';
 const environment = {
@@ -144,7 +186,7 @@ beforeEach(async () => {
     }),
   );
   await db.exec(
-    'DELETE FROM mail_broker_batches; DELETE FROM mail_broker_retrievals; DELETE FROM mail_broker_grants; DELETE FROM ai_budget_reservations; DELETE FROM mutation_receipts; DELETE FROM email_messages; DELETE FROM email_connectors;',
+    'DELETE FROM ai_turn_origins; DELETE FROM ai_planner_origins; UPDATE responsibility_runs SET turn_id=NULL; DELETE FROM ai_conversation_turn_rounds; DELETE FROM ai_conversation_turns; DELETE FROM ai_live_exchanges; DELETE FROM ai_assistant_requests; DELETE FROM mail_broker_forwardings; DELETE FROM mail_broker_workflows; DELETE FROM mail_broker_batches; DELETE FROM mail_broker_retrievals; DELETE FROM mail_broker_grants; DELETE FROM ai_budget_reservations; DELETE FROM mutation_receipts; DELETE FROM email_messages; DELETE FROM email_connectors;',
   );
   await db.query(
     'INSERT INTO ai_budget_policies(owner_id,monthly_limit_micros,per_request_limit_micros) VALUES($1,50000000,250000) ON CONFLICT(owner_id) DO UPDATE SET version=1,monthly_limit_micros=50000000,per_request_limit_micros=250000',
@@ -295,6 +337,384 @@ const answer = (
 };
 const transport = (change?: (value: Record<string, unknown>) => void) =>
   vi.fn<typeof fetch>(async (_url, init) => answer(String(init!.body), change));
+
+function workflowTransport(change?: (value: Record<string, unknown>) => void) {
+  const sent: Record<string, unknown>[] = [];
+  const jev: string[] = [];
+  const fetcher = vi.fn(async (url: string, init: RequestInit) => {
+    if (url === modelsUrl)
+      return Response.json({
+        data: [
+          {
+            id: model,
+            architecture: {
+              input_modalities: ['text'],
+              output_modalities: ['text'],
+            },
+            pricing: { prompt: '0.0000001', completion: '0.0000005' },
+          },
+        ],
+      });
+    if (url === zdrUrl)
+      return Response.json({
+        data: [
+          {
+            model_id: model,
+            tag: 'google-vertex/global',
+            supported_parameters: ['structured_outputs'],
+          },
+        ],
+      });
+    if (url === chatUrl) {
+      sent.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      return completion({
+        reply: 'BROKER-ANSWER',
+        actions: [action({ title: 'Mail proposal' })],
+        mailSearch: ['forged'],
+        read: ['m999'],
+      });
+    }
+    if (url === 'https://api.typesafe.ai/v1/systemone') {
+      jev.push(String(init.body));
+      return answer(String(init.body), change);
+    }
+    throw new Error('Unexpected synthetic destination');
+  });
+  return { fetcher, sent, jev };
+}
+const ownerAsk = (operationId = randomUUID()) => ({
+  operationId,
+  prompt: 'Find deadline evidence',
+  ask: 'Find deadline evidence',
+  timeZone: 'UTC',
+  useMail: true,
+  trigger: 'owner' as const,
+});
+
+it('J3 forwards more than five original bodies in one guarded answer, transfers headroom, and replays without calls', async () => {
+  await messages(8);
+  await grant();
+  const fake = workflowTransport();
+  const input = ownerAsk();
+  const turn = await answerTurn(db, config, fake.fetcher, owner, input);
+  expect(fake.jev).toHaveLength(1);
+  expect(fake.sent).toHaveLength(1);
+  expect(turn.mail).toHaveLength(8);
+  expect(turn.proposalAccess).toBe('read-only');
+  expect(turn.mailBroker?.receipt.coverage).toMatchObject({
+    judged: 8,
+    selected: 8,
+    externalCompleteness: 'unverified',
+  });
+  expect(JSON.stringify(fake.sent)).toContain('Original body');
+  expect(JSON.stringify(fake.sent)).not.toContain('mailSearch');
+  expect(
+    await db.query('SELECT id FROM ai_budget_reservations WHERE owner_id=$1', [
+      owner,
+    ]),
+  ).toHaveLength(2);
+  expect(
+    await db.query('SELECT id FROM ai_assistant_requests WHERE owner_id=$1', [
+      owner,
+    ]),
+  ).toHaveLength(1);
+  const refs = (
+    await readBoundHistory(db, owner, turn.conversationId, {
+      allowed: ['unlabeled'],
+      useMail: true,
+    })
+  ).sources;
+  expect(refs.some((r) => r.kind === 'mail-broker')).toBe(true);
+  const count = fake.fetcher.mock.calls.length;
+  expect((await answerTurn(db, config, fake.fetcher, owner, input)).id).toBe(
+    turn.id,
+  );
+  expect(fake.fetcher).toHaveBeenCalledTimes(count);
+  const apply = await call('POST', `/api/v1/assistant/turns/${turn.id}/apply`, {
+    operationId: randomUUID(),
+    expectedVersion: turn.version,
+    indexes: [0],
+  });
+  expect(apply.json().error.code).toBe('PROPOSAL_READ_ONLY');
+  const metadata = await db.query(
+    'SELECT binding FROM mail_broker_forwardings WHERE owner_id=$1',
+    [owner],
+  );
+  expect(JSON.stringify(metadata)).not.toContain('Original body');
+  expect(JSON.stringify(metadata)).not.toContain('Find deadline');
+});
+
+it.each(['grant', 'loser-body', 'connector', 'label'] as const)(
+  'J3 retains loser dependencies and revokes derived history after %s changes',
+  async (mutation) => {
+    const ids = await messages(2);
+    await grant();
+    const fake = workflowTransport((value) => {
+      const answers = value.answers as Record<
+        string,
+        { score: number; probabilities: Record<string, number> }
+      >;
+      const loser = Object.values(answers)[1]!;
+      loser.score = 0;
+      loser.probabilities = { '0': 1, '1': 0, '2': 0, '3': 0 };
+    });
+    const turn = await answerTurn(db, config, fake.fetcher, owner, ownerAsk());
+    expect(turn.mail).toHaveLength(1);
+    const [forwarding] = await db.query(
+      'SELECT binding FROM mail_broker_forwardings WHERE owner_id=$1',
+      [owner],
+    );
+    expect(
+      (forwarding!.binding as { sources: unknown[] }).sources,
+    ).toHaveLength(2);
+    const loser = ids.find((id) => id !== turn.mail[0]!.id)!;
+    if (mutation === 'grant')
+      await db.query(
+        'UPDATE mail_broker_grants SET enabled=false,version=version+1 WHERE owner_id=$1',
+        [owner],
+      );
+    if (mutation === 'loser-body')
+      await db.query(
+        "UPDATE email_messages SET body='Edited loser',version=version+1 WHERE id=$1",
+        [loser],
+      );
+    if (mutation === 'connector')
+      await db.query(
+        'UPDATE email_connectors SET revoked_at=CURRENT_TIMESTAMP,version=version+1 WHERE id=$1',
+        [connector],
+      );
+    if (mutation === 'label')
+      await db.query(
+        "UPDATE email_messages SET sensitivity='personal',version=version+1 WHERE id=$1",
+        [loser],
+      );
+    expect(
+      (
+        await readBoundHistory(db, owner, turn.conversationId, {
+          allowed: ['unlabeled', 'personal'],
+          useMail: true,
+        })
+      ).history,
+    ).toEqual([]);
+  },
+);
+
+it('J3 never forwards uncertain selection or resends it on a workflow retry', async () => {
+  await messages(1);
+  await grant();
+  const fake = workflowTransport((value) => {
+    delete value.usage;
+  });
+  const input = ownerAsk();
+  await expect(
+    answerTurn(db, config, fake.fetcher, owner, input),
+  ).rejects.toMatchObject({ code: 'MAIL_BROKER_INCOMPLETE' });
+  expect(fake.sent).toEqual([]);
+  expect(fake.jev).toHaveLength(1);
+  await expect(
+    answerTurn(db, config, fake.fetcher, owner, input),
+  ).rejects.toMatchObject({ code: 'MAIL_BROKER_INCOMPLETE' });
+  expect(fake.jev).toHaveLength(1);
+});
+
+it('J3 resumes confirmed checkpoints with the pinned workflow identity and no duplicate batch charge', async () => {
+  await messages(30);
+  await grant();
+  const workflow = await openBrokerWorkflow(
+    db,
+    owner,
+    randomUUID(),
+    'stable',
+    randomUUID(),
+  );
+  await db.query(
+    "INSERT INTO ai_conversations(id,owner_id,title) VALUES($1,$2,'Synthetic checkpoint')",
+    [workflow.conversationId, owner],
+  );
+  const ctx = {
+    ...context(),
+    logicalRequestId: workflow.id,
+    deadlineAt: workflow.deadlineAt,
+  };
+  const [g] = await db.query(
+    'SELECT id,version FROM mail_broker_grants WHERE owner_id=$1',
+    [owner],
+  );
+  const started = await beginBrokerRetrieval(
+    db,
+    config,
+    owner,
+    {
+      operationId: workflow.id,
+      grantId: String(g!.id),
+      expectedGrantVersion: Number(g!.version),
+      intent: 'Find deadline evidence',
+      maxCandidates: 100,
+      maxResults: 50,
+    },
+    ctx,
+  );
+  const first = await prepareBrokerPage(
+    db,
+    config,
+    owner,
+    started.receipt.id,
+    started.cursor,
+    'Find deadline evidence',
+  );
+  const fake = workflowTransport();
+  await executeJevBatch(
+    db,
+    config,
+    owner,
+    first.id,
+    'Find deadline evidence',
+    ((url, init) => fake.fetcher(String(url), init!)) as typeof fetch,
+  );
+  const result = await retrieveBrokerMail(
+    db,
+    config,
+    fake.fetcher,
+    owner,
+    workflow.id,
+    'Find deadline evidence',
+    ctx,
+    100,
+  );
+  expect(result.messages).toHaveLength(30);
+  expect(fake.jev).toHaveLength(2);
+  expect(
+    (
+      await retrieveBrokerMail(
+        db,
+        config,
+        fake.fetcher,
+        owner,
+        workflow.id,
+        'Find deadline evidence',
+        ctx,
+        100,
+      )
+    ).messages,
+  ).toHaveLength(30);
+  expect(fake.jev).toHaveLength(2);
+});
+
+it('J3 binds stable older-window continuations and rejects foreign or revoked cursors', async () => {
+  await messages(8);
+  const g = await grant();
+  const fake = workflowTransport();
+  const ctx = context();
+  const b = await beginBrokerRetrieval(
+    db,
+    config,
+    owner,
+    {
+      operationId: randomUUID(),
+      grantId: g.id,
+      expectedGrantVersion: g.version,
+      intent: 'Find deadline evidence',
+      maxCandidates: 5,
+      maxResults: 50,
+    },
+    ctx,
+  );
+  const first = await prepareBrokerPage(
+    db,
+    config,
+    owner,
+    b.receipt.id,
+    b.cursor,
+    'Find deadline evidence',
+  );
+  await executeJevBatch(
+    db,
+    config,
+    owner,
+    first.id,
+    'Find deadline evidence',
+    ((url, init) => fake.fetcher(String(url), init!)) as typeof fetch,
+  );
+  const selected = await selectedBrokerMail(db, config, owner, b.receipt.id);
+  const bound = await bindBrokerForwarding(
+    db,
+    config,
+    owner,
+    ctx.logicalRequestId,
+    b.receipt.id,
+    selected.messages.map((m) => m.id),
+    selected.dependencies,
+  );
+  expect(
+    await brokerLineageEligible(db, owner, b.receipt.id, bound.digest, config),
+  ).toBe(true);
+  const row = await readBrokerRetrieval(db, owner, b.receipt.id);
+  await messages(1, { received: '2025-01-01T00:00:00Z' }); // Backfilled after snapshot: excluded.
+  const request = {
+    operationId: randomUUID(),
+    grantId: g.id,
+    expectedGrantVersion: g.version,
+    intent: 'Find deadline evidence',
+    maxCandidates: 5,
+    maxResults: 50,
+    continuation: row.cursor_token,
+  };
+  const next = await beginBrokerRetrieval(
+    db,
+    config,
+    owner,
+    request,
+    context(),
+  );
+  const snapshot = (await readBrokerRetrieval(db, owner, next.receipt.id))
+    .snapshot;
+  expect(snapshot).toHaveLength(3);
+  expect(
+    snapshot.some((s) => selected.dependencies.some((d) => d.id === s.id)),
+  ).toBe(false);
+  await expect(
+    beginBrokerRetrieval(db, config, other, request, context()),
+  ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  await db.query(
+    "UPDATE email_messages SET received_at='2024-01-01',version=version+1 WHERE id=$1",
+    [selected.dependencies[0]!.id],
+  );
+  await expect(
+    beginBrokerRetrieval(
+      db,
+      config,
+      owner,
+      { ...request, operationId: randomUUID() },
+      context(),
+    ),
+  ).rejects.toMatchObject({ code: 'MAIL_CONTINUATION_INVALID' });
+  await db.query(
+    'UPDATE mail_broker_grants SET enabled=false,version=version+1 WHERE id=$1',
+    [g.id],
+  );
+  expect(
+    await brokerLineageEligible(db, owner, b.receipt.id, bound.digest, config),
+  ).toBe(false);
+});
+
+it('J3 withholds legacy direct-mail history without a broker receipt', async () => {
+  const [id] = await messages(1);
+  expect(
+    await historySourcesEligible(
+      db,
+      owner,
+      [
+        {
+          kind: 'mail-message',
+          id: id!,
+          labels: ['unlabeled'],
+          connector: { id: connector, version: 1 },
+        },
+      ],
+      { allowed: ['unlabeled'], useMail: true },
+    ),
+  ).toBe(false);
+});
 
 it('requires owner auth; grants are versioned/idempotent, reject unsupported scopes and foreign identities', async () => {
   expect(
@@ -872,6 +1292,7 @@ async function agentContext(cap = 3000) {
   expect(result.statusCode, result.body).toBe(200);
   return {
     grant: result.json().grant as { id: string; version: number },
+    conversation,
     ctx: {
       ...context(),
       agent: { id, runId, leaseToken, goalDigest: brokerDigest('Plan') },
@@ -982,6 +1403,51 @@ it('rechecks a lowered agent cap after admission and releases both unsent holds'
   );
   expect(receipt.status).toBe('blocked');
   expect(fetcher).not.toHaveBeenCalled();
+  expect(await readBudgetUsage(db, owner)).toMatchObject({ heldMicros: '0' });
+});
+it('J3 refuses the answer exchange when the agent allowance shrinks during retrieval, keeping the settled Jev charge', async () => {
+  await messages(1);
+  const a = await agentContext(300000);
+  const agent = a.ctx.agent!;
+  const fake = workflowTransport();
+  const fetcher = vi.fn<typeof fetch>(async (url, init) => {
+    const response = await fake.fetcher(url as string, init!);
+    // The owner lowers the agent cap while the broker exchange is in flight.
+    if (url === 'https://api.typesafe.ai/v1/systemone')
+      await db.query(
+        'UPDATE responsibilities SET monthly_cap_micros=1 WHERE id=$1',
+        [agent.id],
+      );
+    return response;
+  });
+  await expect(
+    answerTurn(db, config, fetcher, owner, {
+      operationId: randomUUID(),
+      prompt: 'Find deadlines',
+      ask: 'Run',
+      timeZone: 'UTC',
+      conversationId: a.conversation,
+      useMail: true,
+      trigger: 'agent',
+      agentId: agent.id,
+      agentRun: {
+        runId: agent.runId,
+        token: agent.leaseToken,
+        now: () => new Date(),
+      },
+    }),
+  ).rejects.toMatchObject({ code: 'AGENT_BUDGET_EXCEEDED' });
+  // The receiving model is never dispatched and the answer hold is never taken.
+  expect(fake.jev).toHaveLength(1);
+  expect(fake.sent).toEqual([]);
+  expect(
+    await db.query(
+      "SELECT status FROM ai_budget_reservations WHERE owner_id=$1 AND status IN ('reserved','uncertain')",
+      [owner],
+    ),
+  ).toEqual([]);
+  // The settled Jev charge is not refunded; only the unsent answer headroom was released.
+  expect(await agentSpend(db, owner, agent.id)).toBeGreaterThan(0n);
   expect(await readBudgetUsage(db, owner)).toMatchObject({ heldMicros: '0' });
 });
 it('enforces two retrievals per run, foreign-run ownership and deadline bounds', async () => {
@@ -1142,4 +1608,194 @@ it('keeps uncertain admitted receipts across an actual database close/reopen wit
     await disk?.close();
     await rm(target, { recursive: true, force: true });
   }
+});
+
+it.each(['grant', 'loser', 'route', 'session', 'budget'] as const)(
+  'J3 blocks a changed %s at the downstream transmission guard and releases only the unsent hold',
+  async (mutation) => {
+    const ids = await messages(2);
+    await grant();
+    let authorized = true;
+    const fake = workflowTransport((value) => {
+      const answers = value.answers as Record<
+        string,
+        { score: number; probabilities: Record<string, number> }
+      >;
+      const loser = Object.values(answers)[1]!;
+      loser.score = 0;
+      loser.probabilities = { '0': 1, '1': 0, '2': 0, '3': 0 };
+    });
+    const guarded = changeAfterAdmission(async (tx) => {
+      if (mutation === 'grant')
+        await tx.query(
+          'UPDATE mail_broker_grants SET enabled=false,version=version+1 WHERE owner_id=$1',
+          [owner],
+        );
+      if (mutation === 'loser') {
+        const [row] = await tx.query(
+          'SELECT selected_ids FROM mail_broker_retrievals WHERE owner_id=$1',
+          [owner],
+        );
+        const loser = ids.find(
+          (id) => !(row!.selected_ids as string[]).includes(id),
+        );
+        await tx.query(
+          "UPDATE email_messages SET body='Changed loser',version=version+1 WHERE id=$1",
+          [loser],
+        );
+      }
+      if (mutation === 'route')
+        await tx.query(
+          "UPDATE ai_provider_consents SET approved=false,version=version+1 WHERE owner_id=$1 AND alias='jev-mail'",
+          [owner],
+        );
+      if (mutation === 'session') authorized = false;
+      if (mutation === 'budget')
+        await tx.query(
+          'UPDATE ai_budget_policies SET version=version+1 WHERE owner_id=$1',
+          [owner],
+        );
+    });
+    const turn = await answerTurn(guarded, config, fake.fetcher, owner, {
+      ...ownerAsk(),
+      authority: async () => authorized,
+    });
+    expect(fake.jev).toHaveLength(1);
+    expect(fake.sent).toEqual([]);
+    expect(turn.request).toMatchObject({
+      status: 'failed',
+      reason: 'context-changed',
+    });
+    expect(turn.mail).toEqual([]);
+    expect(
+      await db.query(
+        'SELECT status FROM ai_budget_reservations WHERE owner_id=$1 ORDER BY status',
+        [owner],
+      ),
+    ).toEqual([{ status: 'released' }, { status: 'settled' }]);
+  },
+);
+
+it.each([false, true])(
+  'J3 scheduled-agent goal retrieval respects pause-finish-running and lease fencing (lost=%s)',
+  async (lost) => {
+    await messages(7);
+    const a = await agentContext(100000);
+    const agent = a.ctx.agent;
+    const fake = workflowTransport();
+    const guarded = changeAfterAdmission(async (tx) => {
+      await tx.query(
+        "UPDATE responsibilities SET status='paused' WHERE id=$1",
+        [agent.id],
+      );
+      if (lost)
+        await tx.query(
+          'UPDATE responsibility_runs SET lease_token=$2 WHERE id=$1',
+          [agent.runId, randomUUID()],
+        );
+    });
+    const [row] = await db.query(
+      'SELECT conversation_id FROM responsibilities WHERE id=$1',
+      [agent.id],
+    );
+    const turn = await answerTurn(guarded, config, fake.fetcher, owner, {
+      ...ownerAsk(),
+      prompt: 'Server scheduled prompt',
+      ask: 'Scheduled run',
+      trigger: 'agent',
+      agentId: agent.id,
+      agentGoal: 'Plan',
+      agentRun: {
+        runId: agent.runId,
+        token: agent.leaseToken,
+        now: () => new Date(),
+      },
+      conversationId: String(row!.conversation_id),
+    });
+    expect(fake.jev).toHaveLength(1);
+    expect(JSON.parse(fake.jev[0]!).state.request).toBe('Plan');
+    expect(fake.jev[0]).not.toContain('Server scheduled prompt');
+    expect(fake.sent).toHaveLength(lost ? 0 : 1);
+    expect(turn.request.status).toBe(lost ? 'failed' : 'completed');
+    if (!lost) {
+      expect(turn.mail).toHaveLength(7);
+      expect(turn.proposalAccess).toBe('read-only');
+    }
+  },
+);
+
+it('J3 owner authorization is checked before each Jev send, without charging an unsent batch', async () => {
+  await messages(1);
+  const b = await begin();
+  const p = await page(b);
+  const fake = transport();
+  expect(
+    await executeJevBatch(db, config, owner, p.id, b.request.intent, fake, {
+      authority: async () => false,
+    }),
+  ).toMatchObject({ status: 'blocked' });
+  expect(fake).not.toHaveBeenCalled();
+  expect((await readBudgetUsage(db, owner)).heldMicros).toBe('0');
+});
+
+it('J3 clips Unicode bodies without breaking the final source projection', async () => {
+  await messages(1, { body: 'a'.repeat(5999) + '\uD83D\uDE42tail' });
+  await grant();
+  const fake = workflowTransport();
+  const turn = await answerTurn(db, config, fake.fetcher, owner, ownerAsk());
+  expect(fake.sent).toHaveLength(1);
+  expect(turn.mail[0]?.truncated).toBe(true);
+  const payload = JSON.parse(
+    (fake.sent[0]!.messages as { content: string }[]).at(-1)!.content,
+  ) as { mail: { body: string }[] };
+  expect(payload.mail[0]!.body).toBe('a'.repeat(5999));
+});
+
+it('J3 cannot reauthorize an older direct-mail turn by merging a newer broker turn into history', async () => {
+  await messages(1);
+  await grant();
+  const fake = workflowTransport();
+  const first = await answerTurn(db, config, fake.fetcher, owner, ownerAsk());
+  const [stored] = await db.query(
+    'SELECT inference_sources FROM ai_conversation_turns WHERE id=$1',
+    [first.id],
+  );
+  const legacy = (stored!.inference_sources as { kind: string }[]).filter(
+    (s) => s.kind !== 'mail-broker',
+  );
+  await db.query(
+    'UPDATE ai_conversation_turns SET inference_sources=$2 WHERE id=$1',
+    [first.id, JSON.stringify(legacy)],
+  );
+  const second = await answerTurn(db, config, fake.fetcher, owner, {
+    ...ownerAsk(),
+    conversationId: first.conversationId,
+  });
+  const history = await readBoundHistory(db, owner, first.conversationId, {
+    allowed: ['unlabeled'],
+    useMail: true,
+  });
+  expect(history.turns.map((t) => t.id)).toEqual([second.id]);
+  expect(history.withheld).toBe(1);
+});
+
+it('J3 conversation deletion after a confirmed page stops later Jev admissions', async () => {
+  await messages(30);
+  await grant();
+  const fake = workflowTransport();
+  const delegated = async (url: string, init: RequestInit) => {
+    const response = await fake.fetcher(url, init);
+    if (url === 'https://api.typesafe.ai/v1/systemone')
+      await db.query(
+        'UPDATE ai_conversations SET deleted_at=CURRENT_TIMESTAMP WHERE owner_id=$1',
+        [owner],
+      );
+    return response;
+  };
+  await expect(
+    answerTurn(db, config, delegated, owner, ownerAsk()),
+  ).rejects.toMatchObject({ code: 'MAIL_CONVERSATION_CHANGED' });
+  expect(fake.jev).toHaveLength(1);
+  expect(fake.sent).toEqual([]);
+  expect((await readBudgetUsage(db, owner)).heldMicros).toBe('0');
 });
