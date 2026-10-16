@@ -1,6 +1,20 @@
 import { expect, it } from 'vitest';
 import { parseRoute, routePath, routeTitle } from '../src/lib/router';
 
+it('round-trips bound study suggestions only on the study-plan route', () => {
+  const assistant = {
+    turnId: '00000000-0000-4000-8000-000000000001',
+    suggestionId: '00000000-0000-4000-8000-000000000002',
+  };
+  const route = { name: 'classes' as const, id: 'plan', assistant };
+  const url = new URL(routePath(route), 'https://example.test');
+  expect(parseRoute(url.pathname, url.search)).toEqual(route);
+  expect(
+    parseRoute('/classes/plan', '?turn=foreign&suggestion=invalid'),
+  ).toEqual({ name: 'classes', id: 'plan' });
+  expect(parseRoute('/classes', url.search)).toEqual({ name: 'classes' });
+});
+
 it('maps every primary view to a stable path and back', () => {
   for (const name of [
     'today',

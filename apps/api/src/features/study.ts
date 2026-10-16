@@ -6,6 +6,7 @@ import {
   studyPreferencesInputSchema,
   studyGoalWriteSchema,
   studyRangeSchema,
+  studyPreviewInputSchema,
   studyDraftWriteSchema,
   studyDraftEditSchema,
   studyHistoryQuerySchema,
@@ -26,6 +27,11 @@ import {
   linkStudyEventContext,
 } from './study-workload.js';
 import { createStudyEvent } from './calendar.js';
+import {
+  verifyStudySuggestion,
+  studyPlanOrigin,
+} from './study-assistant-origin.js';
+import { retainPlannerOrigin } from './ai-planner-origin.js';
 import {
   readStudyPreferences,
   readStudyGoals,
@@ -136,7 +142,9 @@ export function registerStudy(
   );
   app.post(`${base}/preview`, (request) =>
     snapshot(request, async (tx, owner) => {
-      const range = studyRangeSchema.parse(request.body);
+      const range = studyPreviewInputSchema.parse(request.body);
+      if (range.assistant)
+        await verifyStudySuggestion(tx, owner, range.assistant, range);
       return buildStudyPreview(
         await studyContext(tx, owner, range.from, range.to),
         range.from,
@@ -153,6 +161,9 @@ export function registerStudy(
       input.operationId,
       { kind: 'study.draft', input },
       async (tx) => {
+        const origin = input.assistant
+          ? await verifyStudySuggestion(tx, owner.id, input.assistant, input)
+          : null;
         const context = await studyContext(tx, owner.id, input.from, input.to);
         if (context.contextRevision !== input.expectedContextRevision)
           throw new ApiError(
@@ -173,9 +184,27 @@ export function registerStudy(
           context.contextRevision,
           context.academicWork,
         );
+        if (origin && input.assistant)
+          await tx.query(
+            'INSERT INTO study_plan_ai_origins(owner_id,plan_id,turn_id,suggestion_id,digest,capture) VALUES($1,$2,$3,$4,$5,$6::jsonb)',
+            [
+              owner.id,
+              id,
+              input.assistant.turnId,
+              input.assistant.suggestionId,
+              origin.digest,
+              JSON.stringify(origin.capture),
+            ],
+          );
         return readStudyPlan(tx, owner.id, id);
       },
-      { isolation: 'repeatable read' },
+      {
+        isolation: 'repeatable read',
+        authorize: async (tx) => {
+          if (!(await auth.currentUser(request, tx)))
+            throw new ApiError(401, 'UNAUTHENTICATED', 'Sign in again.');
+        },
+      },
     );
     return reply.code(201).send(result);
   });
@@ -262,6 +291,7 @@ export function registerStudy(
             'STUDY_PLAN_STATE',
             'Only draft plans can be edited.',
           );
+        await studyPlanOrigin(tx, owner.id, id, plan.preview);
         const context = await studyContext(
           tx,
           owner.id,
@@ -310,7 +340,13 @@ export function registerStudy(
         );
         return readStudyPlan(tx, owner.id, id);
       },
-      { isolation: 'repeatable read' },
+      {
+        isolation: 'repeatable read',
+        authorize: async (tx) => {
+          if (!(await auth.currentUser(request, tx)))
+            throw new ApiError(401, 'UNAUTHENTICATED', 'Sign in again.');
+        },
+      },
     );
   });
   for (const action of ['approve', 'cancel', 'hide'] as const)
@@ -343,6 +379,12 @@ export function registerStudy(
               return readStudyPlan(tx, owner.id, id, true);
             }
             if (action === 'approve') {
+              const assistantOrigin = await studyPlanOrigin(
+                tx,
+                owner.id,
+                id,
+                plan.preview,
+              );
               if (plan.status !== 'draft')
                 throw new ApiError(
                   409,
@@ -424,6 +466,19 @@ export function registerStudy(
                     ),
                   ]
                 : undefined;
+              if (assistantOrigin) {
+                if (!workloadLabels)
+                  throw new ApiError(
+                    409,
+                    'STUDY_ORIGIN_CHANGED',
+                    'Review a new academic answer.',
+                  );
+                workloadLabels.push(
+                  ...assistantOrigin.capture.labels.filter(
+                    (label) => label !== 'unlabeled',
+                  ),
+                );
+              }
               const links = [];
               for (const slot of plan.preview.slots) {
                 const course = context.courses.find(
@@ -449,6 +504,20 @@ export function registerStudy(
                 );
                 if (workloadContext)
                   await linkStudyEventContext(tx, owner.id, id, event.id);
+                if (assistantOrigin) {
+                  const [originRow] = await tx.query(
+                    'SELECT turn_id FROM study_plan_ai_origins WHERE owner_id=$1 AND plan_id=$2',
+                    [owner.id, id],
+                  );
+                  await retainPlannerOrigin(
+                    tx,
+                    owner.id,
+                    'event',
+                    event.id,
+                    String(originRow!.turn_id),
+                    assistantOrigin.capture,
+                  );
+                }
                 links.push({
                   eventId: event.id,
                   approvedVersion: event.version,
@@ -498,7 +567,13 @@ export function registerStudy(
             }
             return readStudyPlan(tx, owner.id, id);
           },
-          { isolation: 'repeatable read' },
+          {
+            isolation: 'repeatable read',
+            authorize: async (tx) => {
+              if (!(await auth.currentUser(request, tx)))
+                throw new ApiError(401, 'UNAUTHENTICATED', 'Sign in again.');
+            },
+          },
         );
       },
     });

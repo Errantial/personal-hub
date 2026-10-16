@@ -1,5 +1,6 @@
 import { approveLiveDestination } from './helpers/openrouter.js';
 import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { Temporal } from '@hub/contracts';
 import { buildApp } from '../src/app.js';
@@ -11,8 +12,13 @@ import {
   worstCaseMicros,
   zdrUrl,
 } from '../src/ai/openrouter-live.js';
-import { answerTurn, toProposal } from '../src/features/assistant.js';
+import {
+  answerTurn,
+  toProposal,
+  readAnswer,
+} from '../src/features/assistant.js';
 import { finishTurn } from '../src/features/assistant-conversations.js';
+import { livePlannerContext } from '../src/ai/live-projections.js';
 import { plannedWrite } from '../src/features/planner-write.js';
 import { applyRequest } from '@hub/contracts';
 import type { AssistantProposal, Task } from '@hub/contracts';
@@ -95,9 +101,13 @@ const action = (fields: Record<string, unknown>) => ({
   ...fields,
 });
 
-async function start(key: string | null = 'sk-or-synthetic-test') {
+async function start(
+  key: string | null = 'sk-or-synthetic-test',
+  dataDir = 'memory://',
+) {
   config = readConfig({
     ...base,
+    PGLITE_DATA_DIR: dataDir,
     ...(key ? { AI_SECRET_OPENROUTER: key } : {}),
   });
   database = await openDatabase(config);
@@ -1746,5 +1756,330 @@ it('legacy Use mail requires a separate broker grant and never falls back to sea
   expect(sent).toEqual([]);
   expect(await database.query('SELECT id FROM ai_budget_reservations')).toEqual(
     [],
+  );
+});
+
+const studyRange = { from: '2036-05-12', to: '2036-05-19' };
+async function suggestedStudy(dataDir = 'memory://') {
+  await start('sk-or-synthetic-test', dataDir);
+  await setBudget();
+  const source = await seedAcademic({
+    title: 'Study source',
+    estimatedMinutes: 90,
+  });
+  await call('PUT', '/api/v1/study/preferences', {
+    operationId: randomUUID(),
+    expectedVersion: 1,
+    timeZone: 'America/Denver',
+    sessionMinutes: 30,
+    breakMinutes: 5,
+    dailyMaximumMinutes: 120,
+    windows: [1, 2, 3, 4, 5, 6, 7].map((day) => ({
+      day,
+      startMinute: 540,
+      endMinute: 720,
+    })),
+  });
+  await call('PUT', `/api/v1/study/goals/${source.courseId}`, {
+    operationId: randomUUID(),
+    expectedVersion: 1,
+    minutesPerWeek: 90,
+    priority: 3,
+    targetDate: null,
+  });
+  chat = () =>
+    completion({
+      reply: 'Review the study preview.',
+      actions: [],
+      studySuggestions: [{ ...studyRange, refs: ['w1'] }],
+    });
+  const asked = await askAcademic('Suggest study planning', [
+    { id: source.workId, expectedVersion: 1, expectedCourseVersion: 1 },
+  ]);
+  expect(asked.statusCode, asked.body).toBe(200);
+  const turn = asked.json().turn;
+  expect(turn.studySuggestions).toHaveLength(1);
+  const assistant = {
+    turnId: turn.id,
+    suggestionId: turn.studySuggestions[0].id,
+  };
+  return { ...source, turn, assistant };
+}
+async function suggestedDraft(assistant: {
+  turnId: string;
+  suggestionId: string;
+}) {
+  const preview = await call('POST', '/api/v1/study/preview', {
+    ...studyRange,
+    assistant,
+  });
+  expect(preview.statusCode, preview.body).toBe(200);
+  const input = {
+    ...studyRange,
+    assistant,
+    operationId: randomUUID(),
+    expectedContextRevision: preview.json().contextRevision,
+  };
+  const draft = await call('POST', '/api/v1/study/plans', input);
+  expect(draft.statusCode, draft.body).toBe(201);
+  expect((await call('POST', '/api/v1/study/plans', input)).json()).toEqual(
+    draft.json(),
+  );
+  return draft.json();
+}
+
+it('P8 creates a bound deterministic draft, approves once, retains labels and cancels without erasing owner edits', async () => {
+  const { assistant, workId } = await suggestedStudy();
+  const draft = await suggestedDraft(assistant);
+  expect(draft.assistant).toEqual(assistant);
+  expect(draft.preview.warnings).toContain('EXTERNAL_CALENDARS_NOT_CHECKED');
+  expect(draft.preview.warnings).toContain('ACADEMIC_DEADLINES_MISSING');
+  const input = { expectedVersion: draft.version, operationId: randomUUID() };
+  const approved = await call(
+    'POST',
+    `/api/v1/study/plans/${draft.id}/approve`,
+    input,
+  );
+  expect(approved.statusCode, approved.body).toBe(200);
+  expect(
+    (
+      await call('POST', `/api/v1/study/plans/${draft.id}/approve`, input)
+    ).json(),
+  ).toEqual(approved.json());
+  const plan = approved.json();
+  expect(plan.eventLinks.length).toBeGreaterThan(0);
+  const rows = await database.query(
+    'SELECT ai_origin,ai_labels,academic_labels,course_id FROM events WHERE owner_id=$1',
+    [await ownerId()],
+  );
+  expect(rows).toHaveLength(plan.eventLinks.length);
+  expect(
+    (await livePlannerContext(database, await ownerId(), { limit: 150 }))
+      .events,
+  ).toEqual([]);
+  for (const row of rows) {
+    expect(row.ai_origin).toBe('bound-derived');
+    expect(row.ai_labels).toContain('unlabeled');
+    expect(row.academic_labels).toBeNull();
+  }
+  const requestsBefore = sent.length;
+  const editedId = plan.eventLinks[0].eventId;
+  await database.query('UPDATE events SET version=version+1 WHERE id=$1', [
+    editedId,
+  ]);
+  const cancelled = await call(
+    'POST',
+    `/api/v1/study/plans/${draft.id}/cancel`,
+    { expectedVersion: plan.version, operationId: randomUUID() },
+  );
+  expect(cancelled.statusCode, cancelled.body).toBe(200);
+  expect(cancelled.json().preservedEventIds).toContain(editedId);
+  expect(sent).toHaveLength(requestsBefore);
+  expect(
+    await database.query(
+      'SELECT status,estimated_minutes FROM academic_work WHERE id=$1',
+      [workId],
+    ),
+  ).toEqual([{ status: 'planned', estimated_minutes: 90 }]);
+});
+
+for (const change of [
+  'work',
+  'class',
+  'closed',
+  'labels',
+  'destination',
+  'conversation',
+  'digest',
+] as const)
+  it(`P8 blocks ${change} changes after draft before approval and writes no events`, async () => {
+    const { assistant, workId, courseId } = await suggestedStudy();
+    const draft = await suggestedDraft(assistant);
+    if (change === 'work')
+      await database.query(
+        'UPDATE academic_work SET version=version+1 WHERE id=$1',
+        [workId],
+      );
+    if (change === 'class')
+      await database.query(
+        'UPDATE courses SET deleted_at=CURRENT_TIMESTAMP,version=version+1 WHERE id=$1',
+        [courseId],
+      );
+    if (change === 'closed')
+      await database.query(
+        "UPDATE academic_work SET status='submitted',version=version+1 WHERE id=$1",
+        [workId],
+      );
+    if (change === 'labels')
+      await database.query(
+        "UPDATE academic_work SET sensitivity='restricted',version=version+1 WHERE id=$1",
+        [workId],
+      );
+    if (change === 'destination')
+      await database.query(
+        'UPDATE ai_live_destinations SET revoked=true WHERE owner_id=$1',
+        [await ownerId()],
+      );
+    if (change === 'conversation')
+      await database.query(
+        'UPDATE ai_conversations SET deleted_at=CURRENT_TIMESTAMP WHERE id=$1',
+        [
+          (
+            await call('GET', `/api/v1/assistant/turns/${assistant.turnId}`)
+          ).json().turn.conversationId,
+        ],
+      );
+    if (change === 'digest')
+      await database.query(
+        "UPDATE ai_turn_origins SET proposal_digests='{}' WHERE turn_id=$1",
+        [assistant.turnId],
+      );
+    const result = await call(
+      'POST',
+      `/api/v1/study/plans/${draft.id}/approve`,
+      { expectedVersion: draft.version, operationId: randomUUID() },
+    );
+    expect(result.statusCode, result.body).toBe(409);
+    expect(await database.query('SELECT id FROM events')).toEqual([]);
+    expect(
+      (
+        await call('POST', `/api/v1/study/plans/${draft.id}/cancel`, {
+          expectedVersion: draft.version,
+          operationId: randomUUID(),
+        })
+      ).statusCode,
+    ).toBe(200);
+  });
+
+it('P8 rejects forged ranges, IDs and model slots; legacy answers keep no study suggestions', async () => {
+  expect(
+    readAnswer(
+      JSON.stringify({ reply: 'Legacy.', actions: [] }),
+      { tasks: [], events: [], withheld: 0 },
+      'UTC',
+    ).studySuggestions,
+  ).toEqual([]);
+  const { assistant } = await suggestedStudy();
+  const original = sent.length;
+  for (const body of [
+    { ...studyRange, from: '2036-05-13', assistant },
+    { ...studyRange, assistant: { ...assistant, turnId: randomUUID() } },
+    { ...studyRange, assistant: { ...assistant, suggestionId: randomUUID() } },
+  ])
+    expect((await call('POST', '/api/v1/study/preview', body)).statusCode).toBe(
+      409,
+    );
+  chat = () =>
+    completion({
+      reply: 'Invalid.',
+      actions: [],
+      studySuggestions: [{ ...studyRange, refs: ['w1'], slots: [] }],
+    });
+  const extra = await seedAcademic();
+  const result = await askAcademic('No slots', [
+    { id: extra.workId, expectedVersion: 1, expectedCourseVersion: 1 },
+  ]);
+  expect(result.json().turn.studySuggestions).toEqual([]);
+  expect(result.json().turn.request.dropped).toBe(1);
+  expect(sent).toHaveLength(original + 1);
+});
+
+it('P8 rejects an empty-capacity plan and rechecks deterministic context before approval', async () => {
+  const { assistant, courseId } = await suggestedStudy();
+  const draft = await suggestedDraft(assistant);
+  await call('PUT', `/api/v1/study/goals/${courseId}`, {
+    operationId: randomUUID(),
+    expectedVersion: 2,
+    minutesPerWeek: 0,
+    priority: 3,
+    targetDate: null,
+  });
+  const result = await call('POST', `/api/v1/study/plans/${draft.id}/approve`, {
+    expectedVersion: draft.version,
+    operationId: randomUUID(),
+  });
+  expect(result.statusCode).toBe(409);
+  expect(result.json().error.code).toBe('STUDY_CONTEXT_CONFLICT');
+  const empty = await suggestedDraft(assistant);
+  expect(empty.preview.slots).toEqual([]);
+  const noSlots = await call(
+    'POST',
+    `/api/v1/study/plans/${empty.id}/approve`,
+    { expectedVersion: empty.version, operationId: randomUUID() },
+  );
+  expect(noSlots.json().error.code).toBe('STUDY_EMPTY');
+  expect(await database.query('SELECT id FROM events')).toEqual([]);
+});
+
+it('P8 preserves draft origin and exact receipt across an isolated database restart without another inference', async () => {
+  const { assistant } = await suggestedStudy(
+    resolve('.artifacts', `p8-restart-${randomUUID()}`),
+  );
+  const preview = await call('POST', '/api/v1/study/preview', {
+    ...studyRange,
+    assistant,
+  });
+  const input = {
+    ...studyRange,
+    assistant,
+    expectedContextRevision: preview.json().contextRevision,
+    operationId: randomUUID(),
+  };
+  const first = await call('POST', '/api/v1/study/plans', input);
+  expect(first.statusCode, first.body).toBe(201);
+  const count = sent.length;
+  await app.close();
+  database = await openDatabase(config);
+  app = await buildApp(
+    { logger: false },
+    { config, database, openRouterFetch: fetcherInUse },
+  );
+  expect((await call('POST', '/api/v1/study/plans', input)).json()).toEqual(
+    first.json(),
+  );
+  const approved = await call(
+    'POST',
+    `/api/v1/study/plans/${first.json().id}/approve`,
+    { operationId: randomUUID(), expectedVersion: 1 },
+  );
+  expect(approved.statusCode, approved.body).toBe(200);
+  expect(approved.json().assistant).toEqual(assistant);
+  expect(sent).toHaveLength(count);
+  // Two disk-backed database boot/migration/flush cycles, not a provider deadline.
+}, 60000);
+
+it('P8 rolls back a draft and receipt if durable origin persistence fails', async () => {
+  const { assistant } = await suggestedStudy();
+  const preview = await call('POST', '/api/v1/study/preview', {
+    ...studyRange,
+    assistant,
+  });
+  await database.exec(
+    'ALTER TABLE study_plan_ai_origins ADD CONSTRAINT injected_origin_failure CHECK(false) NOT VALID',
+  );
+  const input = {
+    ...studyRange,
+    assistant,
+    expectedContextRevision: preview.json().contextRevision,
+    operationId: randomUUID(),
+  };
+  expect((await call('POST', '/api/v1/study/plans', input)).statusCode).toBe(
+    500,
+  );
+  expect(await database.query('SELECT id FROM study_plans')).toEqual([]);
+  expect(
+    await database.query('SELECT plan_id FROM study_plan_ai_origins'),
+  ).toEqual([]);
+  expect(
+    await database.query(
+      'SELECT operation_id FROM mutation_receipts WHERE operation_id=$1',
+      [input.operationId],
+    ),
+  ).toEqual([]);
+  await database.exec(
+    'ALTER TABLE study_plan_ai_origins DROP CONSTRAINT injected_origin_failure',
+  );
+  expect((await call('POST', '/api/v1/study/plans', input)).statusCode).toBe(
+    201,
   );
 });

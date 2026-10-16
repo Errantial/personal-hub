@@ -3,6 +3,7 @@ import { taskSchema } from './core.js';
 import { calendarRecordSchema, dateOnly, instant, zone } from './features.js';
 import { runOutcomeSchema } from './responsibilities.js';
 import { mailBrokerReceiptSchema } from './mail-broker.js';
+import { studyRangeSchema } from './study.js';
 
 /**
  * Natural-language planner assistant (live OpenRouter). The model only
@@ -185,6 +186,25 @@ export const assistantProposalSchema = z.discriminatedUnion('kind', [
 ]);
 export type AssistantProposal = z.infer<typeof assistantProposalSchema>;
 
+/** A planning range only; slots and approval are always deterministic/owner-controlled. */
+export const assistantStudySuggestionSchema = studyRangeSchema.safeExtend({
+  id: z.string().uuid(),
+  sources: z
+    .array(
+      z.strictObject({
+        id: z.string().uuid(),
+        expectedVersion: z.number().int().positive(),
+        expectedCourseVersion: z.number().int().positive(),
+        title: z.string().max(200),
+      }),
+    )
+    .min(1)
+    .max(20),
+});
+export type AssistantStudySuggestion = z.infer<
+  typeof assistantStudySuggestionSchema
+>;
+
 export const assistantReasonSchema = z.enum([
   /** The answer was not valid structured output. */
   'invalid',
@@ -281,6 +301,7 @@ export const assistantAcademicSentSchema = z.object({
 export type AssistantAcademicSent = z.infer<typeof assistantAcademicSentSchema>;
 
 export const assistantTurnSchema = z.object({
+  studySuggestions: z.array(assistantStudySuggestionSchema).max(1).optional(),
   id: z.string().uuid(),
   conversationId: z.string().uuid(),
   ask: z.string(),

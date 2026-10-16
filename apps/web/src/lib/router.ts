@@ -100,6 +100,7 @@ export type Route =
       /** A class, `'new'` for the add-class form or `'plan'` for the study plan. */
       id?: string;
       section?: ClassSection;
+      assistant?: { turnId: string; suggestionId: string };
     }
   | { name: 'tasks'; id?: string; filter?: TaskFilter }
   | {
@@ -201,12 +202,17 @@ export function parseRoute(pathname: string, search: string): Route {
   }
   if (name === 'classes') {
     const section = query.get('section');
+    const turnId = query.get('turn') ?? '';
+    const suggestionId = query.get('suggestion') ?? '';
     return {
       name,
       ...(detail === 'new' || detail === 'plan' || isUuid(detail)
         ? { id: detail }
         : {}),
       ...(isClassSection(section) && section !== 'topics' ? { section } : {}),
+      ...(detail === 'plan' && isUuid(turnId) && isUuid(suggestionId)
+        ? { assistant: { turnId, suggestionId } }
+        : {}),
     };
   }
   if (name === 'assistant')
@@ -266,9 +272,11 @@ export function routePath(route: Route): string {
     }`;
   if (route.name === 'classes')
     return `/classes${route.id ? `/${route.id}` : ''}${
-      route.section && route.section !== 'topics'
-        ? `?section=${route.section}`
-        : ''
+      route.id === 'plan' && route.assistant
+        ? `?turn=${route.assistant.turnId}&suggestion=${route.assistant.suggestionId}`
+        : route.section && route.section !== 'topics'
+          ? `?section=${route.section}`
+          : ''
     }`;
   if (route.name === 'assistant')
     return `/assistant${route.id ? `/${route.id}` : ''}`;
