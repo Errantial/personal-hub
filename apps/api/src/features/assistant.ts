@@ -49,6 +49,7 @@ import {
   mailSources,
 } from '../ai/live-projections.js';
 import type {
+  AcademicContextItem,
   AcademicProjected,
   AcademicSelected,
   PlannerContext,
@@ -200,7 +201,7 @@ const chooseInstructions = `These messages matched (subject, sender and date onl
 const answerInstructions =
   'Here are the messages you chose. Answer now; name the messages you used by sender and subject.';
 const academicInstructions = `
-Academic items: these are the owner's own manual records. A missing deadline or effort means unknown, not zero. Do not state or infer grades; none are provided.`;
+Academic items: these are the owner's own manual records. A missing deadline or effort means unknown, not zero. Do not state or infer grades; none are provided. For task.create based on one of these items, set ref to its w reference so the task retains its source. Use only open (planned/in_progress) work. Never use task completion to claim submission or mastery. A task dueDate is an owner planning deadline, not a change to the academic deadline. Do not create study reservations from academic work; direct the owner to Classes > Study plan for deterministic capacity/conflict preview and approval.`;
 
 /** Which call of a mail-enabled ask this is, and what came before it. */
 export type MailRound = {
@@ -302,6 +303,7 @@ export function toProposal(
   raw: unknown,
   context: Context,
   timeZone: string,
+  academic: AcademicContextItem[] = [],
 ): AssistantProposal | null {
   const parsed = actionSchema.safeParse(raw);
   if (!parsed.success) return null;
@@ -313,11 +315,28 @@ export function toProposal(
   };
   let proposal: unknown = null;
   switch (action.type) {
-    case 'task.create':
+    case 'task.create': {
+      const source = action.ref === null ? null : lookup('w', academic);
+      if (
+        action.ref !== null &&
+        (!source ||
+          !['planned', 'in_progress'].includes(source.projected.status))
+      )
+        return null;
       if (!title || (action.dueDate !== null && !validDate(action.dueDate)))
         return null;
       proposal = {
         kind: action.type,
+        ...(source
+          ? {
+              academicSource: {
+                id: source.id,
+                expectedWorkVersion: source.version,
+                expectedCourseVersion: source.courseVersion,
+                title: source.projected.title,
+              },
+            }
+          : {}),
         task: {
           title,
           notes: action.notes?.slice(0, 2000) ?? '',
@@ -326,6 +345,7 @@ export function toProposal(
         },
       };
       break;
+    }
     case 'task.update': {
       const target = lookup('t', context.tasks);
       if (!target || (action.dueDate !== null && !validDate(action.dueDate)))
@@ -448,10 +468,11 @@ export function readAnswer(
   content: string,
   context: Context,
   timeZone: string,
+  academic: AcademicContextItem[] = [],
 ) {
   const answer = answerSchema.parse(JSON.parse(content));
   const proposals = answer.actions
-    .map((action) => toProposal(action, context, timeZone))
+    .map((action) => toProposal(action, context, timeZone, academic))
     .filter((value): value is AssistantProposal => value !== null);
   return {
     reply: answer.reply.trim() || null,
@@ -735,7 +756,12 @@ export async function answerTurn(
     let reason: AssistantRequest['reason'] = null;
     if (result.status === 'confirmed' && result.content !== null) {
       try {
-        next = readAnswer(result.content, context, input.timeZone);
+        next = readAnswer(
+          result.content,
+          context,
+          input.timeZone,
+          academic.items,
+        );
       } catch {
         reason = 'invalid';
       }

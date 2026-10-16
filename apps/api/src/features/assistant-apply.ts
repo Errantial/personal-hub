@@ -64,6 +64,21 @@ export async function applySavedProposal(
     await lockSchedule(inner, owner);
     const origin = verified ?? (await verifyTurnOrigin(inner, owner, turnId));
     verifyProposalOrigin(owner, turnId, proposal, item, origin);
+    if (
+      proposal.kind === 'task.create' &&
+      proposal.academicSource &&
+      !origin.capture.sources.some(
+        (source) =>
+          source.kind === 'academic-work' &&
+          source.id === proposal.academicSource!.id,
+      )
+    ) {
+      throw new ApiError(
+        409,
+        'PROVENANCE_UNAVAILABLE',
+        'This academic source was not admitted with the answer.',
+      );
+    }
     const applied = await plannedWrite(
       transactionDatabase(inner),
       owner,

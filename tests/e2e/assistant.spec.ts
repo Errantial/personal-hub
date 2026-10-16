@@ -968,6 +968,7 @@ test('academic selection pins versions, survives a refused ask and clears after 
     }),
   );
   await stubThread(page);
+  await stubOperations(page);
   let attempts = 0;
   await page.route('**/api/v1/assistant/requests', (route) => {
     const body = route.request().postDataJSON();
@@ -990,7 +991,23 @@ test('academic selection pins versions, survives a refused ask and clears after 
         },
       });
     const reply = answer(route, {
-      proposals: [],
+      proposals: [
+        {
+          kind: 'task.create',
+          academicSource: {
+            id: work.id,
+            expectedWorkVersion: work.version,
+            expectedCourseVersion: course.version,
+            title: work.title,
+          },
+          task: {
+            title: 'Draft selected essay',
+            dueDate: null,
+            notes: '',
+            priority: 'normal',
+          },
+        },
+      ],
       status: 'completed',
       reason: null,
       model: 'anthropic/claude-haiku-5.5',
@@ -1043,6 +1060,19 @@ test('academic selection pins versions, survives a refused ask and clears after 
   await expect(page.locator('.turn-details')).toContainText(
     '1 planner or academic item',
   );
+  await expect(
+    page.getByText(new RegExp('Source: ' + work.title)),
+  ).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Apply 1 change', exact: true })
+    .click();
+  await expect(
+    page.locator('.assistant__state').getByText('Applied', { exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(
+    page.locator('.assistant__state').getByText('Undone', { exact: true }),
+  ).toBeVisible();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,

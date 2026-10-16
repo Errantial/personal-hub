@@ -46,6 +46,20 @@ export function applyRequest(
 ): PlannedRequest {
   switch (proposal.kind) {
     case 'task.create':
+      if (proposal.academicSource)
+        return {
+          method: 'POST',
+          path: `/api/v1/academic-work/${proposal.academicSource.id}/planner-work`,
+          body: {
+            kind: 'task',
+            task: proposal.task,
+            operationId,
+            expectedWorkVersion: proposal.academicSource.expectedWorkVersion,
+            expectedCourseVersion:
+              proposal.academicSource.expectedCourseVersion,
+          },
+          returns: 'task',
+        };
       return {
         method: 'POST',
         path: '/api/v1/tasks',

@@ -36,6 +36,9 @@ export function describeProposal(
       return [
         `Add task “${task.title}”`,
         task.dueDate ? `due ${formatDate(task.dueDate)}` : 'no due date',
+        ...(proposal.academicSource
+          ? [`Source: ${proposal.academicSource.title}`]
+          : []),
         ...(task.priority === 'normal' ? [] : [`${task.priority} priority`]),
       ].join(' · ');
     }

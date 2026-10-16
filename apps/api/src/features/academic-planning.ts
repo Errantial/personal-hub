@@ -96,129 +96,7 @@ export function registerAcademicPlanning(
   app.post(base, async (request) => {
     const owner = await auth.requireUser(request);
     const workId = idOf(request.params);
-    const input = academicPlanningWriteSchema.parse(request.body);
-    return mutateSchedule(
-      database,
-      owner.id,
-      input.operationId,
-      { kind: 'academic-planning.create', workId, input },
-      async (tx) => {
-        const current = await readCurrent(tx, owner.id, workId, true);
-        version(current, input.expectedWorkVersion);
-        version(
-          { version: current.courseVersion },
-          input.expectedCourseVersion,
-        );
-        if (current.deletedAt)
-          throw new ApiError(
-            409,
-            'ACADEMIC_WORK_DELETED',
-            'Restore the work before planning.',
-          );
-        if (current.courseArchived)
-          throw new ApiError(
-            409,
-            'ACADEMIC_CLASS_ARCHIVED',
-            'The class is archived.',
-          );
-        if (!['planned', 'in_progress'].includes(current.status))
-          throw new ApiError(
-            409,
-            'ACADEMIC_WORK_CLOSED',
-            'Only open work can create planner items.',
-          );
-        const captured = studyWorkloadSnapshotSchema.parse({
-          id: current.id,
-          version: current.version,
-          courseId: current.courseId,
-          courseVersion: current.courseVersion,
-          courseSensitivity: current.courseSensitivity,
-          dueDate: current.dueDate,
-          estimatedMinutes: current.estimatedMinutes,
-          priority: current.priority,
-          status: current.status,
-          sensitivity: current.sensitivity,
-          academicLabels: current.academicLabels,
-          provenance: current.provenance,
-        });
-        const labels = [
-          ...new Set([
-            ...captured.academicLabels,
-            ...[captured.courseSensitivity].filter(
-              (label) => label !== 'unlabeled',
-            ),
-          ]),
-        ];
-        // Strip current-only state explicitly; the strict snapshot never copies text/scores.
-        let taskId: string | null = null,
-          eventId: string | null = null;
-        if (input.kind === 'task') {
-          const created = await createTaskRecord(
-            tx,
-            owner.id,
-            createTaskSchema.parse({
-              ...input.task,
-              sensitivity: strongest(input.task.sensitivity, ...labels),
-              operationId: input.operationId,
-            }),
-          );
-          taskId = created.task.id;
-        } else {
-          if (input.event.courseId !== captured.courseId)
-            throw new ApiError(
-              400,
-              'ACADEMIC_CLASS_MISMATCH',
-              'Use the source work class for this block.',
-            );
-          const inherited = await academicLabels(
-            tx,
-            owner.id,
-            input.event.courseId,
-            input.event.topicId,
-          );
-          labels.push(
-            ...inherited.labels.filter((label) => !labels.includes(label)),
-          );
-          // Direct manual planning has a durable, separately bound source.
-          // Keep complete class/topic label history; the workload-plan path
-          // still supplies unverified workloadLabels and remains fail-closed.
-          eventId = (
-            await createStudyEvent(tx, owner.id, {
-              ...input.event,
-              sensitivity: strongest(input.event.sensitivity, ...labels),
-            })
-          ).id;
-        }
-        await tx.query(
-          'INSERT INTO academic_planner_sources(id,owner_id,work_id,task_id,event_id,snapshot,labels) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::text[])',
-          [
-            randomUUID(),
-            owner.id,
-            workId,
-            taskId,
-            eventId,
-            JSON.stringify(captured),
-            labels,
-          ],
-        );
-        const source = await readLink(
-          tx,
-          owner.id,
-          taskId ? 'task' : 'event',
-          taskId ?? eventId!,
-        );
-        const [item] = await tx.query(
-          `SELECT ${taskId ? taskColumns : eventColumns} FROM ${taskId ? 'tasks' : 'events'} WHERE owner_id=$1 AND id=$2`,
-          [owner.id, taskId ?? eventId],
-        );
-        return academicPlanningResponseSchema.parse(
-          taskId
-            ? { kind: 'task', task: item, source }
-            : { kind: 'study', event: item, source },
-        );
-      },
-      { isolation: 'repeatable read' },
-    );
+    return saveAcademicPlanning(database, owner.id, workId, request.body);
   });
   app.get(base, (request) =>
     snapshot(request, async (tx, owner) => {
@@ -416,4 +294,134 @@ export function registerAcademicPlanning(
           });
         }),
     );
+}
+
+/** Shared academic creation, retaining source versions, snapshots and receipts. */
+export async function saveAcademicPlanning(
+  database: Database,
+  owner: string,
+  workId: string,
+  body: unknown,
+  nested = false,
+) {
+  const input = academicPlanningWriteSchema.parse(body);
+  return mutateSchedule(
+    database,
+    owner,
+    input.operationId,
+    { kind: 'academic-planning.create', workId, input },
+    async (tx) => {
+      const current = await readCurrent(tx, owner, workId, true);
+      version(current, input.expectedWorkVersion);
+      version({ version: current.courseVersion }, input.expectedCourseVersion);
+      if (current.deletedAt)
+        throw new ApiError(
+          409,
+          'ACADEMIC_WORK_DELETED',
+          'Restore the work before planning.',
+        );
+      if (current.courseArchived)
+        throw new ApiError(
+          409,
+          'ACADEMIC_CLASS_ARCHIVED',
+          'The class is archived.',
+        );
+      if (!['planned', 'in_progress'].includes(current.status))
+        throw new ApiError(
+          409,
+          'ACADEMIC_WORK_CLOSED',
+          'Only open work can create planner items.',
+        );
+      const captured = studyWorkloadSnapshotSchema.parse({
+        id: current.id,
+        version: current.version,
+        courseId: current.courseId,
+        courseVersion: current.courseVersion,
+        courseSensitivity: current.courseSensitivity,
+        dueDate: current.dueDate,
+        estimatedMinutes: current.estimatedMinutes,
+        priority: current.priority,
+        status: current.status,
+        sensitivity: current.sensitivity,
+        academicLabels: current.academicLabels,
+        provenance: current.provenance,
+      });
+      const labels = [
+        ...new Set([
+          ...captured.academicLabels,
+          ...[captured.courseSensitivity].filter(
+            (label) => label !== 'unlabeled',
+          ),
+        ]),
+      ];
+      // Strip current-only state explicitly; the strict snapshot never copies text/scores.
+      let taskId: string | null = null,
+        eventId: string | null = null;
+      if (input.kind === 'task') {
+        const created = await createTaskRecord(
+          tx,
+          owner,
+          createTaskSchema.parse({
+            ...input.task,
+            sensitivity: strongest(input.task.sensitivity, ...labels),
+            operationId: input.operationId,
+          }),
+        );
+        taskId = created.task.id;
+      } else {
+        if (input.event.courseId !== captured.courseId)
+          throw new ApiError(
+            400,
+            'ACADEMIC_CLASS_MISMATCH',
+            'Use the source work class for this block.',
+          );
+        const inherited = await academicLabels(
+          tx,
+          owner,
+          input.event.courseId,
+          input.event.topicId,
+        );
+        labels.push(
+          ...inherited.labels.filter((label) => !labels.includes(label)),
+        );
+        // Direct manual planning has a durable, separately bound source.
+        // Keep complete class/topic label history; the workload-plan path
+        // still supplies unverified workloadLabels and remains fail-closed.
+        eventId = (
+          await createStudyEvent(tx, owner, {
+            ...input.event,
+            sensitivity: strongest(input.event.sensitivity, ...labels),
+          })
+        ).id;
+      }
+      await tx.query(
+        'INSERT INTO academic_planner_sources(id,owner_id,work_id,task_id,event_id,snapshot,labels) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::text[])',
+        [
+          randomUUID(),
+          owner,
+          workId,
+          taskId,
+          eventId,
+          JSON.stringify(captured),
+          labels,
+        ],
+      );
+      const source = await readLink(
+        tx,
+        owner,
+        taskId ? 'task' : 'event',
+        taskId ?? eventId!,
+      );
+      const [item] = await tx.query(
+        `SELECT ${taskId ? taskColumns : eventColumns} FROM ${taskId ? 'tasks' : 'events'} WHERE owner_id=$1 AND id=$2`,
+        [owner, taskId ?? eventId],
+      );
+      return academicPlanningResponseSchema.parse(
+        taskId
+          ? { kind: 'task', task: item, source }
+          : { kind: 'study', event: item, source },
+      );
+    },
+    nested ? {} : { isolation: 'repeatable read' },
+  );
 }
