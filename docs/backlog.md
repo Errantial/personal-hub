@@ -6,6 +6,7 @@ The owner selected a small OpenRouter model in place of the TypeSafe-specific ma
 
 Updated 2026-10-14. This is the work queue; product.md remains the full scope, decisions.md records choices, and roadmap.md sets milestone order. Completed work and validation receipts are in [implementation-log.md](implementation-log.md).
 J3 workflow is implemented in development on ai/jev-broker-workflow; local validation is complete and remote CI remains pending. See [runtime/accounting/history contracts](jev-mail-workflow.md). J4 settings, coverage/continuation controls and staged live acceptance remain next, before P8 part 2.
+J3 and J4 are implemented in development on ai/jev-broker-workflow; local validation is complete and remote CI remains pending. See [runtime/accounting/history contracts](jev-mail-workflow.md) and [owner controls](jev-mail-controls.md). J4 adds the Settings › AI › Mail access grants, readiness reasons and answer coverage with older-mail search. Remaining before P8 part 2: real TypeSafe account evidence, provider approval, routing, spending limits, a backed-up staged deployment and owner live acceptance, all of which are owner-gated.
 
 ## Current next milestone: Jev mail broker (2026-10-15)
 
