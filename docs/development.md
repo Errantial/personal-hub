@@ -2,6 +2,8 @@
 
 The [OpenRouter mail broker](openrouter-mail-broker.md) is implemented in development with a separate approved profile and existing grants/lineage/accounting. Its setup and validation boundaries are documented separately; no later production deployment or actual model-quality acceptance is claimed.
 
+PR #46 merged as `b52745c` with Linux/Windows/PostgreSQL checks green on `0530fc9`. J1-J4 and their controls are integrated; the TypeSafe setup/status paragraphs below are historical. Offline evaluation preparation/decoding uses the production protocol without network access. Actual model-quality execution, server configuration, live approvals and release acceptance remain separate gates. P8 part 2 deterministic study proposals are the next feature slice after broker acceptance.
+
 J3 development changes Use mail to explicit-grant [broker workflow](jev-mail-workflow.md) for owner asks and scheduled agents, with shared admission, history revocation and bounded continuations. Existing switches do not approve TypeSafe; migration 066 is append-only. J4 controls and live readiness remain pending.
 
 Jev mail broker J1/J2 foundations are implemented in development: [contracts, grants, paged receipts, provider evidence and accounting](jev-mail-broker.md). They add append-only migrations 064/065 and owner grant/readiness endpoints. Internal TypeSafe transport has no connected owner-ask/agent execution route; existing Use mail behavior is unchanged until J3/J4. No real account evidence, live disclosure or deployment is established by synthetic checks.

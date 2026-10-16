@@ -1,5 +1,13 @@
 # Implementation log
 
+## 2026-10-16 - Broker evaluation artifact tooling
+
+PR #46 merged as `b52745c`; Linux, Windows and PostgreSQL checks passed on source commit `0530fc9`. This closes the earlier pending remote-CI gate without changing the recorded local timeout/retry history below. It does not establish deployment or model quality.
+
+Added offline preparation of all 60 synthetic requests through the production envelope builder, with corpus/request hashes and no expected labels in handoff artifacts. Recorded completions use the production decoder; invalid/uncertain cases fail receipt validity while confirmed charges remain visible. The offline scorer accepts valid decoding receipts. Outputs refuse overwrites; errors are sanitized. No provider transport, key loading, live budget mutation or automatic resend is added. Updated current scope/sequence summaries and UI readiness limitations.
+
+Validation at PR submission: three focused offline tests passed. CLI preparation, overwrite refusal, fabricated-reference completion decoding/scoring and malformed-completion/scorer rejection passed. The fabricated perfect score verifies the tool pipeline only, not model quality. Full `npm run check` passed lint and workspace types and was still running the regression suite; its final result and remote CI are tracked on the PR. No UI/auth behavior changed, so browser tests were not rerun for this slice. No owner data, credentials, provider calls, deployment or hardware tests were used.
+
 ## 2026-10-16 - Small OpenRouter broker replacement (development)
 
 Implemented on `ai/openrouter-mail-broker`, using integrated J1-J4 (latest main `ce28174` has the same baseline code). The [runtime/setup guide](openrouter-mail-broker.md) documents the independently approved `mail-broker` profile: Gemini 2.5 Flash-Lite on pinned Google Vertex through OpenRouter, reusing the protected OpenRouter key. Strict per-candidate relevance enums replace Jev scores/probabilities. Server code selects only direct relevance and forwards original text in snapshot order. Public host-specific ZDR/schema/price/context checks precede paid reservations; output billing, source/label/grant/lease guards, combined limits, exact envelopes, uncertainty, receipts and downstream lineage remain enforced. No migration is required, and legacy uncertain receipts never authorize replacement-model sends. TypeSafe inference code is removed; its legacy environment parser remains compatible.

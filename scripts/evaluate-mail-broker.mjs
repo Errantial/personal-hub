@@ -11,7 +11,15 @@ if (process.argv.length !== 3)
   throw new Error(
     'Usage: node scripts/evaluate-mail-broker.mjs <predictions.json>',
   );
-const predictions = JSON.parse(await readFile(process.argv[2], 'utf8'));
+const artifact = JSON.parse(await readFile(process.argv[2], 'utf8'));
+if (
+  !Array.isArray(artifact) &&
+  (artifact.valid !== true || artifact.corpus !== corpus.version)
+)
+  throw new Error(
+    'Evaluation receipt is invalid or belongs to another corpus.',
+  );
+const predictions = Array.isArray(artifact) ? artifact : artifact.predictions;
 if (!Array.isArray(predictions) || predictions.length !== corpus.cases.length)
   throw new Error('Supply exactly one prediction for every case.');
 const remaining = new Map(corpus.cases.map((item) => [item.id, item]));
