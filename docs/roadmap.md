@@ -38,11 +38,11 @@ Deliver: natural-language planner operations, typed action gateway, automatic wr
 
 Exit: stale approvals cannot execute changed payloads; duplicate requests cannot duplicate tasks; mixed-success operations report accurately; memory deletion reaches retrieval indexes; the planner works when AI is unavailable.
 
-## 5. MCP and selectively expanded automation
+## 5. MCP and selectively expanded automation — post-v1
 
-Deliver: both inbound hub MCP tools and outbound connections to a bounded allowlist, narrow scopes, authentication, text-only filtering, configurable permissions, and additional supported external writes. Default calendar authority and email approval are established.
+Post-v1 deliverable: both inbound hub MCP tools and outbound connections to a bounded allowlist, narrow scopes, authentication, text-only filtering, configurable permissions, and additional supported external writes. The owner deferred MCP compatibility/implementation until after v1 on 2026-10-17; the P13 threat/grant/auth design is retained for that later work.
 
-Exit: tool callers cannot access another user; disconnection cancels pending writes; untrusted content cannot authorize actions; audit records trace actor, consent, payload, and result.
+Post-v1 exit: tool callers cannot access another user; disconnection cancels pending writes; untrusted content cannot authorize actions; audit records trace actor, consent, payload, and result.
 
 ## 6. Persistent responsibilities (Dots/OpenDots scope)
 
