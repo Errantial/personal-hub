@@ -239,7 +239,7 @@ export function registerEmailIngestion(
     const connector = await requireConnector(database, request);
     const input = emailConnectorAttemptSchema.parse(request.body);
     const [row] = await database.query(
-      `UPDATE email_connectors SET last_attempt_at=CURRENT_TIMESTAMP,last_contact_at=CURRENT_TIMESTAMP,last_seen_at=CURRENT_TIMESTAMP,active_attempt_id=$2,last_attempt_outcome=NULL,last_error_code=NULL
+      `UPDATE email_connectors SET last_attempt_at=CURRENT_TIMESTAMP,last_seen_at=CURRENT_TIMESTAMP,active_attempt_id=$2,last_attempt_outcome=NULL,last_error_code=NULL
        WHERE id=$1 AND revoked_at IS NULL RETURNING active_attempt_id AS "attemptId"`,
       [connector.id, input.attemptId],
     );
@@ -428,7 +428,7 @@ export function registerEmailIngestion(
          last_complete_at=CASE WHEN $3='complete' THEN CURRENT_TIMESTAMP ELSE last_complete_at END,
          last_attempt_outcome=$3,
          last_error_code=CASE WHEN $3='failed' THEN $4 ELSE NULL END,
-         last_contact_at=CURRENT_TIMESTAMP,last_seen_at=CURRENT_TIMESTAMP
+         last_seen_at=CURRENT_TIMESTAMP
        WHERE id=$1 AND active_attempt_id=$2 AND revoked_at IS NULL RETURNING id`,
       [connector.id, input.attemptId, input.outcome, input.errorCode],
     );

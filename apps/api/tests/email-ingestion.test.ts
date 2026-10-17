@@ -217,7 +217,7 @@ it('tracks attempt, contact, import and complete-window health separately', asyn
     lastErrorCode: null,
   });
   expect(listed.lastAttemptAt).not.toBeNull();
-  expect(listed.lastContactAt).not.toBeNull();
+  expect(listed.lastContactAt).toBeNull();
   expect(listed.lastImportAt).toBeNull();
   expect(listed.lastCompleteAt).toBeNull();
 
@@ -229,6 +229,7 @@ it('tracks attempt, contact, import and complete-window health separately', asyn
   );
   listed = (await owner('GET', '/api/v1/email/connectors')).json()
     .connectors[0];
+  expect(listed.lastContactAt).not.toBeNull();
   expect(listed.lastImportAt).not.toBeNull();
 
   await connector(token, 'POST', 'batch', {
