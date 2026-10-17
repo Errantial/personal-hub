@@ -40,7 +40,11 @@ export async function openSettings(page: Page, section: Section) {
 /** Opens a Canvas page (calendar feed by default) under Settings › Connections. */
 export async function openCanvas(
   page: Page,
-  tab: 'Calendar feed' | 'Canvas API' | 'Matching' = 'Calendar feed',
+  tab:
+    | 'Calendar feed'
+    | 'Canvas API'
+    | 'Browser collector'
+    | 'Matching' = 'Calendar feed',
 ) {
   await openSettings(page, 'Connections');
   await page.getByRole('link', { name: 'Manage Canvas', exact: true }).click();

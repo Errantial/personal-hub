@@ -50,6 +50,7 @@ for (const { theme, width, target } of [
       '/settings/connections',
       '/settings/connections/canvas',
       '/settings/connections/canvas?tab=api',
+      '/settings/connections/canvas?tab=browser',
       '/settings/connections/canvas?tab=matching',
     ]) {
       await page.goto(path);

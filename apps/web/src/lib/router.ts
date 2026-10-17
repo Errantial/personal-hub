@@ -22,11 +22,12 @@ export const settingsSections = [
   'memory',
 ] as const;
 export type SettingsSection = (typeof settingsSections)[number];
-export const canvasTabs = ['feed', 'api', 'matching'] as const;
+export const canvasTabs = ['feed', 'api', 'browser', 'matching'] as const;
 export type CanvasTab = (typeof canvasTabs)[number];
 export const canvasTabLabels: Record<CanvasTab, string> = {
   feed: 'Calendar feed',
   api: 'Canvas API',
+  browser: 'Browser collector',
   matching: 'Matching',
 };
 export const taskFilters = [

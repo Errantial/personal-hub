@@ -22,6 +22,10 @@ import {
 import type { CanvasApiFetcher } from './connections/canvas-api.js';
 import { registerCanvasReconciliation } from './connections/canvas-reconciliation.js';
 import { registerCanvasPlannerWork } from './connections/canvas-planner-work.js';
+import {
+  canvasBrowserCollectorPathPrefix,
+  registerCanvasBrowser,
+} from './connections/canvas-browser.js';
 import { registerAIRouting } from './features/ai-routing.js';
 import { registerAIPreflight } from './features/ai-preflight.js';
 import { registerAIBudget } from './features/ai-budget.js';
@@ -110,8 +114,10 @@ export async function buildApp(
       // bearer token instead of a session cookie, so CSRF origin checks do
       // not apply to its routes.
       const connector =
-        request.url.startsWith(connectorPathPrefix) &&
-        request.headers.authorization?.startsWith('Bearer hubc_');
+        (request.url.startsWith(connectorPathPrefix) &&
+          request.headers.authorization?.startsWith('Bearer hubc_')) ||
+        (request.url.startsWith(canvasBrowserCollectorPathPrefix) &&
+          request.headers.authorization?.startsWith('Bearer hubcb_'));
       if (
         !connector &&
         (!request.headers.origin ||
@@ -131,6 +137,7 @@ export async function buildApp(
   registerExport(app, database, auth);
   registerCanvas(app, database, auth, config);
   registerCanvasLms(app, database, auth, config);
+  registerCanvasBrowser(app, database, auth);
   registerCanvasReconciliation(app, database, auth);
   registerCanvasPlannerWork(app, database, auth);
   registerAIRouting(app, database, auth);

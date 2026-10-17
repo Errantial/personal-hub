@@ -506,6 +506,17 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 
 ## Change ledger
 
+### 2026-10-16 — Canvas browser collector (P11 development)
+
+- **Settings › Connections › Canvas › Browser collector** is a separate adapter from Calendar feed, Canvas API and Matching. Contract: [canvas-browser.md](canvas-browser.md).
+  - Header health is Never synced, Syncing, Current, Stale, Partial, Sign in required, Revoked or Error. Last contact and Complete through are shown independently; an incomplete traversal never displays Current.
+  - **Create collector token / Replace collector token** shows the `hubcb_` token once with **I saved it**. **Revoke collector** removes collector access while retained browser records stay visible. Lost-token recovery is replacement, not redisplay.
+  - Source label is explicit. Each discovered browser course shows Selected/Not selected, provider availability, effective label and per-course coverage. **Edit browser course** controls collection selection, explicit local class link, personal notes and label; no class is guessed from provider text.
+  - Browser assignment/quiz records show resource kind, exact due instant or **No due date**, availability, effective label and personal notes. Assignment and quiz IDs remain separate identities.
+  - Background status polling never replaces an unsaved source/course/item draft. **Reload source version**, **Reload course version** and **Reload item version** adopt the current optimistic version while preserving the fields the owner has typed.
+  - Help names the exclusion boundary: no grades, submissions, descriptions, files, screenshots or browser sessions. Sign in required directs the owner to the dedicated profile; it never asks for credentials in the hub.
+- The local connector is headful and uses a dedicated marked profile; an unmarked nonempty browser directory is refused. Its config/token/profile path remain outside the repository. Routine UI/API tests use synthetic observations only. 320px e-ink and standard connection-screen accessibility/target checks include the Browser collector tab; this is not Kompakt or live Canvas acceptance.
+
 ### 2026-10-13 — Mail: AI task suggestions
 
 - **Create task from mail** gains **Suggest tasks with AI** at the top of the form. Contract: [mail-task-suggestions.md](mail-task-suggestions.md).
