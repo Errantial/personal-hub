@@ -51,6 +51,11 @@ import {
   canvasLmsCourseSchema,
   canvasLmsAssignmentSchema,
 } from './canvas-lms.js';
+import {
+  canvasBrowserCourseSchema,
+  canvasBrowserItemCaptureSchema,
+  canvasBrowserItemSchema,
+} from './canvas-browser.js';
 
 export const accountSessionSchema = z.object({
   id: z.string().uuid(),
@@ -127,6 +132,18 @@ export const plannerExportSchema = z.object({
     canvasReconciliations: z.array(canvasReconciliationSchema).default([]),
     canvasLmsCourses: z.array(canvasLmsCourseSchema).default([]),
     canvasLmsAssignments: z.array(canvasLmsAssignmentSchema).default([]),
+    canvasBrowserCourses: z.array(canvasBrowserCourseSchema).default([]),
+    canvasBrowserItems: z.array(canvasBrowserItemSchema).default([]),
+    canvasBrowserItemCaptures: z
+      .array(canvasBrowserItemCaptureSchema)
+      .default([]),
+    canvasBrowserSource: z
+      .object({
+        sensitivity: z.enum(['unlabeled', 'personal', 'restricted']),
+        version: z.number().int().positive(),
+      })
+      .nullable()
+      .default(null),
     canvasLmsSource: z
       .object({
         accountProviderId: z

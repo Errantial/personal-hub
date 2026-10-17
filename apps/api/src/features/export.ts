@@ -5,6 +5,7 @@ import type { authService } from '../auth/routes.js';
 import { ApiError } from '../errors.js';
 import { taskColumns } from '../planner/routes.js';
 import { readCanvasLms } from '../connections/canvas-lms.js';
+import { exportCanvasBrowser } from '../connections/canvas-browser.js';
 import { readReconciliations } from '../connections/canvas-reconciliation.js';
 import { readAIRoutingPolicy } from './ai-routing.js';
 import { readAIActionPolicy } from './ai-actions.js';
@@ -105,6 +106,7 @@ export function registerExport(
         canvasLmsCourses: lms.courses,
         canvasLmsAssignments: lms.assignments,
         canvasLmsSource: canvasLmsSource ?? null,
+        ...(await exportCanvasBrowser(tx, owner.id)),
         canvasReconciliations,
         aiRouting: await readAIRoutingPolicy(tx, owner.id),
         aiActions: await readAIActionPolicy(tx, owner.id),

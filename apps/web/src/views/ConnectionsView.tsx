@@ -6,6 +6,7 @@ import { ReadState } from '../components/ReadState';
 import { StatusChip } from '../components/StatusChip';
 import { CanvasConnection } from '../components/CanvasConnection';
 import { CanvasLmsConnection } from '../components/CanvasLmsConnection';
+import { CanvasBrowserConnection } from '../components/CanvasBrowserConnection';
 import { CanvasReconciliation } from '../components/CanvasReconciliation';
 import { EmailConnectors } from '../components/EmailConnectors';
 import { getSnapshot } from '../lib/api';
@@ -151,6 +152,7 @@ function CanvasDetail({
       </nav>
       {tab === 'feed' && <CanvasConnection />}
       {tab === 'api' && <CanvasLmsConnection />}
+      {tab === 'browser' && <CanvasBrowserConnection />}
       {tab === 'matching' && <CanvasReconciliation />}
     </section>
   );

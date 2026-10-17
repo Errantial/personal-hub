@@ -429,6 +429,102 @@ it('upgrades populated email connectors through 069 without inventing health or 
   }
 });
 
+it('upgrades populated sources through 070 without inventing Canvas browser observations', async () => {
+  const db = await openDatabase(
+    readConfig({ NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' }),
+  );
+  try {
+    const directory = new URL('../migrations/', import.meta.url);
+    const names = (await readdir(directory))
+      .filter((name) => /^\d+_.+\.sql$/.test(name))
+      .sort();
+    await db.exec(
+      'CREATE TABLE schema_migrations (name TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)',
+    );
+    for (const name of names.filter((name) => Number(name.slice(0, 3)) <= 69)) {
+      const sql = await readFile(new URL(name, directory), 'utf8');
+      await db.exec(sql);
+      await db.query(
+        'INSERT INTO schema_migrations(name,checksum) VALUES($1,$2)',
+        [name, createHash('sha256').update(sql).digest('hex')],
+      );
+    }
+    const owner = randomUUID();
+    const apiCourse = randomUUID();
+    const apiAssignment = randomUUID();
+    const feedItem = randomUUID();
+    await db.query(
+      "INSERT INTO users(id,email,password_hash) VALUES($1,'canvas-browser-upgrade@example.test','unused')",
+      [owner],
+    );
+    await db.query(
+      "INSERT INTO canvas_sources(owner_id,sensitivity,last_imported_at) VALUES($1,'personal','2026-10-15T12:00:00Z')",
+      [owner],
+    );
+    await db.query(
+      "INSERT INTO canvas_items(id,owner_id,uid,provider_data,availability,input_kind,notes) VALUES($1,$2,'retained-feed',$3::jsonb,'available','calendar-feed','Retained feed note')",
+      [feedItem, owner, JSON.stringify({ title: 'Retained feed item' })],
+    );
+    await db.query(
+      "INSERT INTO canvas_lms_sources(owner_id,sensitivity,last_imported_at) VALUES($1,'restricted','2026-10-15T12:00:00Z')",
+      [owner],
+    );
+    await db.query(
+      "INSERT INTO canvas_lms_courses(id,owner_id,provider_id,provider_data,availability,notes) VALUES($1,$2,'10',$3::jsonb,'available','Retained API course note')",
+      [apiCourse, owner, JSON.stringify({ name: 'Retained API course' })],
+    );
+    await db.query(
+      "INSERT INTO canvas_lms_assignments(id,owner_id,canvas_course_id,provider_id,provider_data,availability,notes) VALUES($1,$2,$3,'20',$4::jsonb,'available','Retained API assignment note')",
+      [
+        apiAssignment,
+        owner,
+        apiCourse,
+        JSON.stringify({ title: 'Retained API assignment' }),
+      ],
+    );
+    const beforeFeed = await db.query(
+      'SELECT * FROM canvas_items WHERE owner_id=$1',
+      [owner],
+    );
+    const beforeCourses = await db.query(
+      'SELECT * FROM canvas_lms_courses WHERE owner_id=$1',
+      [owner],
+    );
+    const beforeAssignments = await db.query(
+      'SELECT * FROM canvas_lms_assignments WHERE owner_id=$1',
+      [owner],
+    );
+
+    await migrate(db);
+
+    expect(
+      await db.query('SELECT * FROM canvas_items WHERE owner_id=$1', [owner]),
+    ).toEqual(beforeFeed);
+    expect(
+      await db.query('SELECT * FROM canvas_lms_courses WHERE owner_id=$1', [
+        owner,
+      ]),
+    ).toEqual(beforeCourses);
+    expect(
+      await db.query('SELECT * FROM canvas_lms_assignments WHERE owner_id=$1', [
+        owner,
+      ]),
+    ).toEqual(beforeAssignments);
+    expect(await db.query('SELECT * FROM canvas_browser_sources')).toEqual([]);
+    expect(await db.query('SELECT * FROM canvas_browser_courses')).toEqual([]);
+    expect(await db.query('SELECT * FROM canvas_browser_items')).toEqual([]);
+    expect(await db.query('SELECT * FROM canvas_browser_attempts')).toEqual([]);
+    expect(
+      await db.query('SELECT * FROM canvas_browser_course_observations'),
+    ).toEqual([]);
+    expect(
+      await db.query('SELECT * FROM canvas_browser_item_captures'),
+    ).toEqual([]);
+  } finally {
+    await db.close();
+  }
+});
+
 it('upgrades populated assistant turns and requests through 060 without rewriting them', async () => {
   const db = await openDatabase(
     readConfig({ NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' }),
