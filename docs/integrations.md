@@ -4,7 +4,7 @@ Verified against the official documentation below on 2026-10-09. School-specific
 
 ## Canvas LMS
 
-Access update (2026-10-13): the owner confirmed personal tokens are blocked. A live read-only DOM proof in one authenticated course found stable unique assignment links and exact/missing due timestamps. See the [sanitized receipt and proposed browser connector](canvas-browser.md). This does not implement syncing, prove all-account coverage or enable AI; the calendar-feed path remains independent.
+Access update: the owner confirmed personal tokens are blocked. A live read-only DOM proof in one authenticated course found stable unique assignment links and exact/missing due timestamps. The browser collector runtime/ingestion and exact browser/calendar-feed reconciliation are now implemented in development; they remain distinct from the calendar-feed/API paths and do not establish live two-course/all-selected-course completeness, unattended scheduling or hosted-AI certification.
 
 Implementation update (2026-10-10): a read-only school feed adapter, manual ICS import, durable refresh jobs and separate owner annotations are implemented and verified with synthetic fixtures. See [Canvas setup](canvas.md). Live school access, completeness, richer API/browser enrichment and grades remain unverified.
 
@@ -38,7 +38,7 @@ Verify the Ubuntu VM's CPU shape. If Oracle Ampere A1 (ARM) is selected, officia
 
 Reading messages through Bridge exposes plaintext to the integrating process. Uploading that content to this app's server expands who can process it; require a clear choice about metadata, snippets, bodies, and attachments.
 
-Status 2026-10-13: read-only ingestion is implemented with Bridge on the owner's Windows computer and a local connector ([email-ingestion.md](email-ingestion.md)). Bridge exposes a Gmail label; its newest message is 2026-09-28, so Gmail delivery into Proton needs checking. Proof required in this app: local read-only ingestion works; Gmail messages are complete; repeat fetches deduplicate; reconnection works; category corrections persist; and the Bridge host's online dependency is understood. Sending and provider-side moves are separate later gates.
+Status: read-only ingestion is implemented with Bridge on the owner's Windows computer and a local connector ([email-ingestion.md](email-ingestion.md)); a Windows sync job was recorded operating every ten minutes on 2026-10-14. P10 additionally records contact/import/completeness health and reconciles proven folder memberships only after complete observations. The historical Gmail-label newest-message observation (2026-09-28) still requires a bounded owner-reviewed comparison before completeness can be claimed. Sending and provider-side mailbox writes remain separate later gates.
 
 ## Proton Calendar
 
@@ -54,7 +54,7 @@ Proof required: create a permitted feed, observe an event update/cancellation an
 
 ## School email through Outlook
 
-Confirmed: school mail is accessed through Outlook. Outlook is a client; verify whether the mailbox is Microsoft 365/Exchange Online. For that backend, Microsoft Graph is the proposed supported adapter. [Outlook mail API](https://learn.microsoft.com/en-us/graph/outlook-mail-concept-overview).
+Confirmed: school mail is accessed through Outlook. Outlook is a client; the hub now has a metadata-only owner-recorded access gate for backend, school-managed tenant class, mailbox scope, app-registration availability and delegated-consent policy. The gate performs no Microsoft sign-in, OAuth/token storage or mailbox read. Microsoft Graph remains the proposed adapter only if actual account/tenant evidence proves it feasible. [Outlook mail API](https://learn.microsoft.com/en-us/graph/outlook-mail-concept-overview).
 
 Use delegated user access for this personal hub, with the smallest needed scopes. School tenant policy may prevent user consent even for scopes normally consentable by a user. Avoid tenant-wide app-only access for this workflow. [Graph permissions overview](https://learn.microsoft.com/en-us/graph/permissions-overview).
 
@@ -80,6 +80,6 @@ For Gmail, prefer one ingestion route through existing Proton aggregation if com
 
 MCP is an interface to tools and context, not a substitute for provider credentials or a guarantee that a provider supports synchronization.
 
-Both directions are confirmed: expose authenticated hub operations and allow the built-in AI to use explicitly configured external MCP servers. Start with bounded tools and an outbound allowlist, scoped per-user credentials, destination checks, action policies, and text-only result filtering. Never forward a provider token as a generic MCP credential. Resource retrieval cannot bypass the screenshot/attachment restriction.
+Both directions remain confirmed as long-term product scope, but the owner moved MCP compatibility and implementation to post-v1 on 2026-10-17. The preserved P13 threat/grant/auth design remains research only. When post-v1 work resumes, start with bounded tools and an outbound allowlist, scoped per-user credentials, destination checks, action policies, and text-only result filtering. Never forward a provider token as a generic MCP credential. Resource retrieval cannot bypass the screenshot/attachment restriction.
 
 Pin a tested protocol/SDK revision when implementation begins; the specification evolves. [Official MCP specification release](https://blog.modelcontextprotocol.io/posts/2026-07-28/).
