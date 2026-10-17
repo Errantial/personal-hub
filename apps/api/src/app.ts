@@ -22,6 +22,7 @@ import {
 import type { CanvasApiFetcher } from './connections/canvas-api.js';
 import { registerCanvasReconciliation } from './connections/canvas-reconciliation.js';
 import { registerCanvasPlannerWork } from './connections/canvas-planner-work.js';
+import { registerOutlook } from './connections/outlook.js';
 import {
   canvasBrowserCollectorPathPrefix,
   registerCanvasBrowser,
@@ -140,6 +141,7 @@ export async function buildApp(
   registerCanvasBrowser(app, database, auth);
   registerCanvasReconciliation(app, database, auth);
   registerCanvasPlannerWork(app, database, auth);
+  registerOutlook(app, database, auth);
   registerAIRouting(app, database, auth);
   registerAIPreflight(app, database, auth, config);
   registerAIBudget(app, database, auth);

@@ -114,7 +114,7 @@ export type Route =
       name: 'settings';
       section: SettingsSection;
       /** A provider's detail page under Connections. */
-      connection?: 'canvas';
+      connection?: 'canvas' | 'outlook';
       tab?: CanvasTab;
     };
 
@@ -191,6 +191,8 @@ export function parseRoute(pathname: string, search: string): Route {
         connection: 'canvas',
         ...(isCanvasTab(tab) && tab !== 'feed' ? { tab } : {}),
       };
+    if (section === 'connections' && extra === 'outlook')
+      return { name, section, connection: 'outlook' };
     return { name, section };
   }
   if (name === 'tasks') {

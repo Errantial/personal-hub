@@ -506,6 +506,18 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 
 ## Change ledger
 
+### 2026-10-16 — School Outlook access gate (P12 development)
+
+- **Settings › Connections › School Outlook** is an access/feasibility screen, not a mailbox connector. Contract: [outlook.md](outlook.md).
+  - The Connections card shows the current gate result: Access gate not established, Ready for delegated adapter work, Admin action required, Mailbox scope review required or Access blocked.
+  - The form records only Mailbox backend, Microsoft tenant class (school-managed vs another tenant/account type), Required mailbox scope, App registration and Delegated `Mail.Read` consent. It never asks for a tenant ID, client ID/secret, password, authorization code/token or mailbox address.
+  - **Save findings** is owner-scoped, versioned and exact-retry safe. **Discard changes** restores the saved draft. **Reload current findings** deliberately adopts the current version/state.
+  - Help states that this action does not sign in to Microsoft, request consent or read mail. There is intentionally no Connect/Sign in button in this slice.
+  - A failed optimistic save retains every selected finding. **Reload current version** adopts the newest server version while preserving the draft; **Discard changes** is the explicit destructive reset.
+  - Ready is a development handoff only. It permits implementing the delegated read-only adapter next; it does not mean OAuth is granted or the mailbox has been read. Admin/blocked states name school action instead of escalating to tenant-wide application permissions.
+  - Future body ingestion requires delegated `Mail.Read`; send/write/calendar scopes and attachment fetch stay outside this milestone. Shared-mailbox need is surfaced as scope review rather than silently adding permission.
+- Portable export includes only the bounded readiness metadata/check timestamp. Browser fallback is a separate proposal. Routine tests remain synthetic and account-free.
+
 ### 2026-10-16 — Canvas browser collector (P11 development)
 
 - **Settings › Connections › Canvas › Browser collector** is a separate adapter from Calendar feed, Canvas API and Matching. Contract: [canvas-browser.md](canvas-browser.md).

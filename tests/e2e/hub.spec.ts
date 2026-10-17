@@ -40,7 +40,12 @@ test('web and API connect and show the actual scaffold account state', async ({
   ).toBeVisible();
   await expect(
     page.getByText('Not available yet', { exact: true }),
-  ).toHaveCount(2);
+  ).toHaveCount(1);
+  await expect(
+    page
+      .getByRole('article', { name: 'School Outlook' })
+      .getByRole('link', { name: 'Review Outlook access' }),
+  ).toBeVisible();
   await expect(
     page
       .getByRole('article', { name: 'Canvas' })
