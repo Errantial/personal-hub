@@ -1,6 +1,6 @@
 # OpenRouter mail broker
 
-Implemented in development on `ai/openrouter-mail-broker`, 2026-10-16. Validation receipts are in [implementation-log.md](implementation-log.md). Deployment, actual model-quality evaluation and owner live acceptance remain pending. This replaces the TypeSafe-specific adapter in J1-J4; the older Jev documents retain historical receipts. See the [approved direction and plan](openrouter-mail-broker-plan.md).
+Implemented in development on `ai/openrouter-mail-broker`, 2026-10-16, and included in the integrated release deployed 2026-10-17. Validation receipts are in [implementation-log.md](implementation-log.md). A separately authorized 60-case synthetic model-quality evaluation passed on 2026-10-17; production broker profile installation/approval and owner private-mail usefulness acceptance remain pending. This replaces the TypeSafe-specific adapter in J1-J4; the older Jev documents retain historical receipts. See the [approved direction and plan](openrouter-mail-broker-plan.md).
 
 ## Runtime
 
@@ -74,7 +74,7 @@ For a separately authorized model run, send only each case's intent and candidat
 node scripts/evaluate-mail-broker.mjs predictions.json
 ```
 
-The scorer rejects missing/duplicate cases and foreign/duplicate references and requires at least 90% direct-relevance precision and recall. It has no provider transport or credentials. Fake-adapter integration tests prove enforcement and recovery, not these quality thresholds. No actual model run has been performed. Owner live acceptance must separately assess usefulness and completeness warnings before expanding use.
+The scorer rejects missing/duplicate cases and foreign/duplicate references and requires at least 90% direct-relevance precision and recall. It has no provider transport or credentials. Fake-adapter integration tests prove enforcement and recovery, not these quality thresholds. The authorized 2026-10-17 synthetic run completed all 60 cases through `google/gemini-2.5-flash-lite` pinned to `google-vertex`: precision `0.9433962264`, recall `1.0`, 60 confirmed outputs, zero uncertain/invalid outputs and $0.002426 confirmed provider cost. This establishes only synthetic retrieval quality. Owner live acceptance must separately assess private-mail usefulness and completeness warnings before expanding use.
 
 ### Separately authorized synthetic execution
 
