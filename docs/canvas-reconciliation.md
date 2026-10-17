@@ -1,12 +1,16 @@
-# Canvas feed/API reconciliation
+# Canvas source reconciliation
 
 Connections includes Canvas reconciliation. It proposes comparisons only when a retained feed entry's safe assignment URL exactly equals the URL constructed from an imported API course and assignment ID. Titles and dates alone are never identity evidence. Confirmation is an explicit owner action; no automatic merge, deadline propagation, planner creation or provider write occurs.
+
+P11 adds a second, independent browser/feed association. A retained browser assignment or quiz can be linked to a retained calendar-feed item only when their current canonical Canvas URLs are exactly equal. Browser titles, due timestamps, availability, notes, labels and immutable captures stay browser facts; feed facts stay feed facts. The link does not certify browser text for hosted AI or cause either source to overwrite the other.
 
 ## Links and differences
 
 Compare sources shows each title and deadline independently. Missing API deadlines remain unknown. Date-only feed entries are compared as dates rather than guessed instants. A difference does not decide which source is correct; review the actual school account before relying on coverage. Existing source notes, labels and local class links remain separate.
 
 Each feed entry can have one active assignment link; several feed entries can link to the same assignment. Missing/cancelled sources cannot create new links. A successful refresh can change or omit a source without deleting the link. An assignment URL change displays a review warning; this never silently moves the association to a different assignment. Remove link works for changed/missing sources. Relinking requires current available matching identities.
+
+Each browser item can have one retained browser/feed link, and one feed item can belong to at most one active browser link. Creating or changing that link requires both records to be available, exact URL equality and current browser/feed versions. A later feed omission or browser/feed title/date disagreement leaves the link and browser record intact; absence from ICS/calendar feed is never deletion evidence. Removing the browser link writes a tombstone. Browser/feed association does not currently share labels or attachment provenance across adapters; source-level policy remains separate.
 
 Confirm/remove operations require the link's optimistic version (null only for a new row) and the current feed version. Confirmation additionally requires current assignment and API-course versions. Conflicts retain the selected assignment; Reload link versions refreshes versions deliberately. Unchanged retries use the same operation ID, including when the first response is lost. Exact retries return the original receipt. Links have stable IDs and deletion tombstones; source refreshes never resurrect them.
 
@@ -26,7 +30,8 @@ Migration 010 adds owned reconciliation foreign keys, stable rows/tombstones and
 
 - `GET /api/v1/connections/canvas/reconciliation`: owned feed records, API courses/assignments and links, including tombstones.
 - `PUT /api/v1/connections/canvas/reconciliation/:itemId`: versioned/idempotent confirmation or removal. Set assignmentId and assignment/course versions to null when removing.
-- Planner format-v1 export adds `canvasReconciliations`, defaulting to an empty array for older exports; operational credentials/jobs are excluded.
+- `PUT /api/v1/connections/canvas/reconciliation/browser/:browserItemId`: versioned/idempotent browser/feed confirmation or removal. Set `itemId` and `expectedItemVersion` to null when removing.
+- Planner format-v1 export includes `canvasReconciliations` and `canvasBrowserReconciliations`, defaulting to empty arrays for older exports; operational credentials/jobs are excluded.
 
 Planner work expands on feed/API planning controls and API class portfolios. `GET /api/v1/connections/canvas/planner-work?kind=calendar|assignment-api&itemId=...` requires an owned retained source and reads a consistent snapshot of active tasks/studies from that source and all active confirmed associations. Up to 2,000 associated sources and 1,000 records per work collection are supported; excess fails visibly instead of truncating. Completed tasks remain listed; tombstones do not. Unlinking changes which sources are grouped, without changing their planner records. Previously loaded lists can be viewed from the owner-scoped offline cache. Successful Canvas task/study creation refreshes open lists. Edits use Today/Calendar.
 

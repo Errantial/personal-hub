@@ -525,6 +525,85 @@ it('upgrades populated sources through 070 without inventing Canvas browser obse
   }
 });
 
+it('upgrades populated Canvas browser records through 071 without inventing reconciliation links', async () => {
+  const db = await openDatabase(
+    readConfig({ NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' }),
+  );
+  try {
+    const directory = new URL('../migrations/', import.meta.url);
+    const names = (await readdir(directory))
+      .filter((name) => /^\d+_.+\.sql$/.test(name))
+      .sort();
+    await db.exec(
+      'CREATE TABLE schema_migrations (name TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)',
+    );
+    for (const name of names.filter((name) => Number(name.slice(0, 3)) <= 70)) {
+      const sql = await readFile(new URL(name, directory), 'utf8');
+      await db.exec(sql);
+      await db.query(
+        'INSERT INTO schema_migrations(name,checksum) VALUES($1,$2)',
+        [name, createHash('sha256').update(sql).digest('hex')],
+      );
+    }
+    const owner = randomUUID();
+    const browserCourse = randomUUID();
+    const browserItem = randomUUID();
+    const feedItem = randomUUID();
+    await db.query(
+      "INSERT INTO users(id,email,password_hash) VALUES($1,'canvas-browser-reconciliation-upgrade@example.test','unused')",
+      [owner],
+    );
+    await db.query('INSERT INTO canvas_sources(owner_id) VALUES($1)', [owner]);
+    await db.query(
+      "INSERT INTO canvas_items(id,owner_id,uid,provider_data,availability,input_kind) VALUES($1,$2,'feed',$3::jsonb,'available','calendar-feed')",
+      [
+        feedItem,
+        owner,
+        JSON.stringify({
+          title: 'Feed',
+          sourceUrl: 'https://canvas.colorado.edu/courses/10/assignments/20',
+        }),
+      ],
+    );
+    await db.query('INSERT INTO canvas_browser_sources(owner_id) VALUES($1)', [
+      owner,
+    ]);
+    await db.query(
+      "INSERT INTO canvas_browser_courses(id,owner_id,provider_id,name,canonical_url) VALUES($1,$2,'10','Course','https://canvas.colorado.edu/courses/10')",
+      [browserCourse, owner],
+    );
+    await db.query(
+      "INSERT INTO canvas_browser_items(id,owner_id,browser_course_id,resource_kind,provider_id,canonical_url,title,captured_at) VALUES($1,$2,$3,'assignment','20','https://canvas.colorado.edu/courses/10/assignments/20','Browser','2027-05-01T12:00:00Z')",
+      [browserItem, owner, browserCourse],
+    );
+    const beforeFeed = await db.query(
+      'SELECT * FROM canvas_items WHERE owner_id=$1',
+      [owner],
+    );
+    const beforeBrowser = await db.query(
+      'SELECT * FROM canvas_browser_items WHERE owner_id=$1',
+      [owner],
+    );
+    await migrate(db);
+    expect(
+      await db.query('SELECT * FROM canvas_items WHERE owner_id=$1', [owner]),
+    ).toEqual(beforeFeed);
+    expect(
+      await db.query('SELECT * FROM canvas_browser_items WHERE owner_id=$1', [
+        owner,
+      ]),
+    ).toEqual(beforeBrowser);
+    expect(
+      await db.query('SELECT * FROM canvas_browser_reconciliations'),
+    ).toEqual([]);
+    expect(await db.query('SELECT name FROM schema_migrations')).toHaveLength(
+      names.length,
+    );
+  } finally {
+    await db.close();
+  }
+});
+
 it('upgrades populated assistant turns and requests through 060 without rewriting them', async () => {
   const db = await openDatabase(
     readConfig({ NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' }),

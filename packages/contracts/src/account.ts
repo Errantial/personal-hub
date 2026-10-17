@@ -22,7 +22,10 @@ import {
   studyGoalSchema,
   studyPlanSchema,
 } from './study.js';
-import { canvasReconciliationSchema } from './canvas-reconciliation.js';
+import {
+  canvasBrowserReconciliationSchema,
+  canvasReconciliationSchema,
+} from './canvas-reconciliation.js';
 import { aiRoutingSettingsSchema } from './ai-routing.js';
 import { aiActionSettingsSchema } from './ai-actions.js';
 import {
@@ -130,6 +133,9 @@ export const plannerExportSchema = z.object({
     studyWorkloadSources: z.array(studyWorkloadSourceSchema).default([]),
     studyEventContexts: z.array(studyEventContextSchema).default([]),
     canvasReconciliations: z.array(canvasReconciliationSchema).default([]),
+    canvasBrowserReconciliations: z
+      .array(canvasBrowserReconciliationSchema)
+      .default([]),
     canvasLmsCourses: z.array(canvasLmsCourseSchema).default([]),
     canvasLmsAssignments: z.array(canvasLmsAssignmentSchema).default([]),
     canvasBrowserCourses: z.array(canvasBrowserCourseSchema).default([]),
