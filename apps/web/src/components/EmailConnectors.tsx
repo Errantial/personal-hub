@@ -189,6 +189,16 @@ function ConnectorRow({
     personal: 'Personal',
     restricted: 'Restricted',
   };
+  const healthLabels: Record<EmailConnector['healthStatus'], string> = {
+    'never-synced': 'Never synced',
+    syncing: 'Syncing',
+    current: 'Current',
+    stale: 'Stale',
+    partial: 'Partial',
+    'sign-in-required': 'Sign in required',
+    revoked: 'Revoked',
+    error: 'Error',
+  };
   async function revokeConnector() {
     if (
       !(await confirm({
@@ -212,19 +222,29 @@ function ConnectorRow({
     <article className="email-connector" aria-label={connector.name}>
       <h3>
         {connector.name}{' '}
-        <StatusChip tone={connector.revokedAt ? 'attention' : 'neutral'}>
-          {connector.revokedAt
-            ? 'Revoked'
-            : connector.lastSeenAt
-              ? 'Connected'
-              : 'Waiting for first sync'}
+        <StatusChip
+          tone={
+            [
+              'revoked',
+              'sign-in-required',
+              'error',
+              'stale',
+              'partial',
+            ].includes(connector.healthStatus)
+              ? 'attention'
+              : 'neutral'
+          }
+        >
+          {healthLabels[connector.healthStatus]}
         </StatusChip>
       </h3>
       <p className="meta">
         Label: {labels[connector.sensitivity]} · Importing from{' '}
         {formatDate(connector.since)}
-        {connector.lastSeenAt &&
-          ` · Last sync ${formatInstant(connector.lastSeenAt)}`}
+        {connector.lastContactAt &&
+          ` · Last contact ${formatInstant(connector.lastContactAt)}`}
+        {connector.lastCompleteAt &&
+          ` · Complete through ${formatInstant(connector.lastCompleteAt)}`}
       </p>
       {connector.folders.length > 0 && (
         <div className="table-scroll">

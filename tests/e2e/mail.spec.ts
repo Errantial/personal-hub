@@ -55,10 +55,19 @@ test('a connector token uploads mail that is read as plain text, and revoking st
     panel.getByRole('textbox', { name: 'Connector token' }),
   ).toHaveCount(0);
   const card = panel.getByRole('article', { name });
-  await expect(card).toContainText('Waiting for first sync');
+  await expect(card).toContainText('Never synced');
   await expect(card).toContainText('Label: Personal');
 
   // The local connector sends a bearer token and no browser origin.
+  const attemptId = crypto.randomUUID();
+  expect(
+    (
+      await page.request.post('/api/v1/email/connector/attempt', {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { attemptId },
+      })
+    ).status(),
+  ).toBe(200);
   const upload = (payload: object) =>
     page.request.post('/api/v1/email/connector/batch', {
       headers: { Authorization: `Bearer ${token}` },
@@ -89,8 +98,32 @@ test('a connector token uploads mail that is read as plain text, and revoking st
     ],
   });
   expect(sent.status()).toBe(200);
+  expect(
+    (
+      await upload({
+        path: 'INBOX',
+        role: '\\Inbox',
+        uidValidity: '1',
+        exists: 40,
+        inWindow: 2,
+        lastUid: 2,
+        complete: true,
+        windowUids: [2],
+        messages: [],
+      })
+    ).status(),
+  ).toBe(200);
+  expect(
+    (
+      await page.request.post('/api/v1/email/connector/attempt/finish', {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { attemptId, outcome: 'complete', errorCode: null },
+      })
+    ).status(),
+  ).toBe(200);
   await page.reload();
-  await expect(card).toContainText('Connected');
+  await expect(card).toContainText('Current');
+  await expect(card).toContainText('Complete through');
   const row = card.getByRole('row', { name: /INBOX/ });
   await expect(row).toContainText('40');
   await expect(row.getByRole('cell').last()).toHaveText('1 (incomplete)');

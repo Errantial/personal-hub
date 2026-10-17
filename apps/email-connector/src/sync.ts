@@ -19,11 +19,23 @@ type Batch = {
   exists: number;
   inWindow: number;
   lastUid: number;
+  complete?: boolean;
+  windowUids?: number[];
   messages: Upload[];
 };
 export type Hub = {
   state: () => Promise<State>;
   upload: (batch: Batch) => Promise<void>;
+  beginAttempt: (attemptId: string) => Promise<void>;
+  finishAttempt: (
+    attemptId: string,
+    outcome: 'complete' | 'partial' | 'failed',
+    errorCode?:
+      | 'bridge-auth'
+      | 'bridge-unavailable'
+      | 'hub-unavailable'
+      | 'collection-failed',
+  ) => Promise<void>;
 };
 
 /** Hub client for the connector routes. The token is never printed. */
@@ -70,6 +82,30 @@ export function hubClient(config: ConnectorConfig): Hub {
         }),
       );
     },
+    beginAttempt: async (attemptId) => {
+      await check(
+        await fetch(url('attempt'), {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ attemptId }),
+          signal: AbortSignal.timeout(30000),
+        }),
+      );
+    },
+    finishAttempt: async (attemptId, outcome, errorCode) => {
+      await check(
+        await fetch(url('attempt/finish'), {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            attemptId,
+            outcome,
+            errorCode: errorCode ?? null,
+          }),
+          signal: AbortSignal.timeout(30000),
+        }),
+      );
+    },
   };
 }
 
@@ -90,9 +126,10 @@ export async function sync(client: ImapFlow, hub: Hub) {
           ? stored.lastUid + 1
           : 1;
       const uidNext = client.mailbox ? Number(client.mailbox.uidNext) : 0;
-      const inWindow = mailbox.exists
-        ? ((await client.search({ since }, { uid: true })) || []).length
-        : 0;
+      const windowUids = mailbox.exists
+        ? (await client.search({ since }, { uid: true })) || []
+        : [];
+      const inWindow = windowUids.length;
       const uids = mailbox.exists
         ? (
             (await client.search(
@@ -148,6 +185,8 @@ export async function sync(client: ImapFlow, hub: Hub) {
       await hub.upload({
         ...base,
         lastUid: Math.max(start - 1, uidNext - 1, uids.at(-1) ?? 0),
+        complete: true,
+        windowUids,
         messages: [],
       });
       totals.folders++;

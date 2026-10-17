@@ -191,6 +191,240 @@ it('stores messages once across folders and resumes from the stored position', a
   ).toMatchObject({ exists: 10, inWindow: 3, imported: 2 });
 });
 
+it('tracks attempt, contact, import and complete-window health separately', async () => {
+  const created = (
+    await owner('POST', '/api/v1/email/connectors', {
+      name: 'Health Bridge',
+      sensitivity: 'personal',
+    })
+  ).json();
+  const { token } = created;
+  expect(created.connector.healthStatus).toBe('never-synced');
+
+  const attemptId = randomUUID();
+  expect(
+    (
+      await connector(token, 'POST', 'attempt', {
+        attemptId,
+      })
+    ).json(),
+  ).toEqual({ attemptId });
+  let listed = (await owner('GET', '/api/v1/email/connectors')).json()
+    .connectors[0];
+  expect(listed).toMatchObject({
+    healthStatus: 'syncing',
+    lastAttemptOutcome: null,
+    lastErrorCode: null,
+  });
+  expect(listed.lastAttemptAt).not.toBeNull();
+  expect(listed.lastContactAt).not.toBeNull();
+  expect(listed.lastImportAt).toBeNull();
+  expect(listed.lastCompleteAt).toBeNull();
+
+  await connector(
+    token,
+    'POST',
+    'batch',
+    batch('INBOX', 1, [message(1, '<health@example.test>')]),
+  );
+  listed = (await owner('GET', '/api/v1/email/connectors')).json()
+    .connectors[0];
+  expect(listed.lastImportAt).not.toBeNull();
+
+  await connector(token, 'POST', 'batch', {
+    ...batch('INBOX', 1, []),
+    complete: true,
+    windowUids: [1],
+  });
+  await connector(token, 'POST', 'attempt/finish', {
+    attemptId,
+    outcome: 'complete',
+    errorCode: null,
+  });
+  listed = (await owner('GET', '/api/v1/email/connectors')).json()
+    .connectors[0];
+  expect(listed).toMatchObject({
+    healthStatus: 'current',
+    lastAttemptOutcome: 'complete',
+    lastErrorCode: null,
+  });
+  expect(listed.lastCompleteAt).not.toBeNull();
+  expect(listed.folders[0].completeAt).not.toBeNull();
+
+  const importedAt = listed.lastImportAt;
+  const emptyAttempt = randomUUID();
+  await connector(token, 'POST', 'attempt', { attemptId: emptyAttempt });
+  await connector(token, 'POST', 'batch', {
+    ...batch('INBOX', 1, []),
+    complete: true,
+    windowUids: [1],
+  });
+  await connector(token, 'POST', 'attempt/finish', {
+    attemptId: emptyAttempt,
+    outcome: 'complete',
+    errorCode: null,
+  });
+  listed = (await owner('GET', '/api/v1/email/connectors')).json()
+    .connectors[0];
+  expect(listed.healthStatus).toBe('current');
+  expect(listed.lastImportAt).toBe(importedAt);
+});
+
+it('reports partial and sign-in-required attempts without erasing prior complete coverage', async () => {
+  const created = (
+    await owner('POST', '/api/v1/email/connectors', {
+      name: 'Recovery Bridge',
+      sensitivity: 'unlabeled',
+    })
+  ).json();
+  const { token } = created;
+
+  const complete = randomUUID();
+  await connector(token, 'POST', 'attempt', { attemptId: complete });
+  await connector(token, 'POST', 'batch', {
+    ...batch('INBOX', 0, []),
+    complete: true,
+    windowUids: [],
+  });
+  await connector(token, 'POST', 'attempt/finish', {
+    attemptId: complete,
+    outcome: 'complete',
+    errorCode: null,
+  });
+  const completeAt = (await owner('GET', '/api/v1/email/connectors')).json()
+    .connectors[0].lastCompleteAt;
+
+  const partial = randomUUID();
+  await connector(token, 'POST', 'attempt', { attemptId: partial });
+  await connector(token, 'POST', 'attempt/finish', {
+    attemptId: partial,
+    outcome: 'partial',
+    errorCode: null,
+  });
+  let listed = (await owner('GET', '/api/v1/email/connectors')).json()
+    .connectors[0];
+  expect(listed).toMatchObject({
+    healthStatus: 'partial',
+    lastCompleteAt: completeAt,
+    lastAttemptOutcome: 'partial',
+  });
+
+  const failed = randomUUID();
+  await connector(token, 'POST', 'attempt', { attemptId: failed });
+  await connector(token, 'POST', 'attempt/finish', {
+    attemptId: failed,
+    outcome: 'failed',
+    errorCode: 'bridge-auth',
+  });
+  listed = (await owner('GET', '/api/v1/email/connectors')).json()
+    .connectors[0];
+  expect(listed).toMatchObject({
+    healthStatus: 'sign-in-required',
+    lastCompleteAt: completeAt,
+    lastAttemptOutcome: 'failed',
+    lastErrorCode: 'bridge-auth',
+  });
+});
+
+it('reconciles folder membership only from complete snapshots and retains moved messages', async () => {
+  const created = (
+    await owner('POST', '/api/v1/email/connectors', {
+      name: 'Membership Bridge',
+      sensitivity: 'unlabeled',
+    })
+  ).json();
+  const { token } = created;
+  const key = '<move@example.test>';
+
+  await connector(token, 'POST', 'batch', batch('INBOX', 1, [message(1, key)]));
+  await connector(token, 'POST', 'batch', {
+    ...batch('INBOX', 1, []),
+    complete: true,
+    windowUids: [1],
+  });
+  await connector(
+    token,
+    'POST',
+    'batch',
+    batch('Archive', 7, [message(7, key)]),
+  );
+  await connector(token, 'POST', 'batch', {
+    ...batch('Archive', 7, []),
+    complete: true,
+    windowUids: [7],
+  });
+
+  let mail = (await owner('GET', '/api/v1/email/messages')).json().messages[0];
+  expect(mail.folders.sort()).toEqual(['Archive', 'INBOX']);
+
+  // A partial observation with no messages never removes an unseen membership.
+  await connector(token, 'POST', 'batch', batch('INBOX', 1, []));
+  mail = (await owner('GET', '/api/v1/email/messages')).json().messages[0];
+  expect(mail.folders.sort()).toEqual(['Archive', 'INBOX']);
+
+  // A complete empty INBOX snapshot proves the move and removes only INBOX.
+  await connector(token, 'POST', 'batch', {
+    ...batch('INBOX', 1, []),
+    complete: true,
+    windowUids: [],
+  });
+  mail = (await owner('GET', '/api/v1/email/messages')).json().messages[0];
+  expect(mail.folders).toEqual(['Archive']);
+  expect(
+    (await owner('GET', '/api/v1/email/messages?folder=INBOX')).json().messages,
+  ).toHaveLength(0);
+  expect(
+    (await owner('GET', '/api/v1/email/messages?folder=Archive')).json()
+      .messages,
+  ).toHaveLength(1);
+
+  // Losing the final membership keeps the imported record rather than deleting it.
+  await connector(token, 'POST', 'batch', {
+    ...batch('Archive', 7, []),
+    complete: true,
+    windowUids: [],
+  });
+  mail = (await owner('GET', '/api/v1/email/messages')).json().messages[0];
+  expect(mail.folders).toEqual([]);
+});
+
+it('does not prune an old UID generation until the replacement generation is complete', async () => {
+  const created = (
+    await owner('POST', '/api/v1/email/connectors', {
+      name: 'UID Bridge',
+      sensitivity: 'personal',
+    })
+  ).json();
+  const { token } = created;
+  const key = '<uid-reset@example.test>';
+  await connector(token, 'POST', 'batch', batch('INBOX', 5, [message(5, key)]));
+  await connector(token, 'POST', 'batch', {
+    ...batch('INBOX', 5, []),
+    complete: true,
+    windowUids: [5],
+  });
+
+  // Seeing the new generation cursor alone is partial and cannot remove the old membership.
+  await connector(token, 'POST', 'batch', {
+    ...batch('INBOX', 0, []),
+    uidValidity: '8',
+  });
+  expect(
+    (await owner('GET', '/api/v1/email/messages')).json().messages[0].folders,
+  ).toEqual(['INBOX']);
+
+  // A complete replacement generation may retire the old UID mapping.
+  await connector(token, 'POST', 'batch', {
+    ...batch('INBOX', 0, []),
+    uidValidity: '8',
+    complete: true,
+    windowUids: [],
+  });
+  expect(
+    (await owner('GET', '/api/v1/email/messages')).json().messages[0].folders,
+  ).toEqual([]);
+});
+
 it('rejects oversized bodies and revoked tokens', async () => {
   const created = (
     await owner('POST', '/api/v1/email/connectors', {

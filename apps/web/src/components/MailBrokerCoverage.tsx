@@ -63,9 +63,21 @@ export function MailBrokerCoverage({
       <ul className="meta">
         {coverage.connectors.map((item) => (
           <li key={item.id}>
-            {item.lastSeenAt
-              ? `Imported up to ${formatInstant(item.lastSeenAt)}`
-              : 'Never imported'}{' '}
+            {item.healthStatus === 'current'
+              ? `Current through ${formatInstant(item.lastCompleteAt!)}`
+              : item.healthStatus === 'never-synced'
+                ? 'Never synced'
+                : item.healthStatus === 'sign-in-required'
+                  ? 'Sign in required'
+                  : item.healthStatus === 'syncing'
+                    ? 'Syncing'
+                    : item.healthStatus === 'revoked'
+                      ? 'Revoked'
+                      : item.healthStatus === 'stale'
+                        ? `Stale${item.lastCompleteAt ? ` · complete through ${formatInstant(item.lastCompleteAt)}` : ''}`
+                        : item.healthStatus === 'partial'
+                          ? 'Partial coverage'
+                          : 'Source error'}{' '}
             · importing since {item.importedSince}
           </li>
         ))}

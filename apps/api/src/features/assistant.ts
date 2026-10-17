@@ -820,7 +820,9 @@ export async function answerTurn(
         coverage: {
           ...broker.receipt.coverage,
           connectors: broker.receipt.coverage.connectors.map((item) => ({
-            lastSeenAt: item.lastSeenAt,
+            healthStatus: item.healthStatus,
+            lastContactAt: item.lastContactAt,
+            lastCompleteAt: item.lastCompleteAt,
             importedSince: item.importedSince,
           })),
         },

@@ -550,7 +550,7 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 
 - **Settings › Connections › Email (Proton Bridge)** panel. The Proton Mail placeholder card is removed. Contract: [email-ingestion.md](email-ingestion.md).
   - **Add connector**: Name and **Imported mail label** (default Personal). The token is shown once in a read-only field with **I saved it**.
-  - Each connector shows its status (Waiting for first sync / Connected / Revoked), label, import start date, last sync and a folder table: On Bridge, Since start, Imported, with visible "(incomplete)" when Imported is below Since start. Reload connectors refreshes the list, including recovery after a lost token response.
+- Each connector shows source health as Never synced, Syncing, Current, Stale, Partial, Sign in required, Revoked or Error. Contact time and last complete configured-window collection are separate; a successful empty collection can therefore be Current. The folder table remains On Bridge / Since start / Imported with visible "(incomplete)" when Imported is below Since start. Reload connectors refreshes the list, including recovery after a lost token response. Complete folder observations reconcile proven memberships; partial/failed observations never prune unseen mail.
   - **Revoke connector** asks first.
 - **Inbox › Mail** (`/inbox/mail`, `/inbox/mail/:id`), between Reminders and Email drafts.
   - Folder filter; newest first, 50 per page with **Load more mail**; a late-cursor message. Rows show the subject link, sender, received time, a 2-line snippet and the attachment count marked "(not imported)".

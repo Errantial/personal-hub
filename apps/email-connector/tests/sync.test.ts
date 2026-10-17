@@ -32,6 +32,8 @@ const client = (rows: object[]) =>
 const hub = () => ({
   state: async () => ({ since: '2026-10-01', folders: [] }),
   upload: vi.fn<Hub['upload']>(async () => undefined),
+  beginAttempt: vi.fn<Hub['beginAttempt']>(async () => undefined),
+  finishAttempt: vi.fn<Hub['finishAttempt']>(async () => undefined),
 });
 
 it('does not advance the cursor when IMAP omits a requested message', async () => {
@@ -60,9 +62,12 @@ it('stores a complete batch before recording the folder high-water mark', async 
     target.upload.mock.calls.map(([batch]) => ({
       lastUid: batch.lastUid,
       count: batch.messages.length,
+      complete: batch.complete ?? false,
     })),
   ).toEqual([
-    { lastUid: 2, count: 2 },
-    { lastUid: 2, count: 0 },
+    { lastUid: 2, count: 2, complete: false },
+    { lastUid: 2, count: 0, complete: true },
   ]);
+  expect(target.beginAttempt).not.toHaveBeenCalled();
+  expect(target.finishAttempt).not.toHaveBeenCalled();
 });

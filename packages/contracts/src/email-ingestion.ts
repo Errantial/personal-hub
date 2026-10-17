@@ -15,6 +15,22 @@ const address = z.object({
   address: z.string().max(320),
 });
 export const emailBodyLimit = 32000;
+export const emailConnectorErrorCodeSchema = z.enum([
+  'bridge-auth',
+  'bridge-unavailable',
+  'hub-unavailable',
+  'collection-failed',
+]);
+export const emailConnectorHealthStatusSchema = z.enum([
+  'never-synced',
+  'syncing',
+  'current',
+  'stale',
+  'partial',
+  'sign-in-required',
+  'revoked',
+  'error',
+]);
 
 // Owner: connectors.
 export const emailConnectorCreateSchema = z.strictObject({
@@ -32,6 +48,7 @@ export const emailFolderStateSchema = z.object({
   inWindow: z.number().int().nonnegative(),
   imported: z.number().int().nonnegative(),
   syncedAt: z.string().datetime(),
+  completeAt: z.string().datetime().nullable(),
 });
 export const emailConnectorSchema = z.object({
   id: z.string().uuid(),
@@ -42,6 +59,13 @@ export const emailConnectorSchema = z.object({
   version: z.number().int().positive(),
   createdAt: z.string().datetime(),
   lastSeenAt: z.string().datetime().nullable(),
+  lastAttemptAt: z.string().datetime().nullable(),
+  lastContactAt: z.string().datetime().nullable(),
+  lastImportAt: z.string().datetime().nullable(),
+  lastCompleteAt: z.string().datetime().nullable(),
+  lastAttemptOutcome: z.enum(['complete', 'partial', 'failed']).nullable(),
+  lastErrorCode: emailConnectorErrorCodeSchema.nullable(),
+  healthStatus: emailConnectorHealthStatusSchema,
   revokedAt: z.string().datetime().nullable(),
   folders: z.array(emailFolderStateSchema),
 });
@@ -103,6 +127,17 @@ export const emailConnectorStateSchema = z.object({
     }),
   ),
 });
+export const emailConnectorAttemptSchema = z.strictObject({
+  attemptId: z.string().uuid(),
+});
+export const emailConnectorAttemptResultSchema = z.object({
+  attemptId: z.string().uuid(),
+});
+export const emailConnectorAttemptFinishSchema = z.strictObject({
+  attemptId: z.string().uuid(),
+  outcome: z.enum(['complete', 'partial', 'failed']),
+  errorCode: emailConnectorErrorCodeSchema.nullable().default(null),
+});
 export const emailUploadMessageSchema = z.strictObject({
   uid: z.number().int().positive(),
   /** Declared by the authenticated collector; legacy imports remain unknown. */
@@ -120,16 +155,35 @@ export const emailUploadMessageSchema = z.strictObject({
   attachmentCount: z.number().int().min(0).max(1000),
 });
 export type EmailUploadMessage = z.infer<typeof emailUploadMessageSchema>;
-export const emailUploadBatchSchema = z.strictObject({
-  path: z.string().min(1).max(1000),
-  role: z.string().max(50).nullable(),
-  uidValidity: z.string().regex(/^\d{1,20}$/),
-  exists: z.number().int().nonnegative(),
-  inWindow: z.number().int().nonnegative(),
-  /** Highest UID covered after this batch; the next sync starts above it. */
-  lastUid: z.number().int().nonnegative(),
-  messages: z.array(emailUploadMessageSchema).max(25),
-});
+export const emailUploadBatchSchema = z
+  .strictObject({
+    path: z.string().min(1).max(1000),
+    role: z.string().max(50).nullable(),
+    uidValidity: z.string().regex(/^\d{1,20}$/),
+    exists: z.number().int().nonnegative(),
+    inWindow: z.number().int().nonnegative(),
+    /** Highest UID covered after this batch; the next sync starts above it. */
+    lastUid: z.number().int().nonnegative(),
+    /** True only after a complete read of this folder's configured window. */
+    complete: z.boolean().default(false),
+    /** Complete in-window UID snapshot; required only for a complete observation. */
+    windowUids: z.array(z.number().int().positive()).max(20000).optional(),
+    messages: z.array(emailUploadMessageSchema).max(25),
+  })
+  .superRefine((value, ctx) => {
+    if (value.complete && !value.windowUids)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['windowUids'],
+        message: 'A complete folder observation requires window UIDs.',
+      });
+    if (!value.complete && value.windowUids)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['windowUids'],
+        message: 'Window UIDs are only accepted for complete observations.',
+      });
+  });
 export const emailUploadResultSchema = z.object({
   stored: z.number().int().nonnegative(),
   lastUid: z.number().int().nonnegative(),

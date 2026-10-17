@@ -405,7 +405,23 @@ export async function beginBrokerRetrieval(
       id = randomUUID(),
       cursor = randomUUID();
     const connectors = await tx.query(
-      `SELECT id,to_char(last_seen_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "lastSeenAt",to_char(since,'YYYY-MM-DD') AS "importedSince" FROM email_connectors WHERE owner_id=$1 AND id=ANY($2::uuid[]) ORDER BY id`,
+      `SELECT id,
+        CASE
+          WHEN revoked_at IS NOT NULL THEN 'revoked'
+          WHEN active_attempt_id IS NOT NULL AND last_attempt_at > CURRENT_TIMESTAMP - INTERVAL '30 minutes' THEN 'syncing'
+          WHEN last_error_code='bridge-auth' THEN 'sign-in-required'
+          WHEN last_error_code IS NOT NULL THEN 'error'
+          WHEN last_attempt_at IS NULL THEN 'never-synced'
+          WHEN active_attempt_id IS NOT NULL OR last_attempt_outcome='partial' THEN 'partial'
+          WHEN last_attempt_outcome='failed' THEN 'error'
+          WHEN last_complete_at IS NULL THEN 'partial'
+          WHEN last_complete_at < CURRENT_TIMESTAMP - INTERVAL '30 minutes' THEN 'stale'
+          ELSE 'current'
+        END AS "healthStatus",
+        to_char(last_contact_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "lastContactAt",
+        to_char(last_complete_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "lastCompleteAt",
+        to_char(since,'YYYY-MM-DD') AS "importedSince"
+       FROM email_connectors WHERE owner_id=$1 AND id=ANY($2::uuid[]) ORDER BY id`,
       [owner, grant.scope.connectorIds],
     );
     const hasMore =
