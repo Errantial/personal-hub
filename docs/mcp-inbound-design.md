@@ -1,6 +1,6 @@
 # Inbound MCP design (P13)
 
-Status: design/research only. This document does not enable MCP transport, add an MCP SDK, create an external endpoint, grant an external assistant access, or approve any private export. P14 remains the first implementation slice for inbound authentication and bounded read tools, and it still requires the owner-gated choices listed below.
+Status: deferred to post-v1 by owner decision on 2026-10-17. This document remains a design/research artifact only. It does not enable MCP transport, add an MCP SDK, create an external endpoint, grant an external assistant access, or approve any private export. P14-P16 are not part of the v1 delivery sequence.
 
 ## Goal and boundary
 
@@ -188,9 +188,9 @@ A P14 chosen-client receipt should contain only:
 
 Do not include bearer tokens, authorization codes, cookies, secrets, private record text/titles, mail data, full request/response bodies or model prompts.
 
-## Explicit owner-gate choices still unresolved
+## Explicit owner-gate choices still unresolved for post-v1
 
-P13 does not decide these. They remain required before P14 implementation/live interoperability:
+P13 does not decide these. They remain required if/when post-v1 MCP work resumes:
 
 1. exact first MCP client plus version/build/platform;
 2. exact downstream assistant/service destination the owner is approving;
@@ -199,12 +199,12 @@ P13 does not decide these. They remain required before P14 implementation/live i
 5. OAuth/client registration mode;
 6. protocol revision(s) and SDK version after first-client compatibility is proven;
 7. endpoint exposure class: public HTTPS, private/VPN, or local/bridge arrangement;
-8. approval to proceed from design into actual inbound read implementation and chosen-client acceptance.
+8. approval to proceed from design into actual inbound read implementation and chosen-client acceptance after v1.
 
-These choices are not implied by the owner's general autonomous-development approval. Inbound task writes and outbound MCP each retain later, separate approval gates.
+These choices are not implied by the owner's general autonomous-development approval. The owner explicitly moved MCP compatibility to post-v1 on 2026-10-17. Inbound task writes and outbound MCP each retain later, separate approval gates.
 
-## P14 handoff criteria
+## Post-v1 handoff criteria
 
-P13 is complete when this design, first-client matrix template, threat model, grant/export boundary, auth requirements, narrow tool projections and acceptance matrix are reviewable and the unresolved owner choices above remain explicit.
+For v1 purposes, P13 is complete as a deferred design artifact when this threat model, first-client matrix template, grant/export boundary, auth requirements, narrow tool projections and acceptance matrix are reviewable and the unresolved owner choices above remain explicit.
 
-P14 should not start by installing an SDK. It should first resolve the owner-selected client and auth/registration choices, then pin only the protocol/SDK versions actually needed for that client, implement bearer auth and narrow read tools, and run the synthetic negative matrix before any live chosen-client acceptance.
+When post-v1 MCP resumes, P14 should not start by installing an SDK. It should first resolve the owner-selected client and auth/registration choices, then pin only the protocol/SDK versions actually needed for that client, implement bearer auth and narrow read tools, and run the synthetic negative matrix before any live chosen-client acceptance.

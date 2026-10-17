@@ -28,7 +28,7 @@ Owner approval after the 2026-10-14 planning report: proceed autonomously accord
 | D09 | Proton availability | Confirmed: paid plan with Bridge. Main server is Ubuntu; Bridge host location/uptime and CPU compatibility still unresolved | Automatic mail sync while devices are off |
 | D10 | Canvas access | Owner confirmed 2026-10-13: school blocks personal token creation. Read-only authenticated browser DOM feasibility passed for one course; calendar feed remains separate. Durable browser connector is proposed, not implemented; institution-approved OAuth remains an alternative | Whether the connector can launch; see canvas-browser.md |
 | D11 | Calendar authority | AI write authority confirmed; actual Proton write route unresolved. Hub-owned study plans proposed; ICS-only sources remain read-only | Separates authorization from provider capability |
-| D12 | MCP direction | Confirmed: both inbound hub tools for external assistants and outbound external MCP servers for built-in AI | Authentication and trust boundaries |
+| D12 | MCP direction | Confirmed long-term: both inbound hub tools for external assistants and outbound external MCP servers for built-in AI. Owner moved MCP compatibility/implementation to post-v1 on 2026-10-17 | Authentication and trust boundaries; not a v1 delivery requirement |
 | D13 | Costs | Confirmed: minimize routine AI spend; higher spend acceptable for material features/improvements. No numeric budget or cap set | Feasible model and deployment choices |
 | D14 | Release scope | Follow milestone order; all listed features remain in the long-term vision | Keeps the initial release measurable |
 | D15 | Retention | Agree defaults for mail cache, AI chats, memories, and backups | Storage and deletion behavior |
