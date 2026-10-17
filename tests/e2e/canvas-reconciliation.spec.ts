@@ -175,3 +175,131 @@ test('reconciliation preserves conflicts and retry identity, shows source differ
     ),
   ).toBe(true);
 });
+
+test('browser reconciliation keeps browser facts when the calendar feed later omits the linked item', async ({
+  page,
+}) => {
+  await authenticate(page);
+  const stamp = '2027-05-01T17:00:00.000Z';
+  const feedItem = {
+    id: crypto.randomUUID(),
+    uid: 'browser-feed-comparison',
+    providerData: {
+      title: 'Calendar feed title',
+      description: '',
+      startsAt: stamp,
+      endsAt: stamp,
+      startDate: null,
+      endDate: null,
+      allDay: false,
+      sourceUrl: 'https://canvas.colorado.edu/courses/10/assignments/20',
+    },
+    inputKind: 'calendar-feed',
+    availability: 'available',
+    courseId: null,
+    courseName: null,
+    courseDeleted: false,
+    notes: '',
+    sensitivity: 'unlabeled',
+    effectiveSensitivity: 'unlabeled',
+    version: 1,
+    createdAt: stamp,
+    updatedAt: stamp,
+  };
+  const browserItem = {
+    id: crypto.randomUUID(),
+    browserCourseId: crypto.randomUUID(),
+    resourceKind: 'assignment',
+    providerId: '20',
+    canonicalUrl: 'https://canvas.colorado.edu/courses/10/assignments/20',
+    title: 'Browser title',
+    dueAt: '2027-05-02T17:00:00.000Z',
+    capturedAt: stamp,
+    availability: 'available',
+    notes: '',
+    sensitivity: 'personal',
+    effectiveSensitivity: 'personal',
+    version: 1,
+    createdAt: stamp,
+    updatedAt: stamp,
+  };
+  const data = {
+    courses: [],
+    assignments: [],
+    items: [feedItem],
+    links: [],
+    browserItems: [browserItem],
+    browserLinks: [] as {
+      id: string;
+      browserItemId: string;
+      itemId: string;
+      version: number;
+      createdAt: string;
+      updatedAt: string;
+      deletedAt: string | null;
+    }[],
+  };
+  await page.route(
+    '**/api/v1/connections/canvas/reconciliation**',
+    async (route) => {
+      if (route.request().method() === 'GET')
+        return route.fulfill({ json: data });
+      const body = route.request().postDataJSON();
+      if (!route.request().url().includes('/browser/'))
+        return route.fulfill({
+          status: 404,
+          json: { error: { code: 'NOT_FOUND' } },
+        });
+      const link = {
+        id: data.browserLinks[0]?.id ?? crypto.randomUUID(),
+        browserItemId: browserItem.id,
+        itemId: feedItem.id,
+        version: (data.browserLinks[0]?.version ?? 0) + 1,
+        createdAt: stamp,
+        updatedAt: stamp,
+        deletedAt: body.itemId ? null : stamp,
+      };
+      data.browserLinks = [link];
+      browserItem.version++;
+      feedItem.version++;
+      return route.fulfill({ json: { link } });
+    },
+  );
+  await page.goto('/');
+  await openCanvas(page, 'Matching');
+  await page.setViewportSize({ width: 320, height: 900 });
+  const panel = page.getByRole('region', {
+    name: 'Canvas reconciliation',
+    exact: true,
+  });
+  const entry = panel.getByRole('article', {
+    name: 'Compare browser Browser title',
+  });
+  await entry.getByText('Compare browser and feed', { exact: true }).click();
+  await expect(entry).toContainText('Dates differ.');
+  await expect(entry).toContainText('Titles differ.');
+  await entry
+    .getByRole('button', { name: 'Link browser item', exact: true })
+    .click();
+  await entry
+    .getByRole('button', { name: 'Confirm browser link', exact: true })
+    .click();
+  await expect(panel.getByRole('status')).toHaveText('Browser link confirmed.');
+
+  feedItem.availability = 'missing';
+  await panel
+    .getByRole('button', { name: 'Reload comparisons', exact: true })
+    .click();
+  await expect(entry).toContainText(
+    'Linked · assignment · available · personal',
+  );
+  await entry.getByText('Compare browser and feed', { exact: true }).click();
+  await expect(entry).toContainText('missing');
+  await expect(entry).not.toContainText('No calendar-feed item with this URL');
+  expect(data.browserLinks[0]!.deletedAt).toBeNull();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+});

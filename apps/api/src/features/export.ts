@@ -6,7 +6,10 @@ import { ApiError } from '../errors.js';
 import { taskColumns } from '../planner/routes.js';
 import { readCanvasLms } from '../connections/canvas-lms.js';
 import { exportCanvasBrowser } from '../connections/canvas-browser.js';
-import { readReconciliations } from '../connections/canvas-reconciliation.js';
+import {
+  readBrowserReconciliations,
+  readReconciliations,
+} from '../connections/canvas-reconciliation.js';
 import { readAIRoutingPolicy } from './ai-routing.js';
 import { readAIActionPolicy } from './ai-actions.js';
 import { exportEmailDrafts } from './email-drafts.js';
@@ -83,6 +86,11 @@ export function registerExport(
         owner.id,
         10000,
       );
+      const canvasBrowserReconciliations = await readBrowserReconciliations(
+        tx,
+        owner.id,
+        10000,
+      );
       const [canvasLmsSource] = await tx.query(
         'SELECT enabled,sensitivity,version,account_provider_id AS "accountProviderId" FROM canvas_lms_sources WHERE owner_id=$1',
         [owner.id],
@@ -108,6 +116,7 @@ export function registerExport(
         canvasLmsSource: canvasLmsSource ?? null,
         ...(await exportCanvasBrowser(tx, owner.id)),
         canvasReconciliations,
+        canvasBrowserReconciliations,
         aiRouting: await readAIRoutingPolicy(tx, owner.id),
         aiActions: await readAIActionPolicy(tx, owner.id),
         ...(await exportEmailDrafts(tx, owner.id)),

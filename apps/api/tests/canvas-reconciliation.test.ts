@@ -420,3 +420,152 @@ it('retains links when provider facts change or disappear and includes live oppo
     ).statusCode,
   ).toBe(200);
 });
+
+it('keeps browser/feed facts separate and reconciles them only through an exact owner-confirmed URL', async () => {
+  const browserCourseId = randomUUID();
+  const browserItemId = randomUUID();
+  await db.query(
+    "INSERT INTO canvas_browser_sources(owner_id,sensitivity) VALUES($1,'personal')",
+    [owner],
+  );
+  await db.query(
+    "INSERT INTO canvas_browser_courses(id,owner_id,provider_id,name,canonical_url,availability,selected) VALUES($1,$2,'10','Browser course','https://canvas.colorado.edu/courses/10','available',TRUE)",
+    [browserCourseId, owner],
+  );
+  await db.query(
+    "INSERT INTO canvas_browser_items(id,owner_id,browser_course_id,resource_kind,provider_id,canonical_url,title,due_at,captured_at,availability) VALUES($1,$2,$3,'assignment','20','https://canvas.colorado.edu/courses/10/assignments/20','Browser assignment','2027-05-03T17:00:00Z','2027-05-01T12:00:00Z','available')",
+    [browserItemId, owner, browserCourseId],
+  );
+
+  let data = await get();
+  expect(data.browserItems).toHaveLength(1);
+  expect(data.browserLinks).toEqual([]);
+  const feedItem = data.items[0]!;
+  const browserItem = data.browserItems[0]!;
+  const body = {
+    operationId: randomUUID(),
+    expectedVersion: null,
+    expectedBrowserItemVersion: browserItem.version,
+    itemId: feedItem.id,
+    expectedItemVersion: feedItem.version,
+  };
+  const route = `${base}/browser/${browserItem.id}`;
+  expect(
+    (
+      await app.inject({
+        method: 'PUT',
+        url: route,
+        headers: headers(otherCookie),
+        payload: body,
+      })
+    ).statusCode,
+  ).toBe(404);
+  expect(
+    (
+      await app.inject({
+        method: 'PUT',
+        url: route,
+        headers: headers(),
+        payload: {
+          ...body,
+          expectedBrowserItemVersion: browserItem.version + 1,
+        },
+      })
+    ).statusCode,
+  ).toBe(409);
+
+  const linked = await app.inject({
+    method: 'PUT',
+    url: route,
+    headers: headers(),
+    payload: body,
+  });
+  expect(linked.statusCode).toBe(200);
+  expect(
+    (
+      await app.inject({
+        method: 'PUT',
+        url: route,
+        headers: headers(),
+        payload: body,
+      })
+    ).json(),
+  ).toEqual(linked.json());
+
+  data = await get();
+  expect(data.browserLinks).toHaveLength(1);
+  expect(data.browserLinks[0]).toMatchObject({
+    browserItemId,
+    itemId: feedItem.id,
+    deletedAt: null,
+  });
+  expect(data.browserItems[0]!.title).toBe('Browser assignment');
+  expect(data.items[0]!.providerData.title).toBe('Feed assignment title');
+
+  await db.transaction(async (tx) => {
+    await tx.query(
+      'SELECT owner_id FROM canvas_sources WHERE owner_id=$1 FOR UPDATE',
+      [owner],
+    );
+    await applyCanvasSnapshot(tx, owner, [], 'calendar-feed');
+  });
+  data = await get();
+  expect(data.items[0]!.availability).toBe('missing');
+  expect(data.browserItems[0]!.availability).toBe('available');
+  expect(data.browserLinks[0]!.deletedAt).toBeNull();
+
+  const exported = plannerExportSchema.parse(
+    (
+      await app.inject({ url: '/api/v1/planner/export', headers: headers() })
+    ).json(),
+  );
+  expect(exported.records.canvasBrowserReconciliations).toHaveLength(1);
+
+  const remove = {
+    operationId: randomUUID(),
+    expectedVersion: data.browserLinks[0]!.version,
+    expectedBrowserItemVersion: data.browserItems[0]!.version,
+    itemId: null,
+    expectedItemVersion: null,
+  };
+  const removed = await app.inject({
+    method: 'PUT',
+    url: route,
+    headers: headers(),
+    payload: remove,
+  });
+  expect(removed.statusCode).toBe(200);
+  expect(removed.json().link.deletedAt).toEqual(expect.any(String));
+});
+
+it('refuses browser/feed reconciliation when the canonical source URLs differ', async () => {
+  const browserCourseId = randomUUID();
+  const browserItemId = randomUUID();
+  await db.query('INSERT INTO canvas_browser_sources(owner_id) VALUES($1)', [
+    owner,
+  ]);
+  await db.query(
+    "INSERT INTO canvas_browser_courses(id,owner_id,provider_id,name,canonical_url,availability) VALUES($1,$2,'10','Browser course','https://canvas.colorado.edu/courses/10','available')",
+    [browserCourseId, owner],
+  );
+  await db.query(
+    "INSERT INTO canvas_browser_items(id,owner_id,browser_course_id,resource_kind,provider_id,canonical_url,title,captured_at,availability) VALUES($1,$2,$3,'quiz','20','https://canvas.colorado.edu/courses/10/quizzes/20','Browser quiz','2027-05-01T12:00:00Z','available')",
+    [browserItemId, owner, browserCourseId],
+  );
+  const data = await get();
+  const result = await app.inject({
+    method: 'PUT',
+    url: `${base}/browser/${browserItemId}`,
+    headers: headers(),
+    payload: {
+      operationId: randomUUID(),
+      expectedVersion: null,
+      expectedBrowserItemVersion: data.browserItems[0]!.version,
+      itemId: data.items[0]!.id,
+      expectedItemVersion: data.items[0]!.version,
+    },
+  });
+  expect(result.statusCode).toBe(409);
+  expect(result.json().error.code).toBe('SOURCE_IDENTITY_MISMATCH');
+  expect((await get()).browserLinks).toEqual([]);
+});

@@ -517,6 +517,16 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
   - Help names the exclusion boundary: no grades, submissions, descriptions, files, screenshots or browser sessions. Sign in required directs the owner to the dedicated profile; it never asks for credentials in the hub.
 - The local connector is headful and uses a dedicated marked profile; an unmarked nonempty browser directory is refused. Its config/token/profile path remain outside the repository. Routine UI/API tests use synthetic observations only. 320px e-ink and standard connection-screen accessibility/target checks include the Browser collector tab; this is not Kompakt or live Canvas acceptance.
 
+### 2026-10-16 — Canvas browser/feed reconciliation (P11 development)
+
+- **Settings › Connections › Canvas › Matching** retains the existing feed/API reconciliation and adds a separate **Browser and calendar feed** comparison.
+  - Every retained browser assignment/quiz stays visible independently. Exact canonical Canvas URL candidates may be owner-confirmed; no fuzzy title/date/class inference creates a link.
+  - Compare details show browser and feed title, deadline and availability separately. **Dates differ** / **Titles differ** are informational only; neither source overwrites the other or automatically creates planner work.
+  - **Link browser item / Confirm browser link** is versioned and online-only. **Reload browser link versions** refreshes optimistic versions without discarding the selected candidate. A conflicting/stale source remains an explicit error.
+  - If the feed later omits a linked item, the browser item remains available according to browser coverage and the association stays retained. Absence from ICS/calendar feed is never browser deletion evidence. URL changes are reviewable rather than silently relinked.
+  - **Remove browser link** leaves a tombstone. Safe link IDs/versions/timestamps are portable-export data; no browser token, session/profile data or private attempt hash is added.
+- Browser capture is still not certified for hosted AI, and live two-course/all-selected-course plus owner feed comparison remains a separate acceptance gate before scheduling.
+
 ### 2026-10-13 — Mail: AI task suggestions
 
 - **Create task from mail** gains **Suggest tasks with AI** at the top of the form. Contract: [mail-task-suggestions.md](mail-task-suggestions.md).
