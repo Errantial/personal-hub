@@ -604,6 +604,52 @@ it('upgrades populated Canvas browser records through 071 without inventing reco
   }
 });
 
+it('upgrades populated owner data through 072 without inventing Outlook access findings', async () => {
+  const db = await openDatabase(
+    readConfig({ NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' }),
+  );
+  try {
+    const directory = new URL('../migrations/', import.meta.url);
+    const names = (await readdir(directory))
+      .filter((name) => /^\d+_.+\.sql$/.test(name))
+      .sort();
+    await db.exec(
+      'CREATE TABLE schema_migrations (name TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)',
+    );
+    for (const name of names.filter((name) => Number(name.slice(0, 3)) <= 71)) {
+      const sql = await readFile(new URL(name, directory), 'utf8');
+      await db.exec(sql);
+      await db.query(
+        'INSERT INTO schema_migrations(name,checksum) VALUES($1,$2)',
+        [name, createHash('sha256').update(sql).digest('hex')],
+      );
+    }
+    const owner = randomUUID();
+    const task = randomUUID();
+    await db.query(
+      "INSERT INTO users(id,email,password_hash) VALUES($1,'outlook-upgrade@example.test','unused')",
+      [owner],
+    );
+    await db.query(
+      "INSERT INTO tasks(id,owner_id,title,notes,version) VALUES($1,$2,'Retained task','Retained notes',3)",
+      [task, owner],
+    );
+    const before = await db.query('SELECT * FROM tasks WHERE owner_id=$1', [
+      owner,
+    ]);
+    await migrate(db);
+    expect(
+      await db.query('SELECT * FROM tasks WHERE owner_id=$1', [owner]),
+    ).toEqual(before);
+    expect(await db.query('SELECT * FROM outlook_access_gate')).toEqual([]);
+    expect(await db.query('SELECT name FROM schema_migrations')).toHaveLength(
+      names.length,
+    );
+  } finally {
+    await db.close();
+  }
+});
+
 it('upgrades populated assistant turns and requests through 060 without rewriting them', async () => {
   const db = await openDatabase(
     readConfig({ NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' }),

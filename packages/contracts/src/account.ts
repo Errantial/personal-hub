@@ -50,6 +50,7 @@ import {
 } from './features.js';
 import { taskSchema, userSchema, plannerRestorationSchema } from './core.js';
 import { canvasItemSchema } from './connections.js';
+import { outlookAccessGateSchema } from './outlook.js';
 import {
   canvasLmsCourseSchema,
   canvasLmsAssignmentSchema,
@@ -171,6 +172,7 @@ export const plannerExportSchema = z.object({
       })
       .nullable()
       .default(null),
+    outlookAccessGate: outlookAccessGateSchema.nullable().default(null),
   }),
 });
 export type AccountResponse = z.infer<typeof accountResponseSchema>;

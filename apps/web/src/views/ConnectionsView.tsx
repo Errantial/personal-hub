@@ -1,4 +1,7 @@
-import { canvasConnectionSchema } from '@hub/contracts';
+import {
+  canvasConnectionSchema,
+  outlookAccessGateSchema,
+} from '@hub/contracts';
 import type { BootstrapResponse } from '@hub/contracts';
 import { Help } from '../components/Help';
 import { Link } from '../components/Link';
@@ -9,6 +12,7 @@ import { CanvasLmsConnection } from '../components/CanvasLmsConnection';
 import { CanvasBrowserConnection } from '../components/CanvasBrowserConnection';
 import { CanvasReconciliation } from '../components/CanvasReconciliation';
 import { EmailConnectors } from '../components/EmailConnectors';
+import { OutlookAccessGate } from '../components/OutlookAccessGate';
 import { getSnapshot } from '../lib/api';
 import { useResource } from '../lib/hooks';
 import { canvasTabLabels, canvasTabs } from '../lib/router';
@@ -57,6 +61,51 @@ function CanvasCard({ navigate }: { navigate: (route: Route) => void }) {
   );
 }
 
+const outlookStatusLabel = {
+  unknown: 'Access gate not established',
+  'ready-for-adapter': 'Ready for delegated adapter work',
+  'admin-action-required': 'Admin action required',
+  'scope-review-required': 'Mailbox scope review required',
+  blocked: 'Access blocked',
+} as const;
+
+function OutlookCard({ navigate }: { navigate: (route: Route) => void }) {
+  const access = useResource(
+    (signal) =>
+      getSnapshot(
+        '/api/v1/connections/outlook/access',
+        outlookAccessGateSchema,
+        signal,
+      ),
+    { failure: 'Outlook access status unavailable. Retry Outlook.' },
+  );
+  return (
+    <article className="connection-card panel" aria-label="School Outlook">
+      <h3>School Outlook</h3>
+      {access.data?.data && (
+        <StatusChip>{outlookStatusLabel[access.data.data.status]}</StatusChip>
+      )}
+      <ReadState resource={access} label="Outlook" />
+      <Help label="School Outlook">
+        School mail remains unavailable until the access gate proves the
+        Microsoft 365 backend, mailbox scope, app registration and delegated
+        consent policy. Reviewing the gate does not sign in or read mail.
+      </Help>
+      <Link
+        route={{
+          name: 'settings',
+          section: 'connections',
+          connection: 'outlook',
+        }}
+        navigate={navigate}
+        className="link-button"
+      >
+        Review Outlook access
+      </Link>
+    </article>
+  );
+}
+
 /** Settings › Connections: one card per provider, Canvas opens its detail. */
 export function ConnectionsView({
   workspace,
@@ -69,6 +118,8 @@ export function ConnectionsView({
 }) {
   if (route.connection === 'canvas')
     return <CanvasDetail tab={route.tab ?? 'feed'} navigate={navigate} />;
+  if (route.connection === 'outlook')
+    return <OutlookDetail navigate={navigate} />;
   return (
     <section
       className="connections-section"
@@ -77,16 +128,17 @@ export function ConnectionsView({
       <h2 id="connections-title">Connections</h2>
       <Help label="Connections">
         Proton Mail is imported read-only through a connector on the computer
-        running Proton Bridge. School Outlook and Proton Calendar are not
-        implemented yet.
+        running Proton Bridge. School Outlook has a feasibility/access gate but
+        no mailbox adapter yet. Proton Calendar is not implemented yet.
       </Help>
       <div className="connection-grid">
         <CanvasCard navigate={navigate} />
+        <OutlookCard navigate={navigate} />
         {workspace.status === 'ready' &&
           workspace.data.connections
             .filter(
               (connection) =>
-                !['canvas', 'proton-mail'].includes(connection.id),
+                !['canvas', 'outlook', 'proton-mail'].includes(connection.id),
             )
             .map((connection) => (
               <article
@@ -108,6 +160,22 @@ export function ConnectionsView({
         </p>
       )}
       <EmailConnectors />
+    </section>
+  );
+}
+
+function OutlookDetail({ navigate }: { navigate: (route: Route) => void }) {
+  return (
+    <section className="connections-section" aria-labelledby="outlook-title">
+      <Link
+        route={{ name: 'settings', section: 'connections' }}
+        navigate={navigate}
+        className="link-button"
+      >
+        Back to connections
+      </Link>
+      <h2 id="outlook-title">School Outlook</h2>
+      <OutlookAccessGate />
     </section>
   );
 }

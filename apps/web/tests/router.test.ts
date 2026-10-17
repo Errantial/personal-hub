@@ -198,7 +198,7 @@ it('addresses reminders and their editor inside the inbox', () => {
   expect(parseRoute('/reminders', '')).toEqual({ name: 'inbox' });
 });
 
-it('addresses the Canvas connection and its tabs', () => {
+it('addresses Canvas tabs and the Outlook access gate', () => {
   expect(routePath({ name: 'settings', section: 'connections' })).toBe(
     '/settings/connections',
   );
@@ -232,6 +232,18 @@ it('addresses the Canvas connection and its tabs', () => {
   expect(parseRoute('/settings/connections/other', '')).toEqual({
     name: 'settings',
     section: 'connections',
+  });
+  expect(
+    routePath({
+      name: 'settings',
+      section: 'connections',
+      connection: 'outlook',
+    }),
+  ).toBe('/settings/connections/outlook');
+  expect(parseRoute('/settings/connections/outlook', '?tab=api')).toEqual({
+    name: 'settings',
+    section: 'connections',
+    connection: 'outlook',
   });
 });
 

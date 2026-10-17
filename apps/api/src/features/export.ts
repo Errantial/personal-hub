@@ -6,6 +6,7 @@ import { ApiError } from '../errors.js';
 import { taskColumns } from '../planner/routes.js';
 import { readCanvasLms } from '../connections/canvas-lms.js';
 import { exportCanvasBrowser } from '../connections/canvas-browser.js';
+import { readOutlookAccessGate } from '../connections/outlook.js';
 import {
   readBrowserReconciliations,
   readReconciliations,
@@ -117,6 +118,7 @@ export function registerExport(
         ...(await exportCanvasBrowser(tx, owner.id)),
         canvasReconciliations,
         canvasBrowserReconciliations,
+        outlookAccessGate: await readOutlookAccessGate(tx, owner.id),
         aiRouting: await readAIRoutingPolicy(tx, owner.id),
         aiActions: await readAIActionPolicy(tx, owner.id),
         ...(await exportEmailDrafts(tx, owner.id)),
