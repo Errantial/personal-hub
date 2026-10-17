@@ -4,6 +4,9 @@ import {
   Temporal,
   emailConnectorCreateSchema,
   emailConnectorCreatedSchema,
+  emailConnectorAttemptFinishSchema,
+  emailConnectorAttemptResultSchema,
+  emailConnectorAttemptSchema,
   emailConnectorRevokeSchema,
   emailConnectorStateSchema,
   emailConnectorsResponseSchema,
@@ -26,10 +29,32 @@ import { mutate } from '../planner/mutations.js';
 
 export const connectorPathPrefix = '/api/v1/email/connector/';
 const windowDays = 30;
+const staleAfterMs = 30 * 60 * 1000;
 const hash = (token: string) =>
   createHash('sha256').update(token).digest('hex');
 
-const connectorColumns = `id,name,sensitivity,to_char(since,'YYYY-MM-DD') AS since,version,${stamp('created_at', 'createdAt')},${stamp('last_seen_at', 'lastSeenAt')},${stamp('revoked_at', 'revokedAt')}`;
+const connectorColumns = `id,name,sensitivity,to_char(since,'YYYY-MM-DD') AS since,version,${stamp('created_at', 'createdAt')},${stamp('last_seen_at', 'lastSeenAt')},${stamp('last_attempt_at', 'lastAttemptAt')},${stamp('last_contact_at', 'lastContactAt')},${stamp('last_import_at', 'lastImportAt')},${stamp('last_complete_at', 'lastCompleteAt')},last_attempt_outcome AS "lastAttemptOutcome",last_error_code AS "lastErrorCode",active_attempt_id AS "activeAttemptId",${stamp('revoked_at', 'revokedAt')}`;
+
+function connectorHealthStatus(row: Record<string, unknown>) {
+  if (row.revokedAt) return 'revoked';
+  if (
+    row.activeAttemptId &&
+    row.lastAttemptAt &&
+    Date.now() - new Date(String(row.lastAttemptAt)).getTime() <= staleAfterMs
+  )
+    return 'syncing';
+  if (row.lastErrorCode === 'bridge-auth') return 'sign-in-required';
+  if (row.lastErrorCode) return 'error';
+  if (!row.lastAttemptAt) return 'never-synced';
+  if (row.activeAttemptId) return 'partial';
+  if (row.lastAttemptOutcome === 'partial') return 'partial';
+  if (row.lastAttemptOutcome === 'failed') return 'error';
+  if (!row.lastCompleteAt) return 'partial';
+  return Date.now() - new Date(String(row.lastCompleteAt)).getTime() >
+    staleAfterMs
+    ? 'stale'
+    : 'current';
+}
 
 async function readConnectors(tx: QueryExecutor, owner: string) {
   const connectors = await tx.query(
@@ -37,13 +62,14 @@ async function readConnectors(tx: QueryExecutor, owner: string) {
     [owner],
   );
   const folders = await tx.query(
-    `SELECT f.connector_id AS "connectorId",f.path,f.role,f.exists_count AS exists,f.window_count AS "inWindow",${stamp('f.updated_at', 'syncedAt')},
+    `SELECT f.connector_id AS "connectorId",f.path,f.role,f.exists_count AS exists,f.window_count AS "inWindow",${stamp('f.updated_at', 'syncedAt')},${stamp('f.last_complete_at', 'completeAt')},
        (SELECT COUNT(*)::integer FROM email_messages m WHERE m.owner_id=f.owner_id AND m.connector_id=f.connector_id AND f.path=ANY(m.folders)) AS imported
      FROM email_folders f WHERE f.owner_id=$1 ORDER BY f.path`,
     [owner],
   );
   return connectors.map((connector) => ({
     ...(connector as { id: string }),
+    healthStatus: connectorHealthStatus(connector),
     // The response schema drops connectorId.
     folders: folders.filter((folder) => folder.connectorId === connector.id),
   }));
@@ -209,6 +235,19 @@ export function registerEmailIngestion(
   });
 
   // Connector: bearer token, no browser origin.
+  app.post(`${connectorPathPrefix}attempt`, async (request) => {
+    const connector = await requireConnector(database, request);
+    const input = emailConnectorAttemptSchema.parse(request.body);
+    const [row] = await database.query(
+      `UPDATE email_connectors SET last_attempt_at=CURRENT_TIMESTAMP,last_seen_at=CURRENT_TIMESTAMP,active_attempt_id=$2,last_attempt_outcome=NULL,last_error_code=NULL
+       WHERE id=$1 AND revoked_at IS NULL RETURNING active_attempt_id AS "attemptId"`,
+      [connector.id, input.attemptId],
+    );
+    if (!row)
+      throw new ApiError(401, 'UNAUTHENTICATED', 'Connector token revoked.');
+    return emailConnectorAttemptResultSchema.parse(row);
+  });
+
   app.get(`${connectorPathPrefix}state`, async (request) => {
     const connector = await requireConnector(database, request);
     const folders = (
@@ -218,7 +257,7 @@ export function registerEmailIngestion(
       )
     ).map((row) => ({ ...row, lastUid: Number(row.lastUid) }));
     await database.query(
-      'UPDATE email_connectors SET last_seen_at=CURRENT_TIMESTAMP WHERE id=$1',
+      'UPDATE email_connectors SET last_seen_at=CURRENT_TIMESTAMP,last_contact_at=CURRENT_TIMESTAMP WHERE id=$1',
       [connector.id],
     );
     return emailConnectorStateSchema.parse({ since: connector.since, folders });
@@ -267,13 +306,20 @@ export function registerEmailIngestion(
             input.inWindow,
           ],
         );
-        for (const message of input.messages)
+        if (input.complete)
           await tx.query(
+            `UPDATE email_folders SET last_complete_at=CURRENT_TIMESTAMP,last_complete_uid=$3 WHERE connector_id=$1 AND path=$2`,
+            [connector.id, input.path, lastUid],
+          );
+        let imported = 0;
+        for (const message of input.messages) {
+          const [stored] = await tx.query(
             `INSERT INTO email_messages(id,owner_id,connector_id,message_key,from_address,to_addresses,cc_addresses,subject,sent_at,received_at,body,body_truncated,attachment_count,folders,sensitivity,text_origin)
              VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9,$10,$11,$12,$13,ARRAY[$14::text],$15,$16)
              ON CONFLICT(owner_id,connector_id,message_key) DO UPDATE SET
                folders=CASE WHEN $14=ANY(email_messages.folders) THEN email_messages.folders ELSE array_append(email_messages.folders,$14) END,
-               updated_at=CURRENT_TIMESTAMP`,
+               updated_at=CURRENT_TIMESTAMP
+             RETURNING (xmax = 0) AS inserted`,
             [
               randomUUID(),
               connector.owner,
@@ -293,9 +339,72 @@ export function registerEmailIngestion(
               message.textOrigin ?? null,
             ],
           );
+          if (stored?.inserted) imported++;
+          const [savedMessage] = await tx.query(
+            `SELECT id FROM email_messages WHERE owner_id=$1 AND connector_id=$2 AND message_key=$3`,
+            [connector.owner, connector.id, message.messageKey],
+          );
+          if (!savedMessage)
+            throw new ApiError(
+              500,
+              'IMPORT_FAILED',
+              'Imported message was not stored.',
+            );
+          await tx.query(
+            `INSERT INTO email_folder_memberships(owner_id,connector_id,path,uid_validity,uid,message_id)
+             VALUES($1,$2,$3,$4,$5,$6)
+             ON CONFLICT(connector_id,path,uid_validity,uid) DO UPDATE SET message_id=$6,observed_at=CURRENT_TIMESTAMP`,
+            [
+              connector.owner,
+              connector.id,
+              input.path,
+              input.uidValidity,
+              message.uid,
+              savedMessage.id,
+            ],
+          );
+        }
+        if (input.complete) {
+          const currentUids = input.windowUids ?? [];
+          const removed = await tx.query(
+            `DELETE FROM email_folder_memberships
+             WHERE owner_id=$1 AND connector_id=$2 AND path=$3
+               AND (uid_validity<>$4 OR NOT (uid=ANY($5::bigint[])))
+             RETURNING message_id AS "messageId"`,
+            [
+              connector.owner,
+              connector.id,
+              input.path,
+              input.uidValidity,
+              currentUids,
+            ],
+          );
+          const affected = new Set<string>([
+            ...removed.map((row) => String(row.messageId)),
+            ...(
+              await tx.query(
+                `SELECT DISTINCT message_id AS "messageId" FROM email_folder_memberships
+                 WHERE owner_id=$1 AND connector_id=$2 AND path=$3`,
+                [connector.owner, connector.id, input.path],
+              )
+            ).map((row) => String(row.messageId)),
+          ]);
+          for (const messageId of affected) {
+            const memberships = await tx.query(
+              `SELECT DISTINCT path FROM email_folder_memberships WHERE owner_id=$1 AND message_id=$2 ORDER BY path`,
+              [connector.owner, messageId],
+            );
+            await tx.query(
+              `UPDATE email_messages SET folders=$3::text[],updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2`,
+              [connector.owner, messageId, memberships.map((row) => row.path)],
+            );
+          }
+        }
         await tx.query(
-          'UPDATE email_connectors SET last_seen_at=CURRENT_TIMESTAMP WHERE id=$1',
-          [connector.id],
+          `UPDATE email_connectors SET last_seen_at=CURRENT_TIMESTAMP,last_contact_at=CURRENT_TIMESTAMP,
+             last_import_at=CASE WHEN $2::integer>0 THEN CURRENT_TIMESTAMP ELSE last_import_at END
+           WHERE id=$1`,
+          [connector.id, imported],
         );
         return emailUploadResultSchema.parse({
           stored: input.messages.length,
@@ -304,4 +413,31 @@ export function registerEmailIngestion(
       });
     },
   );
+
+  app.post(`${connectorPathPrefix}attempt/finish`, async (request) => {
+    const connector = await requireConnector(database, request);
+    const input = emailConnectorAttemptFinishSchema.parse(request.body);
+    if (input.outcome === 'complete' && input.errorCode)
+      throw new ApiError(
+        400,
+        'INVALID_INPUT',
+        'A complete sync cannot have an error.',
+      );
+    const [row] = await database.query(
+      `UPDATE email_connectors SET active_attempt_id=NULL,
+         last_complete_at=CASE WHEN $3='complete' THEN CURRENT_TIMESTAMP ELSE last_complete_at END,
+         last_attempt_outcome=$3,
+         last_error_code=CASE WHEN $3='failed' THEN $4 ELSE NULL END,
+         last_seen_at=CURRENT_TIMESTAMP
+       WHERE id=$1 AND active_attempt_id=$2 AND revoked_at IS NULL RETURNING id`,
+      [connector.id, input.attemptId, input.outcome, input.errorCode],
+    );
+    if (!row)
+      throw new ApiError(
+        409,
+        'ATTEMPT_CHANGED',
+        'The connector attempt changed.',
+      );
+    return { ok: true };
+  });
 }

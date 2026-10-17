@@ -2,6 +2,7 @@ import { readConnectorConfig } from './config.js';
 import { openBridge, readableFolders, withFolder } from './bridge.js';
 import { hubClient, sync } from './sync.js';
 import type { Hub } from './sync.js';
+import { randomUUID } from 'node:crypto';
 
 const days = 30;
 
@@ -83,18 +84,44 @@ async function runSync() {
           }
           return Promise.resolve();
         },
+        beginAttempt: () => Promise.resolve(),
+        finishAttempt: () => Promise.resolve(),
       }
     : hubClient(config);
-  const client = await openBridge(config.bridge);
+  const attemptId = randomUUID();
+  if (!dryRun) await hub.beginAttempt(attemptId);
+  let client: Awaited<ReturnType<typeof openBridge>> | undefined;
   try {
+    try {
+      client = await openBridge(config.bridge);
+    } catch (error) {
+      if (!dryRun)
+        await hub
+          .finishAttempt(
+            attemptId,
+            'failed',
+            (error as { authenticationFailed?: boolean })?.authenticationFailed
+              ? 'bridge-auth'
+              : 'bridge-unavailable',
+          )
+          .catch(() => undefined);
+      throw error;
+    }
     const totals = await sync(client, hub);
+    if (!dryRun) await hub.finishAttempt(attemptId, 'complete');
     console.log(
       dryRun
         ? `Dry run: parsed ${counts.parsed} folder entries (${seen.size} distinct messages, ${counts.keyed} with a Message-ID, ${counts.truncated} truncated, ${counts.withAttachments} with attachments) in ${totals.folders} folders. Nothing was uploaded.`
         : `Synced ${totals.messages} new folder entries from ${totals.folders} folders.`,
     );
+  } catch (error) {
+    if (client && !dryRun)
+      await hub
+        .finishAttempt(attemptId, 'failed', 'collection-failed')
+        .catch(() => undefined);
+    throw error;
   } finally {
-    await client.logout().catch(() => undefined);
+    if (client) await client.logout().catch(() => undefined);
   }
 }
 

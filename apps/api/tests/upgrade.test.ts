@@ -351,6 +351,84 @@ it('upgrades populated assistant turns through 068 without rewriting them', asyn
   }
 });
 
+it('upgrades populated email connectors through 069 without inventing health or membership', async () => {
+  const db = await openDatabase(
+    readConfig({ NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' }),
+  );
+  try {
+    const directory = new URL('../migrations/', import.meta.url);
+    const names = (await readdir(directory))
+      .filter((name) => /^\d+_.+\.sql$/.test(name))
+      .sort();
+    await db.exec(
+      'CREATE TABLE schema_migrations (name TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)',
+    );
+    for (const name of names.filter((name) => Number(name.slice(0, 3)) <= 68)) {
+      const sql = await readFile(new URL(name, directory), 'utf8');
+      await db.exec(sql);
+      await db.query(
+        'INSERT INTO schema_migrations(name,checksum) VALUES($1,$2)',
+        [name, createHash('sha256').update(sql).digest('hex')],
+      );
+    }
+    const owner = randomUUID();
+    const connector = randomUUID();
+    const message = randomUUID();
+    await db.query(
+      "INSERT INTO users(id,email,password_hash) VALUES($1,'mail-upgrade@example.test','unused')",
+      [owner],
+    );
+    await db.query(
+      "INSERT INTO email_connectors(id,owner_id,name,token_hash,sensitivity,since,last_seen_at) VALUES($1,$2,'Bridge',$3,'personal','2026-10-01','2026-10-15T12:00:00Z')",
+      [connector, owner, 'a'.repeat(64)],
+    );
+    await db.query(
+      "INSERT INTO email_folders(owner_id,connector_id,path,uid_validity,last_uid,exists_count,window_count) VALUES($1,$2,'INBOX','7',5,5,1)",
+      [owner, connector],
+    );
+    await db.query(
+      "INSERT INTO email_messages(id,owner_id,connector_id,message_key,received_at,body,body_truncated,folders,sensitivity) VALUES($1,$2,$3,'<legacy@example.test>','2026-10-15T12:00:00Z','Body',false,ARRAY['INBOX'],'personal')",
+      [message, owner, connector],
+    );
+    await migrate(db);
+    expect(
+      (
+        await db.query(
+          `SELECT last_attempt_at,last_contact_at,last_import_at,last_complete_at,active_attempt_id,last_attempt_outcome,last_error_code FROM email_connectors WHERE id=$1`,
+          [connector],
+        )
+      )[0],
+    ).toEqual({
+      last_attempt_at: null,
+      last_contact_at: null,
+      last_import_at: null,
+      last_complete_at: null,
+      active_attempt_id: null,
+      last_attempt_outcome: null,
+      last_error_code: null,
+    });
+    expect(
+      (
+        await db.query(
+          'SELECT last_complete_at,last_complete_uid FROM email_folders WHERE connector_id=$1',
+          [connector],
+        )
+      )[0],
+    ).toEqual({ last_complete_at: null, last_complete_uid: null });
+    expect(await db.query('SELECT * FROM email_folder_memberships')).toEqual(
+      [],
+    );
+    const [retainedMessage] = await db.query(
+      'SELECT folders FROM email_messages WHERE id=$1',
+      [message],
+    );
+    expect(retainedMessage).toBeDefined();
+    expect(retainedMessage!.folders).toEqual(['INBOX']);
+  } finally {
+    await db.close();
+  }
+});
+
 it('upgrades populated assistant turns and requests through 060 without rewriting them', async () => {
   const db = await openDatabase(
     readConfig({ NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' }),

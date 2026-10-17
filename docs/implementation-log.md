@@ -1,5 +1,15 @@
 # Implementation log
 
+## 2026-10-16 - Mail source health and safe connector reconciliation (P10 development)
+
+Implemented the first P10/E1 connector-quality slice on `ai/mail-source-health`. Migration 069 separates connector attempt, successful source-connected collector contact, actual new-message import and complete configured-window timestamps; records bounded failure categories and the latest attempt outcome; and adds per-folder complete markers. Owner Settings derives Never synced, Syncing, Current, Stale, Partial, Sign in required, Revoked and Error instead of treating any `last_seen_at` as Connected. Successful empty collections advance contact/completeness without inventing an import timestamp, while Bridge authentication/availability failures do not fabricate source contact and abandoned attempts stop looking Syncing after the bounded freshness interval.
+
+The connector's final empty folder upload is now an explicit complete observation carrying the full in-window UID snapshot. A normalized owned `email_folder_memberships` table binds connector/path/UIDVALIDITY/UID to the retained message. Only complete snapshots retire missing memberships; partial/failed observations do not prune. UIDVALIDITY replacement preserves the old generation until the new generation completes. Moves remove only the proven old folder membership, and a message remains retained even if it temporarily has no memberships. Legacy rows are not backfilled with fabricated UID evidence, so their existing folder arrays remain until a future proven observation supplies membership evidence.
+
+Mail-broker/Assistant coverage now carries connector health plus last contact and last complete configured-window collection instead of presenting `last_seen_at` as “Imported up to.” External mailbox completeness remains explicitly unverified. The live Gmail→Proton→Bridge comparison, required Inbox/Sent/archive/history coverage decision, Windows scheduled-task audit and any direct-Gmail feasibility remain owner-reviewed acceptance work; no account access or provider call is part of this development slice.
+
+Focused synthetic validation before the full repository gate: 80 connector/API/broker tests passed, including empty success, partial/error recovery, move/removal reconciliation and UIDVALIDITY replacement; affected contracts/API/connector/web TypeScript checks passed. Full `npm run check` and sequential Chromium e2e are run before integration. No owner database, mailbox, credentials, paid AI, deployment or hardware was used.
+
 ## 2026-10-16 - Grounded deterministic study suggestions (P8 part 2)
 
 PR #48 merged as `f895cb6`; 829 local tests passed (three optional PostgreSQL skips) and Linux/Windows/PostgreSQL CI passed on `831d065`. Actual broker model-quality evaluation remains unperformed.

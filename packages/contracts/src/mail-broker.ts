@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { emailConnectorHealthStatusSchema } from './email-ingestion.js';
 
 const uuid = z.string().uuid();
 const uniqueIds = z
@@ -50,7 +51,9 @@ export const mailBrokerCoverageSchema = z.object({
     .array(
       z.object({
         id: uuid,
-        lastSeenAt: z.string().datetime().nullable(),
+        healthStatus: emailConnectorHealthStatusSchema,
+        lastContactAt: z.string().datetime().nullable(),
+        lastCompleteAt: z.string().datetime().nullable(),
         importedSince: z.string().date(),
       }),
     )

@@ -451,7 +451,9 @@ test('a brokered answer shows real coverage and searches older mail on request',
           connectors: [
             {
               id: crypto.randomUUID(),
-              lastSeenAt: '2026-01-05T09:05:00Z',
+              healthStatus: 'current',
+              lastContactAt: '2026-01-05T09:05:00Z',
+              lastCompleteAt: '2026-01-05T09:05:00Z',
               importedSince: '2025-09-01',
             },
           ],
