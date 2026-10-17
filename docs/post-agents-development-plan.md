@@ -66,10 +66,10 @@ D57 exclusions remain excluded until separately designed and approved: event tri
 | C. Academic assistance        | Useful score-free academic answers, then grounded planner proposals                            | B; manual work first, imported sources individually certified               |
 | D. Explicit memory            | Owner selects saved entries for an individual ask                                              | B and a bounded new permission decision; no automatic agent access          |
 | E. Integration quality        | Honest coverage/freshness, Canvas collector, Outlook feasibility                               | Freshness work can proceed alongside A/B; each source has its own live gate |
-| F. Inbound MCP                | A small, scoped read-only surface for one chosen external client                               | A/B, explicit export/auth decisions and actual client/version proof         |
-| G. Outbound MCP               | One allowlisted read server with bounded tool calls                                            | A/B/F experience; separate approval and network/provenance gates            |
+| F. Inbound MCP                | **Post-v1 deferred (owner decision 2026-10-17):** a small, scoped read-only surface for one chosen external client | A/B, explicit export/auth decisions and actual client/version proof         |
+| G. Outbound MCP               | **Post-v1 deferred (owner decision 2026-10-17):** one allowlisted read server with bounded tool calls | A/B/F experience; separate approval and network/provenance gates            |
 
-Start A and the provenance specification/regression fixtures for B together. Source-health work in E is independent enough to proceed alongside them. Do not hold manual academic usefulness hostage to Canvas or Outlook access. Do not enable new source use until B passes. F/G are later milestones, not one large integration project.
+Start A and the provenance specification/regression fixtures for B together. Source-health work in E is independent enough to proceed alongside them. Do not hold manual academic usefulness hostage to Canvas or Outlook access. Do not enable new source use until B passes. F/G are post-v1 milestones, not part of the v1 delivery sequence and not one large integration project.
 
 ## A. Stabilize the deployed experience
 
@@ -221,10 +221,10 @@ These are planning identifiers, not GitHub PR numbers. Sizes are relative comple
 | P10   | Gmail coverage receipt and connector reconciliation improvements                           | Medium; P3 health; direct Gmail separate if necessary               |
 | P11   | Canvas collector runtime, ingestion and reconciliation in separate layers                  | Large; access/runtime decision, per-course proof                    |
 | P12   | Outlook access proof, then adapter only if allowed                                         | Small feasibility; large adapter; tenant gate                       |
-| P13   | MCP threat model, first-client matrix, grant/export/auth design                            | Medium; explicit approval; can be researched before transport       |
-| P14   | Inbound auth and bounded read tools, separated for review                                  | Large; P13, P5/P6; authentication E2E mandatory                     |
-| P15   | Optional hub task writes via inbound MCP                                                   | Medium; P14 acceptance and write decision                           |
-| P16   | Outbound registry/security harness, then one read server                                   | Large; P13/P14 experience and separate approval                     |
+| P13   | MCP threat model, first-client matrix, grant/export/auth design — **post-v1 deferred after design research** | Medium; explicit approval; can be researched before transport       |
+| P14   | Inbound auth and bounded read tools — **post-v1 deferred**                                  | Large; P13, P5/P6; authentication E2E mandatory                     |
+| P15   | Optional hub task writes via inbound MCP — **post-v1 deferred**                              | Medium; P14 acceptance and write decision                           |
+| P16   | Outbound registry/security harness, then one read server — **post-v1 deferred**              | Large; P13/P14 experience and separate approval                     |
 
 **Recommended next implementation batch:** P1, P2 and P4, with P5/P6 specification and regression work started early. P3 follows the authoritative backend states. Prioritize any reproduced existing provenance disclosure defect as a fix rather than waiting for academic scope. Expand capabilities only after the relevant safety gate, not merely after a dashboard exists.
 
@@ -239,7 +239,7 @@ The owner's approval authorizes the recommended development defaults below. Acco
 5. **Academic scope:** recommend manual work first, then explicit scheduled scope; imported sources require individual certification.
 6. **Gmail needs:** choose required Inbox/Sent/archive/history coverage before deciding whether Proton is sufficient.
 7. **Connector feasibility:** confirm approved local Canvas runtime and selected courses; establish Outlook tenant access before committing to adapters.
-8. **MCP disclosure:** choose first client, allowed data/destinations, auth service and protocol versions; approve inbound reads before writes/outbound tools.
+8. **MCP disclosure (post-v1):** owner moved MCP compatibility to post-v1 on 2026-10-17. When resumed, choose first client, allowed data/destinations, auth service and protocol versions; approve inbound reads before writes/outbound tools.
 
 ## Validation and rollout discipline
 
