@@ -107,6 +107,26 @@ describe('bound history', () => {
     ).toBe(false);
   });
 
+  it('withholds broker-bound mail history when Use mail is turned off', async () => {
+    const { tx, query } = reader([]);
+    expect(
+      await historySourcesEligible(
+        tx,
+        owner,
+        [
+          {
+            kind: 'mail-broker',
+            id: randomUUID(),
+            labels: ['unlabeled'],
+            brokerDigest: 'a'.repeat(64),
+          },
+        ],
+        { allowed: ['unlabeled'], useMail: false },
+      ),
+    ).toBe(false);
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it('stops before a second turn would exceed the transitive source union bound', async () => {
     const connector = { id: randomUUID(), version: 1 };
     const refs = Array.from({ length: 1001 }, () => ({
