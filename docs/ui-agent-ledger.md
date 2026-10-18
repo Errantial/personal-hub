@@ -431,7 +431,7 @@ Verification: `npm run check` passed with 123 API/client tests and one optional 
 | App/navigation | `apps/web/src/App.tsx` | Owner authorization gates private views; preferences include e-ink mode. |
 | Appearance | `AppearanceSettings.tsx`, `lib/appearance.ts`, `styles/tokens.css` | Device-local theme, contrast-checked colors, named profiles, e-ink overrides. |
 | Authentication/account | `AuthGate.tsx`, `AccountSettings.tsx` | Enrollment, sign-in, password reauthentication, session rotation/revocation, planner export. |
-| Tasks/sync | `TasksView.tsx`, `DeletedItems.tsx`, `QuickCapture.tsx`, `SyncStatus.tsx`, `lib/tasks.ts`, `lib/offline.ts` | Durable task outbox, stable IDs, version conflicts, same-owner recovery. |
+| Offline sync | `TasksView.tsx`, `CalendarEditor.tsx`, `ClassForms.tsx`, `ReminderEditor.tsx`, `SyncStatus.tsx`, `lib/offline.ts` | Bounded multi-record outbox, stable create IDs, FIFO replay, version conflicts, dependency guards and same-owner recovery. |
 | Calendar | `CalendarView.tsx`, `CalendarEditor.tsx`, `DeletedItems.tsx`, `TimeZoneInput.tsx`, `lib/calendar.ts`, shared `occurrences.ts` | Timezones, date-only events, recurring series/occurrences, separate study blocks and imported deadlines. |
 | Classes | `ClassesView.tsx`, `ClassForms.tsx`, `lib/classes.ts`, `ClassCanvasEntries.tsx`, `ClassCanvasAssignments.tsx` | Manual class/topic assessments, explicit Canvas links, cached loaded portfolios. |
 | Inbox/Reminders | `InboxView.tsx`, `ReminderEditor.tsx`, `lib/reminders.ts` | Durable server inbox/worker state, snooze once, versioned reminder drafts, explicit optional browser permission. |
@@ -446,9 +446,9 @@ Component paths above are relative to `apps/web/src/components` unless qualified
 
 ## State and interaction requirements
 
-### Authentication and offline tasks
+### Authentication and offline changes
 
-Task edits can be queued offline; calendar, academic, connection, reminder, account, and AI settings writes are online-only. Previously loaded views can be cached; arbitrary ranges or unseen records are not guaranteed offline. Cached data must remain associated with the authenticated owner/server.
+The ordered IndexedDB outbox covers task mutations; ordinary whole Calendar event create/edit/delete; reminder add/reschedule; class/topic create/delete; and metadata edits to existing topics only when their effective/captured labels are unlabeled. Existing class edits/label changes, class-linked study events, single-occurrence Calendar edits, recurring schedule/rule resets, reminder controls/snooze, source-derived Canvas planning, batch/settings/account/AI writes remain online-only. Previously loaded views can be cached; arbitrary ranges or unseen records are not guaranteed offline. Cached data must remain associated with the authenticated owner/server.
 
 Session expiry/revocation locks queued edits until the same owner signs in again. Do not discard an outbox or expose it to another owner. Keep conflict drafts and pending operations visible. Reloading a server version does not silently apply a conflicting edit. Lost-response retries reuse the same operation ID and payload; changed edits need a new operation ID. See offline.ts before changing task forms or sign-out flows.
 
@@ -492,7 +492,7 @@ Use `RequestError.code` from `lib/api.ts` for structured handling; never render 
 | Invalid input/incompatible response | Retain the draft and show an error. Schema failure is not success or an empty result. |
 | Accepted blocked preflight | A persisted metadata result, separate from an HTTP failure or executable queue. Show its reason; dispatch remains disabled. |
 
-Task transport alone has durable offline mutation support. `cachedPath` in api.ts defines the loaded-view cache allowlist; AI/account/settings endpoints are excluded. Reuse transport helpers instead of introducing a universal offline cache or background mutation retry.
+`offlineMutationKind`/`enqueueMutation` in api.ts/offline.ts define the bounded durable mutation allowlist; `cachedPath` defines loaded-view caching. AI/account/settings and other unspecified writes are excluded. Preserve resource dependency guards, stable create IDs, FIFO receipt replay and the distinction between actual offline queueing and an online lost-response whose outcome is unknown. Reuse these helpers instead of introducing a universal offline cache or background mutation retry.
 
 ## Deferred UI/device work
 
@@ -505,6 +505,15 @@ Actual Mudita Kompakt verification, Kindle Scribe, and a dedicated Windows app a
 Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authentication changes. Browser tests own their ports and synthetic database. Keep API/provider fixtures synthetic; never reset the owner's database or send real provider/paid requests for routine verification. Update locators when layout changes without weakening state, privacy, offline, conflict, or retry assertions.
 
 ## Change ledger
+
+### 2026-10-18 — Bounded multi-record offline outbox
+
+- `lib/offline.ts` now stores one owner-scoped FIFO queue across task, Calendar, reminder, class and topic records. Creates use stable client IDs so later queued operations and dependent topic creation keep the same identity through replay. Web Locks continue to serialize competing tabs.
+- Offline Calendar support is limited to ordinary whole-event create/edit/delete. Single-occurrence edits, class-linked study events and recurrence anchor/timezone/rule changes remain online-only. Confirmed Calendar replay invalidates occurrence-range caches so the next read cannot retain stale expansion; all-day range projection re-expands the full span.
+- Reminder add/reschedule can queue; pause/resume/cancel, snooze, delivery/history/read controls remain online-only. A queued task conflict does not disable unrelated live reminder controls.
+- Classes/topics may be created/deleted offline. Existing class edits and all sensitivity-changing edits stay online-only. Existing topic notes/progress/confidence may queue only when the topic carries no effective/captured labels; labeled-topic edits require a connection. Queued class/topic parents block dependent academic/study writes until synchronization.
+- Conflict discard restores the last confirmed cached record when one exists. Session expiry/revocation locks the queue for the same owner; sign-out still requires sync/discard and clears private cache. Newly supported non-task mutations distinguish actual offline queueing from an online lost response whose outcome is unknown, preserving the exact operation ID for deliberate retry.
+- Browser acceptance covers these boundaries. Android shares the web storage mechanism, but expanded mutation kinds have no new emulator/process-death or Kompakt evidence; retain that distinction in UI/help/status claims.
 
 ### 2026-10-16 — School Outlook access gate (P12 development)
 

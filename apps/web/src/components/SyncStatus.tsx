@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { synchronize } from '../lib/api';
-import { offlineChanged, offlineStatus, discardTask } from '../lib/offline';
+import { offlineChanged, offlineStatus, discardOffline } from '../lib/offline';
 import { Banner } from './Banner';
 import { useConfirm } from './ConfirmDialog';
 import { Help } from './Help';
@@ -16,9 +16,11 @@ export function useTaskSync() {
   const [status, setStatus] = useState<Status>({
     pending: 0,
     queued: [],
+    queuedItems: [],
     locked: false,
     lastSaved: null,
     conflicts: [],
+    itemConflicts: [],
     unavailable: false,
   });
   const [error, setError] = useState('');
@@ -65,8 +67,8 @@ export function useTaskSync() {
     : status.unavailable
       ? 'Server unavailable'
       : 'Online';
-  const queue = status.conflicts.length
-    ? `Conflict · ${status.conflicts.length}`
+  const queue = status.itemConflicts.length
+    ? `Conflict · ${status.itemConflicts.length}`
     : status.locked
       ? `Locked · ${status.pending} queued`
       : status.pending
@@ -108,14 +110,14 @@ export function SyncIndicator({ state }: { state: TaskSync }) {
   );
 }
 
-/** Task sync details, in the page flow so they never cover content. */
+/** Offline sync details, in the page flow so they never cover content. */
 export function SyncDetails({ state }: { state: TaskSync }) {
   const { online, status, error, busy, sync, summary } = state;
   return (
     <section
       id={detailsId}
       className="sync__details"
-      aria-label="Task sync"
+      aria-label="Offline sync"
       hidden={!state.detailsOpen}
       onKeyDown={(event) => {
         if (event.key !== 'Escape' || event.defaultPrevented) return;
@@ -125,7 +127,7 @@ export function SyncDetails({ state }: { state: TaskSync }) {
     >
       <p>{summary}</p>
       {(!online || status.unavailable) && status.lastSaved && (
-        <p>Tasks cached {formatInstant(status.lastSaved)}</p>
+        <p>Local data cached {formatInstant(status.lastSaved)}</p>
       )}
       {status.locked && <p>Sign in again to sync queued changes.</p>}
       {error && <p role="alert">{error}</p>}
@@ -140,21 +142,31 @@ export function SyncDetails({ state }: { state: TaskSync }) {
         >
           Sync now
         </button>
-        <Help label="Offline tasks">
-          Tasks can be created, edited, completed and deleted offline. Other
-          screens show previously loaded data; their edits require a connection.
-          Only previously visited calendar ranges are cached. Local data is
-          stored on this device until sign-out. Offline access ends when the
-          last verified session expires. Reconnect to check revocation and sync.
-          Local storage can be cleared or evicted. Sync pending changes before
-          clearing browser or app data.
+        <Help label="Offline changes">
+          Tasks and whole calendar events can be created, edited and deleted
+          offline. Reminders can be added or rescheduled. Classes and topics can
+          be added or deleted, and unlabeled topics can change notes, progress
+          or confidence. Existing class edits, label changes, class-linked study
+          events, reminder controls, snooze and single-occurrence calendar edits
+          still require a connection. Only previously visited data and calendar
+          ranges are cached. Local data is stored on this device until sign-out.
+          Offline access ends when the last verified session expires. Reconnect
+          to check revocation and sync.
         </Help>
       </div>
     </section>
   );
 }
 
-/** Persistent banner listing task conflicts with their retained local drafts. */
+const conflictLabel = {
+  task: 'Task',
+  calendar: 'Calendar',
+  reminder: 'Reminder',
+  course: 'Class',
+  topic: 'Topic',
+} as const;
+
+/** Persistent banner listing queued conflicts with their retained local drafts. */
 export function SyncConflicts({
   state,
   navigate,
@@ -165,17 +177,19 @@ export function SyncConflicts({
   const [dialog, confirm] = useConfirm();
   const [error, setError] = useState('');
   const { status, sync } = state;
-  if (!status.conflicts.length && !error) return dialog;
+  if (!status.itemConflicts.length && !error) return dialog;
   return (
     <Banner
       tone="danger"
-      label="Task conflicts"
-      title="Some queued task changes could not be saved"
+      label="Sync conflicts"
+      title="Some queued changes could not be saved"
     >
       {error && <p role="alert">{error}</p>}
-      {status.conflicts.map((item) => (
-        <div className="conflict" key={item.id}>
-          <strong>Task conflict: {item.title}</strong>
+      {status.itemConflicts.map((item) => (
+        <div className="conflict" key={`${item.kind}:${item.id}`}>
+          <strong>
+            {conflictLabel[item.kind]} conflict: {item.title}
+          </strong>
           <p>
             {item.error === 'VERSION_CONFLICT'
               ? 'Server record changed.'
@@ -186,26 +200,67 @@ export function SyncConflicts({
           <details>
             <summary>Local draft</summary>
             <p>{item.notes || 'No notes'}</p>
-            <dl>
-              <dt>Due date</dt>
-              <dd>{item.task.dueDate ?? 'None'}</dd>
-              <dt>Priority</dt>
-              <dd>{item.task.priority}</dd>
-              <dt>Status</dt>
-              <dd>
-                {item.task.deletedAt
-                  ? 'Deleted'
-                  : item.task.completed
-                    ? 'Completed'
-                    : 'Open'}
-              </dd>
-              <dt>Content label</dt>
-              <dd>{item.task.sensitivity}</dd>
-            </dl>
+            {item.kind === 'task' && 'dueDate' in item.record && (
+              <dl>
+                <dt>Due date</dt>
+                <dd>{item.record.dueDate ?? 'None'}</dd>
+                <dt>Priority</dt>
+                <dd>{item.record.priority}</dd>
+                <dt>Status</dt>
+                <dd>
+                  {item.record.deletedAt
+                    ? 'Deleted'
+                    : item.record.completed
+                      ? 'Completed'
+                      : 'Open'}
+                </dd>
+                <dt>Content label</dt>
+                <dd>{item.record.sensitivity}</dd>
+              </dl>
+            )}
           </details>
-          <Link route={{ name: 'tasks', id: item.id }} navigate={navigate}>
-            Open task
-          </Link>{' '}
+          {item.kind === 'task' && (
+            <Link route={{ name: 'tasks', id: item.id }} navigate={navigate}>
+              Open task
+            </Link>
+          )}{' '}
+          {item.kind === 'calendar' && (
+            <Link
+              route={{
+                name: 'calendar',
+                editor: { kind: 'event', id: item.id },
+              }}
+              navigate={navigate}
+            >
+              Open event
+            </Link>
+          )}{' '}
+          {item.kind === 'reminder' && (
+            <Link
+              route={{ name: 'inbox', section: 'reminders', reminder: item.id }}
+              navigate={navigate}
+            >
+              Open reminder
+            </Link>
+          )}{' '}
+          {item.kind === 'course' && (
+            <Link
+              route={{ name: 'classes', id: item.id, section: 'details' }}
+              navigate={navigate}
+            >
+              Open class
+            </Link>
+          )}{' '}
+          {item.kind === 'topic' &&
+            'courseId' in item.record &&
+            typeof item.record.courseId === 'string' && (
+              <Link
+                route={{ name: 'classes', id: item.record.courseId }}
+                navigate={navigate}
+              >
+                Open class
+              </Link>
+            )}{' '}
           <button
             type="button"
             className="secondary-button"
@@ -218,7 +273,7 @@ export function SyncConflicts({
               }).then((confirmed) => {
                 if (!confirmed) return;
                 setError('');
-                void discardTask(item.id).then(
+                void discardOffline(item.kind, item.id).then(
                   () => sync(),
                   () => setError('Could not discard changes.'),
                 );

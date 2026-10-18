@@ -1,8 +1,16 @@
 import { expect, test } from '@playwright/test';
 import {
   addTask,
+  calendarRegion,
+  classesRegion,
+  eventEditor,
+  inboxRegion,
+  newEvent,
   open,
+  openClass,
   openTask,
+  showCalendar,
+  showReminders,
   showTasks,
   syncNow,
   syncState,
@@ -194,7 +202,7 @@ test('academic source relabeling retains an offline task draft and inherited lab
   expect(relabeled.status()).toBe(200);
   await page.unroute('**/api/v1/tasks/*');
   await syncNow(page);
-  const conflicts = page.getByRole('alert', { name: 'Task conflicts' });
+  const conflicts = page.getByRole('alert', { name: 'Sync conflicts' });
   await expect(conflicts).toContainText('Academic retained draft');
   await page.reload();
   await expect(conflicts).toContainText('Academic retained draft');
@@ -212,6 +220,111 @@ test('academic source relabeling retains an offline task draft and inherited lab
     academicSource: { workId: work.id, labels: ['restricted'] },
   });
 });
+
+test('classes and topics queue only propagation-safe offline operations', async ({
+  page,
+  context,
+}) => {
+  const headers = { Origin: 'http://127.0.0.1:5180' };
+  const existingReply = await page.request.post('/api/v1/courses', {
+    headers,
+    data: { name: 'Offline existing class', operationId: crypto.randomUUID() },
+  });
+  expect(existingReply.status()).toBe(200);
+  const existing = (await existingReply.json()).course as {
+    id: string;
+    name: string;
+  };
+  const topicReply = await page.request.post('/api/v1/topics', {
+    headers,
+    data: {
+      courseId: existing.id,
+      name: 'Offline existing topic',
+      operationId: crypto.randomUUID(),
+    },
+  });
+  expect(topicReply.status()).toBe(200);
+  const existingTopic = (await topicReply.json()).topic as {
+    id: string;
+    name: string;
+  };
+
+  await warm(page);
+  await page.goto('/classes');
+  await expect(
+    classesRegion(page).getByRole('link', { name: existing.name, exact: true }),
+  ).toBeVisible();
+  await context.setOffline(true);
+
+  await openClass(page, existing.name, 'Details');
+  const details = classesRegion(page).getByRole('region', {
+    name: 'Class details',
+  });
+  await details.getByLabel('Class content label').selectOption('restricted');
+  await details.getByRole('button', { name: 'Save class changes' }).click();
+  await expect(details.getByRole('alert')).toContainText(
+    'Connect to edit this class.',
+  );
+  await expect(syncState(page)).toContainText('Offline · All saved');
+
+  await page.goto(`/classes/${existing.id}`);
+  let topics = classesRegion(page).getByRole('region', { name: 'Topics' });
+  const row = topics
+    .getByRole('listitem')
+    .filter({ hasText: existingTopic.name });
+  await row
+    .getByRole('button', { name: `Edit topic ${existingTopic.name}` })
+    .click();
+  const topicForm = topics.getByRole('form', { name: 'Edit topic' });
+  await topicForm.getByLabel('Topic content label').selectOption('restricted');
+  await topicForm.getByRole('button', { name: 'Save topic changes' }).click();
+  await expect(topicForm.getByRole('alert')).toContainText(
+    'Connect to change this topic label.',
+  );
+  await topicForm.getByLabel('Topic content label').selectOption('unlabeled');
+  await topicForm.getByLabel('Topic notes').fill('Queued topic notes');
+  await topicForm.getByLabel('Progress (%)').fill('40');
+  await topicForm.getByRole('button', { name: 'Save topic changes' }).click();
+  await expect(syncState(page)).toContainText('Offline · 1 queued');
+
+  await page.goto('/classes/new');
+  const newClass = 'Offline queued class';
+  await classesRegion(page).getByLabel('Class name').fill(newClass);
+  await classesRegion(page).getByRole('button', { name: 'Add class' }).click();
+  await expect(syncState(page)).toContainText('Offline · 2 queued');
+  await expect(
+    page.getByRole('heading', { level: 2, name: newClass, exact: true }),
+  ).toBeVisible();
+  topics = classesRegion(page).getByRole('region', { name: 'Topics' });
+  const newTopic = 'Offline queued topic';
+  await topics.getByLabel('Topic name').fill(newTopic);
+  await topics.getByRole('button', { name: 'Add topic' }).click();
+  await expect(syncState(page)).toContainText('Offline · 3 queued');
+  await expect(topics.getByText(newTopic, { exact: true })).toBeVisible();
+
+  await page.reload();
+  await expect(syncState(page)).toContainText('Offline · 3 queued');
+  await context.setOffline(false);
+  await syncNow(page);
+  await expect(syncState(page)).toContainText('Online · All saved', {
+    timeout: 15000,
+  });
+
+  const savedTopics = (await (await page.request.get('/api/v1/topics')).json())
+    .topics as { id: string; name: string; notes: string; progress: number }[];
+  expect(
+    savedTopics.find((item) => item.id === existingTopic.id),
+  ).toMatchObject({
+    notes: 'Queued topic notes',
+    progress: 40,
+  });
+  expect(savedTopics.some((item) => item.name === newTopic)).toBe(true);
+  const savedClasses = (
+    await (await page.request.get('/api/v1/courses')).json()
+  ).courses as { name: string }[];
+  expect(savedClasses.some((item) => item.name === newClass)).toBe(true);
+});
+
 test('offline create, edit, completion and delete survive reload and reconcile once', async ({
   page,
   context,
@@ -260,7 +373,7 @@ test('offline create, edit, completion and delete survive reload and reconcile o
   await expect(
     page
       .getByRole('alert')
-      .filter({ hasText: 'Sync or discard pending tasks' }),
+      .filter({ hasText: 'Sync or discard pending changes' }),
   ).toBeVisible();
   await context.setOffline(false);
   await syncNow(page);
@@ -319,7 +432,7 @@ test('offline conflicts retain local drafts until explicitly discarded', async (
   expect(remote.status()).toBe(200);
   await context.setOffline(false);
   await syncNow(page);
-  const conflicts = page.getByRole('alert', { name: 'Task conflicts' });
+  const conflicts = page.getByRole('alert', { name: 'Sync conflicts' });
   await expect(conflicts).toContainText(
     'Task conflict: Retained offline draft',
   );
@@ -364,6 +477,117 @@ test('offline conflicts retain local drafts until explicitly discarded', async (
       .getByRole('link', { name: 'Remote newer task', exact: true }),
   ).toBeVisible();
 });
+
+test('calendar and reminder edits persist offline and replay once in FIFO order', async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(60000);
+  await warm(page);
+  await page.goto('/calendar?date=2035-01-02&view=day');
+  await showCalendar(page, { date: '2035-01-02', view: 'Day', zone: 'UTC' });
+  await expect(
+    calendarRegion(page).getByRole('link', { name: 'New event', exact: true }),
+  ).toBeVisible();
+  await open(page, 'Inbox');
+  await showReminders(page);
+  await expect(
+    inboxRegion(page).getByRole('link', { name: 'Add reminder', exact: true }),
+  ).toBeVisible();
+
+  await context.setOffline(true);
+  await page.goto('/calendar?date=2035-01-02&view=day');
+  await newEvent(page);
+  let editor = eventEditor(page);
+  await editor
+    .getByLabel('Title', { exact: true })
+    .fill('Offline calendar kept');
+  await editor.getByLabel('Event timezone', { exact: true }).fill('UTC');
+  await editor.getByLabel('Starts', { exact: true }).fill('2035-01-02T10:00');
+  await editor.getByLabel('Ends', { exact: true }).fill('2035-01-02T11:00');
+  await editor.getByRole('button', { name: 'Save event' }).click();
+  await expect(syncState(page)).toContainText('Offline · 1 queued');
+  await calendarRegion(page)
+    .getByRole('link', { name: /Offline calendar kept/ })
+    .click();
+  editor = eventEditor(page);
+  await editor
+    .getByLabel('Title', { exact: true })
+    .fill('Offline calendar revised');
+  await editor.getByLabel('Ends', { exact: true }).fill('2035-01-02T11:30');
+  await editor.getByRole('button', { name: 'Save changes' }).click();
+  await expect(syncState(page)).toContainText('Offline · 2 queued');
+  await page.goto('/calendar?date=2035-01-02&view=day');
+
+  await newEvent(page);
+  editor = eventEditor(page);
+  await editor
+    .getByLabel('Title', { exact: true })
+    .fill('Offline calendar deleted');
+  await editor.getByLabel('Event timezone', { exact: true }).fill('UTC');
+  await editor.getByLabel('Starts', { exact: true }).fill('2035-01-02T12:00');
+  await editor.getByLabel('Ends', { exact: true }).fill('2035-01-02T13:00');
+  await editor.getByRole('button', { name: 'Save event' }).click();
+  await calendarRegion(page)
+    .getByRole('link', { name: /Offline calendar deleted/ })
+    .click();
+  await eventEditor(page).getByRole('button', { name: 'Delete event' }).click();
+  await expect(syncState(page)).toContainText('Offline · 4 queued');
+  await expect(
+    calendarRegion(page).getByRole('link', {
+      name: /Offline calendar deleted/,
+    }),
+  ).toHaveCount(0);
+
+  await page.goto('/inbox/reminders/new');
+  let reminder = inboxRegion(page).getByRole('form', { name: 'Add reminder' });
+  await reminder.getByLabel('Reminder title').fill('Offline reminder');
+  await reminder.getByLabel('Remind at').fill('2035-01-03T10:00');
+  await reminder.getByRole('button', { name: 'Add reminder' }).click();
+  await expect(syncState(page)).toContainText('Offline · 5 queued');
+  await inboxRegion(page)
+    .getByRole('link', { name: 'Reschedule Offline reminder' })
+    .click();
+  reminder = inboxRegion(page).getByRole('form', {
+    name: 'Reschedule reminder',
+  });
+  await reminder.getByLabel('Reminder title').fill('Offline reminder revised');
+  await reminder.getByLabel('Remind at').fill('2035-01-03T11:00');
+  await reminder.getByRole('button', { name: 'Save reminder changes' }).click();
+  await expect(syncState(page)).toContainText('Offline · 6 queued');
+
+  await page.reload();
+  await expect(
+    inboxRegion(page)
+      .getByRole('region', { name: 'Reminders' })
+      .getByText('Offline reminder revised', { exact: true })
+      .first(),
+  ).toBeVisible();
+  await context.setOffline(false);
+  await syncNow(page);
+  await expect(syncState(page)).toContainText('Online · All saved', {
+    timeout: 15000,
+  });
+
+  const events = (await (await page.request.get('/api/v1/calendar')).json())
+    .events as { title: string; version: number; endsAt: string }[];
+  expect(
+    events.filter((item) => item.title === 'Offline calendar revised'),
+  ).toEqual([
+    expect.objectContaining({
+      version: 2,
+      endsAt: '2035-01-02T11:30:00.000Z',
+    }),
+  ]);
+  expect(events.some((item) => item.title === 'Offline calendar deleted')).toBe(
+    false,
+  );
+  const reminders = (await (await page.request.get('/api/v1/reminders')).json())
+    .reminders as { title: string; version: number }[];
+  expect(
+    reminders.filter((item) => item.title === 'Offline reminder revised'),
+  ).toEqual([expect.objectContaining({ version: 2 })]);
+});
 test('sign-out clears private cached data and Help is available by keyboard', async ({
   page,
   context,
@@ -373,12 +597,14 @@ test('sign-out clears private cached data and Help is available by keyboard', as
     page.getByText('A little more breathing room.', { exact: true }),
   ).toHaveCount(0);
   await page.getByRole('button', { name: 'Sync', exact: true }).click();
-  const help = page.getByRole('button', { name: 'Help: Offline tasks' });
+  const help = page.getByRole('button', { name: 'Help: Offline changes' });
   await help.focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByText(/Tasks can be created, edited/)).toBeVisible();
+  await expect(page.getByText(/Tasks and whole calendar events/)).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(page.getByText(/Tasks can be created, edited/)).toHaveCount(0);
+  await expect(page.getByText(/Tasks and whole calendar events/)).toHaveCount(
+    0,
+  );
   await expect(help).toBeFocused();
   await signOut(page);
   await expect(

@@ -387,6 +387,33 @@ describe('calendar time semantics', () => {
       ).statusCode,
     ).toBe(409);
   });
+  it('uses a supplied calendar client ID, replays the same operation, and rejects a second operation for that ID', async () => {
+    const clientId = randomUUID();
+    const payload = {
+      ...timed({ title: 'Offline-stable event' }),
+      clientId,
+      operationId: randomUUID(),
+    };
+    const post = (body: Record<string, unknown>) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/v1/calendar',
+        headers: headers(),
+        payload: body,
+      });
+
+    const first = await post(payload);
+    expect(first.statusCode).toBe(200);
+    expect(first.json().event.id).toBe(clientId);
+
+    const replay = await post(payload);
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json()).toEqual(first.json());
+
+    const conflict = await post({ ...payload, operationId: randomUUID() });
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json().error.code).toBe('OPERATION_CONFLICT');
+  });
 });
 
 describe('academic portfolios and ownership', () => {
@@ -553,6 +580,43 @@ describe('academic portfolios and ownership', () => {
       });
       expect(result.json()[path === 'calendar' ? 'events' : path]).toEqual([]);
     }
+  });
+  it('uses supplied class and topic client IDs, replays exact operations, and rejects ID reuse by new operations', async () => {
+    async function expectStableCreate(
+      path: 'courses' | 'topics',
+      key: 'course' | 'topic',
+      payload: Record<string, unknown>,
+    ) {
+      const post = (body: Record<string, unknown>) =>
+        app.inject({
+          method: 'POST',
+          url: `/api/v1/${path}`,
+          headers: headers(),
+          payload: body,
+        });
+      const first = await post(payload);
+      expect(first.statusCode).toBe(200);
+      expect(first.json()[key].id).toBe(payload.clientId);
+      const replay = await post(payload);
+      expect(replay.statusCode).toBe(200);
+      expect(replay.json()).toEqual(first.json());
+      const conflict = await post({ ...payload, operationId: randomUUID() });
+      expect(conflict.statusCode).toBe(409);
+      expect(conflict.json().error.code).toBe('OPERATION_CONFLICT');
+      return first.json()[key] as { id: string };
+    }
+
+    const course = await expectStableCreate('courses', 'course', {
+      name: 'Offline-stable class',
+      clientId: randomUUID(),
+      operationId: randomUUID(),
+    });
+    await expectStableCreate('topics', 'topic', {
+      courseId: course.id,
+      name: 'Offline-stable topic',
+      clientId: randomUUID(),
+      operationId: randomUUID(),
+    });
   });
   it('deduplicates class saves, checks progress bounds and tombstones portfolios', async () => {
     const body = { name: 'Biology', operationId: randomUUID() };
@@ -782,6 +846,34 @@ describe('durable reminder processing', () => {
         ])
       )[0]!.status,
     ).toBe('cancelled');
+  });
+  it('uses a supplied reminder client ID, replays the same operation, and rejects a second operation for that ID', async () => {
+    const clientId = randomUUID();
+    const payload = {
+      title: 'Offline-stable reminder',
+      scheduledAt: now.toISOString(),
+      clientId,
+      operationId: randomUUID(),
+    };
+    const post = (body: Record<string, unknown>) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/v1/reminders',
+        headers: headers(),
+        payload: body,
+      });
+
+    const first = await post(payload);
+    expect(first.statusCode).toBe(200);
+    expect(first.json().reminder.id).toBe(clientId);
+
+    const replay = await post(payload);
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json()).toEqual(first.json());
+
+    const conflict = await post({ ...payload, operationId: randomUUID() });
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json().error.code).toBe('OPERATION_CONFLICT');
   });
   it('deduplicates scheduling and rejects another owner’s controls', async () => {
     const body = {

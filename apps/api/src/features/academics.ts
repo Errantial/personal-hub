@@ -75,16 +75,34 @@ export function registerAcademics(
             operationId: string;
             expectedVersion?: number | undefined;
           } = writeSchema.parse(request.body);
+          if (method === 'PUT' && input.clientId)
+            throw new ApiError(
+              400,
+              'INVALID_INPUT',
+              'clientId is only supported when creating a record.',
+            );
           const id =
             method === 'PUT'
               ? z.object({ id: z.string().uuid() }).parse(request.params).id
-              : randomUUID();
+              : String(input.clientId ?? '') || randomUUID();
           return mutate(
             database,
             user.id,
             input.operationId,
             { table, method, id: method === 'PUT' ? id : null, input },
             async (tx) => {
+              if (method === 'POST' && input.clientId) {
+                const [existing] = await tx.query(
+                  `SELECT id FROM ${table} WHERE owner_id=$1 AND id=$2`,
+                  [user.id, id],
+                );
+                if (existing)
+                  throw new ApiError(
+                    409,
+                    'OPERATION_CONFLICT',
+                    `This ${table === 'courses' ? 'class' : 'topic'} ID is already in use.`,
+                  );
+              }
               // Class -> topic -> event matches label propagation and calendar edits.
               const parent =
                 table === 'topics'
@@ -130,13 +148,19 @@ export function registerAcademics(
               const [row] =
                 method === 'POST'
                   ? await tx.query(
-                      `INSERT INTO ${table} (id,owner_id,${fields.map(([, col]) => col).join(',')}${table === 'topics' ? ',academic_labels' : ''}) VALUES ($1,$2,${values.map((_, i) => `$${i + 3}`).join(',')}) RETURNING ${columns}`,
+                      `INSERT INTO ${table} (id,owner_id,${fields.map(([, col]) => col).join(',')}${table === 'topics' ? ',academic_labels' : ''}) VALUES ($1,$2,${values.map((_, i) => `$${i + 3}`).join(',')}) ON CONFLICT (id) DO NOTHING RETURNING ${columns}`,
                       [id, user.id, ...values],
                     )
                   : await tx.query(
                       `UPDATE ${table} SET ${fields.map(([, col], i) => `${col}=$${i + 3}`).join(',')}${table === 'topics' ? `,academic_labels=$${fields.length + 3}::text[]` : ''},version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${columns}`,
                       [id, user.id, ...values],
                     );
+              if (!row)
+                throw new ApiError(
+                  409,
+                  'OPERATION_CONFLICT',
+                  `This ${table === 'courses' ? 'class' : 'topic'} identifier is already in use.`,
+                );
               // Tombstones can be restored: capture labels while deleted too.
               // Ancestor-first locking and child versions preserve conflict checks.
               if (table === 'courses' && input.sensitivity !== 'unlabeled')

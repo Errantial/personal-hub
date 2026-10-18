@@ -209,7 +209,10 @@ for (const { theme, width, target } of [
       if (selecting) {
         // Selection mode with its widest form (date input) showing.
         await page.getByRole('button', { name: 'Select', exact: true }).click();
-        await page.getByLabel('Change').selectOption('Set due date');
+        await page
+          .getByRole('region', { name: 'Selected tasks' })
+          .getByRole('combobox')
+          .selectOption('Set due date');
       }
       const { violations } = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])

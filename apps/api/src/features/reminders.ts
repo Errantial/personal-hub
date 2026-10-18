@@ -221,16 +221,34 @@ export function registerReminders(
       handler: async (request) => {
         const user = await auth.requireUser(request);
         const input = reminderWriteSchema.parse(request.body);
+        if (method === 'PUT' && input.clientId)
+          throw new ApiError(
+            400,
+            'INVALID_INPUT',
+            'clientId is only supported when creating a reminder.',
+          );
         const id =
           method === 'PUT'
             ? z.object({ id: z.string().uuid() }).parse(request.params).id
-            : randomUUID();
+            : (input.clientId ?? randomUUID());
         return mutate(
           database,
           user.id,
           input.operationId,
           { method, id: method === 'PUT' ? id : null, input },
           async (tx) => {
+            if (method === 'POST' && input.clientId) {
+              const [existing] = await tx.query(
+                'SELECT id FROM reminders WHERE owner_id=$1 AND id=$2',
+                [user.id, id],
+              );
+              if (existing)
+                throw new ApiError(
+                  409,
+                  'OPERATION_CONFLICT',
+                  'This reminder ID is already in use.',
+                );
+            }
             if (method === 'PUT') {
               const current = await active(tx, 'reminders', user.id, id);
               version(current, input.expectedVersion);
@@ -300,13 +318,19 @@ export function registerReminders(
             const [row] =
               method === 'POST'
                 ? await tx.query(
-                    `INSERT INTO reminders (id,owner_id,title,scheduled_at,target_kind,target_id,occurrence_date) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING ${reminderColumns}`,
+                    `INSERT INTO reminders (id,owner_id,title,scheduled_at,target_kind,target_id,occurrence_date) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING RETURNING ${reminderColumns}`,
                     values,
                   )
                 : await tx.query(
                     `UPDATE reminders SET title=$3,scheduled_at=$4,target_kind=$5,target_id=$6,occurrence_date=$7,status='queued',attempts=0,last_error=NULL,next_attempt_at=CURRENT_TIMESTAMP,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${reminderColumns}`,
                     values,
                   );
+            if (!row)
+              throw new ApiError(
+                409,
+                'OPERATION_CONFLICT',
+                'This reminder identifier is already in use.',
+              );
             return reminderResponseSchema.parse({ reminder: row });
           },
         );

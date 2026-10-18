@@ -105,6 +105,7 @@ export const calendarInputSchema = z
   });
 export const calendarWriteSchema = calendarInputSchema.safeExtend({
   canvasSourceRef: canvasSourceRefSchema.optional(),
+  clientId: z.string().uuid().optional(),
   operationId: z.string().uuid(),
   expectedVersion: z.number().int().positive().optional(),
 });
@@ -179,11 +180,13 @@ export const topicFields = {
 };
 export const courseWriteSchema = z.strictObject({
   ...courseFields,
+  clientId: z.string().uuid().optional(),
   operationId: z.string().uuid(),
   expectedVersion: z.number().int().positive().optional(),
 });
 export const topicWriteSchema = z.strictObject({
   ...topicFields,
+  clientId: z.string().uuid().optional(),
   operationId: z.string().uuid(),
   expectedVersion: z.number().int().positive().optional(),
 });
@@ -216,6 +219,7 @@ export const reminderFields = {
 export const reminderWriteSchema = z
   .strictObject({
     ...reminderFields,
+    clientId: z.string().uuid().optional(),
     operationId: z.string().uuid(),
     expectedVersion: z.number().int().positive().optional(),
   })

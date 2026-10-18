@@ -2,7 +2,14 @@ import { bootstrapResponseSchema, healthResponseSchema } from '@hub/contracts';
 import { z } from 'zod';
 import { apiFetch } from './transport';
 import { requestSignal } from './request-signal';
-import { sessionResponseSchema, taskResponseSchema } from '@hub/contracts';
+import {
+  calendarResponseSchema,
+  courseResponseSchema,
+  reminderResponseSchema,
+  sessionResponseSchema,
+  taskResponseSchema,
+  topicResponseSchema,
+} from '@hub/contracts';
 import {
   cachedSession,
   rememberSession,
@@ -12,13 +19,15 @@ import {
   cacheResponse,
   cachedResponse,
   cachedAt,
-  cacheTask,
-  hasTaskQueue,
-  enqueueTask,
-  syncTasks,
+  cacheRecord,
+  hasQueue,
+  hasQueuedKinds,
+  enqueueMutation,
+  syncOutbox,
   ownerContext,
   networkAvailability,
 } from './offline';
+import type { OfflineKind } from './offline';
 
 export async function getJson<T>(
   path: string,
@@ -206,7 +215,60 @@ const cachedPath = (path: string) =>
     path,
   );
 export const synchronize = () =>
-  syncTasks((path, options) => liveRequestJson(path, z.unknown(), options));
+  syncOutbox((path, options) => liveRequestJson(path, z.unknown(), options));
+
+const offlineMutationKind = (
+  path: string,
+  method: string,
+  body: Record<string, unknown>,
+): OfflineKind | null => {
+  if (
+    /^\/api\/v1\/tasks(?:\/[a-f\d-]{36})?$/.test(path) &&
+    ['POST', 'PUT', 'DELETE'].includes(method)
+  )
+    return 'task';
+  if (
+    /^\/api\/v1\/calendar(?:\/[a-f\d-]{36})?$/.test(path) &&
+    ['POST', 'PUT', 'DELETE'].includes(method)
+  )
+    return 'calendar';
+  if (
+    /^\/api\/v1\/reminders(?:\/[a-f\d-]{36})?$/.test(path) &&
+    ((method === 'POST' && path === '/api/v1/reminders') || method === 'PUT')
+  )
+    return 'reminder';
+  if (
+    /^\/api\/v1\/courses(?:\/[a-f\d-]{36})?$/.test(path) &&
+    (method === 'POST' || method === 'DELETE')
+  )
+    return 'course';
+  if (
+    /^\/api\/v1\/topics(?:\/[a-f\d-]{36})?$/.test(path) &&
+    (method === 'POST' ||
+      method === 'DELETE' ||
+      (method === 'PUT' && !('sensitivity' in body)))
+  )
+    return 'topic';
+  return null;
+};
+
+async function cacheMutationResponse(kind: OfflineKind, response: unknown) {
+  if (kind === 'task')
+    return cacheRecord('task', taskResponseSchema.parse(response).task);
+  if (kind === 'calendar')
+    return cacheRecord(
+      'calendar',
+      calendarResponseSchema.parse(response).event,
+    );
+  if (kind === 'reminder')
+    return cacheRecord(
+      'reminder',
+      reminderResponseSchema.parse(response).reminder,
+    );
+  if (kind === 'course')
+    return cacheRecord('course', courseResponseSchema.parse(response).course);
+  return cacheRecord('topic', topicResponseSchema.parse(response).topic);
+}
 export async function requestJson<T>(
   path: string,
   schema: z.ZodType<T>,
@@ -218,33 +280,59 @@ export async function requestJson<T>(
   } = {},
 ): Promise<T> {
   const method = options.method ?? 'GET';
-  const mutation =
-    /^\/api\/v1\/tasks(?:\/[a-f\d-]{36})?$/.test(path) &&
-    ['POST', 'PUT', 'DELETE'].includes(method);
   const body =
     options.body && typeof options.body === 'object'
       ? (options.body as Record<string, unknown>)
       : {};
+  const mutationKind = offlineMutationKind(path, method, body);
   const prepared =
-    mutation && method === 'POST'
+    mutationKind && method === 'POST'
       ? { ...body, clientId: body.clientId ?? body.operationId }
       : body;
   const sourceCreation =
-    mutation && method === 'POST' && !!body.canvasSourceRef;
+    mutationKind !== null && method === 'POST' && !!body.canvasSourceRef;
   if (path === '/api/v1/auth/logout' && (await pendingCount().catch(() => 0)))
-    throw new Error('Sync or discard pending tasks before signing out.');
-  if (mutation && (await hasTaskQueue().catch(() => false))) {
+    throw new Error('Sync or discard pending changes before signing out.');
+  const queued = await hasQueue().catch(() => false);
+  if (mutationKind && queued) {
     if (sourceCreation)
-      throw new Error('Sync queued tasks before creating from Canvas.');
-    const response = await enqueueTask(path, method, prepared);
+      throw new Error('Sync queued changes before creating from Canvas.');
+    const response = await enqueueMutation(
+      mutationKind,
+      path,
+      method,
+      prepared,
+    );
     void synchronize().catch(() => undefined);
     return schema.parse(response);
+  }
+  if (queued && method !== 'GET') {
+    const calendarQueued = await hasQueuedKinds([
+      'calendar',
+      'course',
+      'topic',
+    ]).catch(() => false);
+    const reminderQueued = await hasQueuedKinds(['reminder', 'calendar']).catch(
+      () => false,
+    );
+    const academicQueued = await hasQueuedKinds(['course', 'topic']).catch(
+      () => false,
+    );
+    if (calendarQueued && /^\/api\/v1\/calendar(\/|$)/.test(path))
+      throw new Error('Sync queued calendar changes before using this action.');
+    if (reminderQueued && /^\/api\/v1\/reminders(\/|$)/.test(path))
+      throw new Error('Sync queued reminder changes before using this action.');
+    if (
+      academicQueued &&
+      /^\/api\/v1\/(courses|topics|academic-work|study)(\/|$)/.test(path)
+    )
+      throw new Error('Sync queued class changes before using this action.');
   }
   try {
     const context = ownerContext();
     const response = await liveRequestJson(path, schema, {
       ...options,
-      ...(mutation ? { body: prepared } : {}),
+      ...(mutationKind ? { body: prepared } : {}),
     });
     if (context !== ownerContext())
       throw new Error('Session changed. Reload to continue.');
@@ -256,16 +344,14 @@ export async function requestJson<T>(
       await clearOffline().catch(() => undefined);
     if (method === 'GET' && cachedPath(path)) {
       await cacheResponse(path, response).catch(() => undefined);
-      if (
-        path === '/api/v1/tasks' &&
-        (await hasTaskQueue().catch(() => false))
-      ) {
+      if (await hasQueue().catch(() => false)) {
         void synchronize().catch(() => undefined);
-        return schema.parse(await cachedResponse(path));
+        const projected = await cachedResponse(path);
+        if (projected !== undefined) return schema.parse(projected);
       }
     }
-    if (mutation)
-      await cacheTask(taskResponseSchema.parse(response).task).catch(
+    if (mutationKind)
+      await cacheMutationResponse(mutationKind, response).catch(
         () => undefined,
       );
     return response;
@@ -297,15 +383,39 @@ export async function requestJson<T>(
         return schema.parse(data);
       }
     }
-    if (mutation) {
+    if (mutationKind) {
       if (sourceCreation)
-        throw new Error('Connect to create a task from Canvas.', {
-          cause: error,
-        });
-      const response = await enqueueTask(path, method, prepared);
+        throw new Error(
+          mutationKind === 'task'
+            ? 'Connect to create a task from Canvas.'
+            : 'Connect to create from Canvas.',
+          {
+            cause: error,
+          },
+        );
+      // Tasks historically treat a lost response as durable offline work. The
+      // newly supported record types preserve their existing unknown-outcome
+      // contract while the browser still reports a connection: keep the draft
+      // and exact operation ID so the owner can deliberately retry. A real
+      // offline transition queues them below.
+      if (mutationKind !== 'task' && navigator.onLine) throw error;
+      const response = await enqueueMutation(
+        mutationKind,
+        path,
+        method,
+        prepared,
+      );
       void synchronize().catch(() => undefined);
       return schema.parse(response);
     }
+    if (/^\/api\/v1\/courses\/[a-f\d-]{36}$/.test(path) && method === 'PUT')
+      throw new Error('Connect to edit this class.', { cause: error });
+    if (
+      /^\/api\/v1\/topics\/[a-f\d-]{36}$/.test(path) &&
+      method === 'PUT' &&
+      'sensitivity' in body
+    )
+      throw new Error('Connect to change this topic label.', { cause: error });
     if (
       method !== 'GET' &&
       /^\/api\/v1\/(calendar|events|courses|topics|reminders|notifications)/.test(
