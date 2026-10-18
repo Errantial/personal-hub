@@ -2,7 +2,7 @@
 
 ## Broker-mediated mail access
 
-Owner direction (2026-10-16) replaces the TypeSafe Jev selector with a small pinned OpenRouter model. Mail-enabled agents submit bounded requests to the server-owned broker and receive relevant original mail text in larger bounded batches. Agents have no direct mailbox access by default. Separate routing/approval applies to the broker and receiving agent; owner labels and inherited provenance remain authoritative. No email is sent by forwarding. Coverage refers to eligible imported mail with visible omissions/limits, not complete external inbox ingestion. J1-J4 and the replacement merged through PR #46; actual model quality, deployment and live acceptance remain pending. See the [current delivery plan](openrouter-mail-broker-plan.md).
+Owner direction (2026-10-16) replaces the TypeSafe Jev selector with a small pinned OpenRouter model. Mail-enabled agents submit bounded requests to the server-owned broker and receive relevant original mail text in larger bounded batches. Agents have no direct mailbox access by default. Separate routing/approval applies to the broker and receiving agent; owner labels and inherited provenance remain authoritative. No email is sent by forwarding. Coverage refers to eligible imported mail with visible omissions/limits, not complete external inbox ingestion. J1-J4 and the replacement merged through PR #46; the paid synthetic quality gate passed, release `431cd8d` is deployed with the broker profile/owner controls installed, and one bounded private-mail technical flow completed. External mailbox completeness and owner usefulness acceptance remain pending. See the [current delivery plan](openrouter-mail-broker-plan.md).
 
 ## Purpose
 

@@ -1,20 +1,22 @@
 # Scheduled agent acceptance
 
-Baseline reconciled 2026-10-14: deployed release `519054d`, migration 057, D57 scheduled agents. This checklist separates completed implementation/deployment from owner-controlled live acceptance. It contains no owner goals, mail content, credentials or private source text. Later releases must record their own validation rather than inherit this snapshot as proof.
+Baseline reconciled 2026-10-18: deployed release `431cd8d`, migrations through 072, D57 scheduled agents plus the later reliability/provenance slices. This checklist separates completed implementation/deployment and the first bounded live canary from broader owner-controlled live acceptance. It contains no owner goals, mail content, credentials or private source text. Later releases must record their own validation rather than inherit this snapshot as proof.
 
 ## Evidence already recorded
 
-- Backend, UI and notifications integrated through PRs 30–33; release `519054d` deployed at https://hub.ecg.name.
+- Backend, UI and notifications integrated through PRs 30–33; later reliability/provenance/source slices are included in release `431cd8d` at https://hub.ecg.name.
 - Historical automated receipt: `npm run check` passed 628 tests, with one optional standard PostgreSQL test skipped locally. Final complete browser run passed 144 cases using synthetic providers and isolated databases. PostgreSQL CI passed on the code branches; this does not turn the local skip into a passing test.
-- Deployment receipt: artifact/migration bytes checked; backup/isolated restore verified before activation and after migration 057; runtime import checked as service user after correcting staging permissions. API/Caddy active, public readiness and deployed asset hashes verified; unauthenticated agent routes return 401.
-- Server-side worker heartbeat was healthy with zero configured agents at deployment. An authenticated HTTP health read, first owner-created agent/run and live usefulness remained unverified.
+- Current deployment receipt: artifact/migration bytes checked, fresh backup/isolated restore verified, candidate service-user preflight passed, disposable schema upgraded through migration 072, API/Caddy readiness and deployed asset hashes verified, unauthenticated agent routes return 401, and both worker heartbeats were current.
+- One owner-controlled `deadline-watch` canary completed `quiet` in one attempt after destination/privacy gates were satisfied, settling `$0.000223` with `$0` held and no planner write. This establishes the basic deployed paid-agent path, not multi-run schedule reliability or usefulness.
 - Windows mail sync was recorded as operating every ten minutes. Its existence does not prove required Gmail coverage, freshness during outages or move/deletion reconciliation.
 
-Sources: [implementation log](implementation-log.md), [operating receipt](../deploy/oracle-linux/README.md#release-519054d-2026-10-14), [backlog](backlog.md). No new live audit is claimed by this document.
+Sources: [implementation log](implementation-log.md), [current operating receipt](../deploy/oracle-linux/README.md#current-release-2026-10-17), [backlog](backlog.md). No new live audit is claimed by this document.
 
 ## Synthetic development gates
 
 These checks use fake providers, clocks and isolated databases. Never trigger paid inference, seed/reset the owner's database, or exhaust a live spending cap to prove a boundary. Existing historical passes do not establish that the proposed regression work has been implemented.
+
+`npm run agent:acceptance` now exercises the actual `buildApp` on-ready agent-worker startup path against a fresh persistent PGlite database and an injected fake OpenRouter. It creates one manual and one due scheduled run through owned APIs, closes/reopens the app three times, and requires exactly two completed runs/turns/provider dispatches, a future advanced schedule, zero planner effects, zero Inbox notifications for quiet results, settled synthetic accounting with no holds/uncertainty, and a healthy worker heartbeat. This proves clean-reopen startup/admission behavior only; crash/in-flight lease recovery remains covered by the focused worker tests and still needs separate live maintenance-restart observation.
 
 - [ ] Record the tested commit, migration range and actual `npm run check` result for each code slice. Run `npm run test:e2e` sequentially afterward for UI/auth changes.
 - [ ] Run queue concurrency/fencing tests on disposable standard PostgreSQL; record a skip as unverified. Include two workers, expiry and a late response after ownership loss.
@@ -31,13 +33,13 @@ The [post-agents plan](post-agents-development-plan.md) defines these improvemen
 
 ## Owner-controlled live acceptance
 
-Current status: **pending**. Development authorization is not evidence that any of these checks occurred. Routine development must not create a live agent or dispatch a paid request merely to complete this checklist.
+Current status: **partially exercised**. One bounded manual canary passed, but the checklist below still requires several scheduled runs, usefulness review, pause/resume, notifications, restart recovery and cost/hold review. Routine development must not create another live agent or dispatch a paid request merely to complete this checklist.
 
 Use one owner-selected bounded agent first, with reviewed goal/mail scope, existing request/monthly limits and an explicit action policy. Ask first is recommended for this canary; do not change global policy automatically. Keep scope within D57: no memory, MCP, external calendar writes, email sends, delegation or event triggers.
 
-- [ ] Owner-authenticated agent/settings/conversation/worker reads succeed on the recorded release. Verify health through the supported owned interface; do not expose anonymous worker diagnostics to achieve this.
+- [x] Owner-authenticated agent/settings/conversation/worker reads and the selected-agent live path succeeded on release `431cd8d`; the deployment receipt separately records healthy worker heartbeats.
 - [ ] Owner creates the first agent with the intended timezone, local schedule, mail selection and cap. Confirm previewed next run and pinned conversation; creation does not count as execution.
-- [ ] Observe a manual run and several scheduled runs. Record planned slot versus actual start/finish, outcome category and whether results appear once in the correct conversation/Inbox. Do not claim comprehensive academic deadlines from the current bounded planner context.
+- [ ] Observe several scheduled runs. One manual Run now canary completed successfully; still record planned slot versus actual start/finish for scheduled execution and verify results appear once in the correct conversation/Inbox. Do not claim comprehensive academic deadlines from the current bounded planner context.
 - [ ] Review the result against the owner's intended planning step. Record useful/needs-change with a brief nonprivate reason, without copying the goal, answer or mail. A completed provider response alone is not usefulness acceptance.
 - [ ] For ask-first proposals, the owner deliberately reviews Apply/Undo and verifies the resulting hub records. Automatic mode needs an explicitly selected bounded hub-only trial; it is not a prerequisite for the read/ask-first canary.
 - [ ] Pause prevents new admissions, while an already-running run may finish. Resume deliberately; Run now creates no duplicate live run. Delete leaves retained conversation behavior consistent with the UI contract.
