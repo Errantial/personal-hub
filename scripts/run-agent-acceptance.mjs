@@ -65,6 +65,24 @@ function syntheticProvider(state) {
       throw new Error(
         'Synthetic runner requires pinned ZDR/no-fallback routing.',
       );
+    const actions =
+      state.chatDispatches === 3
+        ? [
+            {
+              type: 'task.create',
+              ref: null,
+              title: 'Synthetic review task',
+              dueDate: null,
+              clearDueDate: false,
+              priority: 'normal',
+              completed: null,
+              start: null,
+              end: null,
+              allDay: null,
+              notes: 'Synthetic ask-first acceptance proposal.',
+            },
+          ]
+        : [];
     return json({
       id: `gen-agent-acceptance-${state.chatDispatches}`,
       model: defaultAssistantModel,
@@ -80,8 +98,10 @@ function syntheticProvider(state) {
           message: {
             role: 'assistant',
             content: JSON.stringify({
-              reply: 'Synthetic acceptance result: no changes needed.',
-              actions: [],
+              reply: actions.length
+                ? 'Synthetic acceptance result: one change needs review.'
+                : 'Synthetic acceptance result: no changes needed.',
+              actions,
             }),
           },
         },
@@ -220,6 +240,31 @@ async function workerStartup(dataDir, fetcher) {
   await app.close();
 }
 
+async function queueFollowUpManual(dataDir, fetcher, agent) {
+  const { app } = await openApp(dataDir, fetcher, false);
+  try {
+    const call = await session(app, 'login');
+    const agents = expectStatus(
+      await call('GET', '/api/v1/agents'),
+      200,
+      'agent list',
+    ).agents;
+    const current = agents.find((value) => value.id === agent.id);
+    if (!current)
+      throw new Error('Synthetic agent disappeared before follow-up.');
+    expectStatus(
+      await call('POST', `/api/v1/agents/${agent.id}/run`, {
+        operationId: randomUUID(),
+        expectedVersion: current.version,
+      }),
+      200,
+      'follow-up Run now',
+    );
+  } finally {
+    await app.close();
+  }
+}
+
 async function verify(dataDir, fetcher, agent, state) {
   const { app, database } = await openApp(dataDir, fetcher, false);
   try {
@@ -229,17 +274,20 @@ async function verify(dataDir, fetcher, agent, state) {
       200,
       'run history',
     );
-    if (history.totalCount !== 2 || history.runs.length !== 2)
+    if (history.totalCount !== 3 || history.runs.length !== 3)
       throw new Error(
-        `Expected exactly two runs, found ${history.totalCount}.`,
+        `Expected exactly three runs, found ${history.totalCount}.`,
       );
     const triggers = history.runs.map((run) => run.trigger).sort();
-    if (JSON.stringify(triggers) !== JSON.stringify(['manual', 'schedule']))
+    if (
+      JSON.stringify(triggers) !==
+      JSON.stringify(['manual', 'manual', 'schedule'])
+    )
       throw new Error(`Unexpected run triggers: ${JSON.stringify(triggers)}`);
     for (const run of history.runs) {
       if (
         run.status !== 'completed' ||
-        run.outcome !== 'quiet' ||
+        !['quiet', 'needs-approval'].includes(run.outcome) ||
         run.attempts !== 1 ||
         run.exchangeCount !== 1 ||
         run.settledMicros !== 123 ||
@@ -259,12 +307,15 @@ async function verify(dataDir, fetcher, agent, state) {
       200,
       'conversation',
     );
-    if (thread.turns.length !== 2)
+    if (thread.turns.length !== 3)
       throw new Error(
-        `Expected two retained turns, found ${thread.turns.length}.`,
+        `Expected three retained turns, found ${thread.turns.length}.`,
       );
     const asks = thread.turns.map((turn) => turn.ask).sort();
-    if (JSON.stringify(asks) !== JSON.stringify(['Run now', 'Scheduled run']))
+    if (
+      JSON.stringify(asks) !==
+      JSON.stringify(['Run now', 'Run now', 'Scheduled run'])
+    )
       throw new Error(`Unexpected turn asks: ${JSON.stringify(asks)}`);
     if (thread.turns.some((turn) => turn.trigger !== 'agent'))
       throw new Error(
@@ -275,9 +326,16 @@ async function verify(dataDir, fetcher, agent, state) {
       200,
       'notifications',
     ).notifications;
-    if (notifications.length !== 0)
+    if (notifications.length !== 1)
       throw new Error(
-        'Quiet synthetic runs must not create Inbox notifications.',
+        `Expected one ask-first review notification, found ${notifications.length}.`,
+      );
+    const approvalRun = history.runs.find(
+      (run) => run.outcome === 'needs-approval',
+    );
+    if (!approvalRun || notifications[0]?.runId !== approvalRun.id)
+      throw new Error(
+        'The ask-first review notification is not bound to its run.',
       );
     const [scheduleState] = await database.query(
       'SELECT next_due_at AS "nextDueAt" FROM responsibility_schedules WHERE responsibility_id=$1 AND deleted_at IS NULL',
@@ -308,9 +366,9 @@ async function verify(dataDir, fetcher, agent, state) {
       throw new Error(
         `Worker heartbeat is not healthy: ${JSON.stringify(worker)}`,
       );
-    if (state.chatDispatches !== 2)
+    if (state.chatDispatches !== 3)
       throw new Error(
-        `Expected exactly two synthetic provider dispatches, found ${state.chatDispatches}.`,
+        `Expected exactly three synthetic provider dispatches, found ${state.chatDispatches}.`,
       );
     return {
       version: 1,
@@ -321,6 +379,9 @@ async function verify(dataDir, fetcher, agent, state) {
         .length,
       completedRuns: history.runs.filter((run) => run.status === 'completed')
         .length,
+      needsApprovalRuns: history.runs.filter(
+        (run) => run.outcome === 'needs-approval',
+      ).length,
       conversationTurns: thread.turns.length,
       inboxNotifications: notifications.length,
       chatDispatches: state.chatDispatches,
@@ -337,6 +398,7 @@ async function verify(dataDir, fetcher, agent, state) {
       scheduleAdvanced: true,
       plannerEffects: 0,
       cleanRestartNoDuplicateDispatch: true,
+      askFirstNotificationBound: true,
     };
   } finally {
     await app.close();
@@ -356,11 +418,17 @@ export async function runAgentAcceptance() {
   try {
     const agent = await seed(dataDir, fetcher);
     // Each app startup exercises the real onReady -> startAgentWorker path.
-    // Two clean app startups process the two queued runs; a third clean reopen
-    // proves no duplicate run/turn/provider dispatch is created. Crash and
+    // Two clean app startups process the original manual + scheduled pair.
+    await workerStartup(dataDir, fetcher);
+    await workerStartup(dataDir, fetcher);
+    // Queue another owned Run now through the HTTP API. Its synthetic answer
+    // proposes a task; the default ask-first task policy must keep it pending,
+    // emit exactly one review notification and create no planner record.
+    await queueFollowUpManual(dataDir, fetcher, agent);
+    await workerStartup(dataDir, fetcher);
+    // A final clean reopen proves none of the completed/needs-review runs are
+    // redispatched and the review notification is not duplicated. Crash and
     // in-flight ownership recovery remain covered by the focused worker tests.
-    await workerStartup(dataDir, fetcher);
-    await workerStartup(dataDir, fetcher);
     await workerStartup(dataDir, fetcher);
     return await verify(dataDir, fetcher, agent, state);
   } finally {

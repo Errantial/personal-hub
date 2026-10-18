@@ -42,7 +42,7 @@ npm run doctor
 npm run dev
 ```
 
-For the local scheduled-agent startup/reopen acceptance path, run `npm run agent:acceptance`. It creates and removes its own temporary PGlite database, injects synthetic provider responses, and blocks global network access. It does not read the owner database, `.env`, provider credentials or external accounts, and it does not claim crash/in-flight process recovery.
+For the local scheduled-agent startup/reopen acceptance path, run `npm run agent:acceptance`. It creates and removes its own temporary PGlite database, injects synthetic provider responses, and blocks global network access. The path covers a due scheduled run, two owned manual runs, clean restarts, ask-first proposal retention, one run-bound review notification, no duplicate dispatch and zero planner effects. It does not read the owner database, `.env`, provider credentials or external accounts, and it does not claim crash/in-flight process recovery.
 
 Open `http://127.0.0.1:5173`, create the owner with an email and password of at least 12 characters, then add tasks/events. The email is a login identifier; no verification email is sent. Preferences supports password changes, active-session revocation and planner JSON export; see [account controls](account.md). Keep the password in a password manager: reset/recovery is not implemented. Enrollment closes after the first owner. No account/password was created for the owner by development tests.
 
