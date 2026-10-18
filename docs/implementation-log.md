@@ -1,5 +1,9 @@
 # Implementation log
 
+## 2026-10-18 - Present-status documentation reconciliation
+
+Reconciled current-status summaries after the synthetic scheduled-agent gates closed. Historical implementation receipts remain intact, but present-tense documentation no longer describes already integrated J4/OpenRouter broker controls, explicit P9 per-ask memory, P7 academic selection or grounded P8 proposals as pending/not deployed. The corrected docs continue to distinguish the dispatch-disabled general gateway from the separately gated live Assistant paths, keep scheduled-agent memory authority disabled, retain attachment/file-derived text exclusions, and leave mailbox completeness, owner usefulness, external-calendar coverage, direct workload-plan AI access and device/live acceptance visibly pending. This was documentation-only maintenance; it did not access owner data/accounts, call providers, change deployment/configuration or perform live acceptance.
+
 ## 2026-10-18 - Exact synthetic agent-acceptance validation receipt
 
 The completed synthetic scheduled-agent acceptance slice was validated on exact commit `aa09459fc96d8a1efc199b81de2df92366e3d65d`, tree `6d74eb61c0cbdc45833e86e51f26672b6011580d`, with the repository migration set through 072. The preserved `npm run check` process completed with exit code 0 on that exact code tree: lint passed; contracts, API, Canvas browser connector, email connector and web typechecks passed; Vitest reported 85 test files passed and 3 skipped, with 892 tests passed and 3 skipped; `prettier --check .` passed; and contracts/API/web production builds passed, including the final Vite build. The three skipped Vitest files are the optional standard-PostgreSQL suites in the ordinary local check path; `agent-worker-postgres.test.ts` had already passed separately against a fresh disposable local PostgreSQL 18 cluster for this slice.
