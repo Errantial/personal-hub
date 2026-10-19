@@ -1,5 +1,11 @@
 # Implementation log
 
+## 2026-10-19 - Owner live agent acceptance: accelerated scheduled-run receipt
+
+After the owner asked to finish the scheduled-run portion promptly, the existing approved `deadline-watch` canary was changed from daily 18:00 to three same-day America/Denver schedule slots at 12:40, 12:50 and 13:00, with mail still disabled, the $2 monthly cap unchanged and Tasks/Calendar still set to Ask first. No Run now was used. The production run-history view showed all three scheduled runs exactly once. Each run completed in one attempt, started and finished in its scheduled minute, reported no changes and retained $0 held. The next scheduled slot advanced to Oct 20 at 12:40 PM, consistent with the saved recurring schedule.
+
+The three results appeared in the existing pinned Deadline watch conversation. Inbox inspection showed only older non-quiet Deadline watch notifications and no new item for these no-change runs, consistent with the quiet-run notification contract; this does not substitute for the remaining owner-device notification/read-on-open check. The local agent ledger after the three runs reported $0.003765 settled, $0 held, $0 uncertain and $2.00 remaining against the $2 cap. No private goal, answer, mail text, credential, session identifier or internal run ID is recorded here. Exact sub-minute backend timestamps are not exposed by this UI receipt, so the evidence is minute-granularity only.
+
 ## 2026-10-19 - Owner live agent acceptance: canary configuration checkpoint
 
 The owner selected the existing `deadline-watch` agent for the remaining live acceptance rather than creating another paid-capable canary. Through the authenticated production UI, the canary was reviewed and saved as America/Denver, daily 18:00, mail disabled and a $2 monthly agent cap. The app then showed the existing pinned Deadline watch conversation and previewed the next scheduled run for Oct 19 at 6:00 PM. Agent allowance metadata at this checkpoint reported $0.00224 settled, $0 held, $0 uncertain and $2.00 remaining; those values are local application-ledger metadata, not independent provider-invoice verification.
