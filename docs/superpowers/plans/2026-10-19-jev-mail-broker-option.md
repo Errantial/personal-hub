@@ -43,7 +43,7 @@
 
 **Files:**
 
-- Create: `apps/api/migrations/074_mail_broker_settings.sql` (migration 073 is reserved by the coordinated tracked-deadline program; see `2026-10-19-deadline-tracking-calendar-agent-jev-orchestration.md`)
+- Create: `apps/api/migrations/076_mail_broker_settings.sql` (migrations 073–075 are reserved by the coordinated task/deadline release train; see `2026-10-19-deadline-tracking-calendar-agent-jev-orchestration.md`)
 - Modify: `packages/contracts/src/mail-broker.ts`, `packages/contracts/src/index.ts` if needed
 - Modify: `apps/api/src/features/mail-broker.ts`
 - Modify: `apps/api/src/features/export.ts` and the planner-export contract to include this safe owner preference
@@ -183,7 +183,7 @@ Preserve legacy forwarding compatibility explicitly. Existing bindings have only
 7. Broker switch does not change the downstream Assistant destination/model/reservation.
 8. A historical Jev-shaped receipt and an OpenRouter-shaped receipt cannot pass each other's protocol revisions.
 9. Revoke the original broker after a completed forwarding → history becomes ineligible even if another broker is selected and ready.
-10. A pre-074 OpenRouter forwarding that matches the historical v1 digest can remain eligible; changing the digest algorithm alone does not invalidate it. A legacy uncertain/prepared receipt still cannot send.
+10. A pre-076 OpenRouter forwarding that matches the historical v1 digest can remain eligible; changing the digest algorithm alone does not invalidate it. A legacy uncertain/prepared receipt still cannot send.
 
 **Suggested commit:** `feat(mail): bind retrievals to the selected broker`
 
@@ -234,9 +234,9 @@ The Jev live synthetic runner must be a separately authorized experiment only: b
 
 Document a secret-free `jev-mail` profile sample using the exact versioned model, direct TypeSafe adapter, conservative token bound, dated price and retention disclosure. Document that `TYPESAFE_VERIFICATION` is operator evidence, not something inferred from the public website or from credential presence. A profile change invalidates consent and requires a new synthetic quality gate before production enablement.
 
-Populate the upgrade fixture with an owner grant plus prepared/uncertain/completed broker rows, reservations, forwarding and turn summaries before migration 074. After upgrade assert: old rows/holds/selected IDs remain unchanged, no Jev consent/selection is invented, the default selector is OpenRouter/version 1, no legacy uncertain batch becomes resendable, and old policy lineage cannot cross adapters.
+Populate the upgrade fixture with an owner grant plus prepared/uncertain/completed broker rows, reservations, forwarding and turn summaries before migration 076. After upgrade assert: old rows/holds/selected IDs remain unchanged, no Jev consent/selection is invented, the default selector is OpenRouter/version 1, no legacy uncertain batch becomes resendable, and old policy lineage cannot cross adapters.
 
-`apps/api/tests/upgrade.test.ts` is PGlite-only today, so PostgreSQL coverage must be made real rather than claimed indirectly. Create `apps/api/tests/mail-broker-upgrade-postgres.test.ts` using `TEST_DATABASE_URL` + a disposable schema (or refactor the populated upgrade harness to accept `TEST_DATABASE_URL`) and add that exact test to the PostgreSQL CI command in `.github/workflows/ci.yml`. The PostgreSQL case must exercise migration 074 with populated broker rows and drop its disposable schema afterward.
+`apps/api/tests/upgrade.test.ts` is PGlite-only today, so PostgreSQL coverage must be made real rather than claimed indirectly. Create `apps/api/tests/mail-broker-upgrade-postgres.test.ts` using `TEST_DATABASE_URL` + a disposable schema (or refactor the populated upgrade harness to accept `TEST_DATABASE_URL`) and add that exact test to the PostgreSQL CI command in `.github/workflows/ci.yml`. The PostgreSQL case must exercise migration 076 with populated broker rows and drop its disposable schema afterward.
 
 **Suggested commit:** `docs(mail): document selectable broker operation`
 

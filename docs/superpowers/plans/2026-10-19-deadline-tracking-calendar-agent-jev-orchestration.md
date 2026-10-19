@@ -1,13 +1,14 @@
-# Tracked Canvas deadlines, calendar decluttering, agent awareness and optional Jev — orchestrated implementation plan
+# Tracked Canvas deadlines, task due-times, calendar decluttering, agent awareness and optional Jev — orchestrated implementation plan
 
 ## Goal
 
-Ship four related improvements without weakening the current provenance, routing, billing or agent-safety boundaries:
+Ship five related improvements without weakening the current provenance, routing, billing or agent-safety boundaries:
 
 1. **Tracked imported deadlines.** Canvas assignment/quiz deadlines become first-class local records with completion tracking and owner edits instead of remaining read-only calendar decorations.
-2. **Calendar deadline rendering and all-day decluttering.** A Canvas deadline with an actual due time appears at that time in Day/Week rather than consuming the all-day strip, and the remaining all-day strip stays compact/readable even on busy school weeks.
-3. **Deadline-watch awareness.** The scheduled `deadline-watch` agent can automatically see eligible tracked Canvas deadlines and make planning proposals from them, while preserving source labels/provenance, Ask-first behavior and the existing no-memory/no-provider-write boundaries.
-4. **Optional Jev mail filtering.** Incorporate the existing [optional Jev mail-broker plan](2026-10-19-jev-mail-broker-option.md) as a parallel, independently gated mail-classifier workstream. OpenRouter/Gemini remains the default.
+2. **Optional task due-times.** Owner-created tasks keep their existing optional date-only deadline, but may additionally carry a specific local time with an explicit timezone so a task can mean “due at 5:00 PM” rather than only “due that day.”
+3. **Calendar deadline rendering and all-day decluttering.** A Canvas deadline with an actual due time appears at that time in Day/Week rather than consuming the all-day strip, and the remaining all-day strip stays compact/readable even on busy school weeks.
+4. **Deadline-watch awareness.** The scheduled `deadline-watch` agent can automatically see eligible tracked Canvas deadlines and make planning proposals from them, while preserving source labels/provenance, Ask-first behavior and the existing no-memory/no-provider-write boundaries.
+5. **Optional Jev mail filtering.** Incorporate the existing [optional Jev mail-broker plan](2026-10-19-jev-mail-broker-option.md) as a parallel, independently gated mail-classifier workstream. OpenRouter/Gemini remains the default.
 
 This document is the **orchestrator plan**. It is intentionally organized into dependency waves and worker ownership so an orchestrator can use subagents concurrently without migration-number collisions or repeated broad test runs.
 
@@ -16,6 +17,7 @@ This document is the **orchestrator plan**. It is intentionally organized into d
 - The accelerated `deadline-watch` acceptance runs were useful for ordinary owner-created tasks.
 - The agent did not appear aware of Canvas-imported assignment deadlines.
 - Canvas assignments currently appear in Calendar but do not automatically gain local completion tracking or editable planning metadata.
+- Owner-created tasks currently support only a date-only `dueDate`; there is no way to record a specific due time such as 5:00 PM.
 - Timed Canvas deadlines are currently shown in the all-day strip even when Canvas supplied a concrete due timestamp.
 - The all-day strip can become crowded enough to obscure existing items and make creating new timed events awkward.
 - An existing plan proposes making Jev an optional mail relevance classifier while retaining the current OpenRouter/Gemini classifier as default.
@@ -43,6 +45,13 @@ This document is the **orchestrator plan**. It is intentionally organized into d
 - Raw Canvas feed/API/browser records are never queried for scheduled-agent context.
 - Manual academic context is explicit-selection-only and agent runs do not supply selections.
 - This is a context-model limitation, not a scheduler failure.
+
+### Why user-created tasks cannot have a due time
+
+- `Task` contracts expose only nullable date-only `dueDate`; the database stores `tasks.due_date date`.
+- Task create/update, offline replay, batch changes, agenda buckets, Today, Calendar chips and Assistant task projections all assume that date-only representation.
+- Adding only an `<input type="time">` would lose meaning across devices/timezones and could not be guarded/replayed reliably.
+- Therefore timed tasks need an additive persisted instant plus the timezone used to create/edit that wall-clock value, while retaining `dueDate` for backward-compatible date bucketing.
 
 ### Jev baseline
 
@@ -102,7 +111,7 @@ For one canonical deadline:
 5. If sources disagree on date or timestamp, mark `sourceConflict` and require owner review.
 6. Never pick a winner merely because one adapter is newer or richer.
 
-The immediate Calendar fix does **not** depend on cross-source arbitration: timed feed entries already carry `startsAt`; Feature 2 moves those existing timed values from the all-day strip into the hour grid. This preserves the current reconciliation contract while fixing the reported UI defect.
+The immediate Calendar fix does **not** depend on cross-source arbitration: timed feed entries already carry `startsAt`; Feature 3 moves those existing timed values from the all-day strip into the hour grid. This preserves the current reconciliation contract while fixing the reported UI defect.
 
 ### D5. Browser/file provenance stays more restricted than server-fetched network metadata
 
@@ -140,6 +149,27 @@ This requires a second migration after the core deadline table so tasks/events c
 
 The Jev selector/classifier work must not share migrations, configuration, grants or rollout gates with deadline tracking. It can develop concurrently after migration numbers are reserved.
 
+### D10. Timed tasks extend task deadlines; they do not become calendar reservations
+
+Keep `dueDate` as the existing nullable local planning date. Add optional timed-deadline metadata only when the owner chooses a time:
+
+- `dueAt`: exact UTC instant, nullable;
+- `dueTimeZone`: IANA timezone used to render/re-edit that due wall time, nullable;
+- when `dueAt` is set, `dueDate` is also set to the corresponding local date in `dueTimeZone`;
+- clearing the time keeps the date unless the owner also clears the date;
+- clearing the date clears `dueAt`/`dueTimeZone` atomically;
+- date-only tasks remain byte/behavior compatible and require no inferred midnight/noon instant;
+- a timed task is still a **deadline point**, not reserved calendar duration and not an event.
+
+The server validates the wall-clock conversion with the same Temporal/DST principles as Calendar: nonexistent local times are rejected and repeated local times require deterministic handling rather than silently selecting an offset. UI defaults the timezone to the current device/viewing timezone but stores it explicitly.
+
+Timed task display should be additive:
+
+- Tasks/Today show the local due time when present;
+- Calendar Day/Week may render timed tasks as point deadline markers in the hour grid, while date-only tasks remain all-day deadline chips;
+- agenda/browse “overdue/today/upcoming/later” classification remains date-based for compatibility, with within-day ordering by `dueAt` when present;
+- reminders remain a separate explicit subsystem; adding a due time does not automatically schedule a reminder.
+
 ---
 
 ## Migration ownership and sequencing
@@ -148,17 +178,20 @@ To prevent concurrent workers from choosing the same migration number:
 
 | Migration | Owner | Purpose |
 | --- | --- | --- |
-| `073_tracked_deadlines.sql` | Deadline foundation worker | `tracked_deadlines`, exact source bindings, constraints/views/indexes; no AI or planner-action linkage yet |
-| `074_mail_broker_settings.sql` | Jev broker worker | Versioned owner mail-classifier selector from the existing Jev plan |
+| `073_task_due_times.sql` | Timed-task worker | Add nullable exact due instant/timezone to tasks with consistency checks/index support; preserve existing `due_date` semantics |
+| `074_tracked_deadlines.sql` | Deadline foundation worker | `tracked_deadlines`, exact source bindings, constraints/views/indexes; no AI or planner-action linkage yet |
 | `075_tracked_deadline_planner_links.sql` | Agent/lineage worker | Task/event immutable tracked-deadline source references/snapshots and supporting provenance views |
+| `076_mail_broker_settings.sql` | Jev broker worker | Versioned owner mail-classifier selector from the existing Jev plan |
 
 Rules:
 
 - No other worker creates a migration in this program.
 - Applied migrations 001–072 remain byte-identical.
-- `073` and `074` must be independently additive; neither may depend on tables created by the other.
-- `075` may depend on `073`, never on Jev state.
-- The Jev subplan is reconciled to use migration 074 rather than 073.
+- `073` is independently additive to the existing tasks table.
+- `074` is independently additive and must not depend on timed-task behavior.
+- `075` may depend on `074`, never on timed-task or Jev state.
+- `076` is independently additive to the broker tables and must not depend on task/deadline state.
+- The Jev subplan is reconciled to use migration 076 rather than its earlier 073/074 draft numbers.
 
 ---
 
@@ -182,7 +215,7 @@ When a Canvas assignment/quiz with a canonical identity appears through the feed
 6. A source later missing/cancelled remains retained with a visible source state; it is not auto-completed/deleted.
 7. If the same exact assignment is observed by multiple Canvas adapters, the UI shows one deadline with source coverage/conflict details rather than duplicate actionable records.
 
-## Data model — migration 073
+## Data model — migration 074
 
 Recommended tables:
 
@@ -299,7 +332,7 @@ API/unit:
 - exact mutation retry + changed-operation conflict;
 - label strengthening through source/class/reconciliation changes;
 - calendar-file/browser-only AI ineligibility retained;
-- populated upgrade through migration 073;
+- populated upgrade through migration 074;
 - export includes safe tracked-deadline state and source references, excluding operational/browser session data.
 
 Browser:
@@ -318,7 +351,117 @@ Browser:
 
 ---
 
-# Feature 2 — Timed deadline placement and compact all-day layout
+# Feature 2 — Optional specific due time for owner-created tasks
+
+## Product behavior
+
+Ordinary owner-created tasks keep the existing optional due date and gain an optional specific due time:
+
+1. A task may have no deadline, a date-only deadline, or a timed deadline.
+2. Adding a time requires a due date; the UI asks for the local time and timezone together.
+3. The saved record exposes the existing `dueDate` plus nullable `dueAt` and `dueTimeZone`.
+4. Clearing only the time returns the task to date-only without changing the date.
+5. Clearing the date clears all timed metadata atomically.
+6. A timed task is still a task deadline, not a Calendar reservation and not an automatic reminder.
+7. Existing tasks migrate with `dueAt=null` and `dueTimeZone=null`; their behavior is unchanged.
+
+## Data model — migration 073
+
+Add nullable columns to `tasks`:
+
+- `due_at timestamptz null`
+- `due_time_zone text null`
+
+Keep `due_date date null` as the compatibility/bucketing field. Add SQL/application checks so:
+
+- `due_at` and `due_time_zone` are both null or both non-null;
+- timed tasks always have `due_date`;
+- server write paths derive/check that the wall date of `due_at` in `due_time_zone` equals `due_date`;
+- tombstones, restore, offline replay and mutation receipts preserve the fields exactly.
+
+Do not backfill a guessed time for existing date-only tasks.
+
+## Contracts and API
+
+Modify `packages/contracts/src/core.ts` task schemas and all task projections to add:
+
+- `dueAt: datetime|null`;
+- `dueTimeZone: IANA zone|null`.
+
+Task create/update accepts either the existing date-only form or a timed pair. Prefer accepting owner wall-clock input at the browser boundary and converting to the exact instant before persistence using shared Temporal helpers; if API contracts accept wall time directly, bind date/time/timezone together in one strict object so clients cannot send contradictory fields.
+
+Backward-compatible update semantics are mandatory because an older browser/offline outbox may send a full task update without knowing the new fields:
+
+- omitted `dueAt`/`dueTimeZone` + unchanged `dueDate` preserves the existing timed metadata;
+- changing or clearing `dueDate` while omitting replacement timed metadata clears the old `dueAt`/`dueTimeZone` so the instant cannot drift onto another date;
+- explicit `{ dueAt:null, dueTimeZone:null }` clears only the time while retaining the submitted date;
+- completion/priority/notes/title-only changes preserve timed metadata;
+- batch due-date changes clear existing timed metadata unless that batch contract is deliberately extended to carry a replacement time.
+
+Update:
+
+- `apps/api/src/planner/routes.ts` create/update/list columns and ordering;
+- task-management/batch update contracts so a date change cannot leave stale timed metadata;
+- task agenda/browse ordering to keep existing date buckets while sorting timed tasks within a date by instant;
+- export/import/upgrade fixtures;
+- offline task projection/replay/conflict state.
+
+## UI
+
+Add optional time + timezone to owner-created task entry/edit paths:
+
+- `TasksView` editor;
+- `QuickCapture` and command-bar capture;
+- any dedicated create form that currently exposes `dueDate`;
+- batch deadline changes may remain **date-only** in the first release unless an explicit “set date and time” batch UX is implemented and tested.
+
+Recommended task editor UX:
+
+- Due date (optional)
+- Due time (optional)
+- Timezone, shown only when time is set; defaults to current device timezone
+- “Clear time” keeps the date
+
+Today/Tasks display `Due 5:00 PM` when timed. Date-only tasks continue to display just the date.
+
+## Calendar and AI integration
+
+- Calendar Day/Week renders timed tasks as task deadline point markers at `dueAt`; date-only tasks remain in the all-day/task deadline strip.
+- Month/Agenda may include the local due time in text without inventing duration.
+- The first owner-facing release keeps the existing `planner-task-v1` AI projection date-only so timed-task storage can ship without changing live AI manifests/history eligibility.
+- Assistant visibility/proposals for task due-times are a deliberately versioned follow-up (`planner-task-v2` or equivalent) only after structured-output, manifest/history, apply/undo and stale-client preservation tests pass. This follow-up must not relax any existing provenance/source filters and must not block Release B.
+
+## Tests
+
+API/unit:
+
+- null/date-only/timed create and update;
+- DST gap rejected; repeated local time handled deterministically according to the chosen contract;
+- clear time keeps date; clear date clears time/timezone;
+- exact idempotent retry and changed-operation conflict;
+- offline queue/replay/conflict preserves timed fields;
+- task batch date update clears or deliberately preserves time according to explicit server rule (recommended: date-only batch action clears timed metadata unless batch contract also supplies a time);
+- stale/older-client full PUT that omits timed fields preserves an unchanged-date timed deadline rather than silently clearing it;
+- export/upgrade/postgres populated migration;
+- Today/agenda ordering and overdue boundaries remain correct.
+
+Browser:
+
+- create/edit timed task, reload and cross-timezone display;
+- date-only task regression;
+- clear-time and clear-date flows;
+- timed task point marker does not block creating Calendar events;
+- 320px/e-ink/a11y coverage.
+
+## Commit slices
+
+1. `feat(tasks): add optional timed deadlines`
+2. `feat(web): edit and display task due times`
+3. optional later `feat(ai): propose timed task deadlines` if kept out of the first deployable slice
+
+---
+
+# Feature 3 — Timed deadline placement and compact all-day layout
 
 ## Calendar data source change
 
@@ -406,7 +549,7 @@ Suggested commit: `feat(calendar): place tracked deadlines at due time`
 
 ---
 
-# Feature 3 — Make `deadline-watch` safely aware of tracked deadlines
+# Feature 4 — Make `deadline-watch` safely aware of tracked deadlines
 
 ## Context contract
 
@@ -532,7 +675,7 @@ Suggested commits:
 
 ---
 
-# Feature 4 — Optional Jev mail classifier
+# Feature 5 — Optional Jev mail classifier
 
 The detailed provider-specific design remains in [2026-10-19-jev-mail-broker-option.md](2026-10-19-jev-mail-broker-option.md). The orchestrator should treat it as a parallel workstream with these reconciled constraints:
 
@@ -551,13 +694,13 @@ The detailed provider-specific design remains in [2026-10-19-jev-mail-broker-opt
 
 ## Reconciled migration number
 
-Use `074_mail_broker_settings.sql` instead of 073 because migration 073 is reserved for the tracked-deadline foundation in this program. Update every “pre-073/migration 073” compatibility assertion in the Jev subplan to 074.
+Use `076_mail_broker_settings.sql`. Migration 073 is reserved for timed tasks, 074 for tracked deadlines and 075 for tracked-deadline planner/AI lineage. Update every earlier “pre-073/pre-074” compatibility assertion in the Jev subplan to pre-076.
 
 ## Concurrency boundary
 
 Jev workers own only:
 
-- broker selector/settings contracts/migration 074;
+- broker selector/settings contracts/migration 076;
 - broker adapter/policy/execution/lineage;
 - Jev protocol/config/verification;
 - mail-access UI;
@@ -573,75 +716,121 @@ If both workstreams need `packages/contracts/src/index.ts`, `apps/api/src/config
 
 ## Principle
 
-Use **waves**, not one giant swarm. Parallelize work only after stable interfaces/migration ownership exist. The orchestrator is responsible for shared contracts, merge conflict resolution and broad qualification; workers own narrow slices and run focused tests.
+Use **two lanes at once**:
+
+1. a **development lane** where subagents work ahead concurrently on non-overlapping features after interfaces/migration ownership are stable; and
+2. a **release lane** where the orchestrator serializes merge → production deploy → smoke verification for each completed feature.
+
+A later feature may be developed and fully tested before an earlier release finishes, but production deployments stay dependency/migration ordered. Do not hold a finished independent feature until the whole program is complete.
+
+## Continuous feature release protocol
+
+For every feature below, the orchestrator treats “finished” as a release gate, not merely a worker handoff:
+
+1. Worker/subagents finish implementation and focused tests on their branch/worktree.
+2. Orchestrator reviews the diff, resolves shared-file collisions, and runs the feature's integration tests on the exact candidate commit.
+3. Run `git diff --check`, formatting/type checks for affected workspaces, populated migration/upgrade checks when the feature has a migration, and the feature's focused browser/API suite.
+4. Merge the feature to the release/integration branch as its own reviewable commit or compact commit series.
+5. Re-run the feature-critical smoke suite on the merged commit. Worker-branch green tests are not sufficient evidence.
+6. Deploy that merged commit to the real server through the existing sealed release/preflight/backup procedure.
+7. Run a bounded production smoke using only the feature's already-authorized scope. Record release commit/tree, migration set, service health and metadata-only smoke evidence in `docs/implementation-log.md`.
+8. If production smoke fails, stop the release lane, diagnose, and issue a forward fix/redeploy. Do not automatically restore an old database over owner writes. Application rollback is manual/reviewed and must remain schema-compatible.
+9. Only after the production smoke is accepted does the release lane advance to the next ready feature.
+
+Standing authorization in this plan covers merging and deploying **completed implementation features** to the real Personal Hub server under the existing release safety procedure. It does **not** authorize a new paid/private external-provider experiment, new account consent, broader mail disclosure, or destructive owner-data action. Those remain separate explicit gates. In particular, Jev code may be deployed unselected/unapproved, but private-mail Jev activation still follows its own live gate.
+
+## Planned production release order
+
+Use this order unless an earlier item is already deployed or the orchestrator proves a later item has no migration/dependency conflict:
+
+1. **Release A — Calendar decluttering / timed Canvas placement** (Feature 3's raw-feed-compatible UI slice; no migration). Deploy as soon as its focused Calendar suite passes. This immediately relieves the reported all-day congestion without waiting for tracked-deadline storage.
+2. **Release B — Timed owner tasks** (Feature 2, migration 073). Deploy API/contracts/UI/offline behavior together; optional AI proposal support may follow as a smaller later release if it would delay owner-facing functionality.
+3. **Release C — Tracked Canvas deadlines** (Feature 1, migration 074). Deploy tracking/API/editor/export; Calendar then switches from raw assignment chips to tracked records where available.
+4. **Release D — Deadline-watch tracked-deadline context** (Feature 4, migration 075). Deploy lineage/projection/guard/agent wiring only after Release C is live and verified.
+5. **Release E — Optional Jev classifier implementation** (Feature 5, migration 076). Deploy code/profile support with OpenRouter still selected/default and Jev unapproved unless its separate live gates have been explicitly satisfied.
+
+If Release B/C/D/E finishes development early, keep it rebased and ready; do not deploy it ahead of an unapplied lower-numbered migration. Parallel development is encouraged, production migration order is not.
 
 ## Wave 0 — Baseline and coordination (orchestrator, sequential)
 
 1. Record exact starting commit/tree and clean/known-untracked state.
-2. Preserve the existing Jev plan as a reviewed input and reconcile its migration number to 074.
+2. Preserve the existing Jev plan as a reviewed input and reconcile its migration number to 076.
 3. Freeze the architectural decisions in this document before product-code edits.
-4. Reserve migrations 073/074/075 exactly as above.
-5. Run/record focused baseline suites only (Canvas/reconciliation/calendar/agent/broker); do not burn time on full e2e before changes.
+4. Reserve migrations 073/074/075/076 exactly as above.
+5. Run/record focused baseline suites only (tasks/offline, Canvas/reconciliation/calendar, agent, broker); do not burn time on full e2e before changes.
 6. Create an integration checklist and file-ownership matrix for workers.
 
 Do not let a worker “simplify” by auto-creating normal tasks or by removing the current AI source filters.
 
-## Wave 1 — Parallel foundations
+## Wave 1 — Parallel independently deployable foundations
 
 Spawn up to four workers:
 
-### Worker A — Deadline data foundation
+### Worker A — Timed-task foundation (Release B)
 
 Owns:
 
 - migration 073;
-- tracked-deadline contracts/API/source resolver;
-- Canvas feed/API/browser materialization hooks;
-- export/upgrade/API tests.
+- task contracts/create/update/list/export/offline projection;
+- task editor/quick-capture timed fields if file ownership is manageable, otherwise publish a stable contract for a UI worker;
+- focused task/offline/upgrade tests.
 
-Must not touch AI or Calendar UI except shared contract exports.
+Must not change Canvas/tracked-deadline/Jev code. AI proposal support is optional and should be split if it slows Release B.
 
-### Worker B — Calendar layout prototype
+### Worker B — Calendar decluttering + raw timed Canvas placement (Release A)
 
 Owns:
 
 - `calendar-grid.ts`, `TimeGrid`, `MonthGrid`, Calendar CSS/tests;
-- may use a temporary pure `TrackedDeadline` fixture shape defined by contracts agreed with Worker A.
+- first ships timed **existing Canvas feed** points into the hour grid and bounded all-day expansion without waiting for tracked-deadline storage;
+- prepares an adapter seam so Release C can later swap tracked deadlines in without rewriting layout.
 
 Must not create DB/API logic.
 
-### Worker C — Jev adapter/selector backend
+### Worker C — Deadline data foundation (Release C)
 
 Owns:
 
-- migration 074 and Tasks 1–4/6–7 of the Jev subplan where practical;
+- migration 074;
+- tracked-deadline contracts/API/source resolver;
+- Canvas feed/API/browser materialization hooks;
+- export/upgrade/API tests.
+
+Must not touch AI or Calendar layout except shared contract exports.
+
+### Worker D — Jev adapter/selector backend (Release E, work-ahead)
+
+Owns:
+
+- migration 076 and Tasks 1–4/6–7 of the Jev subplan where practical;
 - backend/evaluation tests.
 
-Must preserve the 69-case OpenRouter broker baseline unchanged.
+Must preserve the current OpenRouter broker baseline unchanged and must not enable private Jev use.
 
-### Worker D — Deadline UI
+The release lane should take Worker B first if it is ready because Release A has no migration. Worker A may deploy next as migration 073. Worker C follows as migration 074. Worker D may continue in parallel but cannot deploy migration 076 before 075 exists in production.
+
+## Wave 2 — Parallel UI, AI lineage and Jev UI
+
+After Worker C's tracked-deadline contracts stabilize (development may begin before production deployment):
+
+There are more candidate slices than worker slots. Run at most the available safe concurrency (normally three or four), prioritizing Release C/D dependency work; queue/revive the remaining workers as slots free rather than spawning overlapping edits.
+
+### Worker E — Deadline UI (Release C)
 
 Owns:
 
 - Deadline editor/list/Tasks/Today presentation and browser tests;
-- consumes Worker A's agreed API contracts.
+- consumes Worker C's agreed API contracts;
+- adapts Calendar to prefer tracked records without changing Worker B's core layout algorithms.
 
-Avoid Calendar layout files owned by Worker B.
-
-The orchestrator merges Worker A first because it establishes the new contracts/migration. Rebase/adapt B/D to the actual contracts before accepting their commits. Worker C can merge independently after 073 exists because 074 is additive and unrelated.
-
-## Wave 2 — Parallel AI lineage + Jev UI
-
-After Worker A is integrated and focused deadline API tests are green:
-
-### Worker E — Deadline AI projection + manifest guard
+### Worker F — Deadline AI projection + manifest guard (Release D)
 
 Owns:
 
 - `live-projections`, manifest/guard/history, projection tests;
 - **not** agent template wiring yet if separating risk helps.
 
-### Worker F — Deadline planner lineage + migration 075
+### Worker G — Deadline planner lineage + migration 075 (Release D)
 
 Owns:
 
@@ -649,44 +838,50 @@ Owns:
 - task/event deadline-source snapshots;
 - proposal conversion/apply/undo/provenance tests.
 
-### Worker G — Agent wiring
+### Worker H — Agent wiring (Release D)
 
 Owns:
 
 - `agent-worker` / `answerTurn` internal context-policy threading;
 - `deadline-watch`-only activation and worker/restart/cap tests.
 
-Coordinate E/F/G on shared `assistant.ts`: either give `assistant.ts` exclusively to E and have G provide a small patch/handoff, or sequence G after E. Do not have multiple workers edit the same large file concurrently.
+Coordinate F/G/H on shared `assistant.ts`: either give `assistant.ts` exclusively to F and have H provide a small patch/handoff, or sequence H after F. Do not have multiple workers edit the same large file concurrently.
 
-### Worker H — Jev Settings UI
+### Worker I — Jev Settings UI (Release E)
 
-Owns the Jev subplan UI/browser slice after Worker C's selector/readiness contracts are integrated.
+Owns the Jev subplan UI/browser slice after Worker D's selector/readiness contracts are integrated.
+
+### Worker J — Timed-task AI polish (optional follow-up to Release B)
+
+If not included in Release B, owns Assistant structured-output/proposal/apply/undo support for task due times. This must not block the owner-facing timed-task release.
 
 ## Wave 3 — Integration hardening
 
 Orchestrator or a dedicated integration worker:
 
 1. Reconcile shared exports/config/error-copy/CI files.
-2. Remove duplicate raw Canvas deadline rendering once tracked deadline data is present.
-3. Verify no deadline completion path writes Canvas.
-4. Verify the default mail broker is still OpenRouter when no selector row exists.
-5. Audit every migration and upgrade fixture in numerical order.
-6. Add cross-feature regression: changing the mail classifier cannot affect deadline context or agent source admission; changing a deadline cannot mutate mail broker state.
+2. Verify timed-task fields survive offline replay/export and never imply a reminder/calendar reservation.
+3. Remove duplicate raw Canvas deadline rendering once tracked deadline data is present.
+4. Verify no deadline completion path writes Canvas.
+5. Verify the default mail broker is still OpenRouter when no selector row exists.
+6. Audit every migration and upgrade fixture in numerical order.
+7. Add cross-feature regression: changing the mail classifier cannot affect deadline/task context or agent source admission; changing a task/deadline cannot mutate mail broker state.
 
 ## Wave 4 — Focused qualification in parallel
 
 Workers may concurrently run **non-overlapping** focused suites:
 
 - Deadline/API/upgrade/PostgreSQL.
+- Timed-task/API/offline/upgrade/PostgreSQL.
 - Calendar component/unit + focused Calendar Playwright.
 - Agent/live-projection/lineage/restart tests.
 - Broker/Jev/evaluation + mail-broker Playwright.
 
 Avoid concurrent Playwright jobs if the repo uses fixed ports and `reuseExistingServer:false`; serialize browser suites or assign distinct supported ports only if the config explicitly supports it. Do not kill unknown shared dev servers.
 
-## Wave 5 — Broad qualification (orchestrator, sequential)
+## Wave 5 — Program-wide qualification after incremental releases (orchestrator, sequential)
 
-On one exact integration commit/tree:
+After all incrementally deployed features are integrated, run one final program-wide qualification on the exact final tree:
 
 1. affected workspace typechecks;
 2. focused Vitest/API suites one last time;
@@ -697,7 +892,7 @@ On one exact integration commit/tree:
 7. `git diff --check`;
 8. independent security/provenance review.
 
-Record exact test commit/tree. Do not describe worker-branch passes as proof of the final merged tree.
+Record exact test commit/tree. This final pass supplements, not replaces, each feature's earlier merge/deploy/smoke receipt. Do not describe worker-branch passes as proof of a merged or deployed tree.
 
 ---
 
@@ -707,7 +902,11 @@ The orchestrator should include the global safety constraints plus a narrow owne
 
 ## Deadline foundation worker prompt
 
-> Implement migration 073 and the tracked-deadline domain only. Auto-materialize exact-identity Canvas assignment/quiz deadlines from committed feed/API/browser source state, preserve source provenance and owner overrides, and add owned/versioned/idempotent API + focused tests. Never fuzzy-match, never write Canvas, never auto-create planner tasks/events, and do not touch AI/calendar UI. Return changed files, focused validation and integration assumptions.
+> Implement migration 074 and the tracked-deadline domain only. Auto-materialize exact-identity Canvas assignment/quiz deadlines from committed feed/API/browser source state, preserve source provenance and owner overrides, and add owned/versioned/idempotent API + focused tests. Never fuzzy-match, never write Canvas, never auto-create planner tasks/events, and do not touch AI/calendar UI. Return changed files, focused validation and integration assumptions.
+
+## Timed-task worker prompt
+
+> Implement migration 073 and optional specific due-times for ordinary owner tasks. Preserve existing nullable date-only `dueDate` semantics; add a nullable exact due instant plus explicit IANA timezone, with strict consistency/DST handling. Update task API/contracts/offline/export/UI and focused tests. Timed tasks remain task deadline points, not Calendar reservations or automatic reminders. Do not relax existing AI provenance filters; keep AI timed-task proposal support separable if it would delay the owner-facing release.
 
 ## Calendar worker prompt
 
@@ -719,7 +918,7 @@ The orchestrator should include the global safety constraints plus a narrow owne
 
 ## Jev worker prompt
 
-> Implement the optional Jev mail-classifier plan using migration 074. Preserve OpenRouter/Gemini as default and all existing grant/provenance/budget/no-resend behavior. Independent selector/consent/account verification, exact versioned model, direct single-attempt TypeSafe HTTP, no fallback and cross-adapter receipt isolation are mandatory. No private mail/provider call during routine tests.
+> Implement the optional Jev mail-classifier plan using migration 076. Preserve OpenRouter/Gemini as default and all existing grant/provenance/budget/no-resend behavior. Independent selector/consent/account verification, exact versioned model, direct single-attempt TypeSafe HTTP, no fallback and cross-adapter receipt isolation are mandatory. No private mail/provider call during routine tests.
 
 ---
 
@@ -734,6 +933,17 @@ The orchestrator should include the global safety constraints plus a narrow owne
 - [ ] Source missing/cancelled is visible and retained.
 - [ ] Source disagreement is visible; no guessed overwrite.
 - [ ] No mutation sends a write to Canvas.
+
+## Timed owner tasks
+
+- [ ] Existing no-date/date-only tasks remain behavior-compatible.
+- [ ] Owner can optionally set a specific due time + timezone on a task.
+- [ ] Stored `dueAt` resolves to the same local `dueDate` in `dueTimeZone`.
+- [ ] Clearing only time keeps the due date; clearing the date clears timed metadata.
+- [ ] DST-invalid local times are rejected rather than guessed.
+- [ ] Offline replay/conflict/export/restore preserve timed fields exactly.
+- [ ] Timed tasks render as deadline points, not reserved Calendar duration.
+- [ ] Adding a due time does not silently create a reminder.
 
 ## Calendar
 
@@ -767,20 +977,39 @@ The orchestrator should include the global safety constraints plus a narrow owne
 
 # Rollout and live gates
 
-## Deadline/calendar/agent rollout
+The **continuous feature release protocol above is authoritative**: each feature is merged and deployed when its own implementation/qualification gate closes rather than waiting for the full program.
 
-1. Deploy schema/UI with tracked deadline creation and calendar rendering first; keep deadline AI projection disabled by code until its tests/guards are merged in the same reviewed release or a later release.
+## Release A — Calendar layout
+
+1. Deploy the no-migration timed-Canvas/hour-grid + bounded-all-day UI slice immediately after focused Calendar qualification.
+2. Smoke the owner's Calendar: timed Canvas entries appear at their actual time; date-only entries remain all-day; event creation hit targets remain usable.
+3. Record the deployed commit/tree. Do not wait for tracked-deadline storage.
+
+## Release B — Timed owner tasks (migration 073)
+
+1. Deploy task schema/API/offline/UI timed-deadline support after populated migration and focused task/browser tests pass.
+2. Smoke create → edit → clear time → reload on a harmless owner-created test task; avoid copying task text into receipts.
+3. Confirm date-only existing tasks remain unchanged and no reminder/event was created implicitly.
+4. Optional AI proposal support can deploy separately after its own focused apply/undo/provenance tests.
+
+## Release C — Tracked Canvas deadlines (migration 074)
+
+1. Deploy tracked deadline materialization/API/editor/export and adapt Calendar to prefer tracked assignment deadlines.
 2. Verify owner-visible deadline counts/duplicates/source conflicts against real Canvas data without sending that data to AI.
-3. Confirm timed due-date rendering fixes the current all-day congestion on the owner's actual calendar.
-4. Enable the guarded `deadline-watch` context in the reviewed release.
-5. Run one bounded owner-authorized scheduled canary under Ask first and current agent cap.
-6. Owner judges usefulness; keep source completeness limitations visible.
+3. Verify complete/reopen/local overrides survive a normal source refresh and never write Canvas.
+
+## Release D — Deadline-watch context (migration 075)
+
+1. Deploy guarded deadline projection/lineage/agent wiring only after Release C is healthy.
+2. Run one bounded owner-authorized `deadline-watch` canary under Ask first and the current cap.
+3. Confirm metadata-only coverage indicates eligible deadline context; verify no browser/file-only source was disclosed.
+4. Owner judges usefulness; keep source completeness limitations visible.
 
 Do not use a successful canary to claim Canvas feed/API/browser completeness.
 
-## Jev rollout
+## Release E — Jev implementation (migration 076)
 
-Follow Task 9 of the Jev subplan separately. Private mail or paid Jev testing is not implied by implementing deadline features. Each account/privacy/paid/live step remains explicitly gated.
+Deploy the selectable-broker implementation only after its synthetic/code gates pass, while leaving OpenRouter selected/default and Jev unapproved/unselected unless its separate live prerequisites are already satisfied. Then follow Task 9 of the Jev subplan separately. Private mail or paid Jev testing is not implied by code deployment; each account/privacy/paid/live step remains explicitly gated.
 
 ---
 
@@ -791,6 +1020,7 @@ Update only after the corresponding code is actually merged/verified:
 - `docs/canvas.md` — automatic tracked-deadline behavior and provider-vs-owner fields.
 - `docs/canvas-api.md`, `docs/canvas-browser.md`, `docs/canvas-reconciliation.md` — canonical identity/source participation and conflict semantics.
 - `docs/academic-work.md` / `academic-agenda.md` — clarify tracked imported deadlines remain separate from manual academic work.
+- `docs/planner.md`, `docs/development.md`, task-management/agenda docs — optional timed task semantics and date-bucket compatibility.
 - `docs/ai-assistant.md`, `docs/agent-scope.md`, `docs/responsibilities.md` — narrow `deadline-watch` context authority.
 - `docs/ui-agent-ledger.md` — deadline visibility, Calendar UI and broker selector.
 - `docs/backlog.md` / `docs/decisions.md` — close implemented items and retain source-completeness/live gates.
@@ -806,9 +1036,11 @@ Historical receipts should not be rewritten to imply the new behavior existed ea
 The orchestrator may call this program complete only when:
 
 1. Imported Canvas assignment/quiz deadlines automatically have durable local tracking, completion and owner-edit semantics without provider writes.
-2. Timed deadlines render at their due time, and the Day/Week all-day strip remains bounded/readable.
-3. `deadline-watch` automatically receives only the approved tracked-deadline projection with final provenance/label/version rechecks and can make ordinary Ask-first planning proposals from it.
-4. Existing task/event planner-context privacy filters remain intact.
-5. OpenRouter/Gemini is still the default mail classifier, while Jev is an optional independently approved adapter with no cross-provider fallback/resend/receipt reinterpretation.
-6. All migrations are append-only, populated upgrades pass in PGlite and disposable PostgreSQL, and the exact final integration tree passes broad local + remote qualification.
-7. Live owner/private/provider acceptance is recorded separately from synthetic implementation evidence.
+2. Owner-created tasks can optionally carry a specific due time/timezone while existing date-only behavior remains compatible and no implicit reminder/calendar reservation is created.
+3. Timed deadlines/tasks render at their due time, and the Day/Week all-day strip remains bounded/readable.
+4. `deadline-watch` automatically receives only the approved tracked-deadline projection with final provenance/label/version rechecks and can make ordinary Ask-first planning proposals from it.
+5. Existing task/event planner-context privacy filters remain intact.
+6. OpenRouter/Gemini is still the default mail classifier, while Jev is an optional independently approved adapter with no cross-provider fallback/resend/receipt reinterpretation.
+7. Every completed feature has its own merged production release + smoke receipt; no feature waits for the entire program solely for batching convenience.
+8. All migrations are append-only, populated upgrades pass in PGlite and disposable PostgreSQL, and the exact final integration tree passes broad local + remote qualification.
+9. Live owner/private/provider acceptance is recorded separately from synthetic implementation evidence.
