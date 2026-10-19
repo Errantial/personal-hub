@@ -170,6 +170,60 @@ test('the editor requires a title and keeps the draft when it is missing', async
   });
 });
 
+test('an ambiguous owner due time requires a fold choice and can clear time without clearing date', async ({
+  page,
+}) => {
+  await page.goto('/tasks');
+  const panel = tasksRegion(page);
+  await panel.getByRole('button', { name: 'Add task', exact: true }).click();
+  const capture = panel.getByRole('region', { name: 'Quick task capture' });
+  await capture.getByLabel('Task title').fill('DST deadline');
+  await capture.getByLabel('Due date (optional)').fill('2027-11-07');
+  await capture.getByLabel('Due time (optional)').fill('01:30');
+  await capture.getByLabel('Timezone').fill('America/New_York');
+  await expect(
+    capture.getByText('This due time happens twice. Choose one.'),
+  ).toBeVisible();
+  await capture.getByLabel(/^Later \(/).check();
+  await capture.getByRole('button', { name: 'Save task', exact: true }).click();
+  await expect(
+    panel.getByRole('link', { name: 'DST deadline', exact: true }),
+  ).toBeVisible();
+
+  const saved = (
+    (await (await page.request.get('/api/v1/tasks')).json()) as {
+      tasks: Array<{
+        id: string;
+        title: string;
+        dueDate: string | null;
+        dueAt: string | null;
+        dueTimeZone: string | null;
+      }>;
+    }
+  ).tasks.find((task) => task.title === 'DST deadline');
+  expect(saved).toMatchObject({
+    dueDate: '2027-11-07',
+    dueAt: '2027-11-07T06:30:00.000Z',
+    dueTimeZone: 'America/New_York',
+  });
+
+  await openTask(page, 'DST deadline');
+  const editor = taskEditor(page);
+  await expect(editor.getByLabel('Due time (optional)')).toHaveValue('01:30');
+  await expect(editor.getByLabel('Timezone')).toHaveValue('America/New_York');
+  await expect(editor.getByLabel(/^Later \(/)).toBeChecked();
+  await editor.getByLabel('Due time (optional)').fill('');
+  await expect(editor.getByLabel('Timezone')).toHaveCount(0);
+  await editor.getByRole('button', { name: 'Save changes' }).click();
+  await expect(editor.getByRole('status')).toHaveText('Saved.');
+  const cleared = await page.request.get(`/api/v1/tasks/${saved!.id}`);
+  expect((await cleared.json()).task).toMatchObject({
+    dueDate: '2027-11-07',
+    dueAt: null,
+    dueTimeZone: null,
+  });
+});
+
 test('an unknown task address explains itself and links back to the list', async ({
   page,
 }) => {

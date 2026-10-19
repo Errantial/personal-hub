@@ -13,6 +13,8 @@ import type { Route } from '../lib/router';
 import { useAssistantSettings } from './AssistantComposer';
 import { Help } from './Help';
 import { Link } from './Link';
+import { TaskDueFields } from './TaskDueFields';
+import { emptyTaskDue, taskDuePayload } from '../lib/task-deadline';
 import './CommandBar.css';
 
 type Mode = 'task' | 'ask';
@@ -56,7 +58,7 @@ export function CommandBar({
   const [chosen, setChosen] = useState<Mode>(readMode);
   const mode: Mode = chosen === 'ask' && canAsk ? 'ask' : 'task';
   const [text, setText] = useState('');
-  const [dueDate, setDueDate] = useState('');
+  const [deadline, setDeadline] = useState(emptyTaskDue);
   const [message, setMessage] = useState('');
   const save = useMutation();
   const ask = useMutation();
@@ -77,13 +79,22 @@ export function CommandBar({
     if (!text.trim()) return;
     setMessage('');
     if (mode === 'task') {
+      let due;
+      try {
+        due = taskDuePayload(deadline);
+      } catch (error) {
+        save.setError(
+          error instanceof Error ? error.message : 'Choose a valid due time.',
+        );
+        return;
+      }
       const result = await save.run(
         taskResponseSchema,
         'POST',
         '/api/v1/tasks',
         {
           title: text.trim(),
-          dueDate: dueDate || null,
+          ...due,
           notes: '',
           priority: 'normal',
           completed: false,
@@ -92,7 +103,7 @@ export function CommandBar({
       );
       if (!result) return;
       setText('');
-      setDueDate('');
+      setDeadline(emptyTaskDue());
       const state = await offlineStatus().catch(() => null);
       setMessage(
         state?.queued.includes(result.task.id)
@@ -174,14 +185,16 @@ export function CommandBar({
           />
         </label>
         {mode === 'task' && (
-          <label className="command-bar__date">
-            <span className="visually-hidden">Due date</span>
-            <input
-              type="date"
-              value={dueDate}
-              onChange={(event) => setDueDate(event.target.value)}
+          <div className="command-bar__date">
+            <TaskDueFields
+              value={deadline}
+              onChange={(value) => {
+                setDeadline(value);
+                save.setError('');
+              }}
+              disabled={pending}
             />
-          </label>
+          </div>
         )}
         <button
           className="primary-button"

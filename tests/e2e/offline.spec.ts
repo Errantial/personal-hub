@@ -338,6 +338,9 @@ test('offline create, edit, completion and delete survive reload and reconcile o
   await taskEditor(page)
     .getByLabel('Title', { exact: true })
     .fill('Offline revised');
+  await taskEditor(page).getByLabel('Due date (optional)').fill('2030-04-04');
+  await taskEditor(page).getByLabel('Due time (optional)').fill('15:00');
+  await taskEditor(page).getByLabel('Timezone').fill('UTC');
   await taskEditor(page).getByRole('button', { name: 'Save changes' }).click();
   await expect(taskEditor(page).getByRole('status')).toHaveText(
     'Changes queued for sync.',
@@ -383,9 +386,18 @@ test('offline create, edit, completion and delete survive reload and reconcile o
     title: string;
     completed: boolean;
     version: number;
+    dueDate: string | null;
+    dueAt: string | null;
+    dueTimeZone: string | null;
   }[];
   expect(tasks.filter((item) => item.title === 'Offline revised')).toEqual([
-    expect.objectContaining({ completed: true, version: 3 }),
+    expect.objectContaining({
+      completed: true,
+      version: 3,
+      dueDate: '2030-04-04',
+      dueAt: '2030-04-04T15:00:00.000Z',
+      dueTimeZone: 'UTC',
+    }),
   ]);
   expect(tasks.some((item) => item.title === 'Offline deleted')).toBe(false);
   await page.reload();

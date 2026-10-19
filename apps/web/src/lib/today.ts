@@ -9,9 +9,11 @@ export type TodayItem = {
   kind: TodayKind;
   title: string;
   allDay: boolean;
-  /** ISO instant for timed items; null for all-day and due tasks. */
+  /** ISO instant for timed items; null for all-day/date-only deadlines. */
   start: string | null;
   end: string | null;
+  /** Explicit display zone for a task deadline; other items use the viewing zone. */
+  timeZone: string | null;
   /** A Canvas item the source cancelled or no longer lists. */
   cancelled: boolean;
   target:
@@ -40,6 +42,7 @@ export function todayItems(input: {
       allDay: item.providerData.allDay,
       start: item.providerData.allDay ? null : item.providerData.startsAt,
       end: item.providerData.allDay ? null : item.providerData.endsAt,
+      timeZone: null,
       cancelled:
         item.availability !== undefined && item.availability !== 'available',
       target: { type: 'external', url: item.providerData.sourceUrl },
@@ -50,9 +53,10 @@ export function todayItems(input: {
         key: task.id,
         kind: 'task',
         title: task.title,
-        allDay: true,
-        start: null,
+        allDay: !task.dueAt,
+        start: task.dueAt,
         end: null,
+        timeZone: task.dueTimeZone,
         cancelled: false,
         target: { type: 'task', id: task.id },
       })),
@@ -63,6 +67,7 @@ export function todayItems(input: {
       allDay: item.allDay,
       start: item.allDay ? null : item.startsAt,
       end: item.allDay ? null : item.endsAt,
+      timeZone: null,
       cancelled: false,
       target: { type: 'event', id: item.id, date: item.originalDate },
     })),

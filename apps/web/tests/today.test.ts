@@ -134,6 +134,31 @@ it('todayItems keeps a timed Canvas deadline in time order as a deadline', () =>
   ]);
 });
 
+it('todayItems keeps date-only tasks in the deadline strip and timed tasks in time order', () => {
+  const items = todayItems({
+    today,
+    timeZone,
+    tasks: [
+      task('Date only'),
+      task('Timed', {
+        dueAt: '2026-10-14T16:30:00.000Z',
+        dueTimeZone: 'America/Denver',
+      }),
+    ],
+    canvas: [],
+    occurrences: [occurrence('Early event')],
+  });
+  expect(items.map((item) => [item.kind, item.title, item.allDay])).toEqual([
+    ['task', 'Date only', true],
+    ['event', 'Early event', false],
+    ['task', 'Timed', false],
+  ]);
+  expect(items[2]).toMatchObject({
+    start: '2026-10-14T16:30:00.000Z',
+    timeZone: 'America/Denver',
+  });
+});
+
 it('todayItems marks Canvas items that are no longer available as cancelled', () => {
   const item = canvas('Old quiz', {});
   const [result] = todayItems({

@@ -15,6 +15,8 @@ const task = (title: string, extra: Partial<Task> = {}): Task => ({
   title,
   notes: '',
   dueDate: null,
+  dueAt: null,
+  dueTimeZone: null,
   priority: 'normal',
   completed: false,
   sensitivity: 'unlabeled',
@@ -88,6 +90,30 @@ it('lists done tasks together, newest change first', () => {
   );
   expect(groups).toHaveLength(1);
   expect(groups[0]?.tasks.map((item) => item.title)).toEqual(['New', 'Old']);
+});
+
+it('orders timed tasks by due instant before date-only tasks on the same date', () => {
+  const sameDate = '2026-10-19';
+  const ordered = groupTasks(
+    [
+      task('Date only', { dueDate: sameDate }),
+      task('Late', {
+        dueDate: sameDate,
+        dueAt: '2026-10-19T22:00:00.000Z',
+        dueTimeZone: 'UTC',
+      }),
+      task('Early', {
+        dueDate: sameDate,
+        dueAt: '2026-10-19T14:00:00.000Z',
+        dueTimeZone: 'UTC',
+      }),
+    ],
+    'open',
+    today,
+  );
+  expect(
+    ordered.flatMap((group) => group.tasks.map((item) => item.title)),
+  ).toEqual(['Early', 'Late', 'Date only']);
 });
 
 it('builds selected-change requests with the versions seen at selection', () => {

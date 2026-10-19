@@ -7,7 +7,7 @@ import {
   courseSchema,
   coursesSchema,
   courseWriteSchema,
-  createTaskSchema,
+  createTaskRequestSchema,
   deleteItemSchema,
   expandEvent,
   occurrencesResponseSchema,
@@ -33,6 +33,7 @@ import type {
   Topic,
 } from '@hub/contracts';
 import { nativePlatform } from './transport';
+import { projectTaskDeadline } from './task-deadline';
 
 export type OfflineKind = 'task' | 'calendar' | 'reminder' | 'course' | 'topic';
 type OfflineRecord = Task | CalendarRecord | Reminder | Course | Topic;
@@ -447,7 +448,7 @@ function taskRecord(
   now: string,
 ) {
   if (method === 'POST') {
-    const input = createTaskSchema.parse(body);
+    const input = createTaskRequestSchema.parse(body);
     if (input.canvasSourceRef)
       throw new Error('Connect to create a task from Canvas.');
     return taskSchema.parse({
@@ -462,10 +463,8 @@ function taskRecord(
   const id = path.split('/').at(-1)!;
   if (conflictFor(value, 'task', id))
     throw new Error('Resolve the task conflict before editing.');
-  const input =
-    method === 'DELETE'
-      ? deleteItemSchema.parse(body)
-      : updateTaskSchema.parse(body);
+  const updateInput = method === 'PUT' ? updateTaskSchema.parse(body) : null;
+  const input = updateInput ?? deleteItemSchema.parse(body);
   const original = taskSchema.parse(
     requireVersion(
       projected(value, 'task').find((record) => record.id === id),
@@ -473,9 +472,11 @@ function taskRecord(
       'tasks',
     ),
   );
+  const deadline = projectTaskDeadline(original, updateInput ?? {});
   return taskSchema.parse({
     ...original,
     ...(method === 'PUT' ? input : {}),
+    ...deadline,
     sensitivity:
       'sensitivity' in input
         ? (input.sensitivity ?? original.sensitivity)

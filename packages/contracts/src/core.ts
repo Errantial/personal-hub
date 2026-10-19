@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { mailTaskSourceSchema } from './mail-source.js';
-import { recurrenceSchema } from './features.js';
+import { Temporal, instant, recurrenceSchema, zone } from './features.js';
 import { academicPlannerSourceSummarySchema } from './academic-source.js';
 import { canvasSourceRefSchema, plannerSourceSchema } from './provenance.js';
 
@@ -68,6 +68,76 @@ const taskFields = {
   completed: z.boolean().default(false),
   sensitivity: sensitivitySchema.default('unlabeled'),
 };
+const taskTimingRecordFields = {
+  dueAt: instant.nullable().default(null),
+  dueTimeZone: zone.nullable().default(null),
+};
+const taskTimingWriteFields = {
+  dueAt: instant.nullable().optional(),
+  dueTimeZone: zone.nullable().optional(),
+};
+type TaskTiming = {
+  dueDate?: string | null | undefined;
+  dueAt?: string | null | undefined;
+  dueTimeZone?: string | null | undefined;
+};
+function timedTaskDate(dueAt: string, dueTimeZone: string) {
+  return Temporal.Instant.from(dueAt)
+    .toZonedDateTimeISO(dueTimeZone)
+    .toPlainDate()
+    .toString();
+}
+function validateTaskTiming(value: TaskTiming, context: z.RefinementCtx) {
+  const atProvided = value.dueAt !== undefined;
+  const zoneProvided = value.dueTimeZone !== undefined;
+  if (atProvided !== zoneProvided) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Supply due time and timezone together.',
+      path: atProvided ? ['dueTimeZone'] : ['dueAt'],
+    });
+    return;
+  }
+  if (!atProvided) return;
+  if ((value.dueAt === null) !== (value.dueTimeZone === null)) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Supply due time and timezone together.',
+      path: value.dueAt === null ? ['dueTimeZone'] : ['dueAt'],
+    });
+    return;
+  }
+  if (value.dueAt === null && value.dueTimeZone === null) return;
+  if (value.dueDate === undefined) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Supply the due date when changing the due time.',
+      path: ['dueDate'],
+    });
+    return;
+  }
+  if (
+    value.dueAt === undefined ||
+    value.dueTimeZone === undefined ||
+    value.dueAt === null ||
+    value.dueTimeZone === null
+  )
+    return;
+  if (value.dueDate === null) {
+    context.addIssue({
+      code: 'custom',
+      message: 'A due time requires a due date.',
+      path: ['dueDate'],
+    });
+    return;
+  }
+  if (timedTaskDate(value.dueAt, value.dueTimeZone) !== value.dueDate)
+    context.addIssue({
+      code: 'custom',
+      message: 'Due time must fall on the due date in its timezone.',
+      path: ['dueAt'],
+    });
+}
 const metadata = {
   id: z.string().uuid(),
   version: z.number().int().positive(),
@@ -77,23 +147,32 @@ const metadata = {
 };
 export const taskSchema = z.object({
   ...taskFields,
+  ...taskTimingRecordFields,
   ...metadata,
   canvasSource: plannerSourceSchema.nullable().default(null),
   academicSource: academicPlannerSourceSummarySchema.nullable().default(null),
   mailSource: mailTaskSourceSchema.nullable().default(null),
 });
+const validatedTaskSchema = taskSchema.superRefine(validateTaskTiming);
 export const createTaskSchema = z.strictObject({
   ...taskFields,
+  ...taskTimingWriteFields,
   canvasSourceRef: canvasSourceRefSchema.optional(),
   clientId: z.string().uuid().optional(),
   operationId: z.string().uuid(),
 });
-export const updateTaskSchema = z.strictObject({
-  ...taskFields,
-  sensitivity: sensitivitySchema.optional(),
-  operationId: z.string().uuid(),
-  expectedVersion: z.number().int().positive(),
-});
+export const createTaskRequestSchema =
+  createTaskSchema.superRefine(validateTaskTiming);
+export const updateTaskSchema = z
+  .strictObject({
+    ...taskFields,
+    dueDate: dateSchema.nullable().optional(),
+    ...taskTimingWriteFields,
+    sensitivity: sensitivitySchema.optional(),
+    operationId: z.string().uuid(),
+    expectedVersion: z.number().int().positive(),
+  })
+  .superRefine(validateTaskTiming);
 export const deleteItemSchema = z.strictObject({
   operationId: z.string().uuid(),
   expectedVersion: z.number().int().positive(),
@@ -107,8 +186,10 @@ export const plannerRestorationSchema = z.object({
   restoredVersion: z.number().int().positive(),
   restoredAt: z.string().datetime(),
 });
-export const taskResponseSchema = z.object({ task: taskSchema });
-export const tasksResponseSchema = z.object({ tasks: z.array(taskSchema) });
+export const taskResponseSchema = z.object({ task: validatedTaskSchema });
+export const tasksResponseSchema = z.object({
+  tasks: z.array(validatedTaskSchema),
+});
 const timeZoneSchema = z
   .string()
   .min(1)

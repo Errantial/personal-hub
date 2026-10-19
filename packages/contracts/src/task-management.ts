@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { taskSchema } from './core.js';
-import { dateOnly } from './features.js';
+import { dateOnly, instant, Temporal, zone } from './features.js';
 
 const status = z.enum(['all', 'open', 'completed']);
 const priority = z.enum(['all', 'low', 'normal', 'high']);
@@ -40,8 +40,54 @@ const changes = z
     completed: z.boolean().optional(),
     priority: z.enum(['low', 'normal', 'high']).optional(),
     dueDate: dateOnly.nullable().optional(),
+    dueAt: instant.nullable().optional(),
+    dueTimeZone: zone.nullable().optional(),
   })
-  .refine((value) => Object.keys(value).length > 0, 'Select a change.');
+  .refine((value) => Object.keys(value).length > 0, 'Select a change.')
+  .superRefine((value, context) => {
+    const atProvided = value.dueAt !== undefined;
+    const zoneProvided = value.dueTimeZone !== undefined;
+    if (
+      atProvided !== zoneProvided ||
+      (value.dueAt === null) !== (value.dueTimeZone === null)
+    )
+      context.addIssue({
+        code: 'custom',
+        message: 'Supply due time and timezone together.',
+      });
+    const clearsTime = value.dueAt === null && value.dueTimeZone === null;
+    if (
+      (atProvided || zoneProvided) &&
+      !clearsTime &&
+      value.dueDate === undefined
+    )
+      context.addIssue({
+        code: 'custom',
+        message: 'Supply the due date when changing the due time.',
+      });
+    if (
+      value.dueAt !== undefined &&
+      value.dueAt !== null &&
+      value.dueDate === null
+    )
+      context.addIssue({
+        code: 'custom',
+        message: 'A due time requires a due date.',
+      });
+    if (
+      value.dueAt &&
+      value.dueTimeZone &&
+      value.dueDate &&
+      Temporal.Instant.from(value.dueAt)
+        .toZonedDateTimeISO(value.dueTimeZone)
+        .toPlainDate()
+        .toString() !== value.dueDate
+    )
+      context.addIssue({
+        code: 'custom',
+        message: 'Due time must fall on the due date in its timezone.',
+      });
+  });
 export const taskBatchRequestSchema = z.strictObject({
   operationId: z.string().uuid(),
   items: z

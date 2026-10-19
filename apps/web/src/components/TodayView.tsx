@@ -19,6 +19,7 @@ import type { Route } from '../lib/router';
 import { formatDate, formatInstant } from '../lib/format';
 import { todayItems } from '../lib/today';
 import type { TodayItem } from '../lib/today';
+import { formatTaskDueTime } from '../lib/task-deadline';
 import './TodayView.css';
 
 export function TodayView({ navigate }: { navigate: (route: Route) => void }) {
@@ -107,15 +108,17 @@ export function TodayView({ navigate }: { navigate: (route: Route) => void }) {
     timeZone,
   });
   const loaded = !!(tasks.data && schedule.data && canvas.data);
-  const time = (instant: string) =>
+  const time = (instant: string, zone = timeZone) =>
     new Date(instant).toLocaleTimeString(undefined, {
-      timeZone,
+      timeZone: zone,
       hour: 'numeric',
       minute: '2-digit',
     });
   const when = (item: TodayItem) =>
     item.kind === 'task'
-      ? 'Due today'
+      ? item.start
+        ? `Due ${time(item.start, item.timeZone ?? timeZone)}`
+        : 'Due today'
       : item.allDay || !item.start
         ? 'All day'
         : !item.end || item.end === item.start
@@ -280,7 +283,9 @@ function TaskList({ tasks }: { tasks: Task[] }) {
         <li key={task.id}>
           <strong>{task.title}</strong>
           <small>
-            {task.dueDate ? `Due ${formatDate(task.dueDate)}` : 'No due date'}
+            {task.dueDate
+              ? `Due ${formatDate(task.dueDate)}${formatTaskDueTime(task) ? `, ${formatTaskDueTime(task)}` : ''}`
+              : 'No due date'}
             {task.priority === 'high' ? ' · High priority' : ''}
           </small>
         </li>

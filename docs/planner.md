@@ -4,7 +4,9 @@ Implemented locally: Calendar, Classes and Reminders. These are owner-authorized
 
 ## Calendar
 
-Day/week agendas show timed events in the selected viewing timezone. All-day events retain their calendar dates across viewing timezones. A task deadline remains a date-only deadline; a study block reserves an interval.
+Day/week agendas show timed events in the selected viewing timezone. All-day events retain their calendar dates across viewing timezones. An owner-created task keeps its date-only `dueDate` and may additionally carry an exact `dueAt` plus the IANA `dueTimeZone` used to choose it. A timed task is still a deadline point, not a reserved interval; a study block reserves an interval.
+
+Task due time is optional. `dueAt` and `dueTimeZone` are either both null or both present, and a present instant must fall on `dueDate` in that timezone. Date-only tasks never acquire an inferred midnight/noon instant. Nonexistent DST wall times are rejected, and repeated wall times require an explicit earlier/later choice. Clearing the time keeps the date; clearing or changing the date without a replacement time clears stale timing. Older task updates that omit timing preserve it only while the submitted/retained date is unchanged. Completion and priority changes therefore do not silently move a deadline. Migration 073 adds only these nullable task timing fields and constraints; it does not create reminders or Calendar reservations.
 
 Calendar input interprets local times in the event's IANA timezone. Nonexistent DST times must be corrected; repeated times require an explicit earlier/later offset choice. Recurring timed starts keep their local clock time and constant elapsed duration. Future DST gaps shift forward; repeated future times use the earlier offset. The initial occurrence preserves the offset selected by the owner.
 
