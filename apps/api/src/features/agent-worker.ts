@@ -354,6 +354,8 @@ async function execute(
       trigger: 'agent',
       agentId: agent.id,
       agentGoal: agent.goal,
+      agentVersion: agent.version,
+      agentTemplate: agent.template,
       agentRun: { runId: run.id, token: run.token, now: clock },
     });
   } catch (error) {

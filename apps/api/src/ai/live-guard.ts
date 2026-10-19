@@ -20,6 +20,7 @@ import {
   projectTask,
 } from './live-projections.js';
 import type { MailProjected } from './live-projections.js';
+import { reprojectTrackedDeadlineSource } from './tracked-deadline-context.js';
 import { readAssistantSettings } from './live-request.js';
 import { exchange, pinnedRouting } from './openrouter-live.js';
 import type { ExchangeResult, OpenRouterFetch } from './openrouter-live.js';
@@ -194,7 +195,10 @@ export async function verifyLive(
                 ref.labels.every((label) => bound.labels.includes(label)) &&
                 ref.connector?.id === bound.connector?.id &&
                 ref.connector?.version === bound.connector?.version &&
-                ref.brokerDigest === bound.brokerDigest,
+                ref.brokerDigest === bound.brokerDigest &&
+                ref.version === bound.version &&
+                JSON.stringify(ref.deadlineSources) ===
+                  JSON.stringify(bound.deadlineSources),
             ),
           ) &&
           current.id === turn.id &&
@@ -278,6 +282,30 @@ export async function verifyLive(
       )
         return 'context-changed';
     }
+  }
+
+  const deadlines = manifest.sources.filter(
+    (source) => source.kind === 'tracked-deadline',
+  );
+  for (const source of deadlines) {
+    const current = await reprojectTrackedDeadlineSource(
+      tx,
+      owner,
+      requestId,
+      source,
+      allowed,
+      manifest.timeZone ?? 'UTC',
+    );
+    if (
+      !current ||
+      current.version !== source.version ||
+      current.digest !== source.digest ||
+      current.labels.length !== source.labels.length ||
+      !current.labels.every((label) => source.labels.includes(label)) ||
+      JSON.stringify(current.deadlineSources) !==
+        JSON.stringify(source.deadlineSources)
+    )
+      return 'context-changed';
   }
 
   const mail = manifest.sources.filter((s) => s.kind === 'mail-message');
@@ -365,7 +393,7 @@ export async function verifyLive(
   const agent = manifest.request.agent;
   if (agent) {
     const [responsibility] = await tx.query(
-      "SELECT goal,sensitivity,labels FROM responsibilities WHERE owner_id=$1 AND id=$2 AND deleted_at IS NULL AND status IN ('active','paused')",
+      "SELECT goal,version,template,sensitivity,labels FROM responsibilities WHERE owner_id=$1 AND id=$2 AND deleted_at IS NULL AND status IN ('active','paused')",
       [owner, agent.id],
     );
     if (
@@ -379,7 +407,12 @@ export async function verifyLive(
         'agent-goal',
         agent.id,
         responsibility.goal,
-      ) !== agent.goalDigest
+      ) !== agent.goalDigest ||
+      (deadlines.length > 0 &&
+        (agent.version === undefined ||
+          agent.template !== 'deadline-watch' ||
+          Number(responsibility.version) !== agent.version ||
+          responsibility.template !== agent.template))
     )
       return 'context-changed';
   }
