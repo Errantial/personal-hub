@@ -1,4 +1,9 @@
-import type { CanvasItem, Occurrence, Task } from '@hub/contracts';
+import type {
+  CanvasItem,
+  Occurrence,
+  Task,
+  TrackedDeadline,
+} from '@hub/contracts';
 import { Temporal } from '@hub/contracts';
 import { dayOccurrences, viewRange } from '../lib/calendar';
 import {
@@ -6,6 +11,7 @@ import {
   canvasDeadlinePoints,
   deadlinePointsOnDay,
   taskDeadlinePoints,
+  trackedDeadlinePoints,
 } from '../lib/calendar-grid';
 import type { StripItem } from '../lib/calendar-grid';
 import type { Route } from '../lib/router';
@@ -46,6 +52,7 @@ export function MonthGrid({
   occurrences,
   canvas,
   tasks,
+  deadlines,
   sources,
   base,
   navigate,
@@ -56,6 +63,7 @@ export function MonthGrid({
   occurrences: Occurrence[];
   canvas: CanvasItem[];
   tasks: Task[];
+  deadlines: TrackedDeadline[];
   sources: SourceVisibility;
   base: CalendarRoute;
   navigate: (route: Route) => void;
@@ -65,14 +73,21 @@ export function MonthGrid({
   const weeks = Array.from({ length: 6 }, (_, week) =>
     days.slice(week * 7, week * 7 + 7),
   );
-  const deadlines = [
+  const deadlinePoints = [
+    ...trackedDeadlinePoints(deadlines),
     ...canvasDeadlinePoints(canvas),
     ...taskDeadlinePoints(tasks),
   ];
   const chipsFor = (day: string): StripItem[] =>
     [
-      ...allDayStrip(day, { occurrences, canvas, tasks, timeZone }),
-      ...deadlinePointsOnDay(deadlines, day, timeZone).map(
+      ...allDayStrip(day, {
+        occurrences,
+        canvas,
+        tasks,
+        deadlines,
+        timeZone,
+      }),
+      ...deadlinePointsOnDay(deadlinePoints, day, timeZone).map(
         (item): StripItem => ({
           key: item.key,
           source: item.source,

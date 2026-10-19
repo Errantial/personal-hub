@@ -645,6 +645,23 @@ async function importCanvasCalendar(page: Page, feed: string) {
   expect(reply.status()).toBe(200);
 }
 
+async function trackedDeadlineByProviderId(page: Page, providerId: string) {
+  const reply = await page.request.get(
+    '/api/v1/deadlines?status=all&limit=200',
+  );
+  expect(reply.status()).toBe(200);
+  const deadlines = (await reply.json()).deadlines as Array<{
+    id: string;
+    canonicalKey: string;
+    title: string;
+  }>;
+  const deadline = deadlines.find((item) =>
+    item.canonicalKey.endsWith(`/courses/1/assignments/${providerId}`),
+  );
+  expect(deadline).toBeDefined();
+  return deadline!;
+}
+
 test('the sidebar mini month moves to a date and keeps the view', async ({
   page,
 }) => {
@@ -743,7 +760,7 @@ test('timed task deadlines use point markers, stay out of all-day and remain vis
   ).toBeVisible();
 });
 
-test('timed Canvas deadlines use point markers while all-day cells stay bounded and keyboard expandable', async ({
+test('tracked Canvas deadlines replace raw duplicates across Calendar views while all-day cells stay bounded', async ({
   page,
 }) => {
   const suffix = crypto.randomUUID().slice(0, 8);
@@ -753,6 +770,8 @@ test('timed Canvas deadlines use point markers while all-day cells stay bounded 
     page,
     `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:timed-${suffix}\r\nDTSTART:20290411T235900Z\r\nDTEND:20290411T235900Z\r\nSUMMARY:${timedTitle}\r\nURL:https://canvas.colorado.edu/courses/1/assignments/991234\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:all-day-${suffix}\r\nDTSTART;VALUE=DATE:20290411\r\nDTEND;VALUE=DATE:20290412\r\nSUMMARY:${allDayTitle}\r\nURL:https://canvas.colorado.edu/courses/1/assignments/991235\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`,
   );
+  const timedDeadline = await trackedDeadlineByProviderId(page, '991234');
+  const dateDeadline = await trackedDeadlineByProviderId(page, '991235');
   for (const index of [1, 2, 3])
     await createTask(page, `Bounded ${index} ${suffix}`, '2029-04-11');
   for (const index of [1, 2, 3, 4])
@@ -772,12 +791,23 @@ test('timed Canvas deadlines use point markers while all-day cells stay bounded 
   });
 
   await expect(marker).toBeVisible();
+  await expect(marker).toHaveCount(1);
+  await expect(marker).toHaveAttribute(
+    'href',
+    `/tasks/deadline/${timedDeadline.id}`,
+  );
   await expect(
     wednesdayStrip.getByRole('link', { name: new RegExp(timedTitle) }),
   ).toHaveCount(0);
-  await expect(
-    wednesdayStrip.getByRole('link', { name: new RegExp(allDayTitle) }),
-  ).toBeVisible();
+  const dateChip = wednesdayStrip.getByRole('link', {
+    name: new RegExp(allDayTitle),
+  });
+  await expect(dateChip).toBeVisible();
+  await expect(dateChip).toHaveCount(1);
+  await expect(dateChip).toHaveAttribute(
+    'href',
+    `/tasks/deadline/${dateDeadline.id}`,
+  );
   await expect(wednesdayStrip.getByRole('listitem')).toHaveCount(3);
   await expect(thursdayStrip.getByRole('listitem')).toHaveCount(3);
   const wednesdayMore = view.locator(
@@ -821,11 +851,79 @@ test('timed Canvas deadlines use point markers while all-day cells stay bounded 
   await expect(thursdayMore).toHaveCount(0);
   await taskToggle.check();
 
+  await page.goto('/calendar?date=2029-04-11&view=month');
+  await showCalendar(page, { zone: 'UTC' });
+  const month = calendarRegion(page);
+  await month.getByRole('checkbox', { name: 'Task due dates' }).uncheck();
+  const cell = month.getByRole('cell').filter({
+    has: page.getByRole('link', {
+      name: 'Wednesday, April 11',
+      exact: true,
+    }),
+  });
+  const monthTimed = cell.getByRole('link', { name: new RegExp(timedTitle) });
+  const monthDate = cell.getByRole('link', { name: new RegExp(allDayTitle) });
+  await expect(monthTimed).toHaveCount(1);
+  await expect(monthDate).toHaveCount(1);
+  await expect(monthTimed).toHaveAttribute(
+    'href',
+    `/tasks/deadline/${timedDeadline.id}`,
+  );
+
+  await page.goto('/calendar?date=2029-04-11&view=agenda');
+  await showCalendar(page, { zone: 'UTC' });
+  const agendaDay = calendarDay(page, '2029-04-11');
+  const agendaTimed = agendaDay.getByRole('link', {
+    name: timedTitle,
+    exact: true,
+  });
+  const agendaDate = agendaDay.getByRole('link', {
+    name: allDayTitle,
+    exact: true,
+  });
+  await expect(agendaTimed).toHaveCount(1);
+  await expect(agendaDate).toHaveCount(1);
+  await expect(agendaTimed).toHaveAttribute(
+    'href',
+    `/tasks/deadline/${timedDeadline.id}`,
+  );
+  await expect(agendaDay.getByText('Deadline · 11:59 PM')).toBeVisible();
+
   // Expansion remains in normal flow and does not cover hour-grid hit targets.
+  await page.goto('/calendar?date=2029-04-11&view=week');
+  await showCalendar(page, { zone: 'UTC' });
   await view
     .getByRole('button', { name: 'New event Wed 1 PM', exact: true })
     .click();
   await expect(page).toHaveURL(/\/calendar\/new\?.*start=2029-04-11T13%3A00/);
+});
+
+test('unsupported Canvas calendar entries remain raw when no tracked identity exists', async ({
+  page,
+}) => {
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const title = `Unsupported Canvas ${suffix}`;
+  const sourceUrl =
+    'https://canvas.colorado.edu/courses/1/calendar_events/991236';
+  await importCanvasCalendar(
+    page,
+    `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:unsupported-${suffix}\r\nDTSTART:20290412T140000Z\r\nDTEND:20290412T140000Z\r\nSUMMARY:${title}\r\nURL:${sourceUrl}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`,
+  );
+  const tracked = (
+    await (
+      await page.request.get('/api/v1/deadlines?status=all&limit=200')
+    ).json()
+  ).deadlines as Array<{ title: string }>;
+  expect(tracked.some((deadline) => deadline.title === title)).toBe(false);
+
+  await page.goto('/calendar?date=2029-04-12&view=week');
+  await showCalendar(page, { zone: 'UTC' });
+  const marker = calendarRegion(page).getByRole('link', {
+    name: new RegExp(`^Deadline: ${title}, due 2:00 PM$`),
+  });
+  await expect(marker).toHaveCount(1);
+  await expect(marker).toHaveAttribute('href', sourceUrl);
+  await expect(marker).toHaveAttribute('target', '_blank');
 });
 
 test('below 1024 px the sidebar is behind a Calendars button', async ({

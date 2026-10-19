@@ -1,7 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { Temporal } from '@hub/contracts';
-import type { CanvasItem, Occurrence, Task } from '@hub/contracts';
+import type {
+  CanvasItem,
+  Occurrence,
+  Task,
+  TrackedDeadline,
+} from '@hub/contracts';
 import { timeLabel } from '../lib/calendar';
 import {
   allDayStrip,
@@ -9,6 +14,7 @@ import {
   dayLength,
   layoutDayWithDeadlines,
   taskDeadlinePoints,
+  trackedDeadlinePoints,
 } from '../lib/calendar-grid';
 import type { DeadlineMarker, StripItem } from '../lib/calendar-grid';
 import type { Route } from '../lib/router';
@@ -81,6 +87,16 @@ export function Chip({
     </>
   );
   const target = item.target;
+  if (target.type === 'deadline')
+    return (
+      <Link
+        className={className}
+        route={{ name: 'tasks', deadline: target.id }}
+        navigate={navigate}
+      >
+        {text}
+      </Link>
+    );
   if (target.type === 'task')
     return (
       <Link
@@ -142,6 +158,18 @@ function DeadlinePoint({
     width: `calc(100% / ${item.columns})`,
   };
   const target = item.target;
+  if (target.type === 'deadline')
+    return (
+      <Link
+        className={className}
+        style={style}
+        label={label}
+        route={{ name: 'tasks', deadline: target.id }}
+        navigate={navigate}
+      >
+        {text}
+      </Link>
+    );
   if (target.type === 'task')
     return (
       <Link
@@ -208,6 +236,7 @@ export function TimeGrid({
   occurrences,
   canvas,
   tasks,
+  deadlines,
   sources,
   base,
   navigate,
@@ -218,6 +247,7 @@ export function TimeGrid({
   occurrences: Occurrence[];
   canvas: CanvasItem[];
   tasks: Task[];
+  deadlines: TrackedDeadline[];
   sources: SourceVisibility;
   base: CalendarRoute;
   navigate: (route: Route) => void;
@@ -231,6 +261,7 @@ export function TimeGrid({
     (item) => sources[item.courseId ? 'study' : 'event'],
   );
   const deadlinePoints = [
+    ...trackedDeadlinePoints(deadlines),
     ...canvasDeadlinePoints(canvas),
     ...taskDeadlinePoints(tasks),
   ].filter((item) => sources[item.source]);
@@ -246,9 +277,13 @@ export function TimeGrid({
       length: dayLength(day, timeZone),
       blocks: layout.blocks,
       deadlines: layout.deadlines,
-      strip: allDayStrip(day, { occurrences, canvas, tasks, timeZone }).filter(
-        (item) => sources[item.source],
-      ),
+      strip: allDayStrip(day, {
+        occurrences,
+        canvas,
+        tasks,
+        deadlines,
+        timeZone,
+      }).filter((item) => sources[item.source]),
     };
   });
   const longest = Math.max(...columns.map((column) => column.length));

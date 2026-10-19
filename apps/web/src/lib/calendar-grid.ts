@@ -1,5 +1,14 @@
-import { Temporal, canvasItemInRange } from '@hub/contracts';
-import type { CanvasItem, Occurrence, Task } from '@hub/contracts';
+import {
+  Temporal,
+  canvasDeadlineIdentity,
+  canvasItemInRange,
+} from '@hub/contracts';
+import type {
+  CanvasItem,
+  Occurrence,
+  Task,
+  TrackedDeadline,
+} from '@hub/contracts';
 import { occursOn } from './calendar';
 import type { TodayItem } from './today';
 
@@ -9,7 +18,7 @@ import type { TodayItem } from './today';
 
 export type GridSource = 'event' | 'study' | 'canvas' | 'task';
 
-type CalendarTarget = TodayItem['target'];
+type CalendarTarget = TodayItem['target'] | { type: 'deadline'; id: string };
 
 export type Block = {
   key: string;
@@ -83,6 +92,37 @@ export function canvasDeadlinePoints(items: CanvasItem[]): DeadlinePoint[] {
         target: { type: 'external' as const, url: data.sourceUrl },
       },
     ];
+  });
+}
+
+/** Tracked timed deadlines adapted to the semantic deadline-point seam. */
+export function trackedDeadlinePoints(
+  items: TrackedDeadline[],
+): DeadlinePoint[] {
+  return items.flatMap((deadline) => {
+    if (deadline.completedAt || deadline.due.kind !== 'timed') return [];
+    return [
+      {
+        key: `tracked:${deadline.id}`,
+        source: 'canvas' as const,
+        title: deadline.title,
+        startsAt: deadline.due.dueAt,
+        target: { type: 'deadline' as const, id: deadline.id },
+      },
+    ];
+  });
+}
+
+/** Prefer one tracked assignment/quiz deadline over its exact raw Canvas item.
+ * Unsupported/noncanonical Canvas entries remain visible as raw source facts. */
+export function rawCanvasWithoutTracked(
+  canvas: CanvasItem[],
+  deadlines: TrackedDeadline[],
+) {
+  const tracked = new Set(deadlines.map((deadline) => deadline.canonicalKey));
+  return canvas.filter((item) => {
+    const identity = canvasDeadlineIdentity(item.providerData.sourceUrl);
+    return !identity || !tracked.has(identity.canonicalKey);
   });
 }
 
@@ -234,6 +274,7 @@ export function allDayStrip(
     occurrences: Occurrence[];
     canvas: CanvasItem[];
     tasks: Task[];
+    deadlines?: TrackedDeadline[];
     timeZone: string;
   },
 ): StripItem[] {
@@ -269,6 +310,21 @@ export function allDayStrip(
         target: { type: 'external', url: item.providerData.sourceUrl },
       }))
       .sort(byTitle),
+    ...(input.deadlines ?? [])
+      .filter(
+        (deadline) =>
+          !deadline.completedAt &&
+          deadline.due.kind === 'date' &&
+          deadline.due.dueDate === day,
+      )
+      .sort(byTitle)
+      .map((deadline): StripItem => ({
+        key: `tracked:${deadline.id}`,
+        source: 'canvas',
+        title: deadline.title,
+        time: null,
+        target: { type: 'deadline', id: deadline.id },
+      })),
     ...input.tasks
       .filter((task) => !task.completed && !task.dueAt && task.dueDate === day)
       .sort(byTitle)
