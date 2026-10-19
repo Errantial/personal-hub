@@ -686,21 +686,21 @@ test('timed Canvas deadlines use point markers while all-day cells stay bounded 
   const allDayTitle = `Date-only Canvas ${suffix}`;
   await importCanvasCalendar(
     page,
-    `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:timed-${suffix}\r\nDTSTART:20290314T235900Z\r\nDTEND:20290314T235900Z\r\nSUMMARY:${timedTitle}\r\nURL:https://canvas.colorado.edu/courses/1/assignments/timed-${suffix}\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:all-day-${suffix}\r\nDTSTART;VALUE=DATE:20290314\r\nDTEND;VALUE=DATE:20290315\r\nSUMMARY:${allDayTitle}\r\nURL:https://canvas.colorado.edu/courses/1/assignments/all-day-${suffix}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`,
+    `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:timed-${suffix}\r\nDTSTART:20290411T235900Z\r\nDTEND:20290411T235900Z\r\nSUMMARY:${timedTitle}\r\nURL:https://canvas.colorado.edu/courses/1/assignments/991234\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:all-day-${suffix}\r\nDTSTART;VALUE=DATE:20290411\r\nDTEND;VALUE=DATE:20290412\r\nSUMMARY:${allDayTitle}\r\nURL:https://canvas.colorado.edu/courses/1/assignments/991235\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`,
   );
   for (const index of [1, 2, 3])
-    await createTask(page, `Bounded ${index} ${suffix}`, '2029-03-14');
+    await createTask(page, `Bounded ${index} ${suffix}`, '2029-04-11');
   for (const index of [1, 2, 3, 4])
-    await createTask(page, `Other day ${index} ${suffix}`, '2029-03-15');
+    await createTask(page, `Other day ${index} ${suffix}`, '2029-04-12');
 
-  await page.goto('/calendar?date=2029-03-14&view=week');
+  await page.goto('/calendar?date=2029-04-11&view=week');
   await showCalendar(page, { zone: 'UTC' });
   const view = calendarRegion(page);
   const wednesdayStrip = view.getByRole('list', {
-    name: /^All day, Wednesday, March 14/,
+    name: /^All day, Wednesday, April 11/,
   });
   const thursdayStrip = view.getByRole('list', {
-    name: /^All day, Thursday, March 15/,
+    name: /^All day, Thursday, April 12/,
   });
   const marker = view.getByRole('link', {
     name: new RegExp(`^Deadline: ${timedTitle}, due 11:59 PM$`),
@@ -716,15 +716,15 @@ test('timed Canvas deadlines use point markers while all-day cells stay bounded 
   await expect(wednesdayStrip.getByRole('listitem')).toHaveCount(3);
   await expect(thursdayStrip.getByRole('listitem')).toHaveCount(3);
   const wednesdayMore = view.locator(
-    'button.time-grid__more[aria-controls="calendar-all-day-2029-03-14"]',
+    'button.time-grid__more[aria-controls="calendar-all-day-2029-04-11"]',
   );
   const thursdayMore = view.locator(
-    'button.time-grid__more[aria-controls="calendar-all-day-2029-03-15"]',
+    'button.time-grid__more[aria-controls="calendar-all-day-2029-04-12"]',
   );
   await expect(wednesdayMore).toHaveText('+1 more');
   await expect(wednesdayMore).toHaveAttribute(
     'aria-label',
-    'Show all 4 all-day items for Wednesday, March 14',
+    'Show all 4 all-day items for Wednesday, April 11',
   );
   await expect(wednesdayMore).toHaveAttribute('aria-expanded', 'false');
   await expect(thursdayMore).toHaveAttribute('aria-expanded', 'false');
@@ -742,7 +742,7 @@ test('timed Canvas deadlines use point markers while all-day cells stay bounded 
   await expect(wednesdayMore).toHaveAttribute('aria-expanded', 'true');
   await expect(wednesdayMore).toHaveAttribute(
     'aria-label',
-    'Show fewer all-day items for Wednesday, March 14',
+    'Show fewer all-day items for Wednesday, April 11',
   );
   await expect(wednesdayStrip.getByRole('listitem')).toHaveCount(4);
   await expect(thursdayMore).toHaveAttribute('aria-expanded', 'false');
@@ -760,7 +760,7 @@ test('timed Canvas deadlines use point markers while all-day cells stay bounded 
   await view
     .getByRole('button', { name: 'New event Wed 1 PM', exact: true })
     .click();
-  await expect(page).toHaveURL(/\/calendar\/new\?.*start=2029-03-14T13%3A00/);
+  await expect(page).toHaveURL(/\/calendar\/new\?.*start=2029-04-11T13%3A00/);
 });
 
 test('below 1024 px the sidebar is behind a Calendars button', async ({
