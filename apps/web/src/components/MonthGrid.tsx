@@ -1,7 +1,11 @@
 import type { CanvasItem, Occurrence, Task } from '@hub/contracts';
 import { Temporal } from '@hub/contracts';
 import { dayOccurrences, viewRange } from '../lib/calendar';
-import { allDayStrip } from '../lib/calendar-grid';
+import {
+  allDayStrip,
+  canvasDeadlinePoints,
+  deadlinePointsOnDay,
+} from '../lib/calendar-grid';
 import type { StripItem } from '../lib/calendar-grid';
 import type { Route } from '../lib/router';
 import type { SourceVisibility } from './CalendarShell';
@@ -60,9 +64,19 @@ export function MonthGrid({
   const weeks = Array.from({ length: 6 }, (_, week) =>
     days.slice(week * 7, week * 7 + 7),
   );
+  const deadlines = canvasDeadlinePoints(canvas);
   const chipsFor = (day: string): StripItem[] =>
     [
       ...allDayStrip(day, { occurrences, canvas, tasks, timeZone }),
+      ...deadlinePointsOnDay(deadlines, day, timeZone).map(
+        (item): StripItem => ({
+          key: item.key,
+          source: item.source,
+          title: item.title,
+          time: item.startsAt,
+          target: item.target,
+        }),
+      ),
       ...dayOccurrences(occurrences, day, timeZone)
         .filter((item) => !item.allDay)
         .map((item): StripItem => ({

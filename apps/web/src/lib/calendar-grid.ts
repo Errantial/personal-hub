@@ -9,6 +9,8 @@ import type { TodayItem } from './today';
 
 export type GridSource = 'event' | 'study' | 'canvas' | 'task';
 
+type CalendarTarget = TodayItem['target'];
+
 export type Block = {
   key: string;
   source: GridSource;
@@ -26,9 +28,27 @@ export type StripItem = {
   key: string;
   source: GridSource;
   title: string;
-  /** ISO instant of a timed Canvas deadline; null for all-day items. */
+  /** ISO instant when a compact chip represents a timed item; otherwise null. */
   time: string | null;
-  target: TodayItem['target'];
+  target: CalendarTarget;
+};
+
+/** A semantic deadline point before it is positioned in the hour grid.
+ *  Canvas is the first adapter; tracked deadlines can supply the same shape. */
+export type DeadlinePoint = {
+  key: string;
+  source: GridSource;
+  title: string;
+  startsAt: string;
+  target: CalendarTarget;
+};
+
+export type DeadlineMarker = DeadlinePoint & {
+  /** Exact due minute from local midnight in the viewing zone. */
+  top: number;
+  /** Column within the shared event/deadline overlap group. */
+  column: number;
+  columns: number;
 };
 
 /** Overlap is judged on at least this many minutes, so very short events
@@ -49,19 +69,88 @@ export function dayLength(day: string, timeZone: string) {
 const sourceOf = (item: Occurrence): GridSource =>
   item.courseId ? 'study' : 'event';
 
-/** Timed occurrences on `day` as positioned blocks; overlapping blocks share
- *  the width in equal columns. */
-export function layoutDay(
-  items: Occurrence[],
+/** Raw Canvas timed entries adapted to the semantic deadline-point seam. */
+export function canvasDeadlinePoints(items: CanvasItem[]): DeadlinePoint[] {
+  return items.flatMap((item) => {
+    const data = item.providerData;
+    if (data.allDay || !data.startsAt) return [];
+    return [
+      {
+        key: item.id,
+        source: 'canvas' as const,
+        title: data.title,
+        startsAt: data.startsAt,
+        target: { type: 'external' as const, url: data.sourceUrl },
+      },
+    ];
+  });
+}
+
+/** Deadline points whose instant falls on one local viewing day. */
+export function deadlinePointsOnDay(
+  items: DeadlinePoint[],
   day: string,
   timeZone: string,
-): Block[] {
+) {
+  const start = midnight(day, timeZone).epochMilliseconds;
+  const end = midnight(
+    Temporal.PlainDate.from(day).add({ days: 1 }).toString(),
+    timeZone,
+  ).epochMilliseconds;
+  return items.filter((item) => {
+    const instant = Date.parse(item.startsAt);
+    return instant >= start && instant < end;
+  });
+}
+
+type LaneItem = {
+  top: number;
+  span: number;
+  key: string;
+  column: number;
+  columns: number;
+};
+
+function assignOverlapColumns(items: LaneItem[]) {
+  const placed = [...items].sort(
+    (a, b) => a.top - b.top || a.key.localeCompare(b.key),
+  );
+  let group: LaneItem[] = [];
+  let groupEnd = -Infinity;
+  let columnEnds: number[] = [];
+  const close = () => {
+    for (const item of group) item.columns = columnEnds.length;
+  };
+  for (const item of placed) {
+    const end = item.top + item.span;
+    if (item.top >= groupEnd) {
+      close();
+      group = [];
+      columnEnds = [];
+    }
+    const free = columnEnds.findIndex((columnEnd) => columnEnd <= item.top);
+    item.column = free === -1 ? columnEnds.length : free;
+    columnEnds[item.column] = end;
+    group.push(item);
+    groupEnd = Math.max(groupEnd, end);
+  }
+  close();
+}
+
+/** Timed occurrences and semantic deadline points for one local day. They share
+ *  overlap columns, while deadlines remain points rather than fake events. */
+export function layoutDayWithDeadlines(
+  items: Occurrence[],
+  deadlines: DeadlinePoint[],
+  day: string,
+  timeZone: string,
+) {
   const start = midnight(day, timeZone).epochMilliseconds;
   const length = dayLength(day, timeZone);
   const minutes = (instant: string) => (Date.parse(instant) - start) / 60000;
-  const placed = items
+  const blocks = items
     .filter((item) => !item.allDay && occursOn(item, day, timeZone))
-    .map((item) => {
+    .map((item): Block => {
       const top = Math.max(0, minutes(item.startsAt));
       const bottom = Math.min(length, minutes(item.endsAt));
       return {
@@ -76,34 +165,53 @@ export function layoutDay(
       };
     })
     .sort((a, b) => a.top - b.top || b.height - a.height);
+  const markers = deadlinePointsOnDay(deadlines, day, timeZone)
+    .map((item): DeadlineMarker => ({
+      ...item,
+      top: minutes(item.startsAt),
+      column: 0,
+      columns: 1,
+    }))
+    .sort((a, b) => a.top - b.top || a.title.localeCompare(b.title));
 
-  // Groups of transitively overlapping blocks; within one, each block takes
-  // the first column that is free at its start.
-  let group: Block[] = [];
-  let groupEnd = -Infinity;
-  let columnEnds: number[] = [];
-  const close = () => {
-    for (const block of group) block.columns = columnEnds.length;
-  };
-  for (const block of placed) {
-    const end = block.top + Math.max(block.height, minimumSpan);
-    if (block.top >= groupEnd) {
-      close();
-      group = [];
-      columnEnds = [];
-    }
-    const free = columnEnds.findIndex((columnEnd) => columnEnd <= block.top);
-    block.column = free === -1 ? columnEnds.length : free;
-    columnEnds[block.column] = end;
-    group.push(block);
-    groupEnd = Math.max(groupEnd, end);
+  const lanes = [
+    ...blocks.map((block) => ({
+      key: `block:${block.key}`,
+      item: block,
+      top: block.top,
+      span: Math.max(block.height, minimumSpan),
+      column: 0,
+      columns: 1,
+    })),
+    ...markers.map((marker) => ({
+      key: `deadline:${marker.key}`,
+      item: marker,
+      top: marker.top,
+      span: minimumSpan,
+      column: 0,
+      columns: 1,
+    })),
+  ];
+  assignOverlapColumns(lanes);
+  for (const lane of lanes) {
+    lane.item.column = lane.column;
+    lane.item.columns = lane.columns;
   }
-  close();
-  return placed;
+  return { blocks, deadlines: markers };
 }
 
-/** The strip above the grid: all-day events, Canvas deadlines (all-day or
- *  timed, which are single moments) and open tasks due that day. */
+/** Timed occurrences on `day` as positioned blocks; overlapping blocks share
+ *  the width in equal columns. */
+export function layoutDay(
+  items: Occurrence[],
+  day: string,
+  timeZone: string,
+): Block[] {
+  return layoutDayWithDeadlines(items, [], day, timeZone).blocks;
+}
+
+/** The strip above the grid: all-day events, date-only Canvas deadlines and
+ *  open tasks due that day. Timed deadlines belong in the hour grid. */
 export function allDayStrip(
   day: string,
   input: {
@@ -132,20 +240,19 @@ export function allDayStrip(
         },
       })),
     ...input.canvas
-      .filter((item) => canvasItemInRange(item, day, next, input.timeZone))
+      .filter(
+        (item) =>
+          item.providerData.allDay &&
+          canvasItemInRange(item, day, next, input.timeZone),
+      )
       .map((item): StripItem => ({
         key: item.id,
         source: 'canvas',
         title: item.providerData.title,
-        time: item.providerData.allDay ? null : item.providerData.startsAt,
+        time: null,
         target: { type: 'external', url: item.providerData.sourceUrl },
       }))
-      .sort(
-        (a, b) =>
-          Number(a.time !== null) - Number(b.time !== null) ||
-          (a.time ?? '').localeCompare(b.time ?? '') ||
-          byTitle(a, b),
-      ),
+      .sort(byTitle),
     ...input.tasks
       .filter((task) => !task.completed && task.dueDate === day)
       .sort(byTitle)

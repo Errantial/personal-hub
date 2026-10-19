@@ -512,6 +512,14 @@ for (const { theme, width, target } of [
       startsAt: '2028-05-01T00:00:00Z',
       endsAt: '2028-05-02T00:00:00Z',
     });
+    for (const index of [2, 3, 4])
+      await createEvent(page, `Layout all-day ${theme} ${index}`, {
+        allDay: true,
+        startDate: '2028-05-01',
+        endDate: '2028-05-02',
+        startsAt: '2028-05-01T00:00:00Z',
+        endsAt: '2028-05-02T00:00:00Z',
+      });
     // [path, whether Select mode is open with a series deletion pending]
     const paths = [
       ['/calendar?date=2028-05-01&view=agenda', false],
@@ -621,6 +629,14 @@ async function createTask(page: Page, title: string, dueDate: string) {
   expect(reply.status()).toBe(200);
 }
 
+async function importCanvasCalendar(page: Page, feed: string) {
+  const reply = await page.request.post('/api/v1/connections/canvas/import', {
+    headers,
+    data: { operationId: crypto.randomUUID(), feed },
+  });
+  expect(reply.status()).toBe(200);
+}
+
 test('the sidebar mini month moves to a date and keeps the view', async ({
   page,
 }) => {
@@ -660,6 +676,91 @@ test('the all-day strip shows task due dates, and Show toggles hide a source and
   await expect(
     strip.getByRole('link', { name: new RegExp(title) }),
   ).toBeVisible();
+});
+
+test('timed Canvas deadlines use point markers while all-day cells stay bounded and keyboard expandable', async ({
+  page,
+}) => {
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const timedTitle = `Timed Canvas ${suffix}`;
+  const allDayTitle = `Date-only Canvas ${suffix}`;
+  await importCanvasCalendar(
+    page,
+    `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:timed-${suffix}\r\nDTSTART:20290314T235900Z\r\nDTEND:20290314T235900Z\r\nSUMMARY:${timedTitle}\r\nURL:https://canvas.colorado.edu/courses/1/assignments/timed-${suffix}\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:all-day-${suffix}\r\nDTSTART;VALUE=DATE:20290314\r\nDTEND;VALUE=DATE:20290315\r\nSUMMARY:${allDayTitle}\r\nURL:https://canvas.colorado.edu/courses/1/assignments/all-day-${suffix}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`,
+  );
+  for (const index of [1, 2, 3])
+    await createTask(page, `Bounded ${index} ${suffix}`, '2029-03-14');
+  for (const index of [1, 2, 3, 4])
+    await createTask(page, `Other day ${index} ${suffix}`, '2029-03-15');
+
+  await page.goto('/calendar?date=2029-03-14&view=week');
+  await showCalendar(page, { zone: 'UTC' });
+  const view = calendarRegion(page);
+  const wednesdayStrip = view.getByRole('list', {
+    name: /^All day, Wednesday, March 14/,
+  });
+  const thursdayStrip = view.getByRole('list', {
+    name: /^All day, Thursday, March 15/,
+  });
+  const marker = view.getByRole('link', {
+    name: new RegExp(`^Deadline: ${timedTitle}, due 11:59 PM$`),
+  });
+
+  await expect(marker).toBeVisible();
+  await expect(
+    wednesdayStrip.getByRole('link', { name: new RegExp(timedTitle) }),
+  ).toHaveCount(0);
+  await expect(
+    wednesdayStrip.getByRole('link', { name: new RegExp(allDayTitle) }),
+  ).toBeVisible();
+  await expect(wednesdayStrip.getByRole('listitem')).toHaveCount(3);
+  await expect(thursdayStrip.getByRole('listitem')).toHaveCount(3);
+  const wednesdayMore = view.locator(
+    'button.time-grid__more[aria-controls="calendar-all-day-2029-03-14"]',
+  );
+  const thursdayMore = view.locator(
+    'button.time-grid__more[aria-controls="calendar-all-day-2029-03-15"]',
+  );
+  await expect(wednesdayMore).toHaveText('+1 more');
+  await expect(wednesdayMore).toHaveAttribute(
+    'aria-label',
+    'Show all 4 all-day items for Wednesday, March 14',
+  );
+  await expect(wednesdayMore).toHaveAttribute('aria-expanded', 'false');
+  await expect(thursdayMore).toHaveAttribute('aria-expanded', 'false');
+  expect((await wednesdayMore.boundingBox())!.height).toBeGreaterThanOrEqual(
+    44,
+  );
+
+  const hour = await marker.evaluate(
+    (element) => element.offsetTop / (element.parentElement!.offsetHeight / 24),
+  );
+  expect(hour).toBeCloseTo(23 + 59 / 60, 1);
+
+  await wednesdayMore.focus();
+  await page.keyboard.press('Enter');
+  await expect(wednesdayMore).toHaveAttribute('aria-expanded', 'true');
+  await expect(wednesdayMore).toHaveAttribute(
+    'aria-label',
+    'Show fewer all-day items for Wednesday, March 14',
+  );
+  await expect(wednesdayStrip.getByRole('listitem')).toHaveCount(4);
+  await expect(thursdayMore).toHaveAttribute('aria-expanded', 'false');
+  await expect(thursdayStrip.getByRole('listitem')).toHaveCount(3);
+
+  const taskToggle = view.getByRole('checkbox', { name: 'Task due dates' });
+  await taskToggle.uncheck();
+  await expect(wednesdayStrip.getByRole('listitem')).toHaveCount(1);
+  await expect(thursdayStrip.getByRole('listitem')).toHaveCount(0);
+  await expect(wednesdayMore).toHaveCount(0);
+  await expect(thursdayMore).toHaveCount(0);
+  await taskToggle.check();
+
+  // Expansion remains in normal flow and does not cover hour-grid hit targets.
+  await view
+    .getByRole('button', { name: 'New event Wed 1 PM', exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/calendar\/new\?.*start=2029-03-14T13%3A00/);
 });
 
 test('below 1024 px the sidebar is behind a Calendars button', async ({

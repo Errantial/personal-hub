@@ -3,8 +3,13 @@ import type { CSSProperties, ReactNode } from 'react';
 import { Temporal } from '@hub/contracts';
 import type { CanvasItem, Occurrence, Task } from '@hub/contracts';
 import { timeLabel } from '../lib/calendar';
-import { allDayStrip, dayLength, layoutDay } from '../lib/calendar-grid';
-import type { StripItem } from '../lib/calendar-grid';
+import {
+  allDayStrip,
+  canvasDeadlinePoints,
+  dayLength,
+  layoutDayWithDeadlines,
+} from '../lib/calendar-grid';
+import type { DeadlineMarker, StripItem } from '../lib/calendar-grid';
 import type { Route } from '../lib/router';
 import type { SourceVisibility } from './CalendarShell';
 import { Link } from './Link';
@@ -36,6 +41,7 @@ const shortTime = (timeZone: string) =>
 
 /** Where the grid opens: 07:00, or earlier if something starts before. */
 const openingMinute = 7 * 60;
+const allDayLimit = 3;
 
 /** The route for an occurrence's editor, keeping the visible window. */
 export const editorRoute = (
@@ -107,6 +113,80 @@ export function Chip({
     <span className={className}>{text}</span>
   );
 }
+
+function DeadlinePoint({
+  item,
+  base,
+  timeZone,
+  navigate,
+}: {
+  item: DeadlineMarker;
+  base: CalendarRoute;
+  timeZone: string;
+  navigate: (route: Route) => void;
+}) {
+  const due = shortTime(timeZone).format(new Date(item.startsAt));
+  const className = `time-grid__deadline calendar-chip--${item.source}`;
+  const label = `Deadline: ${item.title}, due ${due}`;
+  const text = (
+    <>
+      <span className="calendar-chip__type">{chipTypes[item.source]}</span>
+      <span className="time-grid__deadline-title">{item.title}</span>
+      <span className="time-grid__deadline-time">{due}</span>
+    </>
+  );
+  const style: CSSProperties = {
+    top: `calc(${item.top} * var(--hour) / 60)`,
+    left: `calc(${item.column} * 100% / ${item.columns})`,
+    width: `calc(100% / ${item.columns})`,
+  };
+  const target = item.target;
+  if (target.type === 'task')
+    return (
+      <Link
+        className={className}
+        style={style}
+        label={label}
+        route={{ name: 'tasks', id: target.id }}
+        navigate={navigate}
+      >
+        {text}
+      </Link>
+    );
+  if (target.type === 'event')
+    return (
+      <Link
+        className={className}
+        style={style}
+        label={label}
+        route={{
+          ...base,
+          editor: target.date
+            ? { kind: 'occurrence', id: target.id, date: target.date }
+            : { kind: 'event', id: target.id },
+        }}
+        navigate={navigate}
+      >
+        {text}
+      </Link>
+    );
+  return target.url ? (
+    <a
+      className={className}
+      style={style}
+      aria-label={label}
+      href={target.url}
+      target="_blank"
+      rel="noreferrer"
+    >
+      {text}
+    </a>
+  ) : (
+    <span className={className} style={style} aria-label={label}>
+      {text}
+    </span>
+  );
+}
 /** Type names, visible only in e-ink mode where color is not used. */
 const chipTypes: Record<StripItem['source'], string> = {
   event: 'Event: ',
@@ -143,16 +223,32 @@ export function TimeGrid({
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
-  const columns = days.map((day) => ({
-    day,
-    length: dayLength(day, timeZone),
-    blocks: layoutDay(occurrences, day, timeZone).filter(
-      (block) => sources[block.source],
-    ),
-    strip: allDayStrip(day, { occurrences, canvas, tasks, timeZone }).filter(
-      (item) => sources[item.source],
-    ),
-  }));
+  const [expandedDays, setExpandedDays] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const visibleOccurrences = occurrences.filter(
+    (item) => sources[item.courseId ? 'study' : 'event'],
+  );
+  const deadlinePoints = canvasDeadlinePoints(canvas).filter(
+    (item) => sources[item.source],
+  );
+  const columns = days.map((day) => {
+    const layout = layoutDayWithDeadlines(
+      visibleOccurrences,
+      deadlinePoints,
+      day,
+      timeZone,
+    );
+    return {
+      day,
+      length: dayLength(day, timeZone),
+      blocks: layout.blocks,
+      deadlines: layout.deadlines,
+      strip: allDayStrip(day, { occurrences, canvas, tasks, timeZone }).filter(
+        (item) => sources[item.source],
+      ),
+    };
+  });
   const longest = Math.max(...columns.map((column) => column.length));
   const hours = Array.from({ length: Math.ceil(longest / 60) }, (_, i) => i);
   const now = useNow();
@@ -165,7 +261,10 @@ export function TimeGrid({
   // Open at 07:00 or the first block of the window, whichever is earlier.
   const first = Math.min(
     openingMinute,
-    ...columns.flatMap((column) => column.blocks.map((block) => block.top)),
+    ...columns.flatMap((column) => [
+      ...column.blocks.map((block) => block.top),
+      ...column.deadlines.map((deadline) => deadline.top),
+    ]),
   );
   useLayoutEffect(() => {
     if (!scroller.current || !body.current) return;
@@ -201,24 +300,55 @@ export function TimeGrid({
       </div>
       <div className="time-grid__strip">
         <span className="time-grid__corner time-grid__allday">All day</span>
-        {columns.map(({ day, strip }) => (
-          <ul
-            key={day}
-            className="time-grid__chips"
-            aria-label={`All day, ${fullDay.format(at(day))}`}
-          >
-            {strip.map((item) => (
-              <li key={item.key}>
-                <Chip
-                  item={item}
-                  base={base}
-                  timeZone={timeZone}
-                  navigate={navigate}
-                />
-              </li>
-            ))}
-          </ul>
-        ))}
+        {columns.map(({ day, strip }) => {
+          const expanded = expandedDays.has(day);
+          const hidden = Math.max(0, strip.length - allDayLimit);
+          const shown = expanded ? strip : strip.slice(0, allDayLimit);
+          const regionId = `calendar-all-day-${day}`;
+          return (
+            <div key={day} className="time-grid__strip-day">
+              <ul
+                id={regionId}
+                className="time-grid__chips"
+                aria-label={`All day, ${fullDay.format(at(day))}`}
+              >
+                {shown.map((item) => (
+                  <li key={item.key}>
+                    <Chip
+                      item={item}
+                      base={base}
+                      timeZone={timeZone}
+                      navigate={navigate}
+                    />
+                  </li>
+                ))}
+              </ul>
+              {hidden > 0 && (
+                <button
+                  type="button"
+                  className="time-grid__more"
+                  aria-controls={regionId}
+                  aria-expanded={expanded}
+                  aria-label={
+                    expanded
+                      ? `Show fewer all-day items for ${fullDay.format(at(day))}`
+                      : `Show all ${strip.length} all-day items for ${fullDay.format(at(day))}`
+                  }
+                  onClick={() =>
+                    setExpandedDays((current) => {
+                      const next = new Set(current);
+                      if (next.has(day)) next.delete(day);
+                      else next.add(day);
+                      return next;
+                    })
+                  }
+                >
+                  {expanded ? 'Show less' : `+${hidden} more`}
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
       <div
         className="time-grid__scroll"
@@ -245,7 +375,7 @@ export function TimeGrid({
               </span>
             ))}
           </div>
-          {columns.map(({ day, length, blocks }) => {
+          {columns.map(({ day, length, blocks, deadlines }) => {
             const midnight =
               Temporal.PlainDate.from(day).toZonedDateTime(timeZone);
             return (
@@ -297,6 +427,15 @@ export function TimeGrid({
                       {timeLabel(block.occurrence, timeZone)}
                     </span>
                   </Link>
+                ))}
+                {deadlines.map((deadline) => (
+                  <DeadlinePoint
+                    key={deadline.key}
+                    item={deadline}
+                    base={base}
+                    timeZone={timeZone}
+                    navigate={navigate}
+                  />
                 ))}
                 {day === today && nowMinute >= 0 && nowMinute <= length && (
                   <span

@@ -1,6 +1,12 @@
 import { expect, it } from 'vitest';
 import type { CanvasItem, Occurrence, Task } from '@hub/contracts';
-import { allDayStrip, dayLength, layoutDay } from '../src/lib/calendar-grid';
+import {
+  allDayStrip,
+  canvasDeadlinePoints,
+  dayLength,
+  layoutDay,
+  layoutDayWithDeadlines,
+} from '../src/lib/calendar-grid';
 
 const day = '2026-10-14';
 const zone = 'America/Denver'; // UTC-6 in October
@@ -19,6 +25,25 @@ const event = (title: string, startsAt: string, endsAt: string, extra = {}) =>
     courseId: null,
     ...extra,
   }) as Occurrence;
+
+const canvas = (title: string, data: Partial<CanvasItem['providerData']>) =>
+  ({
+    id: `canvas-${title}`,
+    providerData: {
+      title,
+      description: '',
+      startsAt: null,
+      endsAt: null,
+      startDate: day,
+      endDate: '2026-10-15',
+      allDay: true,
+      sourceUrl: 'https://canvas.example/1',
+      ...data,
+    },
+  }) as CanvasItem;
+
+const task = (title: string, extra: Partial<Task>) =>
+  ({ id: `task-${title}`, title, completed: false, ...extra }) as Task;
 
 it('layoutDay places a 09:00–10:30 event at top 540, height 90', () => {
   const [block] = layoutDay(
@@ -139,24 +164,49 @@ it('layoutDay leaves out all-day events and marks study blocks', () => {
   ]);
 });
 
-it('allDayStrip includes all-day events, Canvas deadlines and open tasks due that day', () => {
-  const canvas = (title: string, data: Partial<CanvasItem['providerData']>) =>
-    ({
-      id: `canvas-${title}`,
-      providerData: {
-        title,
-        description: '',
-        startsAt: null,
-        endsAt: null,
-        startDate: day,
-        endDate: '2026-10-15',
-        allDay: true,
-        sourceUrl: 'https://canvas.example/1',
-        ...data,
-      },
-    }) as CanvasItem;
-  const task = (title: string, extra: Partial<Task>) =>
-    ({ id: `task-${title}`, title, completed: false, ...extra }) as Task;
+it('layoutDayWithDeadlines places a Canvas point at its exact local due minute', () => {
+  const deadlines = canvasDeadlinePoints([
+    canvas('Quiz', {
+      allDay: false,
+      startDate: null,
+      endDate: null,
+      startsAt: '2026-10-15T05:59:00Z',
+      endsAt: '2026-10-15T05:59:00Z',
+    }),
+  ]);
+  const layout = layoutDayWithDeadlines([], deadlines, day, zone);
+  expect(layout.deadlines).toHaveLength(1);
+  expect(layout.deadlines[0]).toMatchObject({
+    title: 'Quiz',
+    source: 'canvas',
+    top: 1439,
+    column: 0,
+    columns: 1,
+  });
+});
+
+it('deadline points share overlap columns with timed events without becoming events', () => {
+  const deadlines = canvasDeadlinePoints([
+    canvas('Quiz', {
+      allDay: false,
+      startDate: null,
+      endDate: null,
+      startsAt: '2026-10-14T15:05:00Z',
+      endsAt: '2026-10-14T15:05:00Z',
+    }),
+  ]);
+  const layout = layoutDayWithDeadlines(
+    [event('Class', '2026-10-14T15:00:00Z', '2026-10-14T16:00:00Z')],
+    deadlines,
+    day,
+    zone,
+  );
+  expect(layout.blocks[0]).toMatchObject({ column: 0, columns: 2 });
+  expect(layout.deadlines[0]).toMatchObject({ column: 1, columns: 2 });
+  expect('occurrence' in layout.deadlines[0]!).toBe(false);
+});
+
+it('allDayStrip keeps date-only Canvas deadlines and excludes timed Canvas points', () => {
   const strip = allDayStrip(day, {
     timeZone: zone,
     occurrences: [
@@ -187,13 +237,12 @@ it('allDayStrip includes all-day events, Canvas deadlines and open tasks due tha
   expect(strip.map((item) => [item.title, item.source])).toEqual([
     ['Holiday', 'event'],
     ['Essay', 'canvas'],
-    ['Quiz', 'canvas'],
     ['Laundry', 'task'],
   ]);
   expect(strip[1]!.target).toEqual({
     type: 'external',
     url: 'https://canvas.example/1',
   });
-  expect(strip[2]!.time).toBe('2026-10-15T05:59:00Z');
-  expect(strip[3]!.target).toEqual({ type: 'task', id: 'task-Laundry' });
+  expect(strip[1]!.time).toBeNull();
+  expect(strip[2]!.target).toEqual({ type: 'task', id: 'task-Laundry' });
 });
