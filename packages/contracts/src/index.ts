@@ -9,6 +9,8 @@ export * from './canvas-lms.js';
 export * from './canvas-browser.js';
 export * from './canvas-reconciliation.js';
 export * from './canvas-planner-work.js';
+export * from './canvas-identity.js';
+export * from './tracked-deadlines.js';
 export * from './outlook.js';
 export * from './ai-routing.js';
 export * from './ai-preflight.js';

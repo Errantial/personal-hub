@@ -32,6 +32,7 @@ import {
   canvasItemColumns,
   canvasEffectiveSensitivity,
 } from '../connections/canvas.js';
+import { readTrackedDeadlines } from '../connections/canvas-deadlines.js';
 
 export function registerExport(
   app: FastifyInstance,
@@ -118,6 +119,7 @@ export function registerExport(
         ...(await exportCanvasBrowser(tx, owner.id)),
         canvasReconciliations,
         canvasBrowserReconciliations,
+        trackedDeadlines: await readTrackedDeadlines(tx, owner.id, 10000),
         outlookAccessGate: await readOutlookAccessGate(tx, owner.id),
         aiRouting: await readAIRoutingPolicy(tx, owner.id),
         aiActions: await readAIActionPolicy(tx, owner.id),
