@@ -6,6 +6,7 @@ import {
   dayLength,
   layoutDay,
   layoutDayWithDeadlines,
+  taskDeadlinePoints,
 } from '../src/lib/calendar-grid';
 
 const day = '2026-10-14';
@@ -206,6 +207,39 @@ it('deadline points share overlap columns with timed events without becoming eve
   expect('occurrence' in layout.deadlines[0]!).toBe(false);
 });
 
+it('timed tasks become task deadline points and use their instant in the viewing zone', () => {
+  const points = taskDeadlinePoints([
+    task('Submit', {
+      dueDate: day,
+      dueAt: '2026-10-15T01:30:00.000Z',
+      dueTimeZone: 'America/New_York',
+    }),
+    task('Date only', { dueDate: day, dueAt: null, dueTimeZone: null }),
+    task('Done timed', {
+      completed: true,
+      dueDate: day,
+      dueAt: '2026-10-14T16:00:00.000Z',
+      dueTimeZone: zone,
+    }),
+  ]);
+  expect(points).toEqual([
+    {
+      key: 'task:task-Submit',
+      source: 'task',
+      title: 'Submit',
+      startsAt: '2026-10-15T01:30:00.000Z',
+      target: { type: 'task', id: 'task-Submit' },
+    },
+  ]);
+  expect(
+    layoutDayWithDeadlines([], points, day, zone).deadlines[0],
+  ).toMatchObject({
+    source: 'task',
+    title: 'Submit',
+    top: 1170,
+  });
+});
+
 it('allDayStrip keeps date-only Canvas deadlines and excludes timed Canvas points', () => {
   const strip = allDayStrip(day, {
     timeZone: zone,
@@ -229,7 +263,12 @@ it('allDayStrip keeps date-only Canvas deadlines and excludes timed Canvas point
       canvas('Tomorrow', { startDate: '2026-10-15', endDate: '2026-10-16' }),
     ],
     tasks: [
-      task('Laundry', { dueDate: day }),
+      task('Laundry', { dueDate: day, dueAt: null, dueTimeZone: null }),
+      task('Timed', {
+        dueDate: day,
+        dueAt: '2026-10-14T18:00:00.000Z',
+        dueTimeZone: zone,
+      }),
       task('Done', { dueDate: day, completed: true }),
       task('Later', { dueDate: '2026-10-16' }),
     ],

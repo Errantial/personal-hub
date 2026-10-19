@@ -5,6 +5,7 @@ import {
   allDayStrip,
   canvasDeadlinePoints,
   deadlinePointsOnDay,
+  taskDeadlinePoints,
 } from '../lib/calendar-grid';
 import type { StripItem } from '../lib/calendar-grid';
 import type { Route } from '../lib/router';
@@ -64,7 +65,10 @@ export function MonthGrid({
   const weeks = Array.from({ length: 6 }, (_, week) =>
     days.slice(week * 7, week * 7 + 7),
   );
-  const deadlines = canvasDeadlinePoints(canvas);
+  const deadlines = [
+    ...canvasDeadlinePoints(canvas),
+    ...taskDeadlinePoints(tasks),
+  ];
   const chipsFor = (day: string): StripItem[] =>
     [
       ...allDayStrip(day, { occurrences, canvas, tasks, timeZone }),

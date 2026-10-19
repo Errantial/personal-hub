@@ -86,6 +86,22 @@ export function canvasDeadlinePoints(items: CanvasItem[]): DeadlinePoint[] {
   });
 }
 
+/** Open owner tasks with a specific due instant adapted to deadline points. */
+export function taskDeadlinePoints(items: Task[]): DeadlinePoint[] {
+  return items.flatMap((task) => {
+    if (task.completed || !task.dueAt) return [];
+    return [
+      {
+        key: `task:${task.id}`,
+        source: 'task' as const,
+        title: task.title,
+        startsAt: task.dueAt,
+        target: { type: 'task' as const, id: task.id },
+      },
+    ];
+  });
+}
+
 /** Deadline points whose instant falls on one local viewing day. */
 export function deadlinePointsOnDay(
   items: DeadlinePoint[],
@@ -254,7 +270,7 @@ export function allDayStrip(
       }))
       .sort(byTitle),
     ...input.tasks
-      .filter((task) => !task.completed && task.dueDate === day)
+      .filter((task) => !task.completed && !task.dueAt && task.dueDate === day)
       .sort(byTitle)
       .map((task): StripItem => ({
         key: task.id,

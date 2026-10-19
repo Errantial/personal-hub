@@ -613,7 +613,12 @@ for (const { theme, width, target } of [
 
 /* Week, Day and Month grids (docs/superpowers/specs/2026-10-14-ui-rework-design.md). */
 
-async function createTask(page: Page, title: string, dueDate: string) {
+async function createTask(
+  page: Page,
+  title: string,
+  dueDate: string,
+  timing?: { dueAt: string; dueTimeZone: string },
+) {
   const reply = await page.request.post('/api/v1/tasks', {
     headers,
     data: {
@@ -624,9 +629,12 @@ async function createTask(page: Page, title: string, dueDate: string) {
       completed: false,
       sensitivity: 'unlabeled',
       operationId: crypto.randomUUID(),
+      ...(timing ?? {}),
     },
   });
   expect(reply.status()).toBe(200);
+  const body = await reply.json();
+  return body.task as { id: string };
 }
 
 async function importCanvasCalendar(page: Page, feed: string) {
@@ -675,6 +683,63 @@ test('the all-day strip shows task due dates, and Show toggles hide a source and
   await toggle.check();
   await expect(
     strip.getByRole('link', { name: new RegExp(title) }),
+  ).toBeVisible();
+});
+
+test('timed task deadlines use point markers, stay out of all-day and remain visible in Month', async ({
+  page,
+}) => {
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const timedTitle = `Timed task ${suffix}`;
+  const dateTitle = `Date task ${suffix}`;
+  const timed = await createTask(page, timedTitle, '2029-01-24', {
+    dueAt: '2029-01-24T18:30:00.000Z',
+    dueTimeZone: 'America/Denver',
+  });
+  await createTask(page, dateTitle, '2029-01-24');
+
+  await page.goto('/calendar?date=2029-01-24&view=week');
+  await showCalendar(page, { zone: 'UTC' });
+  const view = calendarRegion(page);
+  const strip = view.getByRole('list', {
+    name: /^All day, Wednesday, January 24/,
+  });
+  const marker = view.getByRole('link', {
+    name: new RegExp(`^Deadline: ${timedTitle}, due 6:30 PM$`),
+  });
+
+  await expect(marker).toBeVisible();
+  await expect(
+    strip.getByRole('link', { name: new RegExp(timedTitle) }),
+  ).toHaveCount(0);
+  await expect(
+    strip.getByRole('link', { name: new RegExp(dateTitle) }),
+  ).toBeVisible();
+
+  const taskToggle = view.getByRole('checkbox', { name: 'Task due dates' });
+  await taskToggle.uncheck();
+  await expect(marker).toHaveCount(0);
+  await expect(
+    strip.getByRole('link', { name: new RegExp(dateTitle) }),
+  ).toHaveCount(0);
+  await taskToggle.check();
+
+  await expect(marker).toBeVisible();
+  await marker.click();
+  await expect(page).toHaveURL(new RegExp(`/tasks/${timed.id}$`));
+
+  await page.goto('/calendar?date=2029-01-24&view=month');
+  await showCalendar(page, { zone: 'UTC' });
+  const cell = calendarRegion(page)
+    .getByRole('cell')
+    .filter({
+      has: page.getByRole('link', {
+        name: 'Wednesday, January 24',
+        exact: true,
+      }),
+    });
+  await expect(
+    cell.getByRole('link', { name: new RegExp(timedTitle) }),
   ).toBeVisible();
 });
 

@@ -8,6 +8,7 @@ import {
   canvasDeadlinePoints,
   dayLength,
   layoutDayWithDeadlines,
+  taskDeadlinePoints,
 } from '../lib/calendar-grid';
 import type { DeadlineMarker, StripItem } from '../lib/calendar-grid';
 import type { Route } from '../lib/router';
@@ -229,9 +230,10 @@ export function TimeGrid({
   const visibleOccurrences = occurrences.filter(
     (item) => sources[item.courseId ? 'study' : 'event'],
   );
-  const deadlinePoints = canvasDeadlinePoints(canvas).filter(
-    (item) => sources[item.source],
-  );
+  const deadlinePoints = [
+    ...canvasDeadlinePoints(canvas),
+    ...taskDeadlinePoints(tasks),
+  ].filter((item) => sources[item.source]);
   const columns = days.map((day) => {
     const layout = layoutDayWithDeadlines(
       visibleOccurrences,
