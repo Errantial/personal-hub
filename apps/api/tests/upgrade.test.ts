@@ -638,9 +638,17 @@ it('upgrades populated owner data through 072 without inventing Outlook access f
       owner,
     ]);
     await migrate(db);
+    const after = await db.query('SELECT * FROM tasks WHERE owner_id=$1', [
+      owner,
+    ]);
     expect(
-      await db.query('SELECT * FROM tasks WHERE owner_id=$1', [owner]),
+      after.map(({ due_at: dueAt, due_time_zone: dueTimeZone, ...row }) => {
+        void dueAt;
+        void dueTimeZone;
+        return row;
+      }),
     ).toEqual(before);
+    expect(after).toMatchObject([{ due_at: null, due_time_zone: null }]);
     expect(await db.query('SELECT * FROM outlook_access_gate')).toEqual([]);
     expect(await db.query('SELECT name FROM schema_migrations')).toHaveLength(
       names.length,
