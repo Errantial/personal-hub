@@ -21,10 +21,13 @@ import {
 import type { BrokerContext } from '../src/ai/mail-broker.js';
 import {
   executeBrokerBatch as admittedExecute,
+  readBrokerBatch,
   selectedBrokerMail,
   releaseBrokerHeadroom,
 } from '../src/ai/broker-execution.js';
 import { buildBrokerEnvelope, brokerModel } from '../src/ai/broker-protocol.js';
+import { jevModel, jevRubric } from '../src/ai/jev-broker-protocol.js';
+import { jevEndpoint } from '../src/ai/jev-policy.js';
 import { agentSpend } from '../src/ai/agent-spend.js';
 import { admitLive } from '../src/ai/live-request.js';
 import { answerTurn } from '../src/features/assistant.js';
@@ -33,6 +36,7 @@ import { chatUrl, modelsUrl, zdrUrl } from '../src/ai/openrouter-live.js';
 import {
   bindBrokerForwarding,
   brokerLineageEligible,
+  brokerPolicyDigest,
 } from '../src/ai/broker-lineage.js';
 import {
   historySourcesEligible,
@@ -77,37 +81,86 @@ function changeAfterAdmission(
 }
 
 const origin = 'http://127.0.0.1:5173';
-const environment = {
+const brokerProfiles = [
+  {
+    alias: 'mail-broker',
+    adapter: 'openrouter',
+    upstreamProvider: 'google-vertex',
+    model: brokerModel,
+    credentialEnv: 'AI_SECRET_OPENROUTER',
+    enabled: true,
+    maxInputCharacters: 20480,
+    maxOutputTokens: 2048,
+    pricing: {
+      revision: 'synthetic-price',
+      validUntil: '2099-01-01T00:00:00Z',
+      inputTokenLimit: 32000,
+      inputMicrosPerMillionTokens: 100000,
+      outputMicrosPerMillionTokens: 400000,
+    },
+    retentionDisclosure: {
+      revision: 'synthetic-terms',
+      summary:
+        'Synthetic account-specific zero retention fixture; not live approval.',
+    },
+  },
+  {
+    alias: 'jev-mail',
+    adapter: 'typesafe',
+    upstreamProvider: null,
+    model: jevModel,
+    credentialEnv: 'AI_SECRET_JEV',
+    credentialRevision: 'synthetic-jev-account-v1',
+    enabled: true,
+    maxInputCharacters: 20480,
+    maxOutputTokens: 1000,
+    pricing: {
+      revision: 'synthetic-jev-price',
+      validUntil: '2099-01-01T00:00:00Z',
+      inputTokenLimit: 32000,
+      inputMicrosPerMillionTokens: 42000,
+      outputMicrosPerMillionTokens: 0,
+    },
+    retentionDisclosure: {
+      revision: 'synthetic-jev-terms',
+      summary: 'Synthetic account-specific TypeSafe terms; not live approval.',
+    },
+  },
+];
+const baseEnvironment = {
   NODE_ENV: 'test',
   PGLITE_DATA_DIR: 'memory://',
   AI_SECRET_OPENROUTER: 'synthetic-openrouter',
-  AI_PROVIDER_PROFILES: JSON.stringify([
-    {
-      alias: 'mail-broker',
-      adapter: 'openrouter',
-      upstreamProvider: 'google-vertex',
-      model: brokerModel,
-      credentialEnv: 'AI_SECRET_OPENROUTER',
-      enabled: true,
-      maxInputCharacters: 20480,
-      maxOutputTokens: 2048,
-      pricing: {
-        revision: 'synthetic-price',
-        validUntil: '2099-01-01T00:00:00Z',
-        inputTokenLimit: 32000,
-        inputMicrosPerMillionTokens: 100000,
-        outputMicrosPerMillionTokens: 400000,
-      },
-      retentionDisclosure: {
-        revision: 'synthetic-terms',
-        summary:
-          'Synthetic account-specific zero retention fixture; not live approval.',
-      },
-    },
-  ]),
+  AI_SECRET_JEV: 'synthetic-jev',
+  AI_PROVIDER_PROFILES: JSON.stringify(brokerProfiles),
 };
-const profile = publicAIRegistry(readConfig(environment).AI_PROVIDER_PROFILES)
-  .profiles[0]!;
+const baseRegistry = publicAIRegistry(
+  readConfig(baseEnvironment).AI_PROVIDER_PROFILES,
+);
+const jevProfileRevision = baseRegistry.profiles.find(
+  (candidate) => candidate.alias === 'jev-mail',
+)!.policyRevision;
+const environment = {
+  ...baseEnvironment,
+  TYPESAFE_VERIFICATION: JSON.stringify({
+    revision: 'synthetic-jev-verification-v1',
+    profileRevision: jevProfileRevision,
+    credentialRevision: 'synthetic-jev-account-v1',
+    expiresAt: '2099-01-01T00:00:00Z',
+    accountTermsZeroRetention: true,
+    completeEnvelopeTokenBound: true,
+    authoritativeUsageBilling: true,
+    envelopeByteLimit: 20480,
+    inputTokenUpperBound: 32000,
+  }),
+};
+const registry = publicAIRegistry(readConfig(environment).AI_PROVIDER_PROFILES);
+const profile = registry.profiles.find(
+  (candidate) => candidate.alias === 'mail-broker',
+)!;
+const jevProfile = registry.profiles.find(
+  (candidate) => candidate.alias === 'jev-mail',
+)!;
 const config = readConfig(environment);
 let db: Awaited<ReturnType<typeof openDatabase>>,
   app: Awaited<ReturnType<typeof buildApp>>,
@@ -173,7 +226,7 @@ beforeEach(async () => {
     }),
   );
   await db.exec(
-    'DELETE FROM ai_turn_origins; DELETE FROM ai_planner_origins; UPDATE responsibility_runs SET turn_id=NULL; DELETE FROM ai_conversation_turn_rounds; DELETE FROM ai_conversation_turns; DELETE FROM ai_live_exchanges; DELETE FROM ai_assistant_requests; DELETE FROM mail_broker_forwardings; DELETE FROM mail_broker_workflows; DELETE FROM mail_broker_batches; DELETE FROM mail_broker_retrievals; DELETE FROM mail_broker_grants; DELETE FROM ai_budget_reservations; DELETE FROM mutation_receipts; DELETE FROM email_messages; DELETE FROM email_connectors;',
+    'DELETE FROM ai_turn_origins; DELETE FROM ai_planner_origins; UPDATE responsibility_runs SET turn_id=NULL; DELETE FROM ai_conversation_turn_rounds; DELETE FROM ai_conversation_turns; DELETE FROM ai_live_exchanges; DELETE FROM ai_assistant_requests; DELETE FROM mail_broker_forwardings; DELETE FROM mail_broker_workflows; DELETE FROM mail_broker_batches; DELETE FROM mail_broker_retrievals; DELETE FROM mail_broker_grants; DELETE FROM mail_broker_settings; DELETE FROM ai_budget_reservations; DELETE FROM mutation_receipts; DELETE FROM email_messages; DELETE FROM email_connectors;',
   );
   await db.query(
     'INSERT INTO ai_budget_policies(owner_id,monthly_limit_micros,per_request_limit_micros) VALUES($1,50000000,250000) ON CONFLICT(owner_id) DO UPDATE SET version=1,monthly_limit_micros=50000000,per_request_limit_micros=250000',
@@ -182,6 +235,10 @@ beforeEach(async () => {
   await db.query(
     'INSERT INTO ai_provider_consents(owner_id,alias,approved,profile_revision,profile_snapshot) VALUES($1,$2,true,$3,$4) ON CONFLICT(owner_id,alias) DO UPDATE SET version=1,approved=true,profile_revision=$3,profile_snapshot=$4',
     [owner, 'mail-broker', profile.policyRevision, JSON.stringify(profile)],
+  );
+  await db.query(
+    "DELETE FROM ai_provider_consents WHERE owner_id=$1 AND alias='jev-mail'",
+    [owner],
   );
   const policy = {
     unlabeled: { allowed: ['mail-broker'], preferred: 'mail-broker' },
@@ -364,6 +421,65 @@ const answer = (
 const transport = (change?: (value: Record<string, unknown>) => void) =>
   vi.fn<typeof fetch>(async (_url, init) => answer(String(init!.body), change));
 
+const jevAnswer = (bytes: string) => {
+  const request = JSON.parse(bytes);
+  return Response.json({
+    model: request.model,
+    usage: { input_tokens: 100, output_tokens: 20 },
+    answers: Object.fromEntries(
+      Object.keys(request.questions).map((key) => [
+        key,
+        {
+          type: 'score',
+          score: 2.75,
+          confidence: 0.9,
+          probabilities: { '0': 0, '1': 0, '2': 0.25, '3': 0.75 },
+          legend: {
+            '0': jevRubric[0],
+            '1': jevRubric[1],
+            '2': jevRubric[2],
+            '3': jevRubric[3],
+          },
+        },
+      ]),
+    ),
+  });
+};
+
+async function enableJevRoutingAndConsent() {
+  await db.query(
+    'INSERT INTO ai_provider_consents(owner_id,alias,approved,profile_revision,profile_snapshot) VALUES($1,$2,true,$3,$4) ON CONFLICT(owner_id,alias) DO UPDATE SET version=1,approved=true,profile_revision=$3,profile_snapshot=$4',
+    [owner, 'jev-mail', jevProfile.policyRevision, JSON.stringify(jevProfile)],
+  );
+  await db.query('UPDATE ai_routing_policies SET policy=$2 WHERE owner_id=$1', [
+    owner,
+    JSON.stringify({
+      unlabeled: {
+        allowed: ['mail-broker', 'jev-mail'],
+        preferred: 'mail-broker',
+      },
+      personal: { allowed: [], preferred: null },
+      restricted: { allowed: [], preferred: null },
+    }),
+  ]);
+}
+
+async function selectBroker(
+  selectedAlias: 'mail-broker' | 'jev-mail',
+  expectedVersion: number,
+) {
+  const response = await call('PUT', '/api/v1/mail-broker/settings', {
+    operationId: randomUUID(),
+    expectedVersion,
+    selectedAlias,
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  return response.json().settings as {
+    version: number;
+    selectedAlias: 'mail-broker' | 'jev-mail';
+  };
+}
+
 function workflowTransport(change?: (value: Record<string, unknown>) => void) {
   const sent: Record<string, unknown>[] = [];
   const broker: string[] = [];
@@ -458,6 +574,340 @@ it('replays legacy uncertain receipts without a new destination handoff', async 
     await admittedExecute(db, config, owner, p.id, b.request.intent, fake),
   ).toMatchObject({ status: 'uncertain' });
   expect(fake).not.toHaveBeenCalled();
+});
+
+it('never lets a pre-076 retrieval without pinned broker identity create a new handoff', async () => {
+  await messages(1);
+  const b = await begin(),
+    p = await page(b);
+  await db.query(
+    "UPDATE mail_broker_retrievals SET limits=limits-'broker' WHERE owner_id=$1 AND id=$2",
+    [owner, b.receipt.id],
+  );
+  const fake = vi.fn<typeof fetch>(async () => {
+    throw new Error('Legacy retrieval must not send');
+  });
+  await expect(
+    admittedExecute(db, config, owner, p.id, b.request.intent, fake),
+  ).rejects.toMatchObject({ code: 'MAIL_BROKER_LEGACY_RECEIPT' });
+  expect(fake).not.toHaveBeenCalled();
+  expect(await readBrokerBatch(db, owner, p.id)).toMatchObject({
+    status: 'prepared',
+  });
+});
+
+it('keeps an exact pre-076 OpenRouter forwarding history-eligible without letting selector changes reinterpret it', async () => {
+  await messages(1);
+  const b = await begin(),
+    p = await page(b);
+  await executeBrokerBatch(
+    db,
+    config,
+    owner,
+    p.id,
+    b.request.intent,
+    transport(),
+  );
+  const selected = await selectedBrokerMail(db, config, owner, b.receipt.id);
+  await bindBrokerForwarding(
+    db,
+    config,
+    owner,
+    b.ctx.logicalRequestId,
+    b.receipt.id,
+    selected.messages.map((message) => message.id),
+    selected.dependencies,
+  );
+  const [stored] = await db.query(
+    'SELECT binding FROM mail_broker_forwardings WHERE owner_id=$1 AND retrieval_id=$2',
+    [owner, b.receipt.id],
+  );
+  const current = stored!.binding as {
+    grantId: string;
+    grantVersion: number;
+    sources: unknown[];
+    selectedIds: string[];
+  };
+  const legacy = {
+    grantId: current.grantId,
+    grantVersion: current.grantVersion,
+    sources: current.sources,
+    selectedIds: current.selectedIds,
+    policy: await brokerPolicyDigest(db, config, owner),
+  };
+  const legacyDigest = brokerDigest(legacy);
+  await db.query(
+    'UPDATE mail_broker_forwardings SET binding=$3,digest=$4 WHERE owner_id=$1 AND retrieval_id=$2',
+    [owner, b.receipt.id, JSON.stringify(legacy), legacyDigest],
+  );
+  await db.query(
+    "UPDATE mail_broker_retrievals SET limits=limits-'broker' WHERE owner_id=$1 AND id=$2",
+    [owner, b.receipt.id],
+  );
+  await enableJevRoutingAndConsent();
+  await selectBroker('jev-mail', 1);
+  expect(
+    await brokerLineageEligible(db, owner, b.receipt.id, legacyDigest, config),
+  ).toBe(true);
+  await db.query(
+    "UPDATE mail_broker_batches SET threshold_revision='jev-score-2-p75-v2' WHERE owner_id=$1 AND retrieval_id=$2",
+    [owner, b.receipt.id],
+  );
+  expect(
+    await brokerLineageEligible(db, owner, b.receipt.id, legacyDigest, config),
+  ).toBe(false);
+});
+
+it('pins a prepared OpenRouter retrieval so a Jev selector switch cannot hand it off or reinterpret it', async () => {
+  await messages(1);
+  const b = await begin(),
+    p = await page(b);
+  await enableJevRoutingAndConsent();
+  expect(await selectBroker('jev-mail', 1)).toEqual({
+    version: 2,
+    selectedAlias: 'jev-mail',
+  });
+  const fake = vi.fn<typeof fetch>(async () => {
+    throw new Error('Cross-adapter handoff forbidden');
+  });
+  await expect(
+    admittedExecute(db, config, owner, p.id, b.request.intent, fake),
+  ).rejects.toMatchObject({ code: 'MAIL_ROUTE_CHANGED' });
+  await expect(
+    beginBrokerRetrieval(db, config, owner, b.request, b.ctx),
+  ).rejects.toMatchObject({ code: 'MAIL_ROUTE_CHANGED' });
+  expect(fake).not.toHaveBeenCalled();
+  expect(await readBrokerBatch(db, owner, p.id)).toMatchObject({
+    status: 'prepared',
+  });
+  expect(await db.query('SELECT id FROM ai_budget_reservations')).toEqual([]);
+});
+
+it('keeps an admitted uncertain OpenRouter receipt and hold after switching to Jev without resending', async () => {
+  await messages(1);
+  const b = await begin(),
+    p = await page(b);
+  const lost = vi.fn<typeof fetch>(async () => {
+    throw new Error('Synthetic lost response');
+  });
+  expect(
+    await executeBrokerBatch(db, config, owner, p.id, b.request.intent, lost),
+  ).toMatchObject({ status: 'uncertain', reason: 'transport' });
+  expect(lost).toHaveBeenCalledTimes(1);
+  const before = await readBudgetUsage(db, owner);
+  await enableJevRoutingAndConsent();
+  await selectBroker('jev-mail', 1);
+  const forbidden = vi.fn<typeof fetch>(async () => {
+    throw new Error('Uncertain receipt must not resend');
+  });
+  expect(
+    await admittedExecute(db, config, owner, p.id, b.request.intent, forbidden),
+  ).toMatchObject({ status: 'uncertain', reason: 'transport' });
+  expect(forbidden).not.toHaveBeenCalled();
+  expect(await readBudgetUsage(db, owner)).toEqual(before);
+  expect(
+    await db.query(
+      'SELECT provider,status FROM ai_budget_reservations WHERE request_id=$1',
+      [p.id],
+    ),
+  ).toEqual([{ provider: 'mail-broker', status: 'uncertain' }]);
+});
+
+it('keeps completed OpenRouter history governed by its original broker after switching classifiers', async () => {
+  await messages(1);
+  const b = await begin(),
+    p = await page(b);
+  await executeBrokerBatch(
+    db,
+    config,
+    owner,
+    p.id,
+    b.request.intent,
+    transport(),
+  );
+  const selected = await selectedBrokerMail(db, config, owner, b.receipt.id);
+  const bound = await bindBrokerForwarding(
+    db,
+    config,
+    owner,
+    b.ctx.logicalRequestId,
+    b.receipt.id,
+    selected.messages.map((message) => message.id),
+    selected.dependencies,
+  );
+  await enableJevRoutingAndConsent();
+  await selectBroker('jev-mail', 1);
+  expect(
+    await brokerLineageEligible(db, owner, b.receipt.id, bound.digest, config),
+  ).toBe(true);
+  await expect(
+    selectedBrokerMail(db, config, owner, b.receipt.id),
+  ).rejects.toMatchObject({ code: 'MAIL_ROUTE_CHANGED' });
+  await db.query(
+    "UPDATE ai_provider_consents SET approved=false,version=version+1 WHERE owner_id=$1 AND alias='mail-broker'",
+    [owner],
+  );
+  expect(
+    await brokerLineageEligible(db, owner, b.receipt.id, bound.digest, config),
+  ).toBe(false);
+});
+
+it('does not revive an old OpenRouter continuation after an A-to-B-to-A selector cycle', async () => {
+  await messages(8);
+  const b = await begin({ maxCandidates: 5 }),
+    p = await page(b);
+  await executeBrokerBatch(
+    db,
+    config,
+    owner,
+    p.id,
+    b.request.intent,
+    transport(),
+  );
+  const selected = await selectedBrokerMail(db, config, owner, b.receipt.id);
+  const bound = await bindBrokerForwarding(
+    db,
+    config,
+    owner,
+    b.ctx.logicalRequestId,
+    b.receipt.id,
+    selected.messages.map((message) => message.id),
+    selected.dependencies,
+  );
+  const prior = await readBrokerRetrieval(db, owner, b.receipt.id);
+  await enableJevRoutingAndConsent();
+  await selectBroker('jev-mail', 1);
+  await selectBroker('mail-broker', 2);
+  expect(
+    await brokerLineageEligible(db, owner, b.receipt.id, bound.digest, config),
+  ).toBe(true);
+  await expect(
+    beginBrokerRetrieval(
+      db,
+      config,
+      owner,
+      {
+        ...b.request,
+        operationId: randomUUID(),
+        continuation: prior.cursor_token,
+      },
+      context(),
+    ),
+  ).rejects.toMatchObject({ code: 'MAIL_CONTINUATION_INVALID' });
+});
+
+it('executes a strictly verified synthetic Jev batch once and keeps its receipt isolated after switching back', async () => {
+  await enableJevRoutingAndConsent();
+  await selectBroker('jev-mail', 1);
+  await messages(1);
+  const b = await begin(),
+    p = await page(b);
+  const fetcher = vi.fn<typeof fetch>(async (url, init) => {
+    expect(String(url)).toBe(jevEndpoint);
+    return jevAnswer(String(init!.body));
+  });
+  expect(
+    await admittedExecute(db, config, owner, p.id, b.request.intent, fetcher),
+  ).toMatchObject({ status: 'completed', usage: { actualMicros: 5 } });
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  const selected = await selectedBrokerMail(db, config, owner, b.receipt.id);
+  expect(selected.messages).toHaveLength(1);
+  const [batch] = await db.query(
+    'SELECT decisions FROM mail_broker_batches WHERE owner_id=$1 AND id=$2',
+    [owner, p.id],
+  );
+  expect(batch!.decisions).toEqual([
+    expect.objectContaining({
+      method: 'score',
+      selected: true,
+      relevantProbability: 1,
+    }),
+  ]);
+  expect(JSON.stringify(batch!.decisions)).not.toContain('probabilities');
+  expect(
+    await db.query(
+      'SELECT provider,status,actual_micros::int AS actual FROM ai_budget_reservations WHERE request_id=$1',
+      [p.id],
+    ),
+  ).toEqual([{ provider: 'jev-mail', status: 'settled', actual: 5 }]);
+  expect(
+    await db.query(
+      'SELECT provider,model,status FROM ai_budget_reservations WHERE request_id=$1',
+      [b.ctx.logicalRequestId],
+    ),
+  ).toEqual([
+    {
+      provider: 'openrouter',
+      model: expect.any(String),
+      status: 'reserved',
+    },
+  ]);
+  const bound = await bindBrokerForwarding(
+    db,
+    config,
+    owner,
+    b.ctx.logicalRequestId,
+    b.receipt.id,
+    selected.messages.map((message) => message.id),
+    selected.dependencies,
+  );
+  await selectBroker('mail-broker', 2);
+  expect(
+    await brokerLineageEligible(db, owner, b.receipt.id, bound.digest, config),
+  ).toBe(true);
+  const replay = vi.fn<typeof fetch>(async () => {
+    throw new Error('Completed Jev receipt must not replay through OpenRouter');
+  });
+  expect(
+    await admittedExecute(db, config, owner, p.id, b.request.intent, replay),
+  ).toMatchObject({ status: 'completed' });
+  expect(replay).not.toHaveBeenCalled();
+  await expect(
+    selectedBrokerMail(db, config, owner, b.receipt.id),
+  ).rejects.toMatchObject({ code: 'MAIL_ROUTE_CHANGED' });
+});
+
+it('never treats selecting Jev as provider consent, routing permission or account verification', async () => {
+  await selectBroker('jev-mail', 1);
+  await messages(1);
+  const g = await grant();
+  const request = {
+    operationId: randomUUID(),
+    grantId: g.id,
+    expectedGrantVersion: g.version,
+    intent: 'Find deadline evidence',
+    maxCandidates: 10,
+    maxResults: 10,
+  };
+  await expect(
+    beginBrokerRetrieval(db, config, owner, request, context()),
+  ).rejects.toMatchObject({
+    code: 'MAIL_BROKER_BLOCKED',
+    message: expect.stringContaining('CONSENT_REQUIRED'),
+  });
+  expect(await db.query('SELECT id FROM mail_broker_retrievals')).toEqual([]);
+
+  await enableJevRoutingAndConsent();
+  const evidence = JSON.parse(environment.TYPESAFE_VERIFICATION);
+  const mismatched = readConfig({
+    ...environment,
+    TYPESAFE_VERIFICATION: JSON.stringify({
+      ...evidence,
+      credentialRevision: 'different-account-revision',
+    }),
+  });
+  await expect(
+    beginBrokerRetrieval(
+      db,
+      mismatched,
+      owner,
+      { ...request, operationId: randomUUID() },
+      context(),
+    ),
+  ).rejects.toMatchObject({
+    code: 'MAIL_BROKER_BLOCKED',
+    message: expect.stringContaining('ACCOUNT_VERIFICATION_REQUIRED'),
+  });
 });
 
 it('settles authoritative charges but discards output when the router reports a cache hit', async () => {

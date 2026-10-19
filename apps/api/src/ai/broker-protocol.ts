@@ -1,7 +1,20 @@
 import { z } from 'zod';
 import type { BrokerCandidate } from './mail-broker.js';
 import { parseUniqueJSON } from './unique-json.js';
-import { chatUrl, decodeCompletion, pinnedRouting } from './openrouter-live.js';
+import {
+  chatUrl,
+  decodeCompletion,
+  modelPrice,
+  pinnedRouting,
+  readBody,
+  zdrUrl,
+} from './openrouter-live.js';
+import { ApiError } from '../errors.js';
+import type {
+  BrokerAdapter,
+  BrokerAdapterQuote,
+  BrokerExchange,
+} from './broker-adapter.js';
 
 export const brokerModel = 'google/gemini-2.5-flash-lite';
 export const brokerUpstream = 'google-vertex';
@@ -17,25 +30,11 @@ const judgment = z.enum([
   'insufficient_evidence',
 ]);
 export type BrokerDecision = {
+  method: 'enum';
   id: string;
   judgment: z.infer<typeof judgment>;
   selected: boolean;
 };
-export type BrokerExchange =
-  | {
-      status: 'uncertain';
-      reason: 'transport' | 'timeout' | 'response' | 'billing';
-    }
-  | {
-      status: 'confirmed';
-      reason: 'response' | null;
-      usage: {
-        inputTokens: number;
-        outputTokens: number;
-        actualMicros: number;
-      };
-      decisions: BrokerDecision[];
-    };
 
 export function buildBrokerEnvelope(
   model: string,
@@ -160,6 +159,7 @@ export function decodeBroker(
       reason: null,
       usage: result.usage,
       decisions: candidates.map((c, i) => ({
+        method: 'enum' as const,
         id: c.id,
         judgment: values[`m${i + 1}`]!,
         selected: values[`m${i + 1}`] === 'directly_relevant',
@@ -262,3 +262,138 @@ export async function exchangeBroker(
     controller.abort();
   }
 }
+
+/** Public catalog checks only; no credential or owner data is sent. */
+export async function verifyOpenRouterBrokerEndpoint(
+  fetcher: typeof fetch,
+  bounds: {
+    model: string;
+    inputTokenLimit: number;
+    inputMicrosPerMillionTokens: number;
+    outputMicrosPerMillionTokens: number;
+  },
+) {
+  try {
+    const response = await fetcher(zdrUrl, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      redirect: 'error',
+      signal: AbortSignal.timeout(15000),
+    });
+    if (response.status !== 200) throw new Error();
+    const raw = await readBody(response, 32 * 1024 * 1024);
+    if (raw === null) throw new Error();
+    const endpoints = z
+      .object({
+        data: z.array(
+          z.object({
+            model_id: z.string(),
+            tag: z.string(),
+            supported_parameters: z.array(z.string()),
+            context_length: z.number().int().nonnegative().optional(),
+            max_prompt_tokens: z
+              .number()
+              .int()
+              .nonnegative()
+              .nullable()
+              .optional(),
+            max_completion_tokens: z
+              .number()
+              .int()
+              .nonnegative()
+              .nullable()
+              .optional(),
+            pricing: z.record(z.string(), z.unknown()).optional(),
+          }),
+        ),
+      })
+      .parse(JSON.parse(raw))
+      .data.filter(
+        (e) =>
+          e.model_id === bounds.model &&
+          e.tag.split('/')[0] === brokerUpstream &&
+          e.supported_parameters.includes('structured_outputs'),
+      );
+    const rate = (value: unknown) => {
+      if (
+        typeof value !== 'string' ||
+        !/^\d+(\.\d+)?([eE][+-]?\d+)?$/.test(value)
+      )
+        throw new Error();
+      const amount = Number(value) * 1e12;
+      if (!Number.isFinite(amount)) throw new Error();
+      return amount;
+    };
+    if (
+      !endpoints.length ||
+      endpoints.some(
+        (e) =>
+          !e.pricing ||
+          !e.supported_parameters.includes('max_tokens') ||
+          !e.supported_parameters.includes('response_format') ||
+          (e.max_prompt_tokens ?? e.context_length ?? 0) <
+            bounds.inputTokenLimit ||
+          (e.context_length ?? 0) <
+            bounds.inputTokenLimit + brokerOutputTokens ||
+          (e.max_completion_tokens ?? 0) < brokerOutputTokens ||
+          rate(e.pricing.prompt) > bounds.inputMicrosPerMillionTokens ||
+          rate(e.pricing.completion) > bounds.outputMicrosPerMillionTokens ||
+          rate(e.pricing.request ?? '0') !== 0 ||
+          (e.pricing.internal_reasoning !== undefined &&
+            rate(e.pricing.internal_reasoning) >
+              bounds.outputMicrosPerMillionTokens),
+      )
+    )
+      throw new Error();
+    const price = await modelPrice(fetcher, bounds.model);
+    if (
+      !price ||
+      !Number.isFinite(price.prompt) ||
+      !Number.isFinite(price.completion) ||
+      price.request !== 0 ||
+      price.prompt * 1e12 > bounds.inputMicrosPerMillionTokens ||
+      price.completion * 1e12 > bounds.outputMicrosPerMillionTokens
+    )
+      throw new Error();
+  } catch {
+    throw new ApiError(
+      409,
+      'MAIL_BROKER_BLOCKED',
+      'The approved broker endpoint, structured outputs, ZDR or price could not be verified.',
+    );
+  }
+}
+
+export const openRouterBrokerAdapter: BrokerAdapter = {
+  kind: 'openrouter',
+  alias: 'mail-broker',
+  rubricRevision: brokerRubricRevision,
+  boundsRevision: brokerBoundsRevision,
+  thresholdRevision: brokerThresholdRevision,
+  fitCandidates: (profile, intent, candidates) =>
+    fitBrokerCandidates(
+      profile.model,
+      intent,
+      candidates,
+      profile.maxInputCharacters,
+    ),
+  buildEnvelope: (profile, intent, candidates) =>
+    buildBrokerEnvelope(profile.model, intent, candidates),
+  preflight: async (fetcher, policy) =>
+    verifyOpenRouterBrokerEndpoint(fetcher, {
+      model: policy.profile.model,
+      inputTokenLimit: policy.quote.inputTokenLimit,
+      inputMicrosPerMillionTokens: policy.quote.inputMicrosPerMillionTokens,
+      outputMicrosPerMillionTokens: policy.quote.outputMicrosPerMillionTokens,
+    }),
+  exchange: (
+    fetcher,
+    secret,
+    bytes,
+    model,
+    candidates,
+    quote: BrokerAdapterQuote,
+    timeoutMs,
+  ) =>
+    exchangeBroker(fetcher, secret, bytes, model, candidates, quote, timeoutMs),
+};

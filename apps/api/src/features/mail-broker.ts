@@ -12,6 +12,12 @@ import { ApiError } from '../errors.js';
 import { mutate } from '../planner/mutations.js';
 import { brokerReadiness } from '../ai/broker-policy.js';
 import { grantColumns, validateBrokerScope } from '../ai/mail-broker.js';
+import {
+  mailBrokerSettingsWriteSchema,
+  readMailBrokerSettings,
+  writeMailBrokerSettings,
+} from '../ai/broker-settings.js';
+import { publicAIRegistry } from '../ai/profiles.js';
 
 // Owner-only settings groundwork. There is deliberately no public candidate,
 // arbitrary-message or execution route in J1/J2.
@@ -31,6 +37,51 @@ export function registerMailBroker(
         throw new ApiError(401, 'UNAUTHENTICATED', 'Sign in again.');
       return brokerReadiness(tx, config, user.id);
     });
+  });
+  app.get('/api/v1/mail-broker/settings', async (request) => {
+    const user = await auth.requireUser(request);
+    return database.transaction(async (tx) => {
+      await tx.query(
+        'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY',
+      );
+      if (!(await auth.currentUser(request, tx)))
+        throw new ApiError(401, 'UNAUTHENTICATED', 'Sign in again.');
+      return { settings: await readMailBrokerSettings(tx, user.id) };
+    });
+  });
+  app.put('/api/v1/mail-broker/settings', async (request) => {
+    const user = await auth.requireUser(request);
+    const input = mailBrokerSettingsWriteSchema.parse(request.body);
+    const exists = publicAIRegistry(config.AI_PROVIDER_PROFILES).profiles.some(
+      (profile) => profile.alias === input.selectedAlias,
+    );
+    if (!exists)
+      throw new ApiError(
+        409,
+        'MAIL_BROKER_DESTINATION_UNAVAILABLE',
+        'The selected mail classifier is not configured on this server.',
+      );
+    return mutate(
+      database,
+      user.id,
+      input.operationId,
+      { kind: 'mail-broker.settings', input },
+      async (tx) => ({
+        settings: await writeMailBrokerSettings(
+          tx,
+          user.id,
+          input.expectedVersion,
+          input.selectedAlias,
+        ),
+      }),
+      {
+        isolation: 'repeatable read',
+        authorize: async (tx) => {
+          if (!(await auth.currentUser(request, tx)))
+            throw new ApiError(401, 'UNAUTHENTICATED', 'Sign in again.');
+        },
+      },
+    );
   });
   app.get('/api/v1/mail-broker/grants', async (request) => {
     const user = await auth.requireUser(request);

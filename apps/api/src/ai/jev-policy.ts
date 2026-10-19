@@ -1,9 +1,16 @@
 import { z } from 'zod';
 
-// Legacy environment compatibility only; no TypeSafe dispatch remains.
+export const jevEndpoint = 'https://api.typesafe.ai/v1/systemone';
+
 const verificationSchema = z.strictObject({
   revision: z.string().regex(/^[a-zA-Z0-9._-]{1,80}$/),
   profileRevision: z.string().regex(/^[a-f0-9]{64}$/),
+  // Optional while parsing legacy deployments. Active Jev readiness requires
+  // this field and exact equality with the configured profile revision marker.
+  credentialRevision: z
+    .string()
+    .regex(/^[A-Za-z0-9._-]{1,80}$/)
+    .optional(),
   expiresAt: z.string().datetime(),
   accountTermsZeroRetention: z.literal(true),
   completeEnvelopeTokenBound: z.literal(true),
