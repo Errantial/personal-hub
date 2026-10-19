@@ -1,5 +1,11 @@
 # Implementation log
 
+## 2026-10-19 - Owner live agent acceptance: canary configuration checkpoint
+
+The owner selected the existing `deadline-watch` agent for the remaining live acceptance rather than creating another paid-capable canary. Through the authenticated production UI, the canary was reviewed and saved as America/Denver, daily 18:00, mail disabled and a $2 monthly agent cap. The app then showed the existing pinned Deadline watch conversation and previewed the next scheduled run for Oct 19 at 6:00 PM. Agent allowance metadata at this checkpoint reported $0.00224 settled, $0 held, $0 uncertain and $2.00 remaining; those values are local application-ledger metadata, not independent provider-invoice verification.
+
+Before allowing the scheduled acceptance run, Settings › AI › Actions was deliberately changed from Automatic to Ask first for both Tasks and Calendar, and the UI confirmed `Action settings saved.` No Run now was triggered, no extra provider call was dispatched for this checkpoint, mail remained off, and no memory/MCP/email-send/external-calendar authority was added. Several scheduled runs, owner usefulness review, deliberate Apply/Undo, pause/resume, notification behavior, an ordinary connector-recovery observation, one agreed maintenance restart and final cost/hold review remain open.
+
 ## 2026-10-18 - Present-status documentation reconciliation
 
 Reconciled current-status summaries after the synthetic scheduled-agent gates closed. Historical implementation receipts remain intact, but present-tense documentation no longer describes already integrated J4/OpenRouter broker controls, explicit P9 per-ask memory, P7 academic selection or grounded P8 proposals as pending/not deployed. The corrected docs continue to distinguish the dispatch-disabled general gateway from the separately gated live Assistant paths, keep scheduled-agent memory authority disabled, retain attachment/file-derived text exclusions, and leave mailbox completeness, owner usefulness, external-calendar coverage, direct workload-plan AI access and device/live acceptance visibly pending. This was documentation-only maintenance; it did not access owner data/accounts, call providers, change deployment/configuration or perform live acceptance.
