@@ -34,6 +34,49 @@ async function createTask(
   return ((await reply.json()) as { task: { id: string } }).task;
 }
 
+const canvasDeadlineFeed = (
+  providerId: string,
+  first: { title: string; at: string },
+  second?: { title: string; at: string },
+) => {
+  const event = (suffix: string, item: { title: string; at: string }) =>
+    `BEGIN:VEVENT\r\nUID:deadline-${providerId}-${suffix}\r\nDTSTART:${item.at}\r\nDTEND:${item.at}\r\nSUMMARY:${item.title}\r\nURL:https://canvas.colorado.edu/courses/1/assignments/${providerId}\r\nEND:VEVENT\r\n`;
+  return `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${event('a', first)}${second ? event('b', second) : ''}END:VCALENDAR\r\n`;
+};
+
+async function importTrackedDeadline(
+  page: Page,
+  providerId: string,
+  first: { title: string; at: string },
+  second?: { title: string; at: string },
+) {
+  const reply = await page.request.post('/api/v1/connections/canvas/import', {
+    headers,
+    data: {
+      operationId: crypto.randomUUID(),
+      feed: canvasDeadlineFeed(providerId, first, second),
+    },
+  });
+  expect(reply.status()).toBe(200);
+  const deadlines = (
+    await (
+      await page.request.get('/api/v1/deadlines?status=all&limit=200')
+    ).json()
+  ).deadlines as Array<{
+    id: string;
+    title: string;
+    canonicalKey: string;
+    version: number;
+    dueOverride: unknown;
+    sourceConflict: boolean;
+  }>;
+  const tracked = deadlines.find((item) =>
+    item.canonicalKey.endsWith(`/courses/1/assignments/${providerId}`),
+  );
+  expect(tracked).toBeDefined();
+  return tracked!;
+}
+
 test('tasks group by deadline and filters have their own URLs', async ({
   page,
 }) => {
@@ -234,6 +277,143 @@ test('an unknown task address explains itself and links back to the list', async
   await expect(page).toHaveURL(/\/tasks$/);
 });
 
+test('imported Canvas deadlines are locally editable/completable, preserve overrides through source refresh and review provider conflicts', async ({
+  page,
+  context,
+}) => {
+  const providerId = '991236';
+  const tracked = await importTrackedDeadline(
+    page,
+    providerId,
+    { title: 'Canvas provider deadline', at: '20300301T170000Z' },
+    { title: 'Canvas alternate deadline', at: '20300301T180000Z' },
+  );
+  expect(tracked.sourceConflict).toBe(true);
+
+  await page.goto('/tasks');
+  const tasks = tasksRegion(page);
+  const imported = tasks.getByRole('region', { name: 'Imported deadlines' });
+  const title = imported.getByRole('link', {
+    name: 'Canvas provider deadline',
+    exact: true,
+  });
+  await expect(title).toBeVisible();
+  await expect(imported.getByText('Canvas sources differ')).toBeVisible();
+  await imported
+    .getByRole('button', { name: 'Help: Imported deadlines' })
+    .click();
+  await expect(imported).toContainText(
+    'do not submit, reopen or change work in Canvas',
+  );
+
+  const complete = imported.getByRole('checkbox', {
+    name: 'Complete Canvas provider deadline in Personal Hub',
+  });
+  await complete.click();
+  await expect(title).toHaveCount(0);
+  await imported
+    .getByRole('button', { name: 'Completed', exact: true })
+    .click();
+  const reopen = imported.getByRole('checkbox', {
+    name: 'Reopen Canvas provider deadline in Personal Hub',
+  });
+  await expect(reopen).toBeChecked();
+  await reopen.click();
+  await imported.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(title).toBeVisible();
+
+  await title.click();
+  await expect(page).toHaveURL(new RegExp(`/tasks/deadline/${tracked.id}$`));
+  const editor = page.getByRole('region', { name: 'Edit imported deadline' });
+  await expect(editor).toContainText(
+    'Edits and completion are local to Personal Hub. Nothing here submits or reopens Canvas work.',
+  );
+  await expect(editor.getByText('Canvas sources disagree.')).toBeVisible();
+  await expect(
+    editor.getByText('Canvas provider deadline', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    editor.getByText('Canvas alternate deadline', { exact: true }),
+  ).toBeVisible();
+  const canvasLink = editor.getByRole('link', { name: 'Open in Canvas' });
+  await expect(canvasLink).toHaveAttribute(
+    'href',
+    `https://canvas.colorado.edu/courses/1/assignments/${providerId}`,
+  );
+  await expect(canvasLink).toHaveAttribute('target', '_blank');
+
+  await context.setOffline(true);
+  await expect(
+    editor.getByText('Imported deadline changes need a connection.'),
+  ).toBeVisible();
+  await expect(
+    editor.getByRole('button', { name: 'Save Personal Hub changes' }),
+  ).toBeDisabled();
+  await context.setOffline(false);
+
+  await editor
+    .getByLabel('Personal Hub title override (optional)')
+    .fill('My local deadline');
+  await editor.getByLabel('Personal Hub due override').check();
+  await editor.getByLabel('Due date (optional)').fill('2030-03-02');
+  await editor.getByLabel('Due time (optional)').fill('14:30');
+  await editor.getByLabel('Timezone').fill('UTC');
+  await editor.getByLabel('Priority').selectOption('high');
+  await editor.getByLabel('Notes (optional)').fill('Local planning notes');
+  await editor
+    .getByRole('combobox', { name: 'Content label', exact: true })
+    .selectOption('personal');
+  await editor
+    .getByRole('button', { name: 'Save Personal Hub changes' })
+    .click();
+  await expect(
+    editor.getByText('Saved in Personal Hub. Canvas was not changed.', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  let current = (
+    await (await page.request.get(`/api/v1/deadlines/${tracked.id}`)).json()
+  ).deadline;
+  expect(current).toMatchObject({
+    titleOverride: 'My local deadline',
+    priority: 'high',
+    notes: 'Local planning notes',
+    sensitivity: 'personal',
+    dueOverride: {
+      kind: 'timed',
+      dueAt: '2030-03-02T14:30:00.000Z',
+      timeZone: 'UTC',
+    },
+  });
+
+  await importTrackedDeadline(
+    page,
+    providerId,
+    { title: 'Canvas refreshed provider', at: '20300303T190000Z' },
+    { title: 'Canvas refreshed alternate', at: '20300303T200000Z' },
+  );
+  await page.reload();
+  await expect(editor.getByLabel('Personal Hub due override')).toBeChecked();
+  await expect(
+    editor.getByLabel('Personal Hub title override (optional)'),
+  ).toHaveValue('My local deadline');
+  await expect(
+    editor.getByText('Canvas refreshed provider', { exact: true }),
+  ).toBeVisible();
+  await expect(editor.getByLabel('Due date (optional)')).toHaveValue(
+    '2030-03-02',
+  );
+
+  await editor.getByRole('button', { name: 'Use Canvas value' }).click();
+  await editor
+    .getByRole('button', { name: 'Save Personal Hub changes' })
+    .click();
+  current = (
+    await (await page.request.get(`/api/v1/deadlines/${tracked.id}`)).json()
+  ).deadline;
+  expect(current.dueOverride).toEqual({ kind: 'provider' });
+});
+
 for (const { theme, width, target } of [
   { theme: 'standard', width: 1280, target: 44 },
   { theme: 'eink', width: 320, target: 48 },
@@ -252,10 +432,19 @@ for (const { theme, width, target } of [
       priority: 'high',
       sensitivity: 'personal',
     });
+    const tracked = await importTrackedDeadline(
+      page,
+      theme === 'standard' ? '991240' : '991241',
+      {
+        title: `Imported layout ${theme}`,
+        at: '20300501T170000Z',
+      },
+    );
     for (const [path, selecting] of [
       ['/tasks', false],
       ['/tasks', true],
       [`/tasks/${task.id}`, false],
+      [`/tasks/deadline/${tracked.id}`, false],
     ] as const) {
       await page.goto(path);
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Tasks');
@@ -285,9 +474,12 @@ for (const { theme, width, target } of [
             ),
           ]
             .filter((element) => element.offsetParent !== null)
-            // A checkbox's tap area is its label (checked separately below).
+            // Checkbox/radio tap areas are their labels (checked separately below).
             .filter(
-              (element) => (element as HTMLInputElement).type !== 'checkbox',
+              (element) =>
+                !['checkbox', 'radio'].includes(
+                  (element as HTMLInputElement).type,
+                ),
             )
             .filter((element) => {
               const box = element.getBoundingClientRect();

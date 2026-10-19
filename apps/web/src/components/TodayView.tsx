@@ -6,6 +6,7 @@ import {
   canvasItemsResponseSchema,
   notificationsSchema,
   remindersSchema,
+  trackedDeadlineListSchema,
 } from '@hub/contracts';
 import type { Task } from '@hub/contracts';
 import { getSnapshot } from '../lib/api';
@@ -51,6 +52,15 @@ export function TodayView({ navigate }: { navigate: (route: Route) => void }) {
         signal,
       ),
     { failure: 'Canvas deadlines unavailable. Retry Canvas.' },
+  );
+  const deadlines = useResource(
+    (signal) =>
+      getSnapshot(
+        '/api/v1/deadlines?status=open&limit=200',
+        trackedDeadlineListSchema,
+        signal,
+      ),
+    { failure: 'Imported deadlines unavailable. Retry imported deadlines.' },
   );
   const reminders = useResource(
     (signal) => getSnapshot('/api/v1/reminders', remindersSchema, signal),
@@ -104,10 +114,16 @@ export function TodayView({ navigate }: { navigate: (route: Route) => void }) {
     tasks: tasks.data?.data.tasks ?? [],
     occurrences: schedule.data?.data.occurrences ?? [],
     canvas: canvas.data?.data.items ?? [],
+    deadlines: deadlines.data?.data.deadlines ?? [],
     today,
     timeZone,
   });
-  const loaded = !!(tasks.data && schedule.data && canvas.data);
+  const loaded = !!(
+    tasks.data &&
+    schedule.data &&
+    canvas.data &&
+    deadlines.data
+  );
   const time = (instant: string, zone = timeZone) =>
     new Date(instant).toLocaleTimeString(undefined, {
       timeZone: zone,
@@ -125,6 +141,15 @@ export function TodayView({ navigate }: { navigate: (route: Route) => void }) {
           ? `Due ${time(item.start)}`
           : `${time(item.start)} – ${time(item.end)}`;
   const title = (item: TodayItem) => {
+    if (item.deadlineId)
+      return (
+        <Link
+          route={{ name: 'tasks', deadline: item.deadlineId }}
+          navigate={navigate}
+        >
+          {item.title}
+        </Link>
+      );
     const target = item.target;
     if (target.type === 'task')
       return (
@@ -203,6 +228,7 @@ export function TodayView({ navigate }: { navigate: (route: Route) => void }) {
         <ReadState resource={reminders} label="reminder status" />
         <ReadState resource={schedule} label="schedule" />
         <ReadState resource={canvas} label="Canvas" />
+        <ReadState resource={deadlines} label="imported deadlines" />
         {items.length > 0 && (
           <ul className="today-rows">
             {items.map((item) => (

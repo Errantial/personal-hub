@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { taskResponseSchema, tasksResponseSchema } from '@hub/contracts';
+import {
+  taskResponseSchema,
+  tasksResponseSchema,
+  trackedDeadlineListSchema,
+} from '@hub/contracts';
 import type { Task } from '@hub/contracts';
-import { getSnapshot } from '../lib/api';
+import { getJson, getSnapshot } from '../lib/api';
 import {
   useMutation,
   useOfflineStatus,
@@ -32,6 +36,8 @@ import {
 } from '../lib/task-deadline';
 import type { TaskDueDraft } from '../lib/task-deadline';
 import { TaskDueFields } from './TaskDueFields';
+import { DeadlineEditor } from './DeadlineEditor';
+import { DeadlineList } from './DeadlineList';
 import './TasksView.css';
 
 type TasksRoute = Extract<Route, { name: 'tasks' }>;
@@ -62,6 +68,15 @@ export function TasksView({
   const tasks = useResource(
     (signal) => getSnapshot('/api/v1/tasks', tasksResponseSchema, signal),
     { failure: 'Tasks unavailable. Retry tasks.' },
+  );
+  const deadlines = useResource(
+    (signal) =>
+      getJson(
+        '/api/v1/deadlines?status=all&limit=200',
+        trackedDeadlineListSchema,
+        signal,
+      ),
+    { failure: 'Imported deadlines unavailable. Retry.', key: 'all' },
   );
   const status = useOfflineStatus();
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -233,7 +248,7 @@ export function TasksView({
         </ul>
       </nav>
       <div
-        className={`tasks-layout ${route.id ? 'tasks-layout--editing' : ''}`}
+        className={`tasks-layout ${route.id || route.deadline ? 'tasks-layout--editing' : ''}`}
       >
         <section
           className="panel tasks-list-pane"
@@ -269,6 +284,11 @@ export function TasksView({
             />
           )}
           <ReadState resource={tasks} label="tasks" />
+          <DeadlineList
+            resource={deadlines}
+            route={route}
+            navigate={navigate}
+          />
           {tasks.data && !visible.length && <p>{emptyMessages[filter]}</p>}
           {groups.map((group) => (
             <section
@@ -323,6 +343,15 @@ export function TasksView({
             reload={reload}
             onDelete={deleteTask}
             deleting={remove.pending}
+          />
+        )}
+        {route.deadline && (
+          <DeadlineEditor
+            key={route.deadline}
+            id={route.deadline}
+            listRoute={listRoute}
+            navigate={navigate}
+            onChanged={deadlines.reload}
           />
         )}
       </div>

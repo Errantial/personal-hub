@@ -190,6 +190,60 @@ test('Today lists deadlines, due tasks, events and study in one ordered list', a
   ).toBe(yesterday);
 });
 
+test('Today prefers a tracked Canvas deadline and opens its Personal Hub editor', async ({
+  page,
+}) => {
+  await page.goto('/today');
+  const date = await page.evaluate(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  });
+  const zone = await page.evaluate(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+  );
+  const instant = Temporal.PlainDate.from(date)
+    .toZonedDateTime({ timeZone: zone, plainTime: '16:30' })
+    .toInstant();
+  const compact = `${new Date(instant.epochMilliseconds)
+    .toISOString()
+    .slice(0, 19)
+    .replace(/[-:]/g, '')}Z`;
+  const providerId = '991250';
+  const title = 'Today tracked Canvas deadline';
+  const imported = await page.request.post(
+    '/api/v1/connections/canvas/import',
+    {
+      headers,
+      data: {
+        operationId: crypto.randomUUID(),
+        feed: `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:today-tracked-${providerId}\r\nDTSTART:${compact}\r\nDTEND:${compact}\r\nSUMMARY:${title}\r\nURL:https://canvas.colorado.edu/courses/1/assignments/${providerId}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`,
+      },
+    },
+  );
+  expect(imported.status()).toBe(200);
+  const deadlines = (
+    await (
+      await page.request.get('/api/v1/deadlines?status=all&limit=200')
+    ).json()
+  ).deadlines as Array<{ id: string; canonicalKey: string }>;
+  const deadline = deadlines.find((item) =>
+    item.canonicalKey.endsWith(`/courses/1/assignments/${providerId}`),
+  );
+  expect(deadline).toBeDefined();
+
+  await page.reload();
+  const today = page.getByRole('region', { name: 'Today' });
+  const rows = today.getByRole('listitem').filter({ hasText: title });
+  await expect(rows).toHaveCount(1);
+  const link = rows.getByRole('link', { name: title, exact: true });
+  await expect(link).toHaveAttribute('href', `/tasks/deadline/${deadline!.id}`);
+  await link.click();
+  await expect(page).toHaveURL(new RegExp(`/tasks/deadline/${deadline!.id}$`));
+  await expect(
+    page.getByRole('region', { name: 'Edit imported deadline' }),
+  ).toBeVisible();
+});
+
 test('a failed Canvas section preserves planner content and retries independently', async ({
   page,
 }) => {

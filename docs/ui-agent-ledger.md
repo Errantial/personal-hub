@@ -1,5 +1,15 @@
 # UI agent ledger
 
+## Imported Canvas deadlines (Release C development, 2026-10-19)
+
+Tasks now has a separate **Imported deadlines** section backed by the owned tracked-deadline API. Open and completed imported deadlines remain distinct from ordinary owner-created tasks. Opening one uses `/tasks/deadline/:id`; the editor can keep the Canvas title/due value or save Personal Hub overrides for title, due date/time, priority, notes and sensitivity. Completion/reopen and every edit are local Personal Hub state: they do not submit, reopen, reschedule or otherwise change work in Canvas.
+
+The editor shows the primary Canvas due value, every retained source value/version/availability and explicit source-conflict state. A Personal Hub due override is preserved when imported source facts refresh until the owner deliberately chooses **Use Canvas value**. **Open in Canvas** is rendered only for a canonical `https://canvas.colorado.edu/courses/.../(assignments|quizzes)/...` identity returned by the tracked record. Imported-deadline writes are online-only and stay outside the task offline outbox; offline or stale-version states keep the draft and block saving until reconnect/reload.
+
+Today independently reads open tracked deadlines, prefers them over a raw Canvas calendar item with the same canonical identity, and links them to the same local editor. If the tracked-deadline read is unavailable, the independent Canvas source can still render rather than being silently treated as empty. Calendar tracked-deadline integration remains separate; this slice does not change Calendar layout.
+
+Browser acceptance uses only synthetic Canvas imports and the isolated test database. Coverage includes automatic materialization/discoverability, complete/reopen, local overrides and reload, source refresh/conflict review, explicit return to the Canvas due value, Today deep linking, offline-disabled writes, and Tasks/editor automated accessibility/overflow/target checks at standard width and 320 px e-ink. This is development UI evidence, not Canvas submission authority, live-provider completeness or Kompakt hardware acceptance.
+
 ## Grounded study suggestions (P8 part 2, development)
 
 See [contracts and limits](ai-study-suggestions.md). Owner answers can show one date range and admitted source titles with Review study plan. The existing Study plan view loads the owned saved turn afresh, fixes the suggested range, and passes its origin through preview/draft creation. No slot or approval comes from the model. Keep explicit preview, save, trimming/recheck, approval, cancellation, warnings and later-edit preservation. Pending/offline/stale-source errors remain visible; retry cannot silently rebase a source. Mail-derived suggestions are read-only and have no review link; agents gain no academic scope.
