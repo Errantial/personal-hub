@@ -68,6 +68,7 @@ import {
   registerReminders,
   startReminderWorker,
 } from './features/reminders.js';
+import { registerTrackedDeadlines } from './features/tracked-deadlines.js';
 
 export async function buildApp(
   options: FastifyServerOptions = {},
@@ -141,6 +142,7 @@ export async function buildApp(
   registerCanvasBrowser(app, database, auth);
   registerCanvasReconciliation(app, database, auth);
   registerCanvasPlannerWork(app, database, auth);
+  registerTrackedDeadlines(app, database, auth);
   registerOutlook(app, database, auth);
   registerAIRouting(app, database, auth);
   registerAIPreflight(app, database, auth, config);

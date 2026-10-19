@@ -176,6 +176,205 @@ it('upgrades a populated pre-reconciliation database without rewriting annotatio
   }
 });
 
+it('upgrades populated exact Canvas sources through 074 without fuzzy merging or changing the stable primary', async () => {
+  const db = await openDatabase(
+    readConfig({ NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' }),
+  );
+  try {
+    const directory = new URL('../migrations/', import.meta.url);
+    const names = (await readdir(directory))
+      .filter((name) => /^\d+_.+\.sql$/.test(name))
+      .sort();
+    await db.exec(
+      'CREATE TABLE schema_migrations (name TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)',
+    );
+    for (const name of names.filter((name) => Number(name.slice(0, 3)) <= 72)) {
+      const sql = await readFile(new URL(name, directory), 'utf8');
+      await db.exec(sql);
+      await db.query(
+        'INSERT INTO schema_migrations(name,checksum) VALUES($1,$2)',
+        [name, createHash('sha256').update(sql).digest('hex')],
+      );
+    }
+
+    const owner = randomUUID();
+    const feedExact = randomUUID();
+    const feedDifferent = randomUUID();
+    const lmsCourse = randomUUID();
+    const lmsAssignment = randomUUID();
+    const browserCourse = randomUUID();
+    const browserItem = randomUUID();
+    const exactUrl = 'https://canvas.colorado.edu/courses/10/assignments/20';
+    const differentUrl =
+      'https://canvas.colorado.edu/courses/10/assignments/21';
+    const commonProviderData = {
+      title: 'Same visible assignment',
+      description: '',
+      startsAt: null,
+      endsAt: null,
+      startDate: '2027-05-01',
+      endDate: '2027-05-02',
+      allDay: true,
+    };
+    await db.query(
+      'INSERT INTO users(id,email,password_hash) VALUES($1,$2,$3)',
+      [owner, 'upgrade-deadlines@example.test', 'unused'],
+    );
+    await db.query(
+      "INSERT INTO canvas_sources(owner_id,sensitivity) VALUES($1,'restricted')",
+      [owner],
+    );
+    await db.query(
+      "INSERT INTO canvas_items(id,owner_id,uid,provider_data,availability,input_kind,created_at,updated_at) VALUES($1,$2,'exact-feed',$3::jsonb,'available','calendar-file','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')",
+      [
+        feedExact,
+        owner,
+        JSON.stringify({ ...commonProviderData, sourceUrl: exactUrl }),
+      ],
+    );
+    await db.query(
+      "INSERT INTO canvas_items(id,owner_id,uid,provider_data,availability,input_kind,created_at,updated_at) VALUES($1,$2,'different-feed',$3::jsonb,'available','calendar-file','2026-01-01T00:01:00Z','2026-01-01T00:01:00Z')",
+      [
+        feedDifferent,
+        owner,
+        JSON.stringify({ ...commonProviderData, sourceUrl: differentUrl }),
+      ],
+    );
+    await db.query('INSERT INTO canvas_lms_sources(owner_id) VALUES($1)', [
+      owner,
+    ]);
+    await db.query(
+      "INSERT INTO canvas_lms_courses(id,owner_id,provider_id,provider_data,availability,created_at,updated_at) VALUES($1,$2,'10',$3::jsonb,'available','2026-01-02T00:00:00Z','2026-01-02T00:00:00Z')",
+      [
+        lmsCourse,
+        owner,
+        JSON.stringify({
+          name: 'Synthetic course',
+          code: 'SYN 10',
+          term: 'Synthetic term',
+          timeZone: 'America/Denver',
+        }),
+      ],
+    );
+    await db.query(
+      "INSERT INTO canvas_lms_assignments(id,owner_id,canvas_course_id,provider_id,provider_data,availability,created_at,updated_at) VALUES($1,$2,$3,'20',$4::jsonb,'available','2026-01-02T00:01:00Z','2026-01-02T00:01:00Z')",
+      [
+        lmsAssignment,
+        owner,
+        lmsCourse,
+        JSON.stringify({
+          title: 'Richer exact assignment',
+          dueAt: '2027-05-02T05:30:00.000Z',
+          pointsPossible: 10,
+          published: true,
+          locked: false,
+        }),
+      ],
+    );
+    await db.query('INSERT INTO canvas_browser_sources(owner_id) VALUES($1)', [
+      owner,
+    ]);
+    await db.query(
+      "INSERT INTO canvas_browser_courses(id,owner_id,provider_id,name,canonical_url,selected,created_at,updated_at) VALUES($1,$2,'10','Synthetic browser course','https://canvas.colorado.edu/courses/10',true,'2026-01-03T00:00:00Z','2026-01-03T00:00:00Z')",
+      [browserCourse, owner],
+    );
+    await db.query(
+      "INSERT INTO canvas_browser_items(id,owner_id,browser_course_id,resource_kind,provider_id,canonical_url,title,due_at,captured_at,created_at,updated_at) VALUES($1,$2,$3,'assignment','20',$4,'Browser exact assignment','2027-05-02T05:30:00Z','2026-01-03T00:01:00Z','2026-01-03T00:01:00Z','2026-01-03T00:01:00Z')",
+      [browserItem, owner, browserCourse, exactUrl],
+    );
+
+    const beforeSources = {
+      feed: await db.query(
+        'SELECT id,provider_data,availability,input_kind,version,created_at,updated_at FROM canvas_items WHERE owner_id=$1 ORDER BY id',
+        [owner],
+      ),
+      assignments: await db.query(
+        'SELECT id,provider_data,availability,version,created_at,updated_at FROM canvas_lms_assignments WHERE owner_id=$1',
+        [owner],
+      ),
+      browser: await db.query(
+        'SELECT id,canonical_url,title,due_at,availability,version,created_at,updated_at FROM canvas_browser_items WHERE owner_id=$1',
+        [owner],
+      ),
+    };
+
+    await migrate(db);
+    const roots = await db.query(
+      'SELECT id,canonical_key,version,completed_at,priority,title_override,due_override_kind,sensitivity,source_labels FROM tracked_deadlines WHERE owner_id=$1 ORDER BY canonical_key',
+      [owner],
+    );
+    expect(roots).toHaveLength(2);
+    expect(roots.map((row) => row.canonical_key)).toEqual([
+      'canvas:canvas.colorado.edu:/courses/10/assignments/20',
+      'canvas:canvas.colorado.edu:/courses/10/assignments/21',
+    ]);
+    expect(roots[0]).toMatchObject({
+      version: 1,
+      completed_at: null,
+      priority: 'normal',
+      title_override: null,
+      due_override_kind: 'provider',
+      sensitivity: 'unlabeled',
+      source_labels: ['restricted'],
+    });
+    const exactBindings = await db.query(
+      `SELECT source_kind,is_primary,canvas_item_id,canvas_assignment_id,canvas_browser_item_id,source_version
+       FROM tracked_deadline_sources WHERE owner_id=$1 AND deadline_id=$2 ORDER BY source_kind`,
+      [owner, roots[0]!.id],
+    );
+    expect(exactBindings).toHaveLength(3);
+    expect(exactBindings.filter((row) => row.is_primary)).toEqual([
+      expect.objectContaining({
+        source_kind: 'calendar-file',
+        canvas_item_id: feedExact,
+      }),
+    ]);
+    expect(
+      await db.query(
+        'SELECT source_kind,is_primary,canvas_item_id FROM tracked_deadline_sources WHERE owner_id=$1 AND deadline_id=$2',
+        [owner, roots[1]!.id],
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        source_kind: 'calendar-file',
+        is_primary: true,
+        canvas_item_id: feedDifferent,
+      }),
+    ]);
+    expect({
+      feed: await db.query(
+        'SELECT id,provider_data,availability,input_kind,version,created_at,updated_at FROM canvas_items WHERE owner_id=$1 ORDER BY id',
+        [owner],
+      ),
+      assignments: await db.query(
+        'SELECT id,provider_data,availability,version,created_at,updated_at FROM canvas_lms_assignments WHERE owner_id=$1',
+        [owner],
+      ),
+      browser: await db.query(
+        'SELECT id,canonical_url,title,due_at,availability,version,created_at,updated_at FROM canvas_browser_items WHERE owner_id=$1',
+        [owner],
+      ),
+    }).toEqual(beforeSources);
+
+    const beforeSecondMigrate = await db.query(
+      'SELECT * FROM tracked_deadline_sources WHERE owner_id=$1 ORDER BY deadline_id,id',
+      [owner],
+    );
+    await migrate(db);
+    expect(
+      await db.query(
+        'SELECT * FROM tracked_deadline_sources WHERE owner_id=$1 ORDER BY deadline_id,id',
+        [owner],
+      ),
+    ).toEqual(beforeSecondMigrate);
+    expect(await db.query('SELECT name FROM schema_migrations')).toHaveLength(
+      names.length,
+    );
+  } finally {
+    await db.close();
+  }
+});
+
 it('upgrades populated responsibilities, notifications and action policies through 057 without rewriting them', async () => {
   const db = await openDatabase(
     readConfig({ NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' }),

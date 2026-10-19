@@ -20,6 +20,10 @@ import { stamp, strongest, active } from '../features/common.js';
 import { ApiError } from '../errors.js';
 import { FeedError, parseCanvasFeed, fetchCanvasFeed } from './canvas-feed.js';
 import type { FeedEntry, FeedFetcher } from './canvas-feed.js';
+import {
+  materializeCanvasDeadlineFromItem,
+  refreshTrackedDeadlineLabelFloor,
+} from './canvas-deadlines.js';
 
 export const canvasItemColumns = `id,uid,input_kind AS "inputKind",provider_data AS "providerData",availability,notes,sensitivity,version,course_id AS "courseId",
   (SELECT x.sensitivity FROM canvas_item_context x WHERE x.id=canvas_items.id AND x.owner_id=canvas_items.owner_id) AS "reconciledSensitivity",
@@ -127,13 +131,19 @@ export async function applyCanvasSnapshot(
       );
       counts.updated += updated.length;
     }
+    const [saved] = await tx.query<{ id: string }>(
+      'SELECT id FROM canvas_items WHERE owner_id=$1 AND uid=$2',
+      [owner, entry.uid],
+    );
+    if (saved) await materializeCanvasDeadlineFromItem(tx, owner, saved.id);
   }
-  counts.missing = (
-    await tx.query(
-      "UPDATE canvas_items SET availability='missing',version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND availability='available' AND NOT(uid=ANY($2::text[])) RETURNING id",
-      [owner, entries.map((entry) => entry.uid)],
-    )
-  ).length;
+  const missing = await tx.query<{ id: string }>(
+    "UPDATE canvas_items SET availability='missing',version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND availability='available' AND NOT(uid=ANY($2::text[])) RETURNING id",
+    [owner, entries.map((entry) => entry.uid)],
+  );
+  counts.missing = missing.length;
+  for (const item of missing)
+    await materializeCanvasDeadlineFromItem(tx, owner, item.id);
   await tx.query(
     'UPDATE canvas_sources SET last_imported_at=CURRENT_TIMESTAMP WHERE owner_id=$1',
     [owner],
@@ -340,6 +350,7 @@ export function registerCanvas(
             "UPDATE canvas_sync_jobs SET status='cancelled',lease_token=NULL,lease_until=NULL,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND status IN ('queued','running')",
             [user.id],
           );
+        await refreshTrackedDeadlineLabelFloor(tx, user.id);
         return { ok: true };
       },
     );
@@ -483,6 +494,7 @@ export function registerCanvas(
           `SELECT ${canvasItemColumns} FROM canvas_items WHERE owner_id=$1 AND id=$2`,
           [user.id, id],
         );
+        await materializeCanvasDeadlineFromItem(tx, user.id, id);
         return {
           item: canvasItemSchema.parse({
             ...current,

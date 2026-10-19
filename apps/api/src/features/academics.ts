@@ -25,6 +25,7 @@ import {
   version,
   mergeAcademicLabels,
 } from './common.js';
+import { refreshTrackedDeadlineLabelFloor } from '../connections/canvas-deadlines.js';
 
 export function registerAcademics(
   app: FastifyInstance,
@@ -201,6 +202,8 @@ export function registerAcademics(
                   );
                   await extendAcademicTopicLabels(tx, user.id, id, [label]);
                 }
+              if (table === 'courses')
+                await refreshTrackedDeadlineLabelFloor(tx, user.id);
               return response.parse({ [key]: row });
             },
           );
