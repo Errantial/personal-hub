@@ -1,5 +1,9 @@
 # Implementation log
 
+## 2026-10-19 - Owner live agent acceptance: usefulness review and deadline-coverage follow-up
+
+The owner reviewed the accelerated `deadline-watch` results as useful for the intended owner-created task planning workflow. The review also identified a distinct product/source-model limitation rather than a scheduled-run reliability failure: Canvas-imported assignment deadlines currently remain read-only source/calendar records and are not automatically represented as tracked deadline state eligible for the scheduled agent's normal planner context. The owner requested a coordinated implementation plan covering first-class tracked imported deadlines, timed Calendar placement/all-day decluttering, guarded `deadline-watch` deadline awareness and the separately proposed optional Jev mail classifier. No private goal/answer/source text is copied into this receipt.
+
 ## 2026-10-19 - Owner live agent acceptance: accelerated scheduled-run receipt
 
 After the owner asked to finish the scheduled-run portion promptly, the existing approved `deadline-watch` canary was changed from daily 18:00 to three same-day America/Denver schedule slots at 12:40, 12:50 and 13:00, with mail still disabled, the $2 monthly cap unchanged and Tasks/Calendar still set to Ask first. No Run now was used. The production run-history view showed all three scheduled runs exactly once. Each run completed in one attempt, started and finished in its scheduled minute, reported no changes and retained $0 held. The next scheduled slot advanced to Oct 20 at 12:40 PM, consistent with the saved recurring schedule.
