@@ -370,12 +370,7 @@ test('mail classifier selection is versioned and keeps Jev approval independent'
   await page.route('**/api/v1/mail-broker/readiness', (route) => {
     const profile = profiles.find((item) => item.alias === selectedAlias)!;
     const approval = approvals[selectedAlias];
-    const blockers = [
-      ...(approval.approved ? [] : ['CONSENT_REQUIRED']),
-      ...(selectedAlias === 'jev-mail'
-        ? ['ACCOUNT_VERIFICATION_REQUIRED']
-        : []),
-    ];
+    const blockers = approval.approved ? [] : ['CONSENT_REQUIRED'];
     return route.fulfill({
       json: {
         selectorVersion: settingsVersion,
@@ -443,7 +438,7 @@ test('mail classifier selection is versioned and keeps Jev approval independent'
   ).toBeVisible();
   await expect(
     page.getByText(/Jev needs current account-specific privacy/),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await panel
     .getByRole('button', { name: 'Approve broker', exact: true })
     .click();

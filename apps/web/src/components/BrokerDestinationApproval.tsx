@@ -241,17 +241,11 @@ export function BrokerDestinationApproval({
                 : 'Not configured'}
             </dd>
           </dl>
-          {selectedAlias === 'jev-mail' && (
-            <p className="meta">
-              Jev also requires current account-specific privacy, token-bound
-              and billing verification before any mail can be judged.
-            </p>
-          )}
           <Help label="Broker approval">
             This approves the displayed classifier to judge eligible imported
             mail. The receiving Assistant needs its own approval. Source grants,
-            labels, spending limits and provider-specific verification still
-            apply. Changed server profiles require approval again.
+            labels and spending limits still apply. Changed server profiles
+            require approval again.
           </Help>
           <div className="actions">
             <button

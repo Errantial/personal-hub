@@ -1,5 +1,7 @@
 # Tracked Canvas deadlines, task due-times, calendar decluttering, agent awareness and optional Jev — orchestrated implementation plan
 
+> **Owner direction update — 2026-10-20:** For Jev, remove the earlier account-verification/credential-revision/synthetic-quality activation ceremony. Jev runtime is API-key based. Keep the exact pinned model/endpoint, selector, independent provider consent, routing, budgets, grants, no fallback, no resend and cross-adapter receipt isolation. Any older Jev checklist item below that requires `TYPESAFE_VERIFICATION`, credential/account revision, account-specific attestation, or a synthetic-quality pass as a prerequisite to sending is superseded by this update.
+
 ## Goal
 
 Ship five related improvements without weakening the current provenance, routing, billing or agent-safety boundaries:
@@ -57,7 +59,7 @@ This document is the **orchestrator plan**. It is intentionally organized into d
 
 - The deployed broker remains `mail-broker` → `google/gemini-2.5-flash-lite` → `google-vertex`.
 - Current broker workflow/grants/lineage/budgeting are provider-neutral in important places, but policy, protocol, execution and UI still contain OpenRouter-specific assumptions.
-- The Jev plan is compatible with current safety constraints but must use an **independent selector, consent, account verification and quality gate**.
+- The Jev plan uses an **independent selector and consent** while preserving routing, budgets, grants and no-resend/cross-adapter isolation. No separate account-verification object or quality gate is required for runtime activation.
 
 ---
 
@@ -683,13 +685,13 @@ The detailed provider-specific design remains in [2026-10-19-jev-mail-broker-opt
 
 - OpenRouter/Gemini remains the missing-row/default `mail-broker` selection.
 - Add owner-selectable `jev-mail`, exact versioned Jev model only.
-- Independent provider consent, routing permission, credential/account revision and fresh account-specific ZDR/billing verification.
+- Independent provider consent and routing permission; the server-held Jev API key is the only Jev-specific credential requirement.
 - No fallback between classifiers.
 - Every retrieval is immutably pinned to one selector/profile/consent/verification/protocol identity before provider handoff.
 - Selector changes invalidate unfinished retrievals/continuations but do not reinterpret old receipts.
 - Existing mail grants and receiving Assistant destination remain independent.
 - Direct single-attempt TypeSafe HTTP transport; no SDK retry behavior.
-- Existing 60-case synthetic quality corpus must pass Jev independently before private mail disclosure.
+- The existing 60-case synthetic corpus remains optional evaluation tooling, not a runtime activation prerequisite.
 - Live Jev configuration/private-mail canary remains a later explicit owner/operator gate.
 
 ## Reconciled migration number
@@ -918,7 +920,7 @@ The orchestrator should include the global safety constraints plus a narrow owne
 
 ## Jev worker prompt
 
-> Implement the optional Jev mail-classifier plan using migration 076. Preserve OpenRouter/Gemini as default and all existing grant/provenance/budget/no-resend behavior. Independent selector/consent/account verification, exact versioned model, direct single-attempt TypeSafe HTTP, no fallback and cross-adapter receipt isolation are mandatory. No private mail/provider call during routine tests.
+> Implement the optional Jev mail-classifier plan using migration 076. Preserve OpenRouter/Gemini as default and all existing grant/provenance/budget/no-resend behavior. Independent selector/consent, exact versioned model, direct single-attempt TypeSafe HTTP, no fallback and cross-adapter receipt isolation are mandatory. Jev runtime configuration is API-key based; no separate account-verification object is required.
 
 ---
 
@@ -968,10 +970,10 @@ The orchestrator should include the global safety constraints plus a narrow owne
 
 - [ ] OpenRouter remains default/missing-row behavior.
 - [ ] Jev selector is versioned and independent of grants/downstream Assistant choice.
-- [ ] Jev requires independent consent + fresh account-specific privacy/billing evidence.
+- [ ] Jev requires independent consent/routing and a configured server API key; no separate account-evidence object is required.
 - [ ] Cross-adapter switch never resends/reinterprets an old batch.
 - [ ] Existing OpenRouter broker regression suite remains green.
-- [ ] Jev synthetic 60-case quality gate passes before any private mail use.
+- [ ] Jev synthetic evaluation is optional evidence, not a private-mail runtime prerequisite.
 
 ---
 

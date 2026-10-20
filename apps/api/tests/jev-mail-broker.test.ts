@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
 import { publicAIRegistry, readAIProfiles } from '../src/ai/profiles.js';
-import { readJevVerification, jevEndpoint } from '../src/ai/jev-policy.js';
+import { jevEndpoint } from '../src/ai/jev-policy.js';
 import {
   buildJevEnvelope,
   decodeJev,
@@ -41,7 +41,6 @@ const jevProfile = {
   upstreamProvider: null,
   model: jevModel,
   credentialEnv: 'AI_SECRET_JEV',
-  credentialRevision: 'synthetic-account-v1',
   enabled: true,
   maxInputCharacters: 20480,
   maxOutputTokens: 1000,
@@ -151,15 +150,6 @@ it('preserves the exact legacy OpenRouter profile fingerprint and keeps credenti
       .policyRevision,
   ).toBe(current.policyRevision);
 
-  expect(() =>
-    readAIProfiles({
-      AI_PROVIDER_PROFILES: JSON.stringify([
-        { ...jevProfile, credentialRevision: undefined },
-      ]),
-      AI_SECRET_JEV: 'synthetic-jev-secret',
-    }),
-  ).toThrow('Invalid environment configuration: AI_PROVIDER_PROFILES');
-
   const first = publicAIRegistry(
     readAIProfiles({
       AI_PROVIDER_PROFILES: JSON.stringify([jevProfile]),
@@ -168,36 +158,26 @@ it('preserves the exact legacy OpenRouter profile fingerprint and keeps credenti
   );
   const second = publicAIRegistry(
     readAIProfiles({
-      AI_PROVIDER_PROFILES: JSON.stringify([
-        { ...jevProfile, credentialRevision: 'synthetic-account-v2' },
-      ]),
-      AI_SECRET_JEV: 'synthetic-jev-secret',
+      AI_PROVIDER_PROFILES: JSON.stringify([jevProfile]),
+      AI_SECRET_JEV: 'rotated-synthetic-jev-secret',
     }),
   );
-  expect(first.profiles[0]!.policyRevision).not.toBe(
+  expect(first.profiles[0]!.policyRevision).toBe(
     second.profiles[0]!.policyRevision,
   );
-  expect(JSON.stringify(first)).not.toContain('synthetic-account-v1');
   expect(JSON.stringify(first)).not.toContain('AI_SECRET_JEV');
 });
 
-it('keeps legacy TypeSafe verification parseable while exposing the new account binding when present', () => {
-  const legacy = {
-    revision: 'legacy-v1',
-    profileRevision: 'a'.repeat(64),
-    expiresAt: '2099-01-01T00:00:00Z',
-    accountTermsZeroRetention: true,
-    completeEnvelopeTokenBound: true,
-    authoritativeUsageBilling: true,
-    envelopeByteLimit: 20480,
-    inputTokenUpperBound: 32000,
-  };
-  expect(readJevVerification(JSON.stringify(legacy))).toEqual(legacy);
-  expect(
-    readJevVerification(
-      JSON.stringify({ ...legacy, credentialRevision: 'synthetic-account-v1' }),
-    ),
-  ).toMatchObject({ credentialRevision: 'synthetic-account-v1' });
+it('accepts a Jev profile with only its API-key environment configured', () => {
+  const [profile] = readAIProfiles({
+    AI_PROVIDER_PROFILES: JSON.stringify([jevProfile]),
+    AI_SECRET_JEV: 'synthetic-jev-secret',
+  });
+  expect(profile).toMatchObject({
+    alias: 'jev-mail',
+    model: jevModel,
+    credential: 'synthetic-jev-secret',
+  });
 });
 
 it('builds bounded Score envelopes with Unicode clipping and frozen selection identity', () => {

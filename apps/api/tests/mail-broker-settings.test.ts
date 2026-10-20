@@ -38,7 +38,6 @@ const jevProfile = {
   upstreamProvider: null,
   model: jevModel,
   credentialEnv: 'AI_SECRET_JEV',
-  credentialRevision: 'synthetic-jev-account-v1',
   enabled: true,
   maxInputCharacters: 20480,
   maxOutputTokens: 1000,

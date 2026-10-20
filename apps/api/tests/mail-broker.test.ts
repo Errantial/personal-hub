@@ -110,7 +110,6 @@ const brokerProfiles = [
     upstreamProvider: null,
     model: jevModel,
     credentialEnv: 'AI_SECRET_JEV',
-    credentialRevision: 'synthetic-jev-account-v1',
     enabled: true,
     maxInputCharacters: 20480,
     maxOutputTokens: 1000,
@@ -134,26 +133,7 @@ const baseEnvironment = {
   AI_SECRET_JEV: 'synthetic-jev',
   AI_PROVIDER_PROFILES: JSON.stringify(brokerProfiles),
 };
-const baseRegistry = publicAIRegistry(
-  readConfig(baseEnvironment).AI_PROVIDER_PROFILES,
-);
-const jevProfileRevision = baseRegistry.profiles.find(
-  (candidate) => candidate.alias === 'jev-mail',
-)!.policyRevision;
-const environment = {
-  ...baseEnvironment,
-  TYPESAFE_VERIFICATION: JSON.stringify({
-    revision: 'synthetic-jev-verification-v1',
-    profileRevision: jevProfileRevision,
-    credentialRevision: 'synthetic-jev-account-v1',
-    expiresAt: '2099-01-01T00:00:00Z',
-    accountTermsZeroRetention: true,
-    completeEnvelopeTokenBound: true,
-    authoritativeUsageBilling: true,
-    envelopeByteLimit: 20480,
-    inputTokenUpperBound: 32000,
-  }),
-};
+const environment = baseEnvironment;
 const registry = publicAIRegistry(readConfig(environment).AI_PROVIDER_PROFILES);
 const profile = registry.profiles.find(
   (candidate) => candidate.alias === 'mail-broker',
@@ -867,7 +847,7 @@ it('executes a strictly verified synthetic Jev batch once and keeps its receipt 
   ).rejects.toMatchObject({ code: 'MAIL_ROUTE_CHANGED' });
 });
 
-it('never treats selecting Jev as provider consent, routing permission or account verification', async () => {
+it('never treats selecting Jev as provider consent or routing permission', async () => {
   await selectBroker('jev-mail', 1);
   await messages(1);
   const g = await grant();
@@ -888,26 +868,15 @@ it('never treats selecting Jev as provider consent, routing permission or accoun
   expect(await db.query('SELECT id FROM mail_broker_retrievals')).toEqual([]);
 
   await enableJevRoutingAndConsent();
-  const evidence = JSON.parse(environment.TYPESAFE_VERIFICATION);
-  const mismatched = readConfig({
-    ...environment,
-    TYPESAFE_VERIFICATION: JSON.stringify({
-      ...evidence,
-      credentialRevision: 'different-account-revision',
-    }),
-  });
   await expect(
     beginBrokerRetrieval(
       db,
-      mismatched,
+      config,
       owner,
       { ...request, operationId: randomUUID() },
       context(),
     ),
-  ).rejects.toMatchObject({
-    code: 'MAIL_BROKER_BLOCKED',
-    message: expect.stringContaining('ACCOUNT_VERIFICATION_REQUIRED'),
-  });
+  ).resolves.toHaveProperty('receipt.id');
 });
 
 it('settles authoritative charges but discards output when the router reports a cache hit', async () => {

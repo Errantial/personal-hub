@@ -22,10 +22,6 @@ const profileSchema = z
       .max(100)
       .regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/),
     credentialEnv: z.string().regex(/^AI_SECRET_[A-Z][A-Z0-9_]{0,63}$/),
-    credentialRevision: z
-      .string()
-      .regex(/^[A-Za-z0-9._-]{1,80}$/)
-      .optional(),
     enabled: z.boolean().default(false),
     maxInputCharacters: z.number().int().min(1).max(48000),
     maxOutputTokens: z.number().int().min(1).max(32000),
@@ -37,12 +33,6 @@ const profileSchema = z
       ctx.addIssue({
         code: 'custom',
         message: 'Only OpenRouter requires a pinned upstream provider.',
-      });
-    if (value.alias === 'jev-mail' && !value.credentialRevision)
-      ctx.addIssue({
-        code: 'custom',
-        path: ['credentialRevision'],
-        message: 'Jev mail profiles require a credential/account revision.',
       });
   });
 const profilesSchema = z
@@ -93,15 +83,10 @@ export function publicAIRegistry(profiles: ReturnType<typeof readAIProfiles>) {
         pricing: profile.pricing,
         retentionDisclosure: profile.retentionDisclosure,
       };
-      // Preserve the exact legacy hash input when the new field is absent. Jev
-      // binds its non-secret credential/account revision without exposing it.
-      const fingerprint = profile.credentialRevision
-        ? { ...publicProfile, credentialRevision: profile.credentialRevision }
-        : publicProfile;
       return {
         ...publicProfile,
         policyRevision: createHash('sha256')
-          .update(JSON.stringify(fingerprint))
+          .update(JSON.stringify(publicProfile))
           .digest('hex'),
       };
     })

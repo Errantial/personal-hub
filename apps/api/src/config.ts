@@ -1,7 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { readAIProfiles } from './ai/profiles.js';
-import { readJevVerification } from './ai/jev-policy.js';
 
 const originSchema = z.string().refine((value) => {
   try {
@@ -119,9 +118,6 @@ export function readConfig(environment: Record<string, string | undefined>) {
   return {
     ...result.data,
     AI_PROVIDER_PROFILES: readAIProfiles(environment),
-    TYPESAFE_VERIFICATION: readJevVerification(
-      environment.TYPESAFE_VERIFICATION,
-    ),
   };
 }
 

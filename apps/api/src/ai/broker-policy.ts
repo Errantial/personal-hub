@@ -16,7 +16,7 @@ import {
   brokerUpstream,
   verifyOpenRouterBrokerEndpoint,
 } from './broker-protocol.js';
-import { jevModel } from './jev-broker-protocol.js';
+import { jevEnvelopeLimit, jevModel } from './jev-broker-protocol.js';
 import { brokerAdapter } from './broker-adapter.js';
 import type { BrokerAdapterQuote } from './broker-adapter.js';
 import {
@@ -40,9 +40,6 @@ export async function brokerPolicyForAlias(
     (candidate) => candidate.alias === alias,
   );
   const secret = configured?.credential ?? null;
-  const credentialRevision = configured?.credentialRevision ?? null;
-  const jevVerification =
-    alias === 'jev-mail' ? config.TYPESAFE_VERIFICATION : null;
   const consent = await readAIProviderConsent(tx, owner, alias);
   const routing = await readAIRoutingPolicy(tx, owner);
   const downstream = await readLiveDestination(tx, config, owner);
@@ -57,7 +54,15 @@ export async function brokerPolicyForAlias(
             inputTokenUpperBound: brokerEnvelopeLimit + 500,
           }
         : null
-      : jevVerification;
+      : profile
+        ? {
+            revision: 'jev-direct-api-key-v1',
+            profileRevision: profile.policyRevision,
+            envelopeByteLimit: jevEnvelopeLimit,
+            inputTokenUpperBound: 32000,
+            authoritativeUsageBilling: true,
+          }
+        : null;
   const quote = profile ? quoteAIProfile(profile) : null;
   const blockers: string[] = [];
 
@@ -80,20 +85,9 @@ export async function brokerPolicyForAlias(
     if (
       !profile ||
       profile.model !== jevModel ||
-      profile.upstreamProvider !== null ||
-      !credentialRevision
+      profile.upstreamProvider !== null
     )
       blockers.push('PINNED_MODEL_REQUIRED');
-    if (
-      !jevVerification ||
-      jevVerification.profileRevision !== profile?.policyRevision ||
-      jevVerification.credentialRevision !== credentialRevision ||
-      Date.parse(jevVerification.expiresAt) <= Date.now() ||
-      jevVerification.accountTermsZeroRetention !== true ||
-      jevVerification.completeEnvelopeTokenBound !== true ||
-      jevVerification.authoritativeUsageBilling !== true
-    )
-      blockers.push('ACCOUNT_VERIFICATION_REQUIRED');
   }
 
   if (!profile?.retentionDisclosure) blockers.push('RETENTION_REQUIRED');
@@ -119,9 +113,7 @@ export async function brokerPolicyForAlias(
     quote.inputTokenLimit > 32000 ||
     profile?.maxOutputTokens !== 1000 ||
     profile?.pricing?.outputMicrosPerMillionTokens !== 0 ||
-    (verification &&
-      (quote.inputTokenLimit < verification.inputTokenUpperBound ||
-        profile?.maxInputCharacters > verification.envelopeByteLimit))
+    profile?.maxInputCharacters > jevEnvelopeLimit
   )
     blockers.push('QUOTE_REQUIRED');
 
@@ -136,7 +128,7 @@ export async function brokerPolicyForAlias(
     adapter,
     profile,
     secret,
-    credentialRevision,
+    credentialRevision: null,
     consent,
     routing,
     downstream: downstream.destination,
@@ -172,11 +164,7 @@ export function brokerAdapterQuote(
       policy.profile.pricing.inputMicrosPerMillionTokens,
     outputMicrosPerMillionTokens:
       policy.profile.pricing.outputMicrosPerMillionTokens,
-    authoritativeUsageBilling:
-      policy.alias === 'mail-broker' ||
-      (!!policy.verification &&
-        'authoritativeUsageBilling' in policy.verification &&
-        policy.verification.authoritativeUsageBilling === true),
+    authoritativeUsageBilling: true,
   };
 }
 
