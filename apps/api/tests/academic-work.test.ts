@@ -1137,10 +1137,10 @@ it('preserves legacy planner rows and receipts without inventing academic links 
   const input = { title: 'Legacy planner task', operationId: randomUUID() };
   const original = await write('POST', '/api/v1/tasks', input);
   await db.exec(
-    'DROP TABLE academic_planner_sources; ALTER TABLE tasks DROP CONSTRAINT tasks_owned_id',
+    'DROP TABLE tracked_deadline_planner_links; DROP TABLE academic_planner_sources; ALTER TABLE tasks DROP CONSTRAINT tasks_owned_id',
   );
   await db.query(
-    "DELETE FROM schema_migrations WHERE name IN ('028_academic_planner_sources.sql','045_academic_origin_guard.sql')",
+    "DELETE FROM schema_migrations WHERE name IN ('028_academic_planner_sources.sql','045_academic_origin_guard.sql','075_tracked_deadline_planner_links.sql')",
   );
   await migrate(db);
   expect((await write('POST', '/api/v1/tasks', input)).json()).toEqual(
@@ -1798,6 +1798,7 @@ it('upgrades a populated planner without changing existing records or receipts',
     ALTER TABLE ai_conversation_turns DROP CONSTRAINT ai_study_turn_owned;
     ALTER TABLE reminders DROP CONSTRAINT reminders_owned_academic_work;
     ALTER TABLE reminders DROP COLUMN academic_work_id;
+    DROP TABLE tracked_deadline_planner_links;
     DROP TABLE academic_planner_sources;
     ALTER TABLE tasks DROP CONSTRAINT tasks_owned_id;
     DROP TABLE study_event_contexts;
@@ -1807,7 +1808,7 @@ it('upgrades a populated planner without changing existing records or receipts',
     ALTER TABLE events DROP CONSTRAINT events_owned_id;
     DROP TABLE academic_work`);
   await db.query(
-    "DELETE FROM schema_migrations WHERE name IN ('026_academic_work.sql','027_study_workload_sources.sql','028_academic_planner_sources.sql','029_academic_work_reminders.sql','045_academic_origin_guard.sql','067_ai_study_suggestions.sql')",
+    "DELETE FROM schema_migrations WHERE name IN ('026_academic_work.sql','027_study_workload_sources.sql','028_academic_planner_sources.sql','029_academic_work_reminders.sql','045_academic_origin_guard.sql','067_ai_study_suggestions.sql','075_tracked_deadline_planner_links.sql')",
   );
   await migrate(db);
   expect((await get('/api/v1/courses')).json()).toEqual(course);
