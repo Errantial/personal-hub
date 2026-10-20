@@ -1,20 +1,7 @@
-import { z } from 'zod';
+import { mailBrokerSettingsSchema, type MailBrokerAlias } from '@hub/contracts';
+export type { MailBrokerAlias } from '@hub/contracts';
 import type { QueryExecutor } from '../db/database.js';
 import { ApiError } from '../errors.js';
-
-export const mailBrokerAliasSchema = z.enum(['mail-broker', 'jev-mail']);
-export type MailBrokerAlias = z.infer<typeof mailBrokerAliasSchema>;
-
-export const mailBrokerSettingsSchema = z.strictObject({
-  version: z.number().int().positive(),
-  selectedAlias: mailBrokerAliasSchema,
-});
-
-export const mailBrokerSettingsWriteSchema = z.strictObject({
-  operationId: z.string().uuid(),
-  expectedVersion: z.number().int().positive(),
-  selectedAlias: mailBrokerAliasSchema,
-});
 
 const columns = 'version,selected_alias AS "selectedAlias"';
 

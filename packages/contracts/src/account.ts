@@ -51,6 +51,7 @@ import {
 import { taskSchema, userSchema, plannerRestorationSchema } from './core.js';
 import { canvasItemSchema } from './connections.js';
 import { outlookAccessGateSchema } from './outlook.js';
+import { mailBrokerSettingsSchema } from './mail-broker.js';
 import {
   canvasLmsCourseSchema,
   canvasLmsAssignmentSchema,
@@ -126,6 +127,10 @@ export const plannerExportSchema = z.object({
     aiBudget: aiBudgetSettingsSchema.nullable().default(null),
     aiBudgetReservations: z.array(aiBudgetReservationSchema).default([]),
     aiProviderConsents: z.array(aiProviderConsentSchema).default([]),
+    mailBrokerSettings: mailBrokerSettingsSchema.default({
+      version: 1,
+      selectedAlias: 'mail-broker',
+    }),
     aiRequests: z.array(aiRequestSchema).default([]),
     aiSavedAnswers: z.array(aiSavedAnswerSchema).default([]),
     studyPreferences: studyPreferencesSchema.nullable().default(null),

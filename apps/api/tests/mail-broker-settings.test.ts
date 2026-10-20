@@ -1,5 +1,9 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest';
+import {
+  mailBrokerSettingsResponseSchema,
+  mailBrokerSettingsWriteSchema,
+} from '@hub/contracts';
 import { buildApp } from '../src/app.js';
 import { readConfig } from '../src/config.js';
 import { openDatabase } from '../src/db/database.js';
@@ -122,9 +126,11 @@ afterAll(async () => {
 });
 
 it('defaults to OpenRouter version one and keeps settings owner-isolated', async () => {
-  expect((await call('GET', '/api/v1/mail-broker/settings')).json()).toEqual({
-    settings: { version: 1, selectedAlias: 'mail-broker' },
-  });
+  expect(
+    mailBrokerSettingsResponseSchema.parse(
+      (await call('GET', '/api/v1/mail-broker/settings')).json(),
+    ),
+  ).toEqual({ settings: { version: 1, selectedAlias: 'mail-broker' } });
   expect(
     (
       await call('GET', '/api/v1/mail-broker/settings', undefined, otherCookie)
@@ -141,6 +147,7 @@ it('versions selector writes, replays exact operations and mutates no broker aut
     expectedVersion: 1,
     selectedAlias: 'jev-mail',
   };
+  expect(mailBrokerSettingsWriteSchema.parse(input)).toEqual(input);
   const first = await call('PUT', '/api/v1/mail-broker/settings', input);
   expect(first.statusCode, first.body).toBe(200);
   expect(first.json()).toEqual({

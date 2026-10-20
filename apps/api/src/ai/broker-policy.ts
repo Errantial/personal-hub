@@ -203,45 +203,33 @@ export async function brokerReadiness(
   )
     blockers.push('BUDGET_EXHAUSTED');
 
-  // Preserve the deployed response shape byte-for-shape for the missing-row
-  // OpenRouter default. The shared contract/UI follow-up will expose the new
-  // adapter-neutral destination shape for Jev.
-  if (policy.alias === 'mail-broker')
-    return mailBrokerReadinessSchema.parse({
-      status: blockers.length ? 'blocked' : 'ready',
-      blockers,
-      profileRevision: policy.profile?.policyRevision ?? null,
-      approvalVersion: policy.consent.version,
-      downstream: policy.downstream ? 'ready' : 'blocked',
-      dispatchConnectedToAgents: true,
-      destination: policy.profile
+  return mailBrokerReadinessSchema.parse({
+    selectorVersion: policy.selector.version,
+    selectedAlias: policy.alias,
+    status: blockers.length ? 'blocked' : 'ready',
+    blockers,
+    profileRevision: policy.profile?.policyRevision ?? null,
+    approvalVersion: policy.consent.version,
+    downstream: policy.downstream ? 'ready' : 'blocked',
+    dispatchConnectedToAgents: true,
+    destination: policy.profile
+      ? policy.alias === brokerAlias
         ? {
             alias: brokerAlias,
+            adapter: 'openrouter' as const,
             model: policy.profile.model,
             router: 'openrouter' as const,
             upstream: policy.profile.upstreamProvider ?? '',
           }
-        : null,
-      endpointStatus: 'unchecked',
-    });
-
-  return {
-    status: blockers.length ? ('blocked' as const) : ('ready' as const),
-    blockers,
-    profileRevision: policy.profile?.policyRevision ?? null,
-    approvalVersion: policy.consent.version,
-    downstream: policy.downstream ? ('ready' as const) : ('blocked' as const),
-    dispatchConnectedToAgents: true,
-    destination: policy.profile
-      ? {
-          alias: policy.alias,
-          adapter: policy.adapter.kind,
-          model: policy.profile.model,
-          upstream: policy.profile.upstreamProvider,
-        }
+        : {
+            alias: 'jev-mail' as const,
+            adapter: 'typesafe' as const,
+            model: policy.profile.model,
+            upstream: null,
+          }
       : null,
-    endpointStatus: 'unchecked' as const,
-  };
+    endpointStatus: 'unchecked',
+  });
 }
 
 export function requireBrokerReady(

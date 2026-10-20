@@ -235,6 +235,230 @@ for (const width of [1280, 320]) {
   });
 }
 
+test('mail classifier selection is versioned and keeps Jev approval independent', async ({
+  page,
+}) => {
+  await authenticate(page);
+  const registryRevision = 'c'.repeat(64);
+  const openRouterRevision = 'a'.repeat(64);
+  const jevRevision = 'b'.repeat(64);
+  let settingsVersion = 1;
+  let selectedAlias: 'mail-broker' | 'jev-mail' = 'mail-broker';
+  const approvals = {
+    'mail-broker': { approved: true, version: 2 },
+    'jev-mail': { approved: false, version: 1 },
+  };
+  const selectorWrites: Record<string, unknown>[] = [];
+  const approvalWrites: Array<{
+    alias: string;
+    body: Record<string, unknown>;
+  }> = [];
+  const profiles = [
+    {
+      alias: 'mail-broker',
+      adapter: 'openrouter',
+      accessMode: 'api-key',
+      upstreamProvider: 'google-vertex',
+      model: 'google/gemini-2.5-flash-lite',
+      configuration: 'configured',
+      maxInputCharacters: 20480,
+      maxOutputTokens: 2048,
+      policyRevision: openRouterRevision,
+      pricing: {
+        revision: 'synthetic-openrouter-price',
+        validUntil: '2099-01-01T00:00:00Z',
+        inputTokenLimit: 32000,
+        inputMicrosPerMillionTokens: 100000,
+        outputMicrosPerMillionTokens: 400000,
+      },
+      retentionDisclosure: {
+        revision: 'synthetic-openrouter-terms',
+        summary: 'Synthetic OpenRouter retention terms.',
+      },
+    },
+    {
+      alias: 'jev-mail',
+      adapter: 'typesafe',
+      accessMode: 'api-key',
+      upstreamProvider: null,
+      model: 'jev-1.14.0',
+      configuration: 'configured',
+      maxInputCharacters: 20480,
+      maxOutputTokens: 1000,
+      policyRevision: jevRevision,
+      pricing: {
+        revision: 'synthetic-jev-price',
+        validUntil: '2099-01-01T00:00:00Z',
+        inputTokenLimit: 32000,
+        inputMicrosPerMillionTokens: 42000,
+        outputMicrosPerMillionTokens: 0,
+      },
+      retentionDisclosure: {
+        revision: 'synthetic-jev-terms',
+        summary: 'Synthetic account-bound TypeSafe retention terms.',
+      },
+    },
+  ];
+  const consent = (alias: 'mail-broker' | 'jev-mail') => ({
+    alias,
+    version: approvals[alias].version,
+    approved: approvals[alias].approved,
+    profileRevision: approvals[alias].approved
+      ? alias === 'mail-broker'
+        ? openRouterRevision
+        : jevRevision
+      : null,
+    updatedAt: null,
+  });
+  const readinessProfile = (alias: 'mail-broker' | 'jev-mail') => ({
+    alias,
+    consent: consent(alias),
+    consentCurrent: approvals[alias].approved,
+    blockers: approvals[alias].approved ? [] : ['CONSENT_REQUIRED'],
+    quote: {
+      basis: 'configured_token_allowance',
+      currency: 'USD',
+      priceRevision:
+        alias === 'mail-broker'
+          ? 'synthetic-openrouter-price'
+          : 'synthetic-jev-price',
+      validUntil: '2099-01-01T00:00:00Z',
+      inputTokenLimit: 32000,
+      outputTokenLimit: alias === 'mail-broker' ? 2048 : 1000,
+      inputMaximumMicros: alias === 'mail-broker' ? 3200 : 1344,
+      outputMaximumMicros: alias === 'mail-broker' ? 820 : 0,
+      maximumChargeMicros: alias === 'mail-broker' ? 4020 : 1344,
+    },
+  });
+  await page.route('**/api/v1/ai/providers', (route) =>
+    route.fulfill({
+      json: {
+        revision: registryRevision,
+        dispatchEnabled: false,
+        health: 'not_checked',
+        profiles,
+      },
+    }),
+  );
+  await page.route('**/api/v1/ai/provider-readiness', (route) =>
+    route.fulfill({
+      json: {
+        registryRevision,
+        dispatchEnabled: false,
+        profiles: [
+          readinessProfile('mail-broker'),
+          readinessProfile('jev-mail'),
+        ],
+      },
+    }),
+  );
+  await page.route('**/api/v1/mail-broker/settings', async (route) => {
+    if (route.request().method() === 'GET')
+      return route.fulfill({
+        json: { settings: { version: settingsVersion, selectedAlias } },
+      });
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    selectorWrites.push(body);
+    expect(body.expectedVersion).toBe(settingsVersion);
+    expect(body.operationId).toMatch(/^[a-f0-9-]{36}$/);
+    selectedAlias = body.selectedAlias as 'mail-broker' | 'jev-mail';
+    settingsVersion++;
+    await route.fulfill({
+      json: { settings: { version: settingsVersion, selectedAlias } },
+    });
+  });
+  await page.route('**/api/v1/mail-broker/readiness', (route) => {
+    const profile = profiles.find((item) => item.alias === selectedAlias)!;
+    const approval = approvals[selectedAlias];
+    const blockers = [
+      ...(approval.approved ? [] : ['CONSENT_REQUIRED']),
+      ...(selectedAlias === 'jev-mail'
+        ? ['ACCOUNT_VERIFICATION_REQUIRED']
+        : []),
+    ];
+    return route.fulfill({
+      json: {
+        selectorVersion: settingsVersion,
+        selectedAlias,
+        status: blockers.length ? 'blocked' : 'ready',
+        blockers,
+        profileRevision: profile.policyRevision,
+        approvalVersion: approval.version,
+        downstream: 'ready',
+        dispatchConnectedToAgents: true,
+        destination:
+          selectedAlias === 'mail-broker'
+            ? {
+                alias: 'mail-broker',
+                adapter: 'openrouter',
+                model: profile.model,
+                router: 'openrouter',
+                upstream: 'google-vertex',
+              }
+            : {
+                alias: 'jev-mail',
+                adapter: 'typesafe',
+                model: profile.model,
+                upstream: null,
+              },
+        endpointStatus: 'unchecked',
+      },
+    });
+  });
+  await page.route('**/api/v1/ai/provider-consents/*', async (route) => {
+    const alias = route.request().url().endsWith('/jev-mail')
+      ? 'jev-mail'
+      : 'mail-broker';
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    approvalWrites.push({ alias, body });
+    expect(body.expectedVersion).toBe(approvals[alias].version);
+    approvals[alias].approved = Boolean(body.approved);
+    approvals[alias].version++;
+    await route.fulfill({ json: consent(alias) });
+  });
+
+  await page.goto('/');
+  await openSettings(page, 'AI');
+  const panel = page.getByRole('region', {
+    name: 'Broker destination approval',
+  });
+  await expect(
+    panel.getByRole('combobox', { name: 'Mail classifier' }),
+  ).toHaveValue('mail-broker');
+  await panel
+    .getByRole('combobox', { name: 'Mail classifier' })
+    .selectOption('jev-mail');
+  await panel.getByRole('button', { name: 'Save classifier' }).click();
+  await expect(
+    panel.getByText('Selected: Jev / TypeSafe · version 2'),
+  ).toBeVisible();
+  expect(selectorWrites).toHaveLength(1);
+  expect(approvalWrites).toHaveLength(0);
+  await expect(panel.getByText('jev-1.14.0', { exact: true })).toBeVisible();
+  await expect(
+    panel.getByText('Synthetic account-bound TypeSafe retention terms.'),
+  ).toBeVisible();
+  await expect(
+    panel.getByText('Broker approval required', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/Jev needs current account-specific privacy/),
+  ).toBeVisible();
+  await panel
+    .getByRole('button', { name: 'Approve broker', exact: true })
+    .click();
+  await expect(
+    panel.getByText('Broker approved', { exact: true }),
+  ).toBeVisible();
+  expect(approvalWrites).toHaveLength(1);
+  expect(approvalWrites[0]!.alias).toBe('jev-mail');
+  await page.context().setOffline(true);
+  await expect(
+    panel.getByRole('combobox', { name: 'Mail classifier' }),
+  ).toBeDisabled();
+  await page.context().setOffline(false);
+});
+
 test('mail access grants save per owner, report blocked dispatch and never invent a grant', async ({
   page,
 }) => {

@@ -1490,8 +1490,15 @@ it('requires the new broker profile and independent consent, without TypeSafe ac
   const ready = (await call('GET', '/api/v1/mail-broker/readiness')).json();
   expect(ready.status).toBe('ready');
   expect(ready.destination).toMatchObject({
+    alias: 'mail-broker',
+    adapter: 'openrouter',
     model: brokerModel,
+    router: 'openrouter',
     upstream: 'google-vertex',
+  });
+  expect(ready).toMatchObject({
+    selectorVersion: 1,
+    selectedAlias: 'mail-broker',
   });
   const b = await begin();
   for (const unready of [

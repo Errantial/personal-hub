@@ -17,7 +17,7 @@ it('adds migration 076 without rewriting pre-076 broker receipts or inventing a 
     await db.exec(
       'CREATE TABLE schema_migrations (name TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)',
     );
-    for (const name of names.filter((name) => Number(name.slice(0, 3)) <= 72)) {
+    for (const name of names.filter((name) => Number(name.slice(0, 3)) < 76)) {
       const sql = await readFile(new URL(name, directory), 'utf8');
       await db.exec(sql);
       await db.query(

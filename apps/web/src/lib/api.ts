@@ -183,6 +183,8 @@ export async function liveRequestJson<T>(
         'Mail access is off. Choose the mail sources to allow under Settings › AI › Mail access, then ask again.',
       MAIL_BROKER_INCOMPLETE:
         'The mail search did not finish, so no mail was sent to the Assistant. Nothing is resent automatically.',
+      MAIL_BROKER_DESTINATION_UNAVAILABLE:
+        'That mail classifier is not configured on this server. Choose another classifier.',
       MAIL_CONTINUATION_INVALID:
         'That older-mail search is no longer valid. Ask again as a new request.',
       MAIL_FORWARDING_CHANGED:
