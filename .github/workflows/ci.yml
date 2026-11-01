@@ -11,7 +11,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # The Linux job runs the full check suite and 169 browser tests. That now
+    # takes about 37 minutes; the old 30-minute cap cancelled main and PR runs.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
         with:
