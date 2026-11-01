@@ -349,6 +349,25 @@ test('offline editor keeps notes with completion and clears the server banner', 
     }),
   ]);
 });
+test('a completed sync retries a failed workspace bootstrap without an online event', async ({
+  page,
+}) => {
+  await warm(page);
+  const sync = syncState(page);
+  const banner = page.getByText('The hub server is unavailable.');
+  // Bootstrap and sync both fail, but the browser stays online, so no
+  // "online" event fires when they recover. Only a completed sync can tell
+  // the shell to retry the workspace read.
+  await page.route('**/api/v1/bootstrap', (route) => route.abort());
+  await page.route('**/api/v1/auth/session', (route) => route.abort());
+  await page.reload();
+  await expect(banner).toBeVisible();
+  await page.unroute('**/api/v1/bootstrap');
+  await page.unroute('**/api/v1/auth/session');
+  await syncNow(page);
+  await expect(sync).toContainText('Online · All saved', { timeout: 15000 });
+  await expect(banner).toHaveCount(0);
+});
 test('offline conflicts retain local drafts until explicitly discarded', async ({
   page,
   context,

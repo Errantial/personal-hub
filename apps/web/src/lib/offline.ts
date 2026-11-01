@@ -255,22 +255,23 @@ type Transport = (
   path: string,
   options?: { method?: string; body?: unknown },
 ) => Promise<unknown>;
-export async function syncTasks(send: Transport) {
-  if (!navigator.onLine || !navigator.locks || !currentOwner) return;
+/** Resolves true only after a server session round-trip, not when skipped. */
+export async function syncTasks(send: Transport): Promise<boolean> {
+  if (!navigator.onLine || !navigator.locks || !currentOwner) return false;
   return navigator.locks.request(
     'hub-task-sync',
     { ifAvailable: true },
     async (lock) => {
-      if (!lock) return;
+      if (!lock) return false;
       const owner = currentOwner;
       const session = sessionResponseSchema.parse(
         await send('/api/v1/auth/session'),
       );
-      if (owner !== currentOwner) return;
+      if (owner !== currentOwner) return false;
       if (session.user?.id !== owner) {
         await lockOffline();
         window.dispatchEvent(new Event('hub-auth-required'));
-        return;
+        return false;
       }
       await rememberSession(session);
       for (let count = 0; count < 100; count++) {
@@ -317,6 +318,7 @@ export async function syncTasks(send: Transport) {
         }
       }
       changed();
+      return true;
     },
   );
 }
