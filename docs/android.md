@@ -63,4 +63,6 @@ A second desktop emulation pass on 2026-11-01 re-tested branch `fix/android-qa-f
 
 A follow-up fixed the one remaining low-severity banner edge case: when only the workspace bootstrap failed and task sync kept succeeding, no `online` event fired, so the banner could persist beside "Online · All saved". A successful sync now triggers one workspace retry. The calendar also opens a quarter hour above its first row so the opening hour label is not split by the scroll edge.
 
+A focused re-check rebuilt the APK from `38da2c6` and made the server unreachable at the device loopback, then restored it without toggling device networking (zero `online`/`offline` events). A manual sync cleared both the banner and the header summary without pressing Retry; a queued create and note edit replayed to the expected versions; and the first calendar hour label was fully visible at 360 CSS px. All five focused checks passed with no new defects.
+
 These are emulator results. Actual Kompakt API/WebView, input, viewport, monochrome contrast, scrolling/ghosting, sleep modes, battery and release signing remain hardware gates.
