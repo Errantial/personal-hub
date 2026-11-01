@@ -530,3 +530,12 @@ main:focus {
 .memory-add {
   margin-top: var(--space-3);
 }
+
+/* Six bottom-nav destinations at 320 px: tighten the label box so adjacent
+   names do not read as one word. */
+@media (max-width: 360px) {
+  .nav > .nav__list .nav__link {
+    padding-inline: 0;
+    font-size: 0.75rem;
+  }
+}

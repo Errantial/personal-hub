@@ -73,8 +73,11 @@
 }
 .time-grid__hour {
   position: absolute;
+  z-index: 1;
   right: var(--space-2);
   transform: translateY(-50%);
+  padding: 0 2px;
+  background: var(--surface);
   color: var(--text-muted);
   font-size: var(--text-caption);
   white-space: nowrap;

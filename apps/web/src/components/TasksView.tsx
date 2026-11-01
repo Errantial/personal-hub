@@ -393,7 +393,7 @@ function TaskRow({
           type="checkbox"
           aria-label={`Complete ${task.title}`}
           checked={task.completed}
-          disabled={toggle.pending}
+          disabled={toggle.pending || current}
           onChange={() => {
             void complete();
           }}
@@ -495,7 +495,16 @@ function TaskEditor({
   const [titleError, setTitleError] = useState('');
   const [loading, setLoading] = useState(false);
   const title = useRef<HTMLInputElement>(null);
+  const section = useRef<HTMLElement>(null);
+  const shown = useRef(false);
   const save = useMutation();
+  // Narrow layouts place the editor below the list; bring it into view once
+  // instead of leaving the tapped row looking unchanged above the fold.
+  useEffect(() => {
+    if (!draft || shown.current) return;
+    shown.current = true;
+    section.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [draft]);
   if (latest && !draft) {
     setDraft(toDraft(latest));
     setBase(latest.version);
@@ -568,13 +577,18 @@ function TaskEditor({
     setMessage(
       state?.queued.includes(id) ? 'Changes queued for sync.' : 'Saved.',
     );
-    // Our own save just completed, so the refreshed version is ours to adopt.
-    const fresh = (await reload())?.data.tasks.find((task) => task.id === id);
-    setBase(fresh?.version ?? result.task.version);
+    // Our own save just completed. Keep the version returned for this write;
+    // if a reload sees a newer remote record, that is a real conflict.
+    setBase(result.task.version);
+    await reload();
   }
 
   return (
-    <section className="panel task-editor" aria-labelledby="task-editor-title">
+    <section
+      ref={section}
+      className="panel task-editor"
+      aria-labelledby="task-editor-title"
+    >
       <BackLink route={listRoute} navigate={navigate} />
       <h2 id="task-editor-title">Edit task</h2>
       {queuedConflict && (

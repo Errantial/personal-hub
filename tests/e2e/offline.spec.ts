@@ -229,9 +229,12 @@ test('offline create, edit, completion and delete survive reload and reconcile o
   await expect(taskEditor(page).getByRole('status')).toHaveText(
     'Changes queued for sync.',
   );
-  await panel
-    .getByRole('checkbox', { name: 'Complete Offline revised', exact: true })
-    .click();
+  // The open editor owns the task; complete it there rather than through the
+  // hidden/stale row checkbox.
+  await taskEditor(page)
+    .getByRole('checkbox', { name: 'Completed', exact: true })
+    .check();
+  await taskEditor(page).getByRole('button', { name: 'Save changes' }).click();
   await expect(sync).toContainText('Offline · 3 queued');
   await page.reload();
   await showTasks(page, 'Done');
@@ -284,6 +287,67 @@ test('offline create, edit, completion and delete survive reload and reconcile o
       exact: true,
     }),
   ).toBeChecked();
+});
+test('offline editor keeps notes with completion and clears the server banner', async ({
+  page,
+  context,
+}) => {
+  await warm(page);
+  const panel = tasksRegion(page);
+  const sync = syncState(page);
+  await context.setOffline(true);
+  await addTask(page, 'Offline notes');
+  // With no editor open, the row remains the quick completion path.
+  await expect(
+    panel.getByRole('checkbox', {
+      name: 'Complete Offline notes',
+      exact: true,
+    }),
+  ).toBeEnabled();
+  await openTask(page, 'Offline notes');
+  const editor = taskEditor(page);
+  // While the editor owns the task, a row toggle cannot send a stale record.
+  await expect(
+    panel.getByRole('checkbox', {
+      name: 'Complete Offline notes',
+      exact: true,
+    }),
+  ).toBeDisabled();
+  await editor
+    .getByLabel('Notes (optional)', { exact: true })
+    .fill('Notes survive');
+  await editor
+    .getByRole('checkbox', { name: 'Completed', exact: true })
+    .check();
+  await editor.getByRole('button', { name: 'Save changes' }).click();
+  await expect(editor.getByRole('status')).toHaveText(
+    'Changes queued for sync.',
+  );
+  await expect(
+    editor.getByRole('alert').filter({ hasText: 'Changed elsewhere' }),
+  ).toHaveCount(0);
+  await expect(sync).toContainText('2 queued');
+  // Reloading while offline is what used to leave the banner stuck after sync.
+  await page.reload();
+  await expect(sync).toContainText('2 queued');
+  await context.setOffline(false);
+  await syncNow(page);
+  await expect(sync).toContainText('Online · All saved', { timeout: 15000 });
+  await expect(page.getByText('The hub server is unavailable.')).toHaveCount(0);
+  const response = await page.request.get('/api/v1/tasks');
+  const tasks = (await response.json()).tasks as {
+    title: string;
+    notes: string;
+    completed: boolean;
+    version: number;
+  }[];
+  expect(tasks.filter((task) => task.title === 'Offline notes')).toEqual([
+    expect.objectContaining({
+      notes: 'Notes survive',
+      completed: true,
+      version: 2,
+    }),
+  ]);
 });
 test('offline conflicts retain local drafts until explicitly discarded', async ({
   page,

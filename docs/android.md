@@ -54,3 +54,7 @@ Native service workers are disabled because the shell is bundled. API callers ke
 ## Remaining acceptance
 
 Record emulator and hardware results separately. Actual Kompakt API/WebView, input, viewport, monochrome contrast, scrolling/ghosting, sleep modes and battery remain device gates. Local reminder permission denial, closed-app delivery and reboot recovery need implementation and testing. Production TLS login/session recovery and release signing are separate acceptance checks.
+
+## Shell changes after the 2026-10-10 run
+
+The 2026-11-01 shell update routes the system Back gesture through WebView history and backgrounds the task when no history remains; the activity also declares `adjustResize` for the soft keyboard. The instrumentation test now follows the current route/editor selectors, completes through the editor's **Completed** checkbox rather than the hidden row checkbox, and asserts the row checkbox is disabled while that editor is open. These changes have not been re-run on the emulator or the Kompakt yet. Treat the 2026-10-10 emulator receipt as historical evidence for the earlier shell, not proof of the current Back/IME behavior.

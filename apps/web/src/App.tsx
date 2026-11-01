@@ -88,6 +88,10 @@ function Workspace({
     status: 'loading',
   });
   const [attempt, setAttempt] = useState(0);
+  const retryWorkspace = useCallback(() => {
+    setWorkspace({ status: 'loading' });
+    setAttempt((value) => value + 1);
+  }, []);
   const sync = useTaskSync();
   const inbox = useResource(
     (signal) =>
@@ -130,6 +134,25 @@ function Workspace({
       current = false;
     };
   }, [attempt]);
+
+  // A successful task sync proves the server is reachable again. Retry the
+  // workspace bootstrap so its persistent "server unavailable" banner clears.
+  const syncWasUnavailable = useRef(false);
+  useEffect(() => {
+    const unavailable = sync.status.unavailable;
+    const recovered = syncWasUnavailable.current && !unavailable;
+    syncWasUnavailable.current = unavailable;
+    if (recovered && workspace.status === 'unavailable') retryWorkspace();
+  }, [retryWorkspace, sync.status.unavailable, workspace.status]);
+
+  useEffect(() => {
+    if (workspace.status !== 'unavailable') return;
+    const retry = () => {
+      if (navigator.onLine) retryWorkspace();
+    };
+    window.addEventListener('online', retry);
+    return () => window.removeEventListener('online', retry);
+  }, [retryWorkspace, workspace.status]);
 
   useEffect(() => {
     applyAppearance(appearance);
@@ -176,10 +199,7 @@ function Workspace({
                 <button
                   type="button"
                   className="secondary-button"
-                  onClick={() => {
-                    setWorkspace({ status: 'loading' });
-                    setAttempt((value) => value + 1);
-                  }}
+                  onClick={retryWorkspace}
                 >
                   Retry connection
                 </button>

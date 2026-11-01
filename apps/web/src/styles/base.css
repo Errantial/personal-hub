@@ -70,6 +70,24 @@ input[type='file']::file-selector-button {
   font: inherit;
   cursor: pointer;
 }
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--accent);
+}
+/* Native radios keep a light border on monochrome panels. Draw an explicit
+   black ring so both states stay legible in e-ink mode. */
+[data-theme='eink'] input[type='radio'] {
+  appearance: none;
+  width: 1.15em;
+  height: 1.15em;
+  margin: 0;
+  border: 2px solid #000;
+  border-radius: 50%;
+  background: #fff;
+}
+[data-theme='eink'] input[type='radio']:checked {
+  background: radial-gradient(circle, #000 0 45%, #fff 46% 100%);
+}
 summary {
   min-height: var(--target);
   padding-block: var(--space-2);
