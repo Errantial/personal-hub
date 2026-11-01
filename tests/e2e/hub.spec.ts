@@ -139,7 +139,9 @@ test('tasks survive reload, support edits/completion/deletion, and carry owner l
   });
   await expect(row.getByText('Personal', { exact: true })).toBeVisible();
   await expect(row).toContainText('Due Thu, Nov 5, 2026');
-  // Completing moves the task from Open to Done.
+  // The open editor owns this task, so its row checkbox stays disabled until
+  // the list is shown again. Completing moves the task from Open to Done.
+  await open(page, 'Tasks');
   await row.getByRole('checkbox').click();
   await expect(row).toHaveCount(0);
   await showTasks(page, 'Done');
