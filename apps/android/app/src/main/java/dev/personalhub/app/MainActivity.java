@@ -18,8 +18,8 @@ public class MainActivity extends BridgeActivity {
                     getBridge().getWebView().goBack();
                 } else {
                     // Do not delegate to the stock callback: it can swallow the
-                    // gesture without leaving the app.
-                    setEnabled(false);
+                    // gesture without leaving the app. Keep this callback
+                    // enabled so later Back presses still background the task.
                     moveTaskToBack(true);
                 }
             }
