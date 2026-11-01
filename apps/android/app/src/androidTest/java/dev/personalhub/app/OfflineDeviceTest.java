@@ -90,7 +90,7 @@ public class OfflineDeviceTest {
         waitFor("Array.from(document.querySelectorAll('a.task-row__title')).some(e=>e.textContent.trim()==='Android offline proof')");
         clickText("a.task-row__title", "Android offline proof");
         waitFor("document.querySelector('#task-editor-title')");
-        fill("section[aria-labelledby='task-editor-title'] textarea[name=notes]", "Edited offline, then completed");
+        fill("section[aria-labelledby='task-editor-title'] textarea", "Edited offline, then completed");
         js("document.querySelector(\"section[aria-labelledby='task-editor-title'] form\").requestSubmit()");
         waitFor("document.body.textContent.includes('2 queued')");
         waitFor("!document.querySelector(\"section[aria-labelledby='task-editor-title'] .primary-button\").disabled");
