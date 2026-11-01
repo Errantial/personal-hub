@@ -169,7 +169,10 @@ export function TimeGrid({
   );
   useLayoutEffect(() => {
     if (!scroller.current || !body.current) return;
-    scroller.current.scrollTop = (first / longest) * body.current.offsetHeight;
+    // Leave a quarter hour above the opening row, so its hour label is not
+    // bisected by the scroll viewport's top edge when the view settles.
+    scroller.current.scrollTop =
+      (Math.max(0, first - 15) / longest) * body.current.offsetHeight;
     // Only when the window changes, not on every data reload.
   }, [days[0], days.length, timeZone]);
 

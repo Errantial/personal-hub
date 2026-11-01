@@ -24,11 +24,13 @@ export function useTaskSync() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  /** Counts syncs that completed a server round-trip; see App's bootstrap retry. */
+  const [successes, setSuccesses] = useState(0);
   const sync = useCallback(async () => {
     setBusy(true);
     setError('');
     try {
-      await synchronize();
+      if (await synchronize()) setSuccesses((value) => value + 1);
     } catch {
       setError('Sync unavailable.');
     } finally {
@@ -78,6 +80,7 @@ export function useTaskSync() {
     error,
     busy,
     sync,
+    successes,
     summary: `${connectivity} · ${queue}`,
     detailsOpen,
     setDetailsOpen,
