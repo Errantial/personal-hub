@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   addTask,
+  calendarDay,
   calendarRegion,
   classesRegion,
   eventEditor,
@@ -786,4 +787,113 @@ test('offline event create, edit and delete project into the agenda', async ({
   expect(events.some((event) => event.title === 'Offline event edited')).toBe(
     false,
   );
+});
+
+test('offline occurrence edit and delete replay into the series once', async ({
+  page,
+  context,
+}) => {
+  const reply = await page.request.post('/api/v1/calendar', {
+    headers: { Origin: 'http://127.0.0.1:5180' },
+    data: {
+      title: 'Occurrence series',
+      startsAt: '2036-06-01T09:00:00Z',
+      endsAt: '2036-06-01T10:00:00Z',
+      timeZone: 'UTC',
+      recurrence: { frequency: 'daily', interval: 1, count: 3, until: null },
+      operationId: crypto.randomUUID(),
+    },
+  });
+  expect(reply.status()).toBe(200);
+  const series = (await reply.json()) as { event: { id: string } };
+
+  await warm(page);
+  await page.goto('/calendar?date=2036-06-01&view=agenda');
+  await showCalendar(page, {
+    date: '2036-06-01',
+    view: 'Agenda',
+    zone: 'UTC',
+  });
+  await expect(calendarDay(page, '2036-06-01')).toBeVisible();
+  await expect(calendarDay(page, '2036-06-02')).toBeVisible();
+  await expect(calendarDay(page, '2036-06-03')).toBeVisible();
+
+  await context.setOffline(true);
+  await page.goto(
+    `/calendar/${series.event.id}/occurrence/2036-06-02?date=2036-06-01&view=agenda`,
+  );
+  const editor = eventEditor(page);
+  await expect(
+    editor.getByRole('heading', { name: 'Edit occurrence' }),
+  ).toBeVisible();
+  await editor.getByLabel('Title', { exact: true }).fill('Offline occurrence');
+  await editor.getByRole('button', { name: 'Save changes' }).click();
+  await expect(editor.getByRole('status').first()).toHaveText('Saved.');
+  await expect(syncState(page)).toContainText('1 queued');
+
+  await page.goto('/calendar?date=2036-06-01&view=agenda');
+  await expect(
+    calendarDay(page, '2036-06-01').getByRole('link', {
+      name: 'Occurrence series',
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    calendarDay(page, '2036-06-02').getByRole('link', {
+      name: 'Offline occurrence',
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    calendarDay(page, '2036-06-03').getByRole('link', {
+      name: 'Occurrence series',
+      exact: true,
+    }),
+  ).toBeVisible();
+
+  await page.goto(
+    `/calendar/${series.event.id}/occurrence/2036-06-03?date=2036-06-01&view=agenda`,
+  );
+  await expect(
+    editor.getByRole('heading', { name: 'Edit occurrence' }),
+  ).toBeVisible();
+  await editor
+    .getByRole('button', { name: 'Delete occurrence or series' })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Delete “Occurrence series”?' })
+    .getByRole('button', { name: 'This occurrence' })
+    .click();
+  await expect(syncState(page)).toContainText('2 queued');
+
+  await page.goto('/calendar?date=2036-06-01&view=agenda');
+  await expect(calendarDay(page, '2036-06-03')).toHaveCount(0);
+  await expect(calendarDay(page, '2036-06-01')).toBeVisible();
+  await expect(calendarDay(page, '2036-06-02')).toBeVisible();
+
+  await context.setOffline(false);
+  await syncNow(page);
+  await expect(syncState(page)).toContainText('Online · All saved', {
+    timeout: 15000,
+  });
+
+  const occurrences = (
+    await (
+      await page.request.get(
+        '/api/v1/calendar/occurrences?from=2036-06-01&to=2036-06-04&timeZone=UTC',
+      )
+    ).json()
+  ).occurrences as { title: string; originalDate: string }[];
+  expect(
+    occurrences.map((occurrence) => [
+      occurrence.originalDate,
+      occurrence.title,
+    ]),
+  ).toEqual([
+    ['2036-06-01', 'Occurrence series'],
+    ['2036-06-02', 'Offline occurrence'],
+  ]);
+  const events = (await (await page.request.get('/api/v1/calendar')).json())
+    .events as { id: string; version: number }[];
+  expect(events.find((event) => event.id === series.event.id)?.version).toBe(3);
 });

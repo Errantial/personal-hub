@@ -14,7 +14,7 @@ Status: proposal approved by the owner on 2026-11-02 (decision D58). Nothing in 
 
 - Done: bundled UI, native cookie session, task outbox, cached viewing of any GET response loaded at least once (calendar, class and reminder screens included), Back gesture handling, `adjustResize` keyboard behavior, blank-launch recovery, immediate e-ink persistence, and hiding the bottom bar above the soft keyboard. Emulator QA passed (PR #59), and the Kompakt baseline passed the final hardware re-test on `da36089`.
 - Signing path: git-derived versions, the version shown in Settings › Account, environment-only release signing, `apksigner` verification and a SHA-256 file are implemented. Verified 2026-11-04 with a temporary test key (v1 code 224 → v2 code 225, same certificate, install/update on the Android 15 emulator). The production keystore and its signed release APK are still missing; the test key must not ship.
-- Offline edits: classes, topics, reminders and calendar series are done (2026-11-04: queued create/edit/delete, reminder controls, event and occurrence projection, and retained conflicts). Per-occurrence overrides and academic work remain online-only.
+- Offline edits: classes, topics, reminders, calendar series and per-occurrence overrides/deletes are done (2026-11-04: queued create/edit/delete, reminder controls, event and occurrence projection, and retained conflicts). Series restore and academic work remain online-only.
 - Native reminders: implemented 2026-11-04 with `@capacitor/local-notifications` 8.3.1. Emulator checks passed for scheduling, the permission and exact-alarm states, and delivery with the app process killed and the screen off. Reboot survival and Mudita power modes remain hardware checks.
 - Missing: Kompakt evidence for native alarms (reboot and power modes), production HTTPS and the `https://localhost` origin allowlist, and about a week of daily use.
 
@@ -44,8 +44,9 @@ The two hardware findings from the first pass have mitigations that passed the f
 - Pending, offline and conflict state stays visible on each touched screen.
 - Done 2026-11-04: classes and topics queue create, edit and delete with client-supplied IDs; cached lists project queued changes; replay merges the server record; conflicts stay in the global banner with explicit discard. Browser coverage includes offline class/topic create, edit, delete and one-time replay.
 - Done 2026-11-04: reminders queue create, reschedule, snooze, pause, resume, retry and cancel. Cached reminder lists project status/time changes; a snooze queues both the source version and the child reminder; replay merges the server records.
-- Done 2026-11-04: calendar series create, edit and delete queue offline. Cached series and occurrence windows project the change, including recurring expansion; replay merges the saved series and refreshes cached occurrence windows. Per-occurrence overrides and restore remain online-only.
-- Remaining: per-occurrence overrides/restores and academic work.
+- Done 2026-11-04: calendar series create, edit and delete queue offline. Cached series and occurrence windows project the change, including recurring expansion; replay merges the saved series and refreshes cached occurrence windows.
+- Done 2026-11-04: per-occurrence overrides and occurrence-scoped deletes queue offline. The editor falls back to the view's cached occurrence window when its own wider window was never cached; projection patches only the affected date, and replay keeps other server exceptions. Series restore remains online-only.
+- Remaining: series restore and academic work.
 - Browser e2e coverage for every queued kind. Emulator instrumentation covers process death and replay.
 
 ### 4. Native reminders

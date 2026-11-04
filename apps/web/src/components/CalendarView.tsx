@@ -239,6 +239,9 @@ export function CalendarView({
 
   function saved(event: CalendarRecord, created: boolean) {
     void occurrences.reload();
+    // An occurrence edit bumps the series version; keep the list current so a
+    // following series edit starts from the same version.
+    if (route.editor?.kind === 'occurrence') void events.reload();
     if (!created) return;
     // Show the new event: go to the day it starts on.
     const day =

@@ -249,7 +249,9 @@ export function SyncConflicts({
                 ? 'Topic'
                 : item.kind === 'event'
                   ? 'Event'
-                  : 'Reminder'}{' '}
+                  : item.kind === 'occurrence'
+                    ? 'Occurrence'
+                    : 'Reminder'}{' '}
             conflict: {item.title}
           </strong>
           <p>
