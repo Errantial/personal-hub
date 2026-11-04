@@ -82,10 +82,10 @@ public class MainActivity extends BridgeActivity {
         if (pageVisible || !resumed || isFinishing()) return;
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         long now = SystemClock.elapsedRealtime();
-        long last = prefs.getLong(LAST_RECOVERY, Long.MIN_VALUE);
-        // elapsedRealtime restarts at boot, so a value from before a reboot
-        // can be larger than now; treat it as no recent attempt.
-        if (last <= now && now - last < RECOVERY_WINDOW_MS) {
+        // -1 means never. elapsedRealtime restarts at boot, so a stored value
+        // larger than now is from before a reboot and counts as no recent attempt.
+        long last = prefs.getLong(LAST_RECOVERY, -1);
+        if (last >= 0 && last <= now && now - last < RECOVERY_WINDOW_MS) {
             Toast.makeText(this, R.string.blank_recovery_failed, Toast.LENGTH_LONG).show();
             return;
         }
