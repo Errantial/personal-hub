@@ -376,7 +376,7 @@ test('new screens fit monochrome on a narrow viewport and explain denied alert p
   ).toBeVisible();
 });
 
-test('a reminder whose save response is lost retries with the same operation and saves once', async ({
+test('a reminder whose save response is lost queues one replay and saves once', async ({
   page,
 }) => {
   await page.goto('/inbox/reminders/new');
@@ -400,20 +400,22 @@ test('a reminder whose save response is lost retries with the same operation and
   });
   const add = view.getByRole('button', { name: 'Add reminder', exact: true });
   await add.click();
-  await expect(view.getByRole('alert')).toBeVisible();
-  // The form keeps the draft; an unchanged retry reuses the operation ID.
-  await expect(view.getByLabel('Reminder title')).toHaveValue(
-    'Lost response reminder',
-  );
-  await add.click();
+  // The lost response is queued and replayed automatically; the reminder is
+  // visible locally while the same operation reaches the server once.
   await expect(
-    view.locator('li').filter({ hasText: 'Lost response reminder' }),
-  ).toHaveCount(1);
-  expect(operations).toHaveLength(2);
+    page.getByRole('link', { name: 'Reschedule Lost response reminder' }),
+  ).toBeVisible();
+  await expect.poll(() => operations.length).toBe(2);
   expect(operations[1]).toBe(operations[0]);
-  const response = await page.request.get('/api/v1/reminders');
-  const data = (await response.json()) as { reminders: { title: string }[] };
-  expect(
-    data.reminders.filter((item) => item.title === 'Lost response reminder'),
-  ).toHaveLength(1);
+  await expect
+    .poll(async () => {
+      const response = await page.request.get('/api/v1/reminders');
+      const data = (await response.json()) as {
+        reminders: { title: string }[];
+      };
+      return data.reminders.filter(
+        (item) => item.title === 'Lost response reminder',
+      ).length;
+    })
+    .toBe(1);
 });
