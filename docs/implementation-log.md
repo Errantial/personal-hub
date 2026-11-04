@@ -466,3 +466,17 @@ The pass left one low-severity defect: if only `/api/v1/bootstrap` failed while 
 A focused re-check of `38da2c6` on the same desktop emulator reproduced the bootstrap-only failure by rejecting the server port at the device loopback, restored it without toggling device networking (zero `online`/`offline` events), and confirmed **Sync now** cleared both the banner and the summary without pressing Retry. A queued create and a queued note edit replayed to the expected versions, and the first calendar hour label was fully visible at 360 CSS px. All five focused checks passed with no new defects.
 
 Validation after the follow-up: 10/10 offline browser tests, 17/17 calendar tests, 9/9 appearance tests, 92 web unit tests, typecheck, lint, formatting and the production build passed. The 29 planner/account/task API tests passed earlier in this branch and were not rerun for the web-only follow-up. The full API suite was still not completed on this load-sensitive host. Kompakt hardware, release signing and the production TLS path remain unverified.
+
+## 2026-11-04 - Kompakt final re-test and release branch
+
+The Kompakt hardware re-test on `da36089` closed the two items left open by the first device pass. The APK was built as `0.1.0+da36089` (SHA-256 `fc54c66a0f50c16d7c2df7ff38fcbee302578c45f28a0f7c4b1ea688fc30f082`) and installed over wireless debugging from the owner's desktop against the isolated synthetic server; app data and the synthetic session survived.
+
+- First blank launch after a foreground process death now shows "Personal Hub did not start. Open it again." at +8.73 s, backgrounds and exits 1.92 s later, and the next launch renders Today in 1.75 s without a toast. The earlier overflow in the "recently recovered" check did not recur.
+- A repeat blank launch within two minutes shows the Settings › Apps › Force stop instruction and keeps the app open, as intended; a second repeat also stayed open.
+- A normal launch renders in 1.75 s with no toast and stays resumed.
+- With the Add field focused, the IME is shown and the bottom navigation becomes `display:none` (0x0 rect); the input (bottom 247.7) and Add button (bottom 303.68) stay visible in the 303 px viewport. Tapping outside restores the navigation.
+- No fatal exceptions, ANRs or new app errors were found; the app remained signed in and e-ink was preserved. Known limits remain: Week header labels wrap unevenly at 360 CSS px, toasts are not captured by `screencap`, and wireless-debugging ports rotate.
+
+The branch also contains the release-build work: git-derived `versionCode`/`versionName`, the version shown in Settings › Account, environment-only release signing with `apksigner`, and a SHA-256 file next to the APK. A release keystore has not been created, so no signed release APK exists yet. The first device pass also confirmed the IndexedDB appearance backup (six of six immediate-kill trials kept e-ink), install/first launch, offline task replay at version 3, secure context/Web Locks/IndexedDB, Back behavior at 360 CSS px, and the absence of Google Services.
+
+Validation for the branch: 170 browser tests, 882 unit/API tests, lint, typecheck and formatting passed on `da36089`; CI runs the full check suite on the pull request. Offline edits for calendar, classes and reminders, native reminders, the release keystore, production HTTPS/origin allowlisting and the week of daily use remain open.

@@ -318,6 +318,117 @@ function write(key: string, value: string | null) {
   } catch {
     /* Appearance still applies without storage. */
   }
+  scheduleBackup();
+}
+
+/* ---------------------------------------------------------------- backup
+
+   Chromium writes localStorage to disk a few seconds after a change, so a
+   change made just before Android kills the app can be lost (seen on the
+   Mudita Kompakt). IndexedDB commits each transaction immediately, so every
+   change is also copied there. At startup the copy wins only when it is newer
+   than what localStorage kept. localStorage stays the source for first paint. */
+
+const backedUpKeys = [einkKey, appearanceKey, profilesKey, activeKey];
+const savedAtKey = 'hub:appearance-saved-at';
+const backupDb = 'hub-appearance';
+const backupStore = 'backup';
+type Backup = { savedAt: number; values: Record<string, string | null> };
+
+let backupPending = false;
+
+function scheduleBackup() {
+  if (backupPending) return;
+  backupPending = true;
+  // One copy per burst of writes (writeAppearance writes two keys).
+  queueMicrotask(() => {
+    backupPending = false;
+    void saveBackup().catch(() => undefined);
+  });
+}
+
+let backupConnection: Promise<IDBDatabase> | undefined;
+
+/** One shared connection, so copies commit in the order they were made. */
+function openBackup(): Promise<IDBDatabase> {
+  backupConnection ??= new Promise<IDBDatabase>((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('IndexedDB unavailable'));
+      return;
+    }
+    const request = indexedDB.open(backupDb, 1);
+    request.onupgradeneeded = () =>
+      request.result.createObjectStore(backupStore);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error('open failed'));
+  }).catch((error: unknown) => {
+    backupConnection = undefined;
+    throw error;
+  });
+  return backupConnection;
+}
+
+async function saveBackup() {
+  const savedAt = Math.max(Date.now(), Number(read(savedAtKey) ?? 0) + 1);
+  const values: Record<string, string | null> = {};
+  for (const key of backedUpKeys) values[key] = read(key);
+  try {
+    localStorage.setItem(savedAtKey, String(savedAt));
+  } catch {
+    /* The backup still records the change. */
+  }
+  const db = await openBackup();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(backupStore, 'readwrite');
+    tx.objectStore(backupStore).put(
+      { savedAt, values } satisfies Backup,
+      'current',
+    );
+    tx.oncomplete = () => resolve();
+    tx.onerror = tx.onabort = () => reject(tx.error ?? new Error('aborted'));
+  });
+}
+
+async function loadBackup(): Promise<Backup | undefined> {
+  const db = await openBackup();
+  return new Promise((resolve, reject) => {
+    const request = db
+      .transaction(backupStore, 'readonly')
+      .objectStore(backupStore)
+      .get('current');
+    request.onsuccess = () => resolve(request.result as Backup | undefined);
+    request.onerror = () => reject(request.error ?? new Error('read failed'));
+  });
+}
+
+/** Restores appearance from the IndexedDB copy when localStorage lost a newer
+ *  change. Returns true when stored values changed. Never rejects; gives up
+ *  after timeoutMs so a slow or missing IndexedDB cannot delay startup. */
+export async function restoreAppearanceBackup(
+  timeoutMs = 500,
+): Promise<boolean> {
+  const restore = async () => {
+    const backup = await loadBackup();
+    if (!backup || typeof backup.savedAt !== 'number') return false;
+    if (backup.savedAt <= Number(read(savedAtKey) ?? 0)) return false;
+    try {
+      for (const key of backedUpKeys) {
+        const value = backup.values?.[key];
+        if (typeof value === 'string') localStorage.setItem(key, value);
+        else localStorage.removeItem(key);
+      }
+      localStorage.setItem(savedAtKey, String(backup.savedAt));
+    } catch {
+      return false;
+    }
+    return true;
+  };
+  return Promise.race([
+    restore().catch(() => false),
+    new Promise<boolean>((resolve) =>
+      setTimeout(() => resolve(false), timeoutMs),
+    ),
+  ]);
 }
 
 function readJson(key: string): unknown {

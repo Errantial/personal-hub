@@ -4,4 +4,6 @@
     <string name="title_activity_main">Personal Hub</string>
     <string name="package_name">dev.personalhub.app</string>
     <string name="custom_url_scheme">dev.personalhub.app</string>
+    <string name="blank_recovery">Personal Hub did not start. Open it again.</string>
+    <string name="blank_recovery_failed">Personal Hub did not start. Force stop it in Settings › Apps, then open it again.</string>
 </resources>

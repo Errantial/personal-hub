@@ -63,6 +63,8 @@ Canvas access update (2026-10-13): owner token creation is blocked. A [one-cours
 
 ## Deferred Android verification
 
+Android release (D58, 2026-11-02): the owner set the release bar and ordered the remaining work in [android-release-plan.md](android-release-plan.md). Kompakt verification is no longer deferred; it is the plan's first, go/no-go phase.
+
 Actual Kompakt verification is deferred by owner request (2026-10-10) and does not block core server/site development. Browser task outbox, stable IDs, cached viewing, session-expiry/revocation locking, conflict retention and cache cleanup are implemented. A provisional Capacitor APK bundles the UI and WebView outbox, uses native cookie transport and separates cache per server. AOSP emulator checks prove offline create/edit/completion survives force-stop and replays once. Actual Kompakt API/WebView/e-ink checks, native alarms, denied permissions and reboot/power-mode behavior remain deferred. Calendar/class/reminder offline edits and background delivery remain pending.
 
 Acceptance remaining for the broader planner milestone: an Android edit survives process death and synchronizes once; closed-app reminders and denied/revoked permissions are understood; monochrome navigation works on actual Kompakt hardware. Current web tests distinguish task deadlines from reserved study intervals and exercise recurrence/DST, conflict preservation, permission denial and 320px e-ink layout.

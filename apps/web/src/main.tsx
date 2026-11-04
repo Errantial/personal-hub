@@ -6,7 +6,11 @@ import './styles/tokens.css';
 import './styles/base.css';
 import './styles/legacy.css';
 import './styles/shell.css';
-import { applyAppearance, readAppearance } from './lib/appearance';
+import {
+  applyAppearance,
+  readAppearance,
+  restoreAppearanceBackup,
+} from './lib/appearance';
 import { nativePlatform } from './lib/transport';
 
 if (!nativePlatform() && 'serviceWorker' in navigator) {
@@ -17,8 +21,13 @@ if (!nativePlatform() && 'serviceWorker' in navigator) {
 // e-ink devices never render (and then refresh away from) the standard theme.
 applyAppearance(readAppearance());
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+// A change made just before the app was killed may survive only in the
+// IndexedDB copy; restore it before React reads the stored appearance.
+void restoreAppearanceBackup().then((restored) => {
+  if (restored) applyAppearance(readAppearance());
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+});

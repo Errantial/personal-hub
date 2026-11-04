@@ -539,3 +539,22 @@ main:focus {
     font-size: 0.75rem;
   }
 }
+
+/* With the soft keyboard open, the fixed bottom bar rises above it and covers
+   the field being edited (seen on the Kompakt). Hide it while a text field has
+   focus; touch screens only, so hardware keyboards keep the bar. */
+@media (max-width: 1023.98px) and (pointer: coarse) {
+  body:has(
+      input:not(
+          [type='checkbox'],
+          [type='radio'],
+          [type='button'],
+          [type='submit']
+        ):focus,
+      textarea:focus,
+      select:focus
+    )
+    .nav {
+    display: none;
+  }
+}
