@@ -312,6 +312,10 @@ export const nativeAlarms = {
         await LocalNotifications.cancel({
           notifications: ids.map((id) => ({ id })),
         });
+      // Delivered alerts also carry the reminder title in the shade.
+      await LocalNotifications.removeAllDeliveredNotifications().catch(
+        () => undefined,
+      );
     } catch {
       /* Alarms are device state; sign-out still completes. */
     }

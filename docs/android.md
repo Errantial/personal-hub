@@ -37,7 +37,7 @@ Release builds reject the test connection flag and disable cleartext traffic. De
 - Future `queued` or `failed` reminders get one alarm each. A stable FNV-1a hash of the reminder UUID is the Android notification id, so a rescheduled or renamed reminder cancels its own alarm and is scheduled again. Removed or finished reminders cancel theirs. Notifications the app did not schedule are left alone.
 - Alarms use the `reminders` channel (high importance), the `hub_notification` monochrome icon, and `allowWhileIdle`. Exact delivery needs the Android exact-alarm setting; when it is denied the plugin schedules an inexact alarm and Inbox shows **Approximate**.
 - If notification permission is missing, Inbox shows **Not enabled** with an **Enable device alarms** button. A denied permission shows **Blocked in Android settings**; after the owner allows it in Android settings, **Check again** re-reads the state. Requesting permission happens only from that button.
-- Sign-out and session lock cancel the app's alarms so private reminder titles do not stay on the lock screen.
+- Sign-out and session lock cancel the app's pending alarms and remove its delivered alerts so private reminder titles do not remain in the shade or on the lock screen.
 - Android cancels alarms on **force-stop**. Test closed-app delivery with HOME and `adb shell am kill <package>` (or by swiping the app away), not with `force-stop`.
 - The plugin's boot receiver restores pending alarms after a reboot (its manifest declares `RECEIVE_BOOT_COMPLETED`). A one-shot alarm whose time already passed while the phone was off is skipped; the inbox notification arrives from the server on the next launch. Doze and Mudita power modes may delay inexact alarms.
 
