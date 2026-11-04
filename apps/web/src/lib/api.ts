@@ -222,17 +222,22 @@ export async function requestJson<T>(
     /^\/api\/v1\/tasks(?:\/[a-f\d-]{36})?$/.test(path) &&
     ['POST', 'PUT', 'DELETE'].includes(method);
   const plannerMutation =
-    /^\/api\/v1\/(?:courses|topics)(?:\/[a-f\d-]{36})?$/.test(path) &&
+    (/^\/api\/v1\/(?:courses|topics)(?:\/[a-f\d-]{36})?$/.test(path) ||
+      /^\/api\/v1\/reminders(?:\/[a-f\d-]{36})?(?:\/(?:control|snooze))?$/.test(
+        path,
+      )) &&
     ['POST', 'PUT', 'DELETE'].includes(method);
   const mutation = taskMutation || plannerMutation;
   const body =
     options.body && typeof options.body === 'object'
       ? (options.body as Record<string, unknown>)
       : {};
-  const prepared =
-    mutation && method === 'POST'
-      ? { ...body, clientId: body.clientId ?? body.operationId }
-      : body;
+  const createMutation =
+    method === 'POST' &&
+    /^\/api\/v1\/(?:tasks|courses|topics|reminders)$/.test(path);
+  const prepared = createMutation
+    ? { ...body, clientId: body.clientId ?? body.operationId }
+    : body;
   const sourceCreation =
     taskMutation && method === 'POST' && !!body.canvasSourceRef;
   if (path === '/api/v1/auth/logout' && (await pendingCount().catch(() => 0)))
@@ -265,7 +270,8 @@ export async function requestJson<T>(
       if (
         (path === '/api/v1/tasks' ||
           path === '/api/v1/courses' ||
-          path === '/api/v1/topics') &&
+          path === '/api/v1/topics' ||
+          path === '/api/v1/reminders') &&
         (await pendingCount().catch(() => 0))
       ) {
         const projected = await cachedResponse(path).catch(() => undefined);
@@ -321,9 +327,9 @@ export async function requestJson<T>(
     }
     if (
       method !== 'GET' &&
-      /^\/api\/v1\/(calendar|events|reminders|notifications)/.test(path)
+      /^\/api\/v1\/(calendar|events|notifications)/.test(path)
     )
-      throw new Error('Connect to edit calendar, events or reminders.', {
+      throw new Error('Connect to edit calendar or events.', {
         cause: error,
       });
     throw error;

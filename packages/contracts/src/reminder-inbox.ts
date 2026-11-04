@@ -3,6 +3,7 @@ import { instant, reminderSchema, notificationSchema } from './features.js';
 
 export const reminderSnoozeSchema = z.strictObject({
   operationId: z.string().uuid(),
+  clientId: z.string().uuid().optional(),
   expectedVersion: z.number().int().positive(),
   scheduledAt: instant,
 });

@@ -224,7 +224,7 @@ export function registerReminders(
         const id =
           method === 'PUT'
             ? z.object({ id: z.string().uuid() }).parse(request.params).id
-            : randomUUID();
+            : (input.clientId ?? randomUUID());
         return mutate(
           database,
           user.id,
@@ -300,13 +300,21 @@ export function registerReminders(
             const [row] =
               method === 'POST'
                 ? await tx.query(
-                    `INSERT INTO reminders (id,owner_id,title,scheduled_at,target_kind,target_id,occurrence_date) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING ${reminderColumns}`,
+                    `INSERT INTO reminders (id,owner_id,title,scheduled_at,target_kind,target_id,occurrence_date) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING RETURNING ${reminderColumns}`,
                     values,
                   )
                 : await tx.query(
                     `UPDATE reminders SET title=$3,scheduled_at=$4,target_kind=$5,target_id=$6,occurrence_date=$7,status='queued',attempts=0,last_error=NULL,next_attempt_at=CURRENT_TIMESTAMP,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${reminderColumns}`,
                     values,
                   );
+            if (!row)
+              throw new ApiError(
+                409,
+                method === 'POST' ? 'OPERATION_CONFLICT' : 'VERSION_CONFLICT',
+                method === 'POST'
+                  ? 'This identifier is already in use.'
+                  : 'This reminder changed elsewhere. Reload before trying again.',
+              );
             return reminderResponseSchema.parse({ reminder: row });
           },
         );

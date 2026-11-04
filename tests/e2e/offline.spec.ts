@@ -2,8 +2,11 @@ import { expect, test } from '@playwright/test';
 import {
   addTask,
   classesRegion,
+  inboxRegion,
+  newReminder,
   open,
   openTask,
+  showReminders,
   showTasks,
   syncNow,
   syncState,
@@ -461,11 +464,15 @@ test('sign-out clears private cached data and Help is available by keyboard', as
   await help.focus();
   await page.keyboard.press('Enter');
   await expect(
-    page.getByText(/Tasks, classes and topics can be created, edited/),
+    page.getByText(
+      /Tasks, classes, topics and reminders can be changed offline/,
+    ),
   ).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(
-    page.getByText(/Tasks, classes and topics can be created, edited/),
+    page.getByText(
+      /Tasks, classes, topics and reminders can be changed offline/,
+    ),
   ).toHaveCount(0);
   await expect(help).toBeFocused();
   await signOut(page);
@@ -628,5 +635,68 @@ test('offline class and topic edits replay once', async ({ page, context }) => {
     .topics as { name: string }[];
   expect(afterTopics.some((topic) => topic.name === 'Offline topic')).toBe(
     false,
+  );
+});
+
+test('offline reminder create, reschedule and controls replay once', async ({
+  page,
+  context,
+}) => {
+  await warm(page);
+  await open(page, 'Calendar');
+  await open(page, 'Inbox');
+  await showReminders(page);
+  await context.setOffline(true);
+
+  await newReminder(page);
+  const title = `Offline reminder ${crypto.randomUUID().slice(0, 8)}`;
+  const form = inboxRegion(page).getByRole('form', { name: 'Add reminder' });
+  await form.getByLabel('Reminder title').fill(title);
+  await form.getByLabel('Remind at').fill('2036-05-01T09:00');
+  await form.getByRole('button', { name: 'Add reminder', exact: true }).click();
+  const list = inboxRegion(page).getByRole('region', { name: 'Reminders' });
+  await expect(
+    list.getByRole('link', { name: `Reschedule ${title}` }),
+  ).toBeVisible();
+  await expect(syncState(page)).toContainText('1 queued');
+
+  await page.getByRole('link', { name: `Reschedule ${title}` }).click();
+  const edited = `${title} edited`;
+  const edit = inboxRegion(page).getByRole('form', {
+    name: 'Reschedule reminder',
+  });
+  await edit.getByLabel('Reminder title').fill(edited);
+  await edit.getByRole('button', { name: 'Save reminder changes' }).click();
+  await expect(
+    list.getByRole('link', { name: `Reschedule ${edited}` }),
+  ).toBeVisible();
+  await expect(syncState(page)).toContainText('2 queued');
+
+  const row = list.getByRole('listitem').filter({ hasText: edited });
+  await row.getByRole('button', { name: `Pause ${edited}` }).click();
+  await expect(row.getByText('Paused', { exact: true })).toBeVisible();
+  await expect(syncState(page)).toContainText('3 queued');
+  await row.getByRole('button', { name: `Resume ${edited}` }).click();
+  await expect(row.getByText('Scheduled', { exact: true })).toBeVisible();
+  await expect(syncState(page)).toContainText('4 queued');
+  await row.getByRole('button', { name: `Cancel reminder ${edited}` }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Cancel reminder' })
+    .click();
+  await expect(syncState(page)).toContainText('5 queued');
+
+  await context.setOffline(false);
+  await syncNow(page);
+  await expect(syncState(page)).toContainText('Online · All saved', {
+    timeout: 15000,
+  });
+  const reminders = (await (await page.request.get('/api/v1/reminders')).json())
+    .reminders as { title: string; status: string; version: number }[];
+  expect(reminders.find((reminder) => reminder.title === edited)).toMatchObject(
+    {
+      status: 'cancelled',
+      version: 5,
+    },
   );
 });

@@ -219,6 +219,7 @@ export const reminderWriteSchema = z
   .strictObject({
     ...reminderFields,
     operationId: z.string().uuid(),
+    clientId: z.string().uuid().optional(),
     expectedVersion: z.number().int().positive().optional(),
   })
   .refine(

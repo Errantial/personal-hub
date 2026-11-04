@@ -218,7 +218,7 @@ export function registerReminderInbox(
         const [reminder] = await tx.query(
           `INSERT INTO reminders(id,owner_id,title,scheduled_at,target_kind,target_id,occurrence_date,snoozed_from_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING ${reminderColumns}`,
           [
-            randomUUID(),
+            input.clientId ?? randomUUID(),
             owner.id,
             source.title,
             input.scheduledAt,

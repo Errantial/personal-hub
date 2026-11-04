@@ -151,13 +151,13 @@ export function SyncDetails({ state }: { state: TaskSync }) {
           Sync now
         </button>
         <Help label="Offline tasks">
-          Tasks, classes and topics can be created, edited and deleted offline.
-          Other screens show previously loaded data; their edits require a
-          connection. Only previously visited calendar ranges are cached. Local
-          data is stored on this device until sign-out. Offline access ends when
-          the last verified session expires. Reconnect to check revocation and
-          sync. Local storage can be cleared or evicted. Sync pending changes
-          before clearing browser or app data.
+          Tasks, classes, topics and reminders can be changed offline. Other
+          screens show previously loaded data; their edits require a connection.
+          Only previously visited calendar ranges are cached. Local data is
+          stored on this device until sign-out. Offline access ends when the
+          last verified session expires. Reconnect to check revocation and sync.
+          Local storage can be cleared or evicted. Sync pending changes before
+          clearing browser or app data.
         </Help>
       </div>
     </section>
@@ -243,7 +243,12 @@ export function SyncConflicts({
       {status.plannerConflicts.map((item) => (
         <div className="conflict" key={`${item.kind}-${item.id}`}>
           <strong>
-            {item.kind === 'course' ? 'Class' : 'Topic'} conflict: {item.title}
+            {item.kind === 'course'
+              ? 'Class'
+              : item.kind === 'topic'
+                ? 'Topic'
+                : 'Reminder'}{' '}
+            conflict: {item.title}
           </strong>
           <p>
             {item.error === 'VERSION_CONFLICT'
