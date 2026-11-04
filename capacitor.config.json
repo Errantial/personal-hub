@@ -6,6 +6,12 @@
     "path": "apps/android",
     "loggingBehavior": "none"
   },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "hub_notification",
+      "iconColor": "#1A1A1A"
+    }
+  },
   "loggingBehavior": "none",
   "server": { "hostname": "localhost", "androidScheme": "https" }
 }

@@ -4,6 +4,7 @@ import { sessionResponseSchema } from '@hub/contracts';
 import type { SessionResponse, User } from '@hub/contracts';
 import { z } from 'zod';
 import { getJson, requestJson } from '../lib/api';
+import { nativeAlarms } from '../lib/native-reminders';
 import { Help } from './Help';
 
 export function AuthGate({
@@ -16,8 +17,11 @@ export function AuthGate({
   const [busy, setBusy] = useState(false);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    const locked = () =>
+    const locked = () => {
+      // The lock removes cached private data; queued alarms follow it.
+      void nativeAlarms.clear();
       setSession({ user: null, setupRequired: false, expiresAt: null });
+    };
     window.addEventListener('hub-auth-required', locked);
     return () => window.removeEventListener('hub-auth-required', locked);
   }, []);
@@ -68,6 +72,7 @@ export function AuthGate({
         z.object({ ok: z.literal(true) }),
         { method: 'POST', body: {} },
       );
+      await nativeAlarms.clear();
       setSession({ user: null, setupRequired: false, expiresAt: null });
     } catch (failure) {
       setError(

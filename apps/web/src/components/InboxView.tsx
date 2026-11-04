@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { nativeAlarms, useNativeAlarms } from '../lib/native-reminders';
 import {
   notificationHistorySchema,
   notificationResponseSchema,
@@ -20,6 +21,7 @@ import {
 import type { PermissionState } from '../lib/reminders';
 import type { Route } from '../lib/router';
 import { useConfirm } from './ConfirmDialog';
+import { DeviceAlarms } from './DeviceAlarms';
 import { EmailDrafts } from './EmailDrafts';
 import { MailView } from './MailView';
 import { Help } from './Help';
@@ -105,6 +107,19 @@ export function InboxView({
   const summary = workerSummary(worker);
   const reminderRoute: InboxRoute = { name: 'inbox', section: 'reminders' };
   const editing = route.reminder;
+  const device = useNativeAlarms();
+  // Device alarms follow the reminder list. The signature keeps the 10-second
+  // poll from rescheduling alarms whose time and title did not change.
+  const alarmSignature = jobs
+    .map(
+      (item) =>
+        `${item.id}:${item.version}:${item.status}:${item.scheduledAt}:${item.title}`,
+    )
+    .join('\n');
+  useEffect(() => {
+    if (!device.available || !reminders.data) return;
+    void nativeAlarms.reconcile(reminders.data.data.reminders);
+  }, [alarmSignature, device.available, reminders.data]);
 
   /** A browser alert for each notification that arrives while Inbox is open. */
   function alertNew(list: HubNotification[]) {
@@ -200,33 +215,40 @@ export function InboxView({
         <p role="status" className={summary.ok ? undefined : 'form-error'}>
           {summary.text}
         </p>
-        <p>
-          Browser alerts:{' '}
-          <StatusChip>{permissionLabels[permission]}</StatusChip>{' '}
-          <Help label="Browser alerts">
-            Reminders are saved here while the page is closed. Browser alerts
-            appear only while Inbox is open and permission is allowed.
-            Closed-page push and Android notifications are not available.
-            {permission === 'denied' &&
-              ' Change this site’s notification setting in your browser; the inbox still works.'}
-          </Help>
-        </p>
-        {permission === 'default' && (
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => {
-              void Notification.requestPermission().then(
-                (value) => setPermission(value),
-                () =>
-                  setPermissionError(
-                    'Browser notification permission could not be requested.',
-                  ),
-              );
-            }}
-          >
-            Enable browser alerts
-          </button>
+        {device.available ? (
+          <DeviceAlarms />
+        ) : (
+          <>
+            <p>
+              Browser alerts:{' '}
+              <StatusChip>{permissionLabels[permission]}</StatusChip>{' '}
+              <Help label="Browser alerts">
+                Reminders are saved here while the page is closed. Browser
+                alerts appear only while Inbox is open and permission is
+                allowed. Closed-page push and Android notifications are not
+                available.
+                {permission === 'denied' &&
+                  ' Change this site’s notification setting in your browser; the inbox still works.'}
+              </Help>
+            </p>
+            {permission === 'default' && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  void Notification.requestPermission().then(
+                    (value) => setPermission(value),
+                    () =>
+                      setPermissionError(
+                        'Browser notification permission could not be requested.',
+                      ),
+                  );
+                }}
+              >
+                Enable browser alerts
+              </button>
+            )}
+          </>
         )}
         <ReadState resource={reminders} label="reminders" />
       </div>
