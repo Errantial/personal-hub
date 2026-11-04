@@ -522,3 +522,9 @@ Per-occurrence event edits and occurrence-scoped deletes now queue in the shared
 The occurrence editor used to fetch a wider window around its date than the calendar view had cached, so it failed offline. It now falls back to the occurrence found in any cached window, including queued changes, and only does so for transport failures (a server error still surfaces). Series restore remains online-only.
 
 Validation: 14/14 offline browser tests (new occurrence edit and delete/replay case), 17/17 calendar tests, 96 web unit tests, typecheck, lint, formatting and the production build.
+
+## 2026-11-04 - Offline academic work
+
+Class work browse pages are now cached, and individual academic-work creates, edits and deletes queue in the shared outbox. Creates use a client-generated id that the server returns; a duplicate id under a different operation is refused. The cached browse page projects queued work into its filter, preserving the server's closed/due-date order and recomputing counts when the cached pages hold the whole list. Replay merges each saved work record into every cached page. Batch changes, work restore and the Recently deleted list remain online-only.
+
+Validation: 15/15 offline browser tests (new work edit, add and delete/replay case), 7/7 classes browser tests, 40/40 academic-work API tests (new client-id/idempotency case), 96 web unit tests, typecheck, lint, formatting and the production build.

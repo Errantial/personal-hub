@@ -204,7 +204,8 @@ const cachedPath = (path: string) =>
   /^\/api\/v1\/connections\/canvas\/(calendar|items)\?.+$/.test(path) ||
   /^\/api\/v1\/(tasks|events|calendar|courses|topics|reminders|notifications)(\/occurrences\?.*)?$/.test(
     path,
-  );
+  ) ||
+  /^\/api\/v1\/academic-work\/browse\?.+$/.test(path);
 export const synchronize = () =>
   syncTasks((path, options) => liveRequestJson(path, z.unknown(), options));
 export async function requestJson<T>(
@@ -228,7 +229,8 @@ export async function requestJson<T>(
       ) ||
       /^\/api\/v1\/calendar(?:\/[a-f\d-]{36})?(?:\/(?:occurrences\/\d{4}-\d{2}-\d{2}|restore))?$/.test(
         path,
-      )) &&
+      ) ||
+      /^\/api\/v1\/academic-work(?:\/[a-f\d-]{36})?$/.test(path)) &&
     ['POST', 'PUT', 'DELETE'].includes(method);
   const mutation = taskMutation || plannerMutation;
   const body =
@@ -237,7 +239,9 @@ export async function requestJson<T>(
       : {};
   const createMutation =
     method === 'POST' &&
-    /^\/api\/v1\/(?:tasks|courses|topics|calendar|reminders)$/.test(path);
+    /^\/api\/v1\/(?:tasks|courses|topics|calendar|reminders|academic-work)$/.test(
+      path,
+    );
   const prepared = createMutation
     ? { ...body, clientId: body.clientId ?? body.operationId }
     : body;
@@ -276,7 +280,8 @@ export async function requestJson<T>(
           path === '/api/v1/topics' ||
           path === '/api/v1/calendar' ||
           path.startsWith('/api/v1/calendar/occurrences?') ||
-          path === '/api/v1/reminders') &&
+          path === '/api/v1/reminders' ||
+          path.startsWith('/api/v1/academic-work/browse?')) &&
         (await pendingCount().catch(() => 0))
       ) {
         const projected = await cachedResponse(path).catch(() => undefined);

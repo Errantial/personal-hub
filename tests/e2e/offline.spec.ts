@@ -897,3 +897,95 @@ test('offline occurrence edit and delete replay into the series once', async ({
     .events as { id: string; version: number }[];
   expect(events.find((event) => event.id === series.event.id)?.version).toBe(3);
 });
+
+test('offline academic work edit, add and delete replay once', async ({
+  page,
+  context,
+}) => {
+  const headers = { Origin: 'http://127.0.0.1:5180' };
+  const courseReply = await page.request.post('/api/v1/courses', {
+    headers,
+    data: {
+      name: `Offline class ${crypto.randomUUID().slice(0, 8)}`,
+      operationId: crypto.randomUUID(),
+    },
+  });
+  expect(courseReply.status()).toBe(200);
+  const course = (await courseReply.json()) as { course: { id: string } };
+  const workReply = await page.request.post('/api/v1/academic-work', {
+    headers,
+    data: {
+      courseId: course.course.id,
+      title: 'Offline work',
+      operationId: crypto.randomUUID(),
+    },
+  });
+  expect(workReply.status()).toBe(200);
+
+  const workRegion = page.getByRole('region', { name: 'Work', exact: true });
+  await warm(page);
+  await page.goto(`/classes/${course.course.id}?section=work`);
+  await expect(
+    workRegion.getByText('Offline work', { exact: true }),
+  ).toBeVisible();
+
+  await context.setOffline(true);
+  await page.goto(`/classes/${course.course.id}?section=work`);
+  await expect(
+    workRegion.getByText('Offline work', { exact: true }),
+  ).toBeVisible();
+
+  await workRegion.getByRole('button', { name: 'Edit Offline work' }).click();
+  const edit = workRegion.getByRole('form', { name: 'Edit work' });
+  await edit.getByLabel('Title').fill('Offline work edited');
+  await edit.getByRole('button', { name: 'Save work changes' }).click();
+  await expect(
+    workRegion.getByText('Offline work edited', { exact: true }),
+  ).toBeVisible();
+  await expect(syncState(page)).toContainText('1 queued');
+
+  const add = workRegion.getByRole('form', { name: 'Add work' });
+  await add.getByLabel('Title').fill('Offline work added');
+  await add.getByLabel('Deadline').fill('2036-09-01');
+  await add.getByRole('button', { name: 'Add work' }).click();
+  await expect(
+    workRegion.getByText('Offline work added', { exact: true }),
+  ).toBeVisible();
+  await expect(syncState(page)).toContainText('2 queued');
+
+  await workRegion
+    .getByRole('button', { name: 'Edit Offline work edited' })
+    .click();
+  await workRegion.getByRole('button', { name: 'Delete work' }).click();
+  await page
+    .getByRole('dialog', { name: 'Delete “Offline work edited”?' })
+    .getByRole('button', { name: 'Delete work' })
+    .click();
+  await expect(
+    workRegion.getByText('Offline work edited', { exact: true }),
+  ).toHaveCount(0);
+  await expect(syncState(page)).toContainText('3 queued');
+
+  await context.setOffline(false);
+  await syncNow(page);
+  await expect(syncState(page)).toContainText('Online · All saved', {
+    timeout: 15000,
+  });
+  const work = (
+    await (
+      await page.request.get(
+        `/api/v1/academic-work?courseId=${course.course.id}`,
+      )
+    ).json()
+  ).work as { title: string; version: number }[];
+  expect(work.map((item) => item.title)).toEqual(['Offline work added']);
+  expect(work[0]!.version).toBe(1);
+
+  await page.reload();
+  await expect(
+    workRegion.getByText('Offline work added', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    workRegion.getByText('Offline work edited', { exact: true }),
+  ).toHaveCount(0);
+});

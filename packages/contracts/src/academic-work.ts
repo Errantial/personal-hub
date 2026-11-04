@@ -30,6 +30,7 @@ export const academicWorkInputSchema = z
   );
 export const academicWorkWriteSchema = academicWorkInputSchema.safeExtend({
   operationId: z.string().uuid(),
+  clientId: z.string().uuid().optional(),
   expectedVersion: z.number().int().positive().optional(),
 });
 export const academicWorkUpdateSchema = academicWorkWriteSchema.safeExtend({

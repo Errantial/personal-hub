@@ -251,7 +251,9 @@ export function SyncConflicts({
                   ? 'Event'
                   : item.kind === 'occurrence'
                     ? 'Occurrence'
-                    : 'Reminder'}{' '}
+                    : item.kind === 'work'
+                      ? 'Work'
+                      : 'Reminder'}{' '}
             conflict: {item.title}
           </strong>
           <p>
