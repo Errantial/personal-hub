@@ -12,6 +12,9 @@ import type { Appearance } from '../lib/appearance';
 import { sectionLabels, settingsSections } from '../lib/router';
 import type { Route } from '../lib/router';
 
+/** Set by the Android build script; absent on the website. */
+const appVersion = import.meta.env.VITE_HUB_APP_VERSION as string | undefined;
+
 export function SettingsView({
   route,
   navigate,
@@ -65,6 +68,12 @@ export function SettingsView({
                 Sign out
               </button>
             </section>
+            {appVersion && (
+              <section className="panel preference-panel">
+                <h2>App version</h2>
+                <p>{appVersion}</p>
+              </section>
+            )}
           </div>
         )}
         {section === 'appearance' && (

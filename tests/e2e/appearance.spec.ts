@@ -229,6 +229,47 @@ test('profiles save, load, show modified, rename, replace and delete on this dev
   ).toBeVisible();
 });
 
+test('a change lost from localStorage is restored from the IndexedDB copy', async ({
+  page,
+}) => {
+  await showAppearance(page);
+  await page.getByRole('checkbox', { name: 'Use e-ink mode' }).check();
+  expect(await rootData(page, 'theme')).toBe('eink');
+  // Wait for the copy, then roll localStorage back to before the change, as
+  // when Android kills the app before Chromium writes localStorage to disk.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const open = indexedDB.open('hub-appearance');
+            open.onsuccess = () => {
+              const get = open.result
+                .transaction('backup')
+                .objectStore('backup')
+                .get('current');
+              get.onsuccess = () => {
+                open.result.close();
+                resolve(get.result?.values?.['hub:eink'] ?? null);
+              };
+            };
+          }),
+      ),
+    )
+    .toBe('true');
+  await page.evaluate(() => {
+    localStorage.setItem('hub:eink', 'false');
+    const savedAt = Number(localStorage.getItem('hub:appearance-saved-at'));
+    localStorage.setItem('hub:appearance-saved-at', String(savedAt - 1));
+  });
+  await page.reload();
+  await expect(section(page, 'Profiles')).toBeVisible();
+  expect(await rootData(page, 'theme')).toBe('eink');
+  await expect(
+    page.getByRole('checkbox', { name: 'Use e-ink mode' }),
+  ).toBeChecked();
+});
+
 test('invalid saved appearance falls back to safe defaults', async ({
   page,
 }) => {

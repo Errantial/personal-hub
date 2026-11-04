@@ -2,6 +2,8 @@
 
 The Capacitor APK bundles the React UI. The framework remains provisional until the owner's Mudita Kompakt passes the checks in [platforms.md](platforms.md). Native local alarms and background synchronization are not implemented.
 
+The path to a release is in [android-release-plan.md](android-release-plan.md) (D58).
+
 ## Build
 
 Use Node 24/npm 11, JDK 21, SDK platform 36 and build tools 35.0.0. Gradle 8.14.3 is pinned with its distribution checksum, Android Gradle Plugin is 8.13.0, and minimum API is 24. That minimum is a build setting, not verified Kompakt compatibility. Check actual device API/WebView first. [Capacitor requirements](https://capacitorjs.com/docs/updating/8-0), [environment setup](https://capacitorjs.com/docs/getting-started/environment-setup).
@@ -15,7 +17,17 @@ npm run android:build -- --origin https://your-hub.example
 
 Output: `.artifacts/android/personal-hub-debug.apk`. The API origin is fixed public build configuration; there is no runtime server picker yet. The server must allow `https://localhost` in `WEB_ORIGINS` alongside the website's HTTPS origin. Native HTTP sends that origin and the existing owner cookie; server authorization and mutation checks remain intact. Do not remove origin checks or enable browser CORS.
 
-`--release` creates an **unsigned** release APK; signing/distribution is pending. Release builds reject the test connection flag and disable cleartext traffic. Debug builds use the machine's development key and a distinct application ID, `dev.personalhub.app.debug`.
+Every build gets `versionCode` = the commit count of `HEAD` and `versionName` = `<package version>+<short commit>` (with `.dirty` for uncommitted changes). The name is shown in Settings › Account › App version. The script writes a `.sha256` file next to each APK.
+
+`--release` builds a **signed** APK, `personal-hub-<versionName>.apk`, and refuses to run without a signing key or with uncommitted changes. It verifies the result with the SDK's `apksigner`. Supply the key only through the environment:
+
+- `HUB_ANDROID_KEYSTORE`: absolute path to the release keystore, kept outside the repository with an offline backup.
+- `HUB_ANDROID_KEYSTORE_PASSWORD` and `HUB_ANDROID_KEY_ALIAS`.
+- `HUB_ANDROID_KEY_PASSWORD`: only if it differs from the keystore password.
+
+Create the key once with `keytool -genkeypair -v -keystore <path> -alias personal-hub -keyalg RSA -keysize 4096 -validity 10000`. Every later release must use the same key. A different key forces an uninstall, which deletes queued offline changes. Never commit or log the keystore or its passwords.
+
+Release builds reject the test connection flag and disable cleartext traffic. Debug builds use the machine's development key and a distinct application ID, `dev.personalhub.app.debug`.
 
 ## Isolated emulator workflow
 
@@ -66,3 +78,18 @@ A follow-up fixed the one remaining low-severity banner edge case: when only the
 A focused re-check rebuilt the APK from `38da2c6` and made the server unreachable at the device loopback, then restored it without toggling device networking (zero `online`/`offline` events). A manual sync cleared both the banner and the header summary without pressing Retry; a queued create and note edit replayed to the expected versions; and the first calendar hour label was fully visible at 360 CSS px. All five focused checks passed with no new defects.
 
 These are emulator results. Actual Kompakt API/WebView, input, viewport, monochrome contrast, scrolling/ghosting, sleep modes, battery and release signing remain hardware gates.
+
+## Kompakt hardware results (2026-11-03, first pass)
+
+Device: Mudita Kompakt, MuditaOS K 1.6.1, Android 12/API 31 (build SP1A.210812.016, patch 2026-09-24), arm64-v8a, 480 × 800 at density 213 (360 CSS px, pixel ratio 1.33), `com.android.webview` 149.0.7827.164 as the only WebView provider, no Google Play Services. The test APK from `6433e3a` was installed over wireless debugging from the owner's desktop against the isolated loopback server.
+
+- Passed: install and first launch (enrollment screen drawn, no WebView errors); instrumentation phases enroll, queueOfflineTask and survivesRestartOffline; both server receipts (zero tasks while offline, then one completed task at version 3 after replay); secure context, Web Locks and IndexedDB present, no service worker; no horizontal overflow at 360 CSS px; cold start about 1.8 s.
+- Failed: the reconnect phase's e-ink persistence assertion. Sync completed, but `hub:eink` read `false`. Likely cause, not yet proven: the appearance setting is stored only in `localStorage`, and the process was killed about a second after the change, before Chromium flushed it to disk.
+- Blank launch (diagnosed in a second session after a reboot): if the app process dies while the app is in the **foreground** (`am force-stop`, or a crash via `am crash`), the next launch shows a blank page. ActivityManager queues the WebView renderer service but never starts its isolated process, and logs no error or SELinux denial. This reproduced 10 out of 10 times. The stock WebView Shell app behaves the same way, so this is a MuditaOS/WebView defect, not Personal Hub code, and it is not a system-wide isolated-process limit.
+  - What does not trigger it: killing the process while the app is **backgrounded** (HOME, then kill), whether by force-stop, `am kill` or a crash.
+  - What clears it: going HOME and then killing the process. HOME and relaunching alone does not.
+  - For users: Settings › Apps › Force stop happens while the app is in the background, so it clears a stuck launch.
+  - Mitigation (implemented 2026-11-04, not yet verified on the device): if no page becomes visible within 8 s of the app reaching the foreground, `MainActivity` shows "Personal Hub did not start. Open it again.", moves to the background and exits after 1.5 s, so the next launch starts cleanly. A second blank launch within 2 minutes does not exit again; it shows the Settings › Apps › Force stop instruction instead.
+  - Device tests must go HOME before every force-stop.
+- E-ink setting (fix implemented 2026-11-04, not yet verified on the device): appearance settings are copied to IndexedDB on every change. At startup the copy is restored if localStorage kept an older state.
+- Not yet run: the e-ink, Calendar, Back gesture and soft keyboard screen checks, because of the blank WebView.
