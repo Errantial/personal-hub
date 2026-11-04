@@ -1,4 +1,8 @@
 import {
+  calendarListSchema,
+  calendarRecordSchema,
+  calendarResponseSchema,
+  calendarWriteSchema,
   courseResponseSchema,
   courseSchema,
   coursesSchema,
@@ -6,6 +10,15 @@ import {
   createTaskSchema,
   updateTaskSchema,
   deleteItemSchema,
+  expandEvent,
+  occurrencesResponseSchema,
+  rangeSchema,
+  reminderResponseSchema,
+  reminderSchema,
+  remindersSchema,
+  reminderSnoozeResponseSchema,
+  reminderSnoozeSchema,
+  reminderWriteSchema,
   taskSchema,
   tasksResponseSchema,
   topicResponseSchema,
@@ -14,8 +27,16 @@ import {
   topicWriteSchema,
   sessionResponseSchema,
 } from '@hub/contracts';
+import { z } from 'zod';
 import { nativePlatform } from './transport';
-import type { Course, Task, Topic, SessionResponse } from '@hub/contracts';
+import type {
+  CalendarRecord,
+  Course,
+  Reminder,
+  Task,
+  Topic,
+  SessionResponse,
+} from '@hub/contracts';
 
 type Job = {
   path: string;
@@ -24,13 +45,19 @@ type Job = {
   task: Task;
   error: string | null;
 };
-type PlannerKind = 'course' | 'topic';
+const reminderControlSchema = deleteItemSchema.extend({
+  action: z.enum(['pause', 'resume', 'retry', 'cancel']),
+});
+type ReminderList = z.infer<typeof remindersSchema>;
+type PlannerKind = 'course' | 'topic' | 'event' | 'reminder';
 type PlannerJob = {
   path: string;
   method: string;
   body: Record<string, unknown>;
   kind: PlannerKind;
-  entity: Course | Topic;
+  entity: Course | Topic | CalendarRecord | Reminder;
+  related?: Reminder;
+  response: unknown;
   error: string | null;
 };
 type LocalState = {
@@ -142,8 +169,9 @@ function projectedCourses(value: LocalState) {
   );
   for (const job of queuedPlanner(value)) {
     if (job.kind !== 'course') continue;
-    if (job.entity.deletedAt) courses.delete(job.entity.id);
-    else courses.set(job.entity.id, job.entity as Course);
+    const course = job.entity as Course;
+    if (course.deletedAt) courses.delete(course.id);
+    else courses.set(course.id, course);
   }
   return byName([...courses.values()]);
 }
@@ -157,25 +185,184 @@ function projectedTopics(value: LocalState) {
   );
   for (const job of queuedPlanner(value)) {
     if (job.kind !== 'topic') continue;
-    if (job.entity.deletedAt) topics.delete(job.entity.id);
-    else topics.set(job.entity.id, job.entity as Topic);
+    const topic = job.entity as Topic;
+    if (topic.deletedAt) topics.delete(topic.id);
+    else topics.set(topic.id, topic);
   }
   const deletedCourses = new Set(
     queuedPlanner(value)
-      .filter((job) => job.kind === 'course' && job.entity.deletedAt)
+      .filter(
+        (job) => job.kind === 'course' && (job.entity as Course).deletedAt,
+      )
       .map((job) => job.entity.id),
   );
   return byName(
     [...topics.values()].filter((topic) => !deletedCourses.has(topic.courseId)),
   );
 }
+function projectedEvents(value: LocalState) {
+  const cached = calendarListSchema.safeParse(
+    value.cache['/api/v1/calendar']?.data,
+  );
+  const events = new Map<string, CalendarRecord>(
+    (cached.success ? cached.data.events : []).map((event) => [
+      event.id,
+      event,
+    ]),
+  );
+  for (const job of queuedPlanner(value)) {
+    if (job.kind !== 'event') continue;
+    const event = job.entity as CalendarRecord;
+    if (event.deletedAt) events.delete(event.id);
+    else events.set(event.id, event);
+  }
+  return [...events.values()].sort(
+    (left, right) =>
+      left.startsAt.localeCompare(right.startsAt) ||
+      left.id.localeCompare(right.id),
+  );
+}
+function projectedOccurrences(value: LocalState, path: string) {
+  const query = new URL(path, 'http://local').searchParams;
+  const range = rangeSchema.safeParse({
+    from: query.get('from'),
+    to: query.get('to'),
+    timeZone: query.get('timeZone'),
+  });
+  if (!range.success) return undefined;
+  const cached = occurrencesResponseSchema.safeParse(value.cache[path]?.data);
+  const events = new Map<string, CalendarRecord>();
+  for (const job of queuedPlanner(value)) {
+    if (job.kind === 'event')
+      events.set(job.entity.id, job.entity as CalendarRecord);
+  }
+  const occurrences = (cached.success ? cached.data.occurrences : []).filter(
+    (occurrence) => !events.has(occurrence.id),
+  );
+  for (const event of events.values())
+    if (!event.deletedAt)
+      occurrences.push(
+        ...expandEvent(
+          event,
+          range.data.from,
+          range.data.to,
+          range.data.timeZone,
+        ),
+      );
+  occurrences.sort((left, right) =>
+    left.startsAt.localeCompare(right.startsAt),
+  );
+  return { occurrences };
+}
+function projectedReminders(value: LocalState): ReminderList {
+  const cached = remindersSchema.safeParse(
+    value.cache['/api/v1/reminders']?.data,
+  );
+  const reminders = new Map<string, Reminder>(
+    (cached.success ? cached.data.reminders : []).map((reminder) => [
+      reminder.id,
+      reminder,
+    ]),
+  );
+  for (const job of queuedPlanner(value)) {
+    if (job.kind !== 'reminder') continue;
+    if (job.related) reminders.set(job.related.id, job.related);
+    reminders.set(job.entity.id, job.entity as Reminder);
+  }
+  return {
+    reminders: [...reminders.values()].sort(
+      (left, right) =>
+        right.scheduledAt.localeCompare(left.scheduledAt) ||
+        left.id.localeCompare(right.id),
+    ),
+    worker: cached.success
+      ? cached.data.worker
+      : { lastTick: null, healthy: false, errorCode: null },
+  };
+}
+function mergeReminderCache(value: LocalState, saved: Reminder[]) {
+  const cached = remindersSchema.safeParse(
+    value.cache['/api/v1/reminders']?.data,
+  );
+  const reminders = new Map<string, Reminder>(
+    (cached.success ? cached.data.reminders : []).map((reminder) => [
+      reminder.id,
+      reminder,
+    ]),
+  );
+  for (const reminder of saved) reminders.set(reminder.id, reminder);
+  value.cache['/api/v1/reminders'] = {
+    data: {
+      reminders: [...reminders.values()].sort(
+        (left, right) =>
+          right.scheduledAt.localeCompare(left.scheduledAt) ||
+          left.id.localeCompare(right.id),
+      ),
+      worker: cached.success
+        ? cached.data.worker
+        : { lastTick: null, healthy: false, errorCode: null },
+    },
+    savedAt: new Date().toISOString(),
+  };
+}
+function mergeEventOccurrences(value: LocalState, event: CalendarRecord) {
+  for (const [path, cached] of Object.entries(value.cache)) {
+    if (!path.startsWith('/api/v1/calendar/occurrences?')) continue;
+    const query = new URL(path, 'http://local').searchParams;
+    const range = rangeSchema.safeParse({
+      from: query.get('from'),
+      to: query.get('to'),
+      timeZone: query.get('timeZone'),
+    });
+    const current = occurrencesResponseSchema.safeParse(cached.data);
+    if (!range.success || !current.success) continue;
+    const occurrences = current.data.occurrences.filter(
+      (occurrence) => occurrence.id !== event.id,
+    );
+    if (!event.deletedAt)
+      occurrences.push(
+        ...expandEvent(
+          event,
+          range.data.from,
+          range.data.to,
+          range.data.timeZone,
+        ),
+      );
+    occurrences.sort((left, right) =>
+      left.startsAt.localeCompare(right.startsAt),
+    );
+    value.cache[path] = { ...cached, data: { occurrences } };
+  }
+}
 function mergePlannerCache(
   value: LocalState,
-  kind: PlannerKind,
-  entity: Course | Topic,
+  kind: 'course' | 'topic' | 'event',
+  entity: Course | Topic | CalendarRecord,
 ) {
-  const path = kind === 'course' ? '/api/v1/courses' : '/api/v1/topics';
   const savedAt = new Date().toISOString();
+  if (kind === 'event') {
+    const cached = calendarListSchema.safeParse(
+      value.cache['/api/v1/calendar']?.data,
+    );
+    const items = cached.success ? cached.data.events : [];
+    const event = entity as CalendarRecord;
+    const next = event.deletedAt
+      ? items.filter((item) => item.id !== event.id)
+      : [...items.filter((item) => item.id !== event.id), event];
+    value.cache['/api/v1/calendar'] = {
+      data: {
+        events: next.sort(
+          (left, right) =>
+            left.startsAt.localeCompare(right.startsAt) ||
+            left.id.localeCompare(right.id),
+        ),
+      },
+      savedAt,
+    };
+    mergeEventOccurrences(value, event);
+    return;
+  }
+  const path = kind === 'course' ? '/api/v1/courses' : '/api/v1/topics';
   if (kind === 'course') {
     const cached = coursesSchema.safeParse(value.cache[path]?.data);
     const items = cached.success ? cached.data.courses : [];
@@ -279,6 +466,23 @@ export async function cachedResponse(path: string) {
         queuedPlanner(value).some((job) => job.kind === 'topic'))
     )
       return { topics: projectedTopics(value) };
+    if (
+      path === '/api/v1/calendar' &&
+      (value.cache[path] ||
+        queuedPlanner(value).some((job) => job.kind === 'event'))
+    )
+      return { events: projectedEvents(value) };
+    if (
+      path.startsWith('/api/v1/calendar/occurrences?') &&
+      queuedPlanner(value).some((job) => job.kind === 'event')
+    )
+      return projectedOccurrences(value, path);
+    if (
+      path === '/api/v1/reminders' &&
+      (value.cache[path] ||
+        queuedPlanner(value).some((job) => job.kind === 'reminder'))
+    )
+      return projectedReminders(value);
     return value.cache[path]?.data;
   });
 }
@@ -359,132 +563,371 @@ export async function enqueuePlanner(
   path: string,
   method: string,
   body: Record<string, unknown>,
-): Promise<{ course?: Course; topic?: Topic }> {
+): Promise<unknown> {
   if (!navigator.locks)
     throw new Error('Offline edits are unavailable in this browser.');
-  const kind: PlannerKind = /^\/api\/v1\/courses(?:\/|$)/.test(path)
+  const isCourse = /^\/api\/v1\/courses(?:\/|$)/.test(path);
+  const isTopic = /^\/api\/v1\/topics(?:\/|$)/.test(path);
+  const isCalendar = /^\/api\/v1\/calendar(?:\/|$)/.test(path);
+  const kind: PlannerKind = isCourse
     ? 'course'
-    : 'topic';
+    : isTopic
+      ? 'topic'
+      : isCalendar
+        ? 'event'
+        : 'reminder';
+  const snooze = kind === 'reminder' && /\/snooze$/.test(path);
+  const needsClientId =
+    (kind === 'event' && method === 'POST' && path === '/api/v1/calendar') ||
+    (kind === 'reminder' &&
+      (snooze || (method === 'POST' && path === '/api/v1/reminders')));
+  const normalizedBody = needsClientId
+    ? { ...body, clientId: body.clientId ?? body.operationId }
+    : body;
   const result = await state(true, (value) => {
     if (!authorized(value))
       throw new Error('Sign in online before using offline edits.');
     const repeated = [...value.jobs, ...queuedPlanner(value)].find(
-      (job) => job.body.operationId === body.operationId,
+      (job) => job.body.operationId === normalizedBody.operationId,
     );
     if (repeated) {
       if (
         repeated.path !== path ||
         repeated.method !== method ||
-        JSON.stringify(repeated.body) !== JSON.stringify(body)
+        JSON.stringify(repeated.body) !== JSON.stringify(normalizedBody)
       )
         throw new Error('Operation conflict.');
       if ('kind' in repeated && repeated.kind === kind)
-        return kind === 'course'
-          ? { course: repeated.entity as Course }
-          : { topic: repeated.entity as Topic };
+        return repeated.response;
       throw new Error('Operation conflict.');
     }
     const now = new Date().toISOString();
-    let item: Course | Topic;
-    if (method === 'POST') {
-      const clientId =
-        typeof body.clientId === 'string' ? body.clientId : undefined;
-      if (!clientId)
-        throw new Error('Offline creates need a client identifier.');
-      if (kind === 'course') {
-        const input = courseWriteSchema.parse(body);
-        if (projectedCourses(value).some((course) => course.id === clientId))
-          throw new Error('Reload classes before adding another.');
-        item = courseSchema.parse({
-          ...input,
-          id: clientId,
-          version: 1,
-          createdAt: now,
-          updatedAt: now,
-          deletedAt: null,
-        });
-      } else {
-        const input = topicWriteSchema.parse(body);
-        if (
-          !projectedCourses(value).some(
-            (course) => course.id === input.courseId,
+    if (kind === 'course' || kind === 'topic') {
+      let item: Course | Topic;
+      if (method === 'POST') {
+        const clientId =
+          typeof normalizedBody.clientId === 'string'
+            ? normalizedBody.clientId
+            : undefined;
+        if (!clientId)
+          throw new Error('Offline creates need a client identifier.');
+        if (kind === 'course') {
+          const input = courseWriteSchema.parse(normalizedBody);
+          if (projectedCourses(value).some((course) => course.id === clientId))
+            throw new Error('Reload classes before adding another.');
+          item = courseSchema.parse({
+            ...input,
+            id: clientId,
+            version: 1,
+            createdAt: now,
+            updatedAt: now,
+            deletedAt: null,
+          });
+        } else {
+          const input = topicWriteSchema.parse(normalizedBody);
+          if (
+            !projectedCourses(value).some(
+              (course) => course.id === input.courseId,
+            )
           )
-        )
-          throw new Error('Reload classes before adding a topic.');
-        item = topicSchema.parse({
+            throw new Error('Reload classes before adding a topic.');
+          item = topicSchema.parse({
+            ...input,
+            id: clientId,
+            version: 1,
+            createdAt: now,
+            updatedAt: now,
+            deletedAt: null,
+            academicLabels: null,
+          });
+        }
+      } else {
+        const id = path.split('/').at(-1)!;
+        const original =
+          kind === 'course'
+            ? projectedCourses(value).find((course) => course.id === id)
+            : projectedTopics(value).find((topic) => topic.id === id);
+        if (!original) throw new Error('Reload classes before editing.');
+        if (method === 'PUT' && kind === 'course') {
+          const input = courseWriteSchema.parse(normalizedBody);
+          if (input.expectedVersion !== original.version)
+            throw new Error('Reload classes before editing.');
+          item = courseSchema.parse({
+            ...original,
+            ...input,
+            version: original.version + 1,
+            updatedAt: now,
+            deletedAt: null,
+          });
+        } else if (method === 'PUT') {
+          const input = topicWriteSchema.parse(normalizedBody);
+          if (input.expectedVersion !== original.version)
+            throw new Error('Reload classes before editing.');
+          if (input.courseId !== (original as Topic).courseId)
+            throw new Error('A topic must remain in its original class.');
+          item = topicSchema.parse({
+            ...original,
+            ...input,
+            version: original.version + 1,
+            updatedAt: now,
+            deletedAt: null,
+          });
+        } else {
+          const input = deleteItemSchema.parse(normalizedBody);
+          if (input.expectedVersion !== original.version)
+            throw new Error('Reload classes before editing.');
+          item =
+            kind === 'course'
+              ? courseSchema.parse({
+                  ...original,
+                  version: original.version + 1,
+                  updatedAt: now,
+                  deletedAt: now,
+                })
+              : topicSchema.parse({
+                  ...original,
+                  version: original.version + 1,
+                  updatedAt: now,
+                  deletedAt: now,
+                });
+        }
+      }
+      const response =
+        kind === 'course'
+          ? { course: item as Course }
+          : { topic: item as Topic };
+      const job: PlannerJob = {
+        path,
+        method,
+        body: normalizedBody,
+        kind,
+        entity: item,
+        response,
+        error: null,
+      };
+      value.plannerJobs ??= [];
+      value.plannerJobs.push(job);
+      return response;
+    }
+
+    if (kind === 'event') {
+      if (/\/occurrences\/[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(path))
+        throw new Error('Per-occurrence changes need a connection.');
+      if (/\/restore$/.test(path))
+        throw new Error('Restore needs a connection.');
+      let item: CalendarRecord;
+      if (method === 'POST' && path === '/api/v1/calendar') {
+        const input = calendarWriteSchema.parse(normalizedBody);
+        if (input.canvasSourceRef)
+          throw new Error('Connect to create an event from Canvas.');
+        if (!input.clientId)
+          throw new Error('Offline creates need a client identifier.');
+        if (projectedEvents(value).some((event) => event.id === input.clientId))
+          throw new Error('Reload calendar before adding another.');
+        item = calendarRecordSchema.parse({
           ...input,
-          id: clientId,
+          id: input.clientId,
+          academicLabels: null,
+          canvasSource: null,
+          academicSource: null,
           version: 1,
           createdAt: now,
           updatedAt: now,
           deletedAt: null,
-          academicLabels: null,
-        });
-      }
-    } else {
-      const id = path.split('/').at(-1)!;
-      const original =
-        kind === 'course'
-          ? projectedCourses(value).find((course) => course.id === id)
-          : projectedTopics(value).find((topic) => topic.id === id);
-      if (!original) throw new Error('Reload classes before editing.');
-      if (method === 'PUT' && kind === 'course') {
-        const input = courseWriteSchema.parse(body);
-        if (input.expectedVersion !== original.version)
-          throw new Error('Reload classes before editing.');
-        item = courseSchema.parse({
-          ...original,
-          ...input,
-          version: original.version + 1,
-          updatedAt: now,
-          deletedAt: null,
-        });
-      } else if (method === 'PUT') {
-        const input = topicWriteSchema.parse(body);
-        if (input.expectedVersion !== original.version)
-          throw new Error('Reload classes before editing.');
-        if (input.courseId !== (original as Topic).courseId)
-          throw new Error('A topic must remain in its original class.');
-        item = topicSchema.parse({
-          ...original,
-          ...input,
-          version: original.version + 1,
-          updatedAt: now,
-          deletedAt: null,
         });
       } else {
-        const input = deleteItemSchema.parse(body);
-        if (input.expectedVersion !== original.version)
-          throw new Error('Reload classes before editing.');
-        item =
-          kind === 'course'
-            ? courseSchema.parse({
-                ...original,
-                version: original.version + 1,
-                updatedAt: now,
-                deletedAt: now,
-              })
-            : topicSchema.parse({
-                ...original,
-                version: original.version + 1,
-                updatedAt: now,
-                deletedAt: now,
-              });
+        const id = path.split('/').at(-1)!;
+        const original = projectedEvents(value).find(
+          (event) => event.id === id,
+        );
+        if (!original) throw new Error('Reload calendar before editing.');
+        if (method === 'PUT') {
+          const input = calendarWriteSchema.parse(normalizedBody);
+          if (input.canvasSourceRef)
+            throw new Error('Source links cannot be replaced offline.');
+          if (input.expectedVersion !== original.version)
+            throw new Error('Reload calendar before editing.');
+          item = calendarRecordSchema.parse({
+            ...original,
+            ...input,
+            version: original.version + 1,
+            updatedAt: now,
+            deletedAt: null,
+          });
+        } else {
+          const input = deleteItemSchema.parse(normalizedBody);
+          if (input.expectedVersion !== original.version)
+            throw new Error('Reload calendar before editing.');
+          item = calendarRecordSchema.parse({
+            ...original,
+            version: original.version + 1,
+            updatedAt: now,
+            deletedAt: now,
+          });
+        }
       }
+      const response = { event: item };
+      const job: PlannerJob = {
+        path,
+        method,
+        body: normalizedBody,
+        kind,
+        entity: item,
+        response,
+        error: null,
+      };
+      value.plannerJobs ??= [];
+      value.plannerJobs.push(job);
+      return response;
+    }
+
+    const reminderId = /^\/api\/v1\/reminders\/([a-f\d-]{36})/.exec(path)?.[1];
+    let item: Reminder;
+    let related: Reminder | undefined;
+    let response: unknown;
+    if (method === 'POST' && path === '/api/v1/reminders') {
+      const input = reminderWriteSchema.parse(normalizedBody);
+      if (!input.clientId)
+        throw new Error('Offline creates need a client identifier.');
+      if (
+        projectedReminders(value).reminders.some(
+          (reminder) => reminder.id === input.clientId,
+        )
+      )
+        throw new Error('Reload reminders before adding another.');
+      item = reminderSchema.parse({
+        ...input,
+        id: input.clientId,
+        version: 1,
+        status: 'queued',
+        attempts: 0,
+        lastError: null,
+        createdAt: now,
+        updatedAt: now,
+        snoozedFromId: null,
+      });
+      response = { reminder: item };
+    } else if (method === 'PUT' && reminderId) {
+      const input = reminderWriteSchema.parse(normalizedBody);
+      const original = projectedReminders(value).reminders.find(
+        (reminder) => reminder.id === reminderId,
+      );
+      if (!original) throw new Error('Reload reminders before editing.');
+      if (input.expectedVersion !== original.version)
+        throw new Error('Reload reminders before editing.');
+      if (!['queued', 'paused', 'failed'].includes(original.status))
+        throw new Error('This reminder cannot be rescheduled.');
+      item = reminderSchema.parse({
+        ...original,
+        ...input,
+        status: 'queued',
+        attempts: 0,
+        lastError: null,
+        version: original.version + 1,
+        updatedAt: now,
+      });
+      response = { reminder: item };
+    } else if (method === 'POST' && reminderId && /\/control$/.test(path)) {
+      const input = reminderControlSchema.parse(normalizedBody);
+      const original = projectedReminders(value).reminders.find(
+        (reminder) => reminder.id === reminderId,
+      );
+      if (!original) throw new Error('Reload reminders before editing.');
+      if (input.expectedVersion !== original.version)
+        throw new Error('Reload reminders before editing.');
+      const allowed: Record<string, string[]> = {
+        pause: ['queued', 'running'],
+        resume: ['paused'],
+        retry: ['failed'],
+        cancel: ['queued', 'running', 'paused', 'failed'],
+      };
+      if (!allowed[input.action]!.includes(original.status))
+        throw new Error(
+          'This control is not available for the current status.',
+        );
+      const status =
+        input.action === 'pause'
+          ? 'paused'
+          : input.action === 'cancel'
+            ? 'cancelled'
+            : 'queued';
+      item = reminderSchema.parse({
+        ...original,
+        status,
+        attempts: input.action === 'retry' ? 0 : original.attempts,
+        lastError: null,
+        version: original.version + 1,
+        updatedAt: now,
+      });
+      response = { reminder: item };
+    } else if (method === 'POST' && reminderId && snooze) {
+      const input = reminderSnoozeSchema.parse(normalizedBody);
+      const source = projectedReminders(value).reminders.find(
+        (reminder) => reminder.id === reminderId,
+      );
+      if (!source) throw new Error('Reload reminders before snoozing.');
+      if (input.expectedVersion !== source.version)
+        throw new Error('Reload reminders before snoozing.');
+      if (source.status !== 'delivered')
+        throw new Error('Only delivered reminders can be snoozed.');
+      if (
+        projectedReminders(value).reminders.some(
+          (reminder) => reminder.snoozedFromId === source.id,
+        )
+      )
+        throw new Error('This reminder has already been snoozed.');
+      const scheduled = Date.parse(input.scheduledAt);
+      if (scheduled <= Date.now() || scheduled > Date.now() + 365 * 86400000)
+        throw new Error('Choose a future time within 365 days.');
+      if (!input.clientId)
+        throw new Error('Offline creates need a client identifier.');
+      const sourceReminder = reminderSchema.parse({
+        ...source,
+        version: source.version + 1,
+        updatedAt: now,
+      });
+      item = reminderSchema.parse({
+        ...source,
+        id: input.clientId,
+        version: 1,
+        status: 'queued',
+        scheduledAt: input.scheduledAt,
+        attempts: 0,
+        lastError: null,
+        snoozedFromId: source.id,
+        createdAt: now,
+        updatedAt: now,
+      });
+      related = sourceReminder;
+      response = {
+        sourceReminder,
+        reminder: item,
+        notification: {
+          id: crypto.randomUUID(),
+          reminderId: source.id,
+          runId: null,
+          conversationId: null,
+          title: source.title,
+          createdAt: now,
+          readAt: now,
+        },
+      };
+    } else {
+      throw new Error('This reminder change is not supported offline.');
     }
     const job: PlannerJob = {
       path,
       method,
-      body,
+      body: normalizedBody,
       kind,
       entity: item,
+      ...(related ? { related } : {}),
+      response,
       error: null,
     };
     value.plannerJobs ??= [];
     value.plannerJobs.push(job);
-    return kind === 'course'
-      ? { course: item as Course }
-      : { topic: item as Topic };
+    return response;
   });
   changed();
   return result;
@@ -506,14 +949,41 @@ async function syncPlanner(send: Transport, owner: string) {
       });
       const saved =
         job.kind === 'course'
-          ? courseResponseSchema.parse(response).course
-          : topicResponseSchema.parse(response).topic;
+          ? {
+              kind: 'course' as const,
+              entity: courseResponseSchema.parse(response).course,
+            }
+          : job.kind === 'topic'
+            ? {
+                kind: 'topic' as const,
+                entity: topicResponseSchema.parse(response).topic,
+              }
+            : job.kind === 'event'
+              ? {
+                  kind: 'event' as const,
+                  entity: calendarResponseSchema.parse(response).event,
+                }
+              : /\/snooze$/.test(job.path)
+                ? {
+                    kind: 'reminder' as const,
+                    entities: (() => {
+                      const parsed =
+                        reminderSnoozeResponseSchema.parse(response);
+                      return [parsed.sourceReminder, parsed.reminder];
+                    })(),
+                  }
+                : {
+                    kind: 'reminder' as const,
+                    entities: [reminderResponseSchema.parse(response).reminder],
+                  };
       await state(true, (value) => {
         if (!authorized(value) || value.session?.user?.id !== owner) return;
         value.plannerJobs = queuedPlanner(value).filter(
           (item) => item.body.operationId !== job.body.operationId,
         );
-        mergePlannerCache(value, job.kind, saved);
+        if (saved.kind === 'reminder')
+          mergeReminderCache(value, saved.entities);
+        else mergePlannerCache(value, saved.kind, saved.entity);
       });
     } catch (error) {
       const code =
@@ -635,7 +1105,7 @@ export async function offlineStatus() {
         .map((job) => ({
           id: job.entity.id,
           kind: job.kind,
-          title: job.entity.name,
+          title: 'name' in job.entity ? job.entity.name : job.entity.title,
           error: job.error!,
         })),
     };

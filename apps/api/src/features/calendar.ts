@@ -180,7 +180,10 @@ export async function saveEvent(
     );
   }
   const input = calendarWriteSchema.parse(body);
-  const id = method === 'PUT' ? z.string().uuid().parse(target) : randomUUID();
+  const id =
+    method === 'PUT'
+      ? z.string().uuid().parse(target)
+      : (input.clientId ?? randomUUID());
   return mutate(
     database,
     owner,
@@ -259,7 +262,7 @@ export async function saveEvent(
       const [row] =
         method === 'POST'
           ? await tx.query(
-              `INSERT INTO events (id,owner_id,title,notes,starts_at,ends_at,time_zone,sensitivity,all_day,start_date,end_date,recurrence,course_id,topic_id,study_status,canvas_source_id,canvas_source_snapshot,canvas_assignment_id,canvas_assignment_snapshot,academic_labels) VALUES (${params.map((_, i) => `$${i + 1}`).join(',')},$16,$17::jsonb,$18,$19::jsonb,$20::text[]) RETURNING ${eventColumns}`,
+              `INSERT INTO events (id,owner_id,title,notes,starts_at,ends_at,time_zone,sensitivity,all_day,start_date,end_date,recurrence,course_id,topic_id,study_status,canvas_source_id,canvas_source_snapshot,canvas_assignment_id,canvas_assignment_snapshot,academic_labels) VALUES (${params.map((_, i) => `$${i + 1}`).join(',')},$16,$17::jsonb,$18,$19::jsonb,$20::text[]) ON CONFLICT (id) DO NOTHING RETURNING ${eventColumns}`,
               [
                 ...params,
                 source?.inputKind !== 'assignment-api'
@@ -279,6 +282,14 @@ export async function saveEvent(
               `UPDATE events SET title=$3,notes=$4,starts_at=$5,ends_at=$6,time_zone=$7,sensitivity=$8,all_day=$9,start_date=$10,end_date=$11,recurrence=$12,course_id=$13,topic_id=$14,study_status=$15,academic_labels=$16::text[],version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${eventColumns}`,
               [...params, capturedLabels],
             );
+      if (!row)
+        throw new ApiError(
+          409,
+          method === 'POST' ? 'OPERATION_CONFLICT' : 'VERSION_CONFLICT',
+          method === 'POST'
+            ? 'This identifier is already in use.'
+            : 'This event changed elsewhere. Reload before trying again.',
+        );
       // A changed series anchor/rule invalidates occurrence exceptions and linked occurrence reminders.
       if (
         old &&

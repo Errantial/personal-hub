@@ -1068,3 +1068,27 @@ it('persists snoozed delivery and retry receipts across an isolated server resta
       await rm(path, { recursive: true, force: true });
   }
 });
+
+it('creates a reminder from a client-supplied id and retries idempotently', async () => {
+  const clientId = randomUUID();
+  const payload = {
+    operationId: randomUUID(),
+    clientId,
+    title: 'Offline reminder',
+    scheduledAt: future(),
+  };
+  const first = await post('/api/v1/reminders', payload);
+  expect(first.statusCode).toBe(200);
+  expect(first.json().reminder.id).toBe(clientId);
+
+  const retry = await post('/api/v1/reminders', payload);
+  expect(retry.statusCode).toBe(200);
+  expect(retry.json().reminder.id).toBe(clientId);
+
+  const conflict = await post('/api/v1/reminders', {
+    ...payload,
+    operationId: randomUUID(),
+    title: 'Duplicate client id',
+  });
+  expect(conflict.statusCode).toBe(409);
+});
