@@ -514,3 +514,9 @@ Inbox shows a native-only **Device alarms** row with **Allowed**/count, **Not en
 Emulator (Android 15/API 35, 1080 x 2424, build `0.1.0+2db789f (test)`): with exact alarms denied, Inbox showed **Approximate**; granting `SCHEDULE_EXACT_ALARM` removed it without a manual reload. `dumpsys alarm` showed an exact `RTC_WAKEUP` (`window=0 exactAllowReason=permission`) for the plugin's `TimedNotificationPublisher`. After `am kill` and screen off, the alarm posted a `reminders`-channel notification titled **Personal Hub reminder** with the reminder title. The reboot attempt crashed the emulator process; a cold boot ran `LocalNotificationRestoreReceiver`, but the past-due one-shot alarm was not reposted. Future-alarm reboot survival and Mudita power modes remain hardware checks. This is not a Kompakt result.
 
 Validation: 96 web unit tests, 13/13 offline browser tests, 9/9 inbox browser tests, typecheck, lint, formatting and the production build; the signed test APK built successfully.
+
+## 2026-11-04 - Release-build audit
+
+Built a fresh signed release from `docs/android-runbook` head `64573f1` with the temporary test key (version `0.1.0+64573f1`, code 239). `apksigner` verified V2 with the expected test certificate digest. The packaged manifest has `android:allowBackup="false"` and `android:usesCleartextTraffic="false"`; the build used the production-style `--origin https://hub.ecg.name` and no test flag. SHA-256: `0bb3a5fc69f86048127f1e388afab22bad9789083c21c8a01e6e3636e76a2958`.
+
+This is a pipeline and manifest check only. The test key must not ship; the production keystore, production-signed APK, Kompakt install and the week of daily use remain owner gates. The runbook now covers checksum/certificate verification, in-place updates, rollback costs and keystore handling.
