@@ -29,6 +29,32 @@ Create the key once with `keytool -genkeypair -v -keystore <path> -alias persona
 
 Release builds reject the test connection flag and disable cleartext traffic. Debug builds use the machine's development key and a distinct application ID, `dev.personalhub.app.debug`.
 
+## Install, update and rollback runbook
+
+Prerequisites: the release APK and its `.sha256` file, the matching certificate fingerprint recorded with the release, `adb` from the SDK, and the Kompakt on the same network with wireless debugging enabled.
+
+1. Verify the download before installing:
+   ```sh
+   sha256sum -c personal-hub-<version>.apk.sha256
+   apksigner verify --print-certs personal-hub-<version>.apk
+   ```
+   The certificate digest must match the previous release. A different key cannot update an installed app.
+2. Install or update with `adb -s <serial> install -r personal-hub-<version>.apk`. Android keeps app data, the native session, cached views, queued edits, and pending alarms when the signature matches.
+3. Open Settings › Account and confirm the app version matches the APK.
+4. If the server origin changed, confirm `https://localhost` is in `WEB_ORIGINS` and the app can sign in.
+
+**Rollback.** Android does not allow installing a lower `versionCode` over a higher one. A rollback therefore requires an uninstall, which deletes the app's private data, cached views, queued offline edits, the native session, and pending alarms. Before uninstalling:
+
+- Sync and resolve every queued change; confirm the header says **Online · All saved**.
+- Export the planner JSON from Settings if the current data matters.
+- Note that "Recently deleted" and reminder history are lost from the device cache but remain on the server.
+
+Prefer a forward fix with a higher `versionCode` over a rollback. If a rollback is unavoidable, uninstall (`adb uninstall <package>`), install the older APK, sign in again, and re-create alarms from the server reminders.
+
+**Signing key.** Every release must use the same key. Keep the keystore outside the repository with an offline backup and record its certificate fingerprint with each release. Never put the keystore path or passwords in the repository, a build log, or chat.
+
+**Release audit.** Release builds set `android:allowBackup="false"`, `android:usesCleartextTraffic="false"`, `loggingBehavior: "none"`, and the Capacitor request logger off. The `--test` origin is rejected. The APK does not include Google Services or Firebase. Recheck these in the built APK's merged manifest and confirm no test key or test connection is packaged before distributing it.
+
 ## Native reminder alarms
 
 `@capacitor/local-notifications` 8.3.1 schedules reminder alarms on Android without Google Services. The Capacitor project root lists the plugin so `cap sync` registers its Gradle module; the web workspace imports it lazily and only on Android.

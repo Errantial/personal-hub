@@ -515,6 +515,12 @@ Emulator (Android 15/API 35, 1080 x 2424, build `0.1.0+2db789f (test)`): with ex
 
 Validation: 96 web unit tests, 13/13 offline browser tests, 9/9 inbox browser tests, typecheck, lint, formatting and the production build; the signed test APK built successfully.
 
+## 2026-11-04 - Release-build audit
+
+Built a fresh signed release from `docs/android-runbook` head `64573f1` with the temporary test key (version `0.1.0+64573f1`, code 239). `apksigner` verified V2 with the expected test certificate digest. The packaged manifest has `android:allowBackup="false"` and `android:usesCleartextTraffic="false"`; the build used the production-style `--origin https://hub.ecg.name` and no test flag. SHA-256: `0bb3a5fc69f86048127f1e388afab22bad9789083c21c8a01e6e3636e76a2958`.
+
+This is a pipeline and manifest check only. The test key must not ship; the production keystore, production-signed APK, Kompakt install and the week of daily use remain owner gates. The runbook now covers checksum/certificate verification, in-place updates, rollback costs and keystore handling.
+
 ## 2026-11-04 - Offline occurrence edits
 
 Per-occurrence event edits and occurrence-scoped deletes now queue in the shared outbox. The outbox stores the series, the original occurrence date and the replacement input, so projection patches only that date in every cached occurrence window and a delete removes only that occurrence. Replay applies the server's exception and merges the returned series version without dropping other server-side exceptions. A later series edit still resets its exceptions, matching the server.
