@@ -10,28 +10,29 @@ Status: proposal approved by the owner on 2026-11-02 (decision D58). Nothing in 
 - Reminders alert on the device while the app is closed and after a reboot.
 - About a week of daily use on the Kompakt before the release is called done.
 
-## Current state (2026-11-02)
+## Current state (2026-11-04)
 
-- Done: bundled UI, native cookie session, task outbox, cached viewing of any GET response loaded at least once (calendar, class and reminder screens included), Back gesture handling, `adjustResize` keyboard behavior. Emulator QA passed (PR #59).
-- Missing: Kompakt hardware results, signing, versioning (`versionCode 1`), offline edits outside tasks, native reminders.
+- Done: bundled UI, native cookie session, task outbox, cached viewing of any GET response loaded at least once (calendar, class and reminder screens included), Back gesture handling, `adjustResize` keyboard behavior, blank-launch recovery, immediate e-ink persistence, and hiding the bottom bar above the soft keyboard. Emulator QA passed (PR #59), and the Kompakt baseline passed the final hardware re-test on `da36089`.
+- Done in code, not yet exercised: git-derived versions, the version shown in Settings › Account, environment-only release signing, `apksigner` verification and a SHA-256 file. A release keystore and signed release APK are still missing.
+- Missing: offline edits outside tasks, native reminders, production HTTPS and the `https://localhost` origin allowlist, and about a week of daily use.
 
 ## Phases
 
 ### 1. Kompakt baseline (go/no-go)
 
-Install a signed debug APK built with `--test` over wireless debugging. Use `adb reverse tcp:3011 tcp:3011` to reach the isolated synthetic server. The owner's server and database are not used.
+Completed 2026-11-04. A signed debug APK built with `--test` was installed over wireless debugging and used with `adb reverse tcp:3011 tcp:3011` against the isolated synthetic server; the owner's server and database were not used.
 
-- Record the firmware version, Android API level, WebView version and viewport.
-- Rerun the emulator checks and the [platforms.md](platforms.md) checklist: offline replay after force-stop, Web Locks, e-ink contrast and ghosting, touch and keyboard input, Back gesture, 320 px layout, sleep and power modes.
-- Stop and reconsider the shell if Web Locks are missing, the WebView is too old for the bundle, or e-ink rendering is unusable.
+- Recorded: MuditaOS K 1.6.1, Android 12/API 31, WebView 149.0.7827.164, 480 × 800 at density 213 (360 CSS px), no Google Services.
+- Passed: install and first launch, offline replay after force-stop at version 3, secure context/Web Locks/IndexedDB, no horizontal overflow, e-ink screens, Back gesture, soft keyboard, first-blank-launch recovery, repeat-blank guard, normal launch, bottom-bar hiding above the keyboard, and the synthetic session surviving a reinstall. Details and timings are in [android.md](android.md).
+- Known limitations: Calendar Week header labels wrap unevenly at 360 CSS px; toasts are not captured by `screencap` (logcat used); wireless-debugging ports rotate. Sleep/power modes and a week of battery use are still part of Phase 6.
 
-Found on the hardware so far (details in [android.md](android.md)): a foreground process death leaves the next launch blank (OS/WebView defect, needs a native recovery path). The e-ink setting may be lost if the app is killed right after it changes.
+The two hardware findings from the first pass have mitigations that passed the final re-test: foreground process death no longer leaves the app stuck blank, and e-ink changes survive an immediate kill.
 
 ### 2. Signed release build
 
 - Keep the release keystore outside the repository, with an offline backup. Every update must be signed with the same key. A different key forces an uninstall, which deletes queued offline edits.
 - Done 2026-11-04: `versionCode` and `versionName` come from git, and the version is shown in Settings › Account.
-- Done 2026-11-04 (keystore not yet created): `npm run android:build -- --release` signs from environment variables, verifies with `apksigner` and writes a checksum. Versions come from git.
+- Signing code done 2026-11-04: `npm run android:build -- --release` signs from environment variables, verifies with `apksigner` and writes a checksum. A release keystore and signed APK are still missing.
 - Production: deploy current `main` and add `https://localhost` to `WEB_ORIGINS`.
 
 ### 3. Offline calendar, class and reminder edits
