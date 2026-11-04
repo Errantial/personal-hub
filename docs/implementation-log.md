@@ -502,3 +502,15 @@ Calendar series create, edit and delete now use the shared outbox. Creates accep
 Per-occurrence overrides, occurrence-scoped deletes and restore remain online-only and return an actionable connection message. Editing a series offline does not re-project server-side occurrence exceptions until the next online load. Academic work remains online-only.
 
 Validation: 13/13 offline browser tests (new event create, edit, agenda projection and delete/replay case), 15/15 planner API tests (new client-ID/idempotency case), 17/17 calendar browser tests, 92 web unit tests, typecheck, lint, formatting and the production build.
+
+## 2026-11-04 - Native reminder alarms
+
+Reminders now schedule native Android alarms through `@capacitor/local-notifications` 8.3.1, with the plugin registered by the Capacitor project root so `cap sync` adds its Gradle module. The web workspace imports it lazily and only on Android.
+
+`apps/web/src/lib/native-reminders.ts` reconciles the device with server reminders at launch, on resume/online, after a server round-trip and whenever the Inbox list changes. Future `queued` and `failed` reminders get one alarm keyed by a stable FNV-1a hash of the reminder UUID; edits cancel and replace that alarm, and finished or removed reminders cancel theirs. Notifications the app did not schedule are left alone. The module reads notification and exact-alarm permission, creates the high-importance `reminders` channel, and uses `allowWhileIdle` with the `hub_notification` icon. Sign-out and session lock cancel the app's alarms.
+
+Inbox shows a native-only **Device alarms** row with **Allowed**/count, **Not enabled**, **Blocked in Android settings**, **Approximate** and error states, plus buttons for permission, retry, and the Android exact-alarm setting. The web build keeps the existing browser-alert row.
+
+Emulator (Android 15/API 35, 1080 x 2424, build `0.1.0+2db789f (test)`): with exact alarms denied, Inbox showed **Approximate**; granting `SCHEDULE_EXACT_ALARM` removed it without a manual reload. `dumpsys alarm` showed an exact `RTC_WAKEUP` (`window=0 exactAllowReason=permission`) for the plugin's `TimedNotificationPublisher`. After `am kill` and screen off, the alarm posted a `reminders`-channel notification titled **Personal Hub reminder** with the reminder title. The reboot attempt crashed the emulator process; a cold boot ran `LocalNotificationRestoreReceiver`, but the past-due one-shot alarm was not reposted. Future-alarm reboot survival and Mudita power modes remain hardware checks. This is not a Kompakt result.
+
+Validation: 96 web unit tests, 13/13 offline browser tests, 9/9 inbox browser tests, typecheck, lint, formatting and the production build; the signed test APK built successfully.
