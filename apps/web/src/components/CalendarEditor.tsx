@@ -6,7 +6,7 @@ import {
   Temporal,
 } from '@hub/contracts';
 import type { CalendarRecord, Course, Topic } from '@hub/contracts';
-import { getJson } from '../lib/api';
+import { getJson, RequestError } from '../lib/api';
 import {
   DraftError,
   checkLocalTime,
@@ -24,6 +24,7 @@ import type {
   StudyDraft,
 } from '../lib/calendar';
 import { useMutation, useResource } from '../lib/hooks';
+import { cachedOccurrence } from '../lib/offline';
 import type { CalendarEditorRoute, Route } from '../lib/router';
 import { Help } from './Help';
 import { Link } from './Link';
@@ -73,17 +74,24 @@ export function CalendarEditor(props: Props) {
         to: around.add({ days: 32 }).toString(),
         timeZone: series.timeZone,
       });
-      const result = await getJson(
-        `/api/v1/calendar/occurrences?${query}`,
-        occurrencesResponseSchema,
-        signal,
-      );
-      return (
-        result.occurrences.find(
-          (item) =>
-            item.id === series.id && item.originalDate === occurrenceDate,
-        ) ?? null
-      );
+      try {
+        const result = await getJson(
+          `/api/v1/calendar/occurrences?${query}`,
+          occurrencesResponseSchema,
+          signal,
+        );
+        return (
+          result.occurrences.find(
+            (item) =>
+              item.id === series.id && item.originalDate === occurrenceDate,
+          ) ?? null
+        );
+      } catch (error) {
+        if (error instanceof RequestError) throw error;
+        // Offline, the editor's wider window may not be cached; the view's
+        // loaded window still holds this occurrence.
+        return (await cachedOccurrence(series.id, occurrenceDate)) ?? null;
+      }
     },
     {
       failure: 'This occurrence could not be loaded. Retry.',

@@ -30,8 +30,10 @@ import {
 import { z } from 'zod';
 import { nativePlatform } from './transport';
 import type {
+  CalendarInput,
   CalendarRecord,
   Course,
+  Occurrence,
   Reminder,
   Task,
   Topic,
@@ -49,7 +51,7 @@ const reminderControlSchema = deleteItemSchema.extend({
   action: z.enum(['pause', 'resume', 'retry', 'cancel']),
 });
 type ReminderList = z.infer<typeof remindersSchema>;
-type PlannerKind = 'course' | 'topic' | 'event' | 'reminder';
+type PlannerKind = 'course' | 'topic' | 'event' | 'occurrence' | 'reminder';
 type PlannerJob = {
   path: string;
   method: string;
@@ -57,6 +59,9 @@ type PlannerJob = {
   kind: PlannerKind;
   entity: Course | Topic | CalendarRecord | Reminder;
   related?: Reminder;
+  /** Per-occurrence edits carry the series, its date and the replacement. */
+  occurrenceDate?: string;
+  replacement?: CalendarInput | null;
   response: unknown;
   error: string | null;
 };
@@ -211,7 +216,7 @@ function projectedEvents(value: LocalState) {
     ]),
   );
   for (const job of queuedPlanner(value)) {
-    if (job.kind !== 'event') continue;
+    if (job.kind !== 'event' && job.kind !== 'occurrence') continue;
     const event = job.entity as CalendarRecord;
     if (event.deletedAt) events.delete(event.id);
     else events.set(event.id, event);
@@ -231,11 +236,29 @@ function projectedOccurrences(value: LocalState, path: string) {
   });
   if (!range.success) return undefined;
   const cached = occurrencesResponseSchema.safeParse(value.cache[path]?.data);
+  const jobs = queuedPlanner(value);
   const events = new Map<string, CalendarRecord>();
-  for (const job of queuedPlanner(value)) {
-    if (job.kind === 'event')
-      events.set(job.entity.id, job.entity as CalendarRecord);
-  }
+  const lastSeriesEdit = new Map<string, number>();
+  const occurrenceEdits: {
+    index: number;
+    id: string;
+    date: string;
+    replacement: CalendarInput | null;
+  }[] = [];
+  jobs.forEach((job, index) => {
+    if (job.kind === 'event') {
+      const event = job.entity as CalendarRecord;
+      events.set(event.id, event);
+      lastSeriesEdit.set(event.id, index);
+    } else if (job.kind === 'occurrence' && job.occurrenceDate) {
+      occurrenceEdits.push({
+        index,
+        id: job.entity.id,
+        date: job.occurrenceDate,
+        replacement: job.replacement ?? null,
+      });
+    }
+  });
   const occurrences = (cached.success ? cached.data.occurrences : []).filter(
     (occurrence) => !events.has(occurrence.id),
   );
@@ -249,6 +272,42 @@ function projectedOccurrences(value: LocalState, path: string) {
           range.data.timeZone,
         ),
       );
+  // Patch single occurrences from the cached window. A later series edit
+  // resets its series' exceptions, so edits before it no longer apply.
+  const series = new Map(
+    projectedEvents(value).map((event) => [event.id, event]),
+  );
+  for (const [id, event] of series) {
+    const byDate = new Map<string, { replacement: CalendarInput | null }>();
+    const resetAt = lastSeriesEdit.get(id) ?? -1;
+    for (const edit of occurrenceEdits)
+      if (edit.id === id && edit.index > resetAt)
+        byDate.set(edit.date, { replacement: edit.replacement });
+    if (!byDate.size || event.deletedAt) continue;
+    for (const date of byDate.keys())
+      for (let index = occurrences.length - 1; index >= 0; index -= 1)
+        if (
+          occurrences[index]!.id === id &&
+          occurrences[index]!.originalDate === date
+        )
+          occurrences.splice(index, 1);
+    for (const [date, edit] of byDate)
+      occurrences.push(
+        ...expandEvent(
+          event,
+          range.data.from,
+          range.data.to,
+          range.data.timeZone,
+          [
+            {
+              originalDate: date,
+              cancelled: edit.replacement === null,
+              replacement: edit.replacement,
+            },
+          ],
+        ).filter((occurrence) => occurrence.originalDate === date),
+      );
+  }
   occurrences.sort((left, right) =>
     left.startsAt.localeCompare(right.startsAt),
   );
@@ -268,6 +327,25 @@ function projectedReminders(value: LocalState): ReminderList {
     if (job.kind !== 'reminder') continue;
     if (job.related) reminders.set(job.related.id, job.related);
     reminders.set(job.entity.id, job.entity as Reminder);
+  }
+  // The server cancels a targeted reminder when its occurrence changes.
+  const now = new Date().toISOString();
+  for (const job of queuedPlanner(value)) {
+    if (job.kind !== 'occurrence' || !job.occurrenceDate) continue;
+    for (const [id, reminder] of reminders) {
+      if (
+        reminder.targetKind === 'event' &&
+        reminder.targetId === job.entity.id &&
+        reminder.occurrenceDate === job.occurrenceDate &&
+        ['queued', 'running', 'paused'].includes(reminder.status)
+      )
+        reminders.set(id, {
+          ...reminder,
+          status: 'cancelled',
+          version: reminder.version + 1,
+          updatedAt: now,
+        });
+    }
   }
   return {
     reminders: [...reminders.values()].sort(
@@ -334,34 +412,37 @@ function mergeEventOccurrences(value: LocalState, event: CalendarRecord) {
     value.cache[path] = { ...cached, data: { occurrences } };
   }
 }
+function mergeEventList(value: LocalState, event: CalendarRecord) {
+  const cached = calendarListSchema.safeParse(
+    value.cache['/api/v1/calendar']?.data,
+  );
+  const items = cached.success ? cached.data.events : [];
+  const next = event.deletedAt
+    ? items.filter((item) => item.id !== event.id)
+    : [...items.filter((item) => item.id !== event.id), event];
+  value.cache['/api/v1/calendar'] = {
+    data: {
+      events: next.sort(
+        (left, right) =>
+          left.startsAt.localeCompare(right.startsAt) ||
+          left.id.localeCompare(right.id),
+      ),
+    },
+    savedAt: new Date().toISOString(),
+  };
+}
 function mergePlannerCache(
   value: LocalState,
   kind: 'course' | 'topic' | 'event',
   entity: Course | Topic | CalendarRecord,
 ) {
-  const savedAt = new Date().toISOString();
   if (kind === 'event') {
-    const cached = calendarListSchema.safeParse(
-      value.cache['/api/v1/calendar']?.data,
-    );
-    const items = cached.success ? cached.data.events : [];
     const event = entity as CalendarRecord;
-    const next = event.deletedAt
-      ? items.filter((item) => item.id !== event.id)
-      : [...items.filter((item) => item.id !== event.id), event];
-    value.cache['/api/v1/calendar'] = {
-      data: {
-        events: next.sort(
-          (left, right) =>
-            left.startsAt.localeCompare(right.startsAt) ||
-            left.id.localeCompare(right.id),
-        ),
-      },
-      savedAt,
-    };
+    mergeEventList(value, event);
     mergeEventOccurrences(value, event);
     return;
   }
+  const savedAt = new Date().toISOString();
   const path = kind === 'course' ? '/api/v1/courses' : '/api/v1/topics';
   if (kind === 'course') {
     const cached = coursesSchema.safeParse(value.cache[path]?.data);
@@ -380,6 +461,50 @@ function mergePlannerCache(
       ? items.filter((topic) => topic.id !== entity.id)
       : [...items.filter((topic) => topic.id !== entity.id), entity as Topic];
     value.cache[path] = { data: { topics: byName(next) }, savedAt };
+  }
+}
+/** Applies one replayed occurrence change without dropping other exceptions. */
+function mergeOccurrenceCache(
+  value: LocalState,
+  event: CalendarRecord,
+  date: string,
+  replacement: CalendarInput | null,
+) {
+  mergeEventList(value, event);
+  for (const [path, cached] of Object.entries(value.cache)) {
+    if (!path.startsWith('/api/v1/calendar/occurrences?')) continue;
+    const query = new URL(path, 'http://local').searchParams;
+    const range = rangeSchema.safeParse({
+      from: query.get('from'),
+      to: query.get('to'),
+      timeZone: query.get('timeZone'),
+    });
+    const current = occurrencesResponseSchema.safeParse(cached.data);
+    if (!range.success || !current.success) continue;
+    const occurrences = current.data.occurrences.filter(
+      (occurrence) =>
+        !(occurrence.id === event.id && occurrence.originalDate === date),
+    );
+    if (!event.deletedAt)
+      occurrences.push(
+        ...expandEvent(
+          event,
+          range.data.from,
+          range.data.to,
+          range.data.timeZone,
+          [
+            {
+              originalDate: date,
+              cancelled: replacement === null,
+              replacement,
+            },
+          ],
+        ).filter((occurrence) => occurrence.originalDate === date),
+      );
+    occurrences.sort((left, right) =>
+      left.startsAt.localeCompare(right.startsAt),
+    );
+    value.cache[path] = { ...cached, data: { occurrences } };
   }
 }
 export async function rememberSession(session: SessionResponse) {
@@ -449,6 +574,24 @@ export async function cacheTask(task: Task) {
     value.tasks = [...value.tasks.filter((item) => item.id !== task.id), task];
   });
 }
+/** A cached occurrence from any stored window, including queued changes. */
+export async function cachedOccurrence(
+  id: string,
+  date: string,
+): Promise<Occurrence | undefined> {
+  return state(false, (value) => {
+    if (!authorized(value)) return undefined;
+    for (const path of Object.keys(value.cache)) {
+      if (!path.startsWith('/api/v1/calendar/occurrences?')) continue;
+      const found = projectedOccurrences(value, path)?.occurrences.find(
+        (occurrence) =>
+          occurrence.id === id && occurrence.originalDate === date,
+      );
+      if (found) return found;
+    }
+    return undefined;
+  });
+}
 export async function cachedResponse(path: string) {
   return state(false, (value) => {
     if (!authorized(value)) return undefined;
@@ -469,14 +612,18 @@ export async function cachedResponse(path: string) {
     if (
       path === '/api/v1/calendar' &&
       (value.cache[path] ||
-        queuedPlanner(value).some((job) => job.kind === 'event'))
+        queuedPlanner(value).some(
+          (job) => job.kind === 'event' || job.kind === 'occurrence',
+        ))
     )
       return { events: projectedEvents(value) };
-    if (
-      path.startsWith('/api/v1/calendar/occurrences?') &&
-      queuedPlanner(value).some((job) => job.kind === 'event')
-    )
-      return projectedOccurrences(value, path);
+    if (path.startsWith('/api/v1/calendar/occurrences?')) {
+      const jobs = queuedPlanner(value);
+      const projectable = value.cache[path]
+        ? jobs.some((job) => job.kind === 'event' || job.kind === 'occurrence')
+        : jobs.some((job) => job.kind === 'event');
+      if (projectable) return projectedOccurrences(value, path);
+    }
     if (
       path === '/api/v1/reminders' &&
       (value.cache[path] ||
@@ -710,9 +857,66 @@ export async function enqueuePlanner(
       return response;
     }
 
+    const occurrence =
+      /^\/api\/v1\/calendar\/([a-f\d-]{36})\/occurrences\/(\d{4}-\d{2}-\d{2})$/.exec(
+        path,
+      );
+    if (kind === 'event' && occurrence && method !== 'POST') {
+      const id = occurrence[1]!;
+      const date = occurrence[2]!;
+      const series = projectedEvents(value).find((event) => event.id === id);
+      if (!series) throw new Error('Reload calendar before editing.');
+      let replacement: CalendarInput | null = null;
+      if (method === 'PUT') {
+        const input = calendarWriteSchema.parse(normalizedBody);
+        if (input.canvasSourceRef)
+          throw new Error('Source links cannot be replaced offline.');
+        if (input.expectedVersion !== series.version)
+          throw new Error('Reload calendar before editing.');
+        if (input.recurrence) throw new Error('An occurrence cannot repeat.');
+        replacement = {
+          title: input.title,
+          notes: input.notes,
+          startsAt: input.startsAt,
+          endsAt: input.endsAt,
+          timeZone: input.timeZone,
+          sensitivity: input.sensitivity,
+          allDay: input.allDay,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          recurrence: input.recurrence ?? null,
+          courseId: input.courseId,
+          topicId: input.topicId,
+          studyStatus: input.studyStatus,
+        };
+      } else {
+        const input = deleteItemSchema.parse(normalizedBody);
+        if (input.expectedVersion !== series.version)
+          throw new Error('Reload calendar before editing.');
+      }
+      const entity = calendarRecordSchema.parse({
+        ...series,
+        version: series.version + 1,
+        updatedAt: now,
+        deletedAt: null,
+      });
+      const response = { event: entity };
+      const job: PlannerJob = {
+        path,
+        method,
+        body: normalizedBody,
+        kind: 'occurrence',
+        entity,
+        occurrenceDate: date,
+        replacement,
+        response,
+        error: null,
+      };
+      value.plannerJobs ??= [];
+      value.plannerJobs.push(job);
+      return response;
+    }
     if (kind === 'event') {
-      if (/\/occurrences\/[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(path))
-        throw new Error('Per-occurrence changes need a connection.');
       if (/\/restore$/.test(path))
         throw new Error('Restore needs a connection.');
       let item: CalendarRecord;
@@ -958,24 +1162,33 @@ async function syncPlanner(send: Transport, owner: string) {
                 kind: 'topic' as const,
                 entity: topicResponseSchema.parse(response).topic,
               }
-            : job.kind === 'event'
+            : job.kind === 'occurrence'
               ? {
-                  kind: 'event' as const,
+                  kind: 'occurrence' as const,
                   entity: calendarResponseSchema.parse(response).event,
+                  date: job.occurrenceDate!,
+                  replacement: job.replacement ?? null,
                 }
-              : /\/snooze$/.test(job.path)
+              : job.kind === 'event'
                 ? {
-                    kind: 'reminder' as const,
-                    entities: (() => {
-                      const parsed =
-                        reminderSnoozeResponseSchema.parse(response);
-                      return [parsed.sourceReminder, parsed.reminder];
-                    })(),
+                    kind: 'event' as const,
+                    entity: calendarResponseSchema.parse(response).event,
                   }
-                : {
-                    kind: 'reminder' as const,
-                    entities: [reminderResponseSchema.parse(response).reminder],
-                  };
+                : /\/snooze$/.test(job.path)
+                  ? {
+                      kind: 'reminder' as const,
+                      entities: (() => {
+                        const parsed =
+                          reminderSnoozeResponseSchema.parse(response);
+                        return [parsed.sourceReminder, parsed.reminder];
+                      })(),
+                    }
+                  : {
+                      kind: 'reminder' as const,
+                      entities: [
+                        reminderResponseSchema.parse(response).reminder,
+                      ],
+                    };
       await state(true, (value) => {
         if (!authorized(value) || value.session?.user?.id !== owner) return;
         value.plannerJobs = queuedPlanner(value).filter(
@@ -983,6 +1196,13 @@ async function syncPlanner(send: Transport, owner: string) {
         );
         if (saved.kind === 'reminder')
           mergeReminderCache(value, saved.entities);
+        else if (saved.kind === 'occurrence')
+          mergeOccurrenceCache(
+            value,
+            saved.entity,
+            saved.date,
+            saved.replacement,
+          );
         else mergePlannerCache(value, saved.kind, saved.entity);
       });
     } catch (error) {

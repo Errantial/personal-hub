@@ -514,3 +514,11 @@ Inbox shows a native-only **Device alarms** row with **Allowed**/count, **Not en
 Emulator (Android 15/API 35, 1080 x 2424, build `0.1.0+2db789f (test)`): with exact alarms denied, Inbox showed **Approximate**; granting `SCHEDULE_EXACT_ALARM` removed it without a manual reload. `dumpsys alarm` showed an exact `RTC_WAKEUP` (`window=0 exactAllowReason=permission`) for the plugin's `TimedNotificationPublisher`. After `am kill` and screen off, the alarm posted a `reminders`-channel notification titled **Personal Hub reminder** with the reminder title. The reboot attempt crashed the emulator process; a cold boot ran `LocalNotificationRestoreReceiver`, but the past-due one-shot alarm was not reposted. Future-alarm reboot survival and Mudita power modes remain hardware checks. This is not a Kompakt result.
 
 Validation: 96 web unit tests, 13/13 offline browser tests, 9/9 inbox browser tests, typecheck, lint, formatting and the production build; the signed test APK built successfully.
+
+## 2026-11-04 - Offline occurrence edits
+
+Per-occurrence event edits and occurrence-scoped deletes now queue in the shared outbox. The outbox stores the series, the original occurrence date and the replacement input, so projection patches only that date in every cached occurrence window and a delete removes only that occurrence. Replay applies the server's exception and merges the returned series version without dropping other server-side exceptions. A later series edit still resets its exceptions, matching the server.
+
+The occurrence editor used to fetch a wider window around its date than the calendar view had cached, so it failed offline. It now falls back to the occurrence found in any cached window, including queued changes, and only does so for transport failures (a server error still surfaces). Series restore remains online-only.
+
+Validation: 14/14 offline browser tests (new occurrence edit and delete/replay case), 17/17 calendar tests, 96 web unit tests, typecheck, lint, formatting and the production build.
