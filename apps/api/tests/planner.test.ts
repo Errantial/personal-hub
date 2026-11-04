@@ -618,3 +618,33 @@ it('requires production HTTPS/PostgreSQL and gates enrollment with a server toke
     await productionApp.close();
   }
 });
+
+it('accepts a client-supplied calendar id and rejects a different operation reusing it', async () => {
+  const clientId = randomUUID();
+  const payload = { ...eventInput(), clientId };
+  const first = await app.inject({
+    method: 'POST',
+    url: '/api/v1/calendar',
+    headers: headers(),
+    payload,
+  });
+  expect(first.statusCode).toBe(200);
+  expect(first.json().event.id).toBe(clientId);
+
+  const retry = await app.inject({
+    method: 'POST',
+    url: '/api/v1/calendar',
+    headers: headers(),
+    payload,
+  });
+  expect(retry.statusCode).toBe(200);
+  expect(retry.json().event.id).toBe(clientId);
+
+  const conflict = await app.inject({
+    method: 'POST',
+    url: '/api/v1/calendar',
+    headers: headers(),
+    payload: { ...eventInput(), clientId },
+  });
+  expect(conflict.statusCode).toBe(409);
+});

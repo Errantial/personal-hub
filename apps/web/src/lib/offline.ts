@@ -1,4 +1,8 @@
 import {
+  calendarListSchema,
+  calendarRecordSchema,
+  calendarResponseSchema,
+  calendarWriteSchema,
   courseResponseSchema,
   courseSchema,
   coursesSchema,
@@ -6,6 +10,9 @@ import {
   createTaskSchema,
   updateTaskSchema,
   deleteItemSchema,
+  expandEvent,
+  occurrencesResponseSchema,
+  rangeSchema,
   reminderResponseSchema,
   reminderSchema,
   remindersSchema,
@@ -23,6 +30,7 @@ import {
 import { z } from 'zod';
 import { nativePlatform } from './transport';
 import type {
+  CalendarRecord,
   Course,
   Reminder,
   Task,
@@ -41,13 +49,13 @@ const reminderControlSchema = deleteItemSchema.extend({
   action: z.enum(['pause', 'resume', 'retry', 'cancel']),
 });
 type ReminderList = z.infer<typeof remindersSchema>;
-type PlannerKind = 'course' | 'topic' | 'reminder';
+type PlannerKind = 'course' | 'topic' | 'event' | 'reminder';
 type PlannerJob = {
   path: string;
   method: string;
   body: Record<string, unknown>;
   kind: PlannerKind;
-  entity: Course | Topic | Reminder;
+  entity: Course | Topic | CalendarRecord | Reminder;
   related?: Reminder;
   response: unknown;
   error: string | null;
@@ -192,6 +200,60 @@ function projectedTopics(value: LocalState) {
     [...topics.values()].filter((topic) => !deletedCourses.has(topic.courseId)),
   );
 }
+function projectedEvents(value: LocalState) {
+  const cached = calendarListSchema.safeParse(
+    value.cache['/api/v1/calendar']?.data,
+  );
+  const events = new Map<string, CalendarRecord>(
+    (cached.success ? cached.data.events : []).map((event) => [
+      event.id,
+      event,
+    ]),
+  );
+  for (const job of queuedPlanner(value)) {
+    if (job.kind !== 'event') continue;
+    const event = job.entity as CalendarRecord;
+    if (event.deletedAt) events.delete(event.id);
+    else events.set(event.id, event);
+  }
+  return [...events.values()].sort(
+    (left, right) =>
+      left.startsAt.localeCompare(right.startsAt) ||
+      left.id.localeCompare(right.id),
+  );
+}
+function projectedOccurrences(value: LocalState, path: string) {
+  const query = new URL(path, 'http://local').searchParams;
+  const range = rangeSchema.safeParse({
+    from: query.get('from'),
+    to: query.get('to'),
+    timeZone: query.get('timeZone'),
+  });
+  if (!range.success) return undefined;
+  const cached = occurrencesResponseSchema.safeParse(value.cache[path]?.data);
+  const events = new Map<string, CalendarRecord>();
+  for (const job of queuedPlanner(value)) {
+    if (job.kind === 'event')
+      events.set(job.entity.id, job.entity as CalendarRecord);
+  }
+  const occurrences = (cached.success ? cached.data.occurrences : []).filter(
+    (occurrence) => !events.has(occurrence.id),
+  );
+  for (const event of events.values())
+    if (!event.deletedAt)
+      occurrences.push(
+        ...expandEvent(
+          event,
+          range.data.from,
+          range.data.to,
+          range.data.timeZone,
+        ),
+      );
+  occurrences.sort((left, right) =>
+    left.startsAt.localeCompare(right.startsAt),
+  );
+  return { occurrences };
+}
 function projectedReminders(value: LocalState): ReminderList {
   const cached = remindersSchema.safeParse(
     value.cache['/api/v1/reminders']?.data,
@@ -243,13 +305,64 @@ function mergeReminderCache(value: LocalState, saved: Reminder[]) {
     savedAt: new Date().toISOString(),
   };
 }
+function mergeEventOccurrences(value: LocalState, event: CalendarRecord) {
+  for (const [path, cached] of Object.entries(value.cache)) {
+    if (!path.startsWith('/api/v1/calendar/occurrences?')) continue;
+    const query = new URL(path, 'http://local').searchParams;
+    const range = rangeSchema.safeParse({
+      from: query.get('from'),
+      to: query.get('to'),
+      timeZone: query.get('timeZone'),
+    });
+    const current = occurrencesResponseSchema.safeParse(cached.data);
+    if (!range.success || !current.success) continue;
+    const occurrences = current.data.occurrences.filter(
+      (occurrence) => occurrence.id !== event.id,
+    );
+    if (!event.deletedAt)
+      occurrences.push(
+        ...expandEvent(
+          event,
+          range.data.from,
+          range.data.to,
+          range.data.timeZone,
+        ),
+      );
+    occurrences.sort((left, right) =>
+      left.startsAt.localeCompare(right.startsAt),
+    );
+    value.cache[path] = { ...cached, data: { occurrences } };
+  }
+}
 function mergePlannerCache(
   value: LocalState,
-  kind: 'course' | 'topic',
-  entity: Course | Topic,
+  kind: 'course' | 'topic' | 'event',
+  entity: Course | Topic | CalendarRecord,
 ) {
-  const path = kind === 'course' ? '/api/v1/courses' : '/api/v1/topics';
   const savedAt = new Date().toISOString();
+  if (kind === 'event') {
+    const cached = calendarListSchema.safeParse(
+      value.cache['/api/v1/calendar']?.data,
+    );
+    const items = cached.success ? cached.data.events : [];
+    const event = entity as CalendarRecord;
+    const next = event.deletedAt
+      ? items.filter((item) => item.id !== event.id)
+      : [...items.filter((item) => item.id !== event.id), event];
+    value.cache['/api/v1/calendar'] = {
+      data: {
+        events: next.sort(
+          (left, right) =>
+            left.startsAt.localeCompare(right.startsAt) ||
+            left.id.localeCompare(right.id),
+        ),
+      },
+      savedAt,
+    };
+    mergeEventOccurrences(value, event);
+    return;
+  }
+  const path = kind === 'course' ? '/api/v1/courses' : '/api/v1/topics';
   if (kind === 'course') {
     const cached = coursesSchema.safeParse(value.cache[path]?.data);
     const items = cached.success ? cached.data.courses : [];
@@ -354,6 +467,17 @@ export async function cachedResponse(path: string) {
     )
       return { topics: projectedTopics(value) };
     if (
+      path === '/api/v1/calendar' &&
+      (value.cache[path] ||
+        queuedPlanner(value).some((job) => job.kind === 'event'))
+    )
+      return { events: projectedEvents(value) };
+    if (
+      path.startsWith('/api/v1/calendar/occurrences?') &&
+      queuedPlanner(value).some((job) => job.kind === 'event')
+    )
+      return projectedOccurrences(value, path);
+    if (
       path === '/api/v1/reminders' &&
       (value.cache[path] ||
         queuedPlanner(value).some((job) => job.kind === 'reminder'))
@@ -444,15 +568,19 @@ export async function enqueuePlanner(
     throw new Error('Offline edits are unavailable in this browser.');
   const isCourse = /^\/api\/v1\/courses(?:\/|$)/.test(path);
   const isTopic = /^\/api\/v1\/topics(?:\/|$)/.test(path);
+  const isCalendar = /^\/api\/v1\/calendar(?:\/|$)/.test(path);
   const kind: PlannerKind = isCourse
     ? 'course'
     : isTopic
       ? 'topic'
-      : 'reminder';
+      : isCalendar
+        ? 'event'
+        : 'reminder';
   const snooze = kind === 'reminder' && /\/snooze$/.test(path);
   const needsClientId =
-    kind === 'reminder' &&
-    (snooze || (method === 'POST' && path === '/api/v1/reminders'));
+    (kind === 'event' && method === 'POST' && path === '/api/v1/calendar') ||
+    (kind === 'reminder' &&
+      (snooze || (method === 'POST' && path === '/api/v1/reminders')));
   const normalizedBody = needsClientId
     ? { ...body, clientId: body.clientId ?? body.operationId }
     : body;
@@ -568,6 +696,77 @@ export async function enqueuePlanner(
         kind === 'course'
           ? { course: item as Course }
           : { topic: item as Topic };
+      const job: PlannerJob = {
+        path,
+        method,
+        body: normalizedBody,
+        kind,
+        entity: item,
+        response,
+        error: null,
+      };
+      value.plannerJobs ??= [];
+      value.plannerJobs.push(job);
+      return response;
+    }
+
+    if (kind === 'event') {
+      if (/\/occurrences\/[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(path))
+        throw new Error('Per-occurrence changes need a connection.');
+      if (/\/restore$/.test(path))
+        throw new Error('Restore needs a connection.');
+      let item: CalendarRecord;
+      if (method === 'POST' && path === '/api/v1/calendar') {
+        const input = calendarWriteSchema.parse(normalizedBody);
+        if (input.canvasSourceRef)
+          throw new Error('Connect to create an event from Canvas.');
+        if (!input.clientId)
+          throw new Error('Offline creates need a client identifier.');
+        if (projectedEvents(value).some((event) => event.id === input.clientId))
+          throw new Error('Reload calendar before adding another.');
+        item = calendarRecordSchema.parse({
+          ...input,
+          id: input.clientId,
+          academicLabels: null,
+          canvasSource: null,
+          academicSource: null,
+          version: 1,
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
+        });
+      } else {
+        const id = path.split('/').at(-1)!;
+        const original = projectedEvents(value).find(
+          (event) => event.id === id,
+        );
+        if (!original) throw new Error('Reload calendar before editing.');
+        if (method === 'PUT') {
+          const input = calendarWriteSchema.parse(normalizedBody);
+          if (input.canvasSourceRef)
+            throw new Error('Source links cannot be replaced offline.');
+          if (input.expectedVersion !== original.version)
+            throw new Error('Reload calendar before editing.');
+          item = calendarRecordSchema.parse({
+            ...original,
+            ...input,
+            version: original.version + 1,
+            updatedAt: now,
+            deletedAt: null,
+          });
+        } else {
+          const input = deleteItemSchema.parse(normalizedBody);
+          if (input.expectedVersion !== original.version)
+            throw new Error('Reload calendar before editing.');
+          item = calendarRecordSchema.parse({
+            ...original,
+            version: original.version + 1,
+            updatedAt: now,
+            deletedAt: now,
+          });
+        }
+      }
+      const response = { event: item };
       const job: PlannerJob = {
         path,
         method,
@@ -759,18 +958,24 @@ async function syncPlanner(send: Transport, owner: string) {
                 kind: 'topic' as const,
                 entity: topicResponseSchema.parse(response).topic,
               }
-            : /\/snooze$/.test(job.path)
+            : job.kind === 'event'
               ? {
-                  kind: 'reminder' as const,
-                  entities: (() => {
-                    const parsed = reminderSnoozeResponseSchema.parse(response);
-                    return [parsed.sourceReminder, parsed.reminder];
-                  })(),
+                  kind: 'event' as const,
+                  entity: calendarResponseSchema.parse(response).event,
                 }
-              : {
-                  kind: 'reminder' as const,
-                  entities: [reminderResponseSchema.parse(response).reminder],
-                };
+              : /\/snooze$/.test(job.path)
+                ? {
+                    kind: 'reminder' as const,
+                    entities: (() => {
+                      const parsed =
+                        reminderSnoozeResponseSchema.parse(response);
+                      return [parsed.sourceReminder, parsed.reminder];
+                    })(),
+                  }
+                : {
+                    kind: 'reminder' as const,
+                    entities: [reminderResponseSchema.parse(response).reminder],
+                  };
       await state(true, (value) => {
         if (!authorized(value) || value.session?.user?.id !== owner) return;
         value.plannerJobs = queuedPlanner(value).filter(

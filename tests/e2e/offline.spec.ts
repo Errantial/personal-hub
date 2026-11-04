@@ -1,11 +1,15 @@
 import { expect, test } from '@playwright/test';
 import {
   addTask,
+  calendarRegion,
   classesRegion,
+  eventEditor,
   inboxRegion,
+  newEvent,
   newReminder,
   open,
   openTask,
+  showCalendar,
   showReminders,
   showTasks,
   syncNow,
@@ -465,13 +469,13 @@ test('sign-out clears private cached data and Help is available by keyboard', as
   await page.keyboard.press('Enter');
   await expect(
     page.getByText(
-      /Tasks, classes, topics and reminders can be changed offline/,
+      /Tasks, classes, topics, events and reminders can be changed offline/,
     ),
   ).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(
     page.getByText(
-      /Tasks, classes, topics and reminders can be changed offline/,
+      /Tasks, classes, topics, events and reminders can be changed offline/,
     ),
   ).toHaveCount(0);
   await expect(help).toBeFocused();
@@ -698,5 +702,88 @@ test('offline reminder create, reschedule and controls replay once', async ({
       status: 'cancelled',
       version: 5,
     },
+  );
+});
+
+test('offline event create, edit and delete project into the agenda', async ({
+  page,
+  context,
+}) => {
+  await warm(page);
+  await open(page, 'Calendar');
+  const view = calendarRegion(page);
+  const loaded = page.waitForResponse(
+    (response) =>
+      response.url().includes('/api/v1/calendar/occurrences?') &&
+      response.url().includes('from=2036-05-01') &&
+      response.url().includes('timeZone=UTC') &&
+      response.ok(),
+  );
+  await showCalendar(page, {
+    date: '2036-05-01',
+    view: 'Agenda',
+    zone: 'UTC',
+  });
+  await loaded;
+  await expect(
+    view.getByRole('button', { name: 'Reload calendar' }),
+  ).toBeEnabled();
+  await context.setOffline(true);
+  await page.goto('/calendar?date=2036-05-01&view=agenda');
+  await newEvent(page);
+  const editor = eventEditor(page);
+  await editor.getByLabel('Title', { exact: true }).fill('Offline event');
+  await editor.getByRole('button', { name: 'Save event', exact: true }).click();
+  await expect(
+    view.getByRole('link', { name: 'Offline event', exact: true }),
+  ).toBeVisible();
+  await expect(syncState(page)).toContainText('1 queued');
+
+  await view.getByRole('link', { name: 'Offline event', exact: true }).click();
+  await expect(editor).toBeVisible();
+  await editor
+    .getByLabel('Title', { exact: true })
+    .fill('Offline event edited');
+  await editor.getByRole('button', { name: 'Save changes' }).click();
+  await expect(
+    view.getByRole('link', { name: 'Offline event edited', exact: true }),
+  ).toBeVisible();
+  await expect(syncState(page)).toContainText('2 queued');
+
+  await context.setOffline(false);
+  await syncNow(page);
+  await expect(syncState(page)).toContainText('Online · All saved', {
+    timeout: 15000,
+  });
+  let events = (await (await page.request.get('/api/v1/calendar')).json())
+    .events as { title: string }[];
+  expect(events.some((event) => event.title === 'Offline event edited')).toBe(
+    true,
+  );
+
+  await expect(
+    view.getByRole('link', { name: 'Offline event edited', exact: true }),
+  ).toBeVisible();
+  await context.setOffline(true);
+  await view
+    .getByRole('link', { name: 'Offline event edited', exact: true })
+    .click();
+  await editor
+    .getByRole('button', { name: 'Delete event', exact: true })
+    .click();
+  await expect(
+    view.getByRole('link', { name: 'Offline event edited', exact: true }),
+  ).toHaveCount(0);
+  await expect(syncState(page)).toContainText('1 queued');
+
+  await context.setOffline(false);
+  await syncNow(page);
+  await expect(syncState(page)).toContainText('Online · All saved', {
+    timeout: 15000,
+  });
+  events = (await (await page.request.get('/api/v1/calendar')).json())
+    .events as { title: string }[];
+  expect(events.some((event) => event.title === 'Offline event edited')).toBe(
+    false,
   );
 });

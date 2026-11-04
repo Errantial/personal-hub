@@ -151,8 +151,8 @@ export function SyncDetails({ state }: { state: TaskSync }) {
           Sync now
         </button>
         <Help label="Offline tasks">
-          Tasks, classes, topics and reminders can be changed offline. Other
-          screens show previously loaded data; their edits require a connection.
+          Tasks, classes, topics, events and reminders can be changed offline.
+          Per-occurrence event changes and other screens require a connection.
           Only previously visited calendar ranges are cached. Local data is
           stored on this device until sign-out. Offline access ends when the
           last verified session expires. Reconnect to check revocation and sync.
@@ -247,7 +247,9 @@ export function SyncConflicts({
               ? 'Class'
               : item.kind === 'topic'
                 ? 'Topic'
-                : 'Reminder'}{' '}
+                : item.kind === 'event'
+                  ? 'Event'
+                  : 'Reminder'}{' '}
             conflict: {item.title}
           </strong>
           <p>
