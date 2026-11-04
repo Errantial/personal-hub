@@ -1,13 +1,21 @@
 import {
+  courseResponseSchema,
+  courseSchema,
+  coursesSchema,
+  courseWriteSchema,
   createTaskSchema,
   updateTaskSchema,
   deleteItemSchema,
   taskSchema,
   tasksResponseSchema,
+  topicResponseSchema,
+  topicSchema,
+  topicsSchema,
+  topicWriteSchema,
   sessionResponseSchema,
 } from '@hub/contracts';
 import { nativePlatform } from './transport';
-import type { Task, SessionResponse } from '@hub/contracts';
+import type { Course, Task, Topic, SessionResponse } from '@hub/contracts';
 
 type Job = {
   path: string;
@@ -16,12 +24,22 @@ type Job = {
   task: Task;
   error: string | null;
 };
+type PlannerKind = 'course' | 'topic';
+type PlannerJob = {
+  path: string;
+  method: string;
+  body: Record<string, unknown>;
+  kind: PlannerKind;
+  entity: Course | Topic;
+  error: string | null;
+};
 type LocalState = {
   session: SessionResponse | null;
   locked: boolean;
   cache: Record<string, { data: unknown; savedAt: string }>;
   tasks: Task[];
   jobs: Job[];
+  plannerJobs: PlannerJob[];
 };
 const empty = (): LocalState => ({
   session: null,
@@ -29,6 +47,7 @@ const empty = (): LocalState => ({
   cache: {},
   tasks: [],
   jobs: [],
+  plannerJobs: [],
 });
 let currentOwner: string | null = null;
 let epoch = 0;
@@ -80,6 +99,7 @@ async function state<T>(
     request.onsuccess = () => {
       try {
         const value = (request.result as LocalState | undefined) ?? empty();
+        value.plannerJobs ??= [];
         result = work(value);
         if (write) store.put(value, 'state');
       } catch (error) {
@@ -105,6 +125,75 @@ function projected(value: LocalState) {
   const tasks = new Map(value.tasks.map((task) => [task.id, task]));
   for (const job of value.jobs) tasks.set(job.task.id, job.task);
   return [...tasks.values()].filter((task) => !task.deletedAt);
+}
+const queuedPlanner = (value: LocalState) => value.plannerJobs ?? [];
+const byName = <T extends { name: string; id: string }>(items: T[]) =>
+  items.sort(
+    (left, right) =>
+      left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
+  );
+function projectedCourses(value: LocalState) {
+  const cached = coursesSchema.safeParse(value.cache['/api/v1/courses']?.data);
+  const courses = new Map<string, Course>(
+    (cached.success ? cached.data.courses : []).map((course) => [
+      course.id,
+      course,
+    ]),
+  );
+  for (const job of queuedPlanner(value)) {
+    if (job.kind !== 'course') continue;
+    if (job.entity.deletedAt) courses.delete(job.entity.id);
+    else courses.set(job.entity.id, job.entity as Course);
+  }
+  return byName([...courses.values()]);
+}
+function projectedTopics(value: LocalState) {
+  const cached = topicsSchema.safeParse(value.cache['/api/v1/topics']?.data);
+  const topics = new Map<string, Topic>(
+    (cached.success ? cached.data.topics : []).map((topic) => [
+      topic.id,
+      topic,
+    ]),
+  );
+  for (const job of queuedPlanner(value)) {
+    if (job.kind !== 'topic') continue;
+    if (job.entity.deletedAt) topics.delete(job.entity.id);
+    else topics.set(job.entity.id, job.entity as Topic);
+  }
+  const deletedCourses = new Set(
+    queuedPlanner(value)
+      .filter((job) => job.kind === 'course' && job.entity.deletedAt)
+      .map((job) => job.entity.id),
+  );
+  return byName(
+    [...topics.values()].filter((topic) => !deletedCourses.has(topic.courseId)),
+  );
+}
+function mergePlannerCache(
+  value: LocalState,
+  kind: PlannerKind,
+  entity: Course | Topic,
+) {
+  const path = kind === 'course' ? '/api/v1/courses' : '/api/v1/topics';
+  const savedAt = new Date().toISOString();
+  if (kind === 'course') {
+    const cached = coursesSchema.safeParse(value.cache[path]?.data);
+    const items = cached.success ? cached.data.courses : [];
+    const next = entity.deletedAt
+      ? items.filter((course) => course.id !== entity.id)
+      : [
+          ...items.filter((course) => course.id !== entity.id),
+          entity as Course,
+        ];
+    value.cache[path] = { data: { courses: byName(next) }, savedAt };
+  } else {
+    const cached = topicsSchema.safeParse(value.cache[path]?.data);
+    const items = cached.success ? cached.data.topics : [];
+    const next = entity.deletedAt
+      ? items.filter((topic) => topic.id !== entity.id)
+      : [...items.filter((topic) => topic.id !== entity.id), entity as Topic];
+    value.cache[path] = { data: { topics: byName(next) }, savedAt };
+  }
 }
 export async function rememberSession(session: SessionResponse) {
   if (currentOwner !== (session.user?.id ?? null)) epoch++;
@@ -147,7 +236,10 @@ export async function clearOffline() {
   changed();
 }
 export async function pendingCount() {
-  return state(false, (value) => value.jobs.length);
+  return state(
+    false,
+    (value) => value.jobs.length + queuedPlanner(value).length,
+  );
 }
 export async function cacheResponse(path: string, data: unknown) {
   const owner = currentOwner;
@@ -175,6 +267,18 @@ export async function cachedResponse(path: string) {
     if (!authorized(value)) return undefined;
     if (path === '/api/v1/tasks' && (value.cache[path] || value.jobs.length))
       return { tasks: projected(value) };
+    if (
+      path === '/api/v1/courses' &&
+      (value.cache[path] ||
+        queuedPlanner(value).some((job) => job.kind === 'course'))
+    )
+      return { courses: projectedCourses(value) };
+    if (
+      path === '/api/v1/topics' &&
+      (value.cache[path] ||
+        queuedPlanner(value).some((job) => job.kind === 'topic'))
+    )
+      return { topics: projectedTopics(value) };
     return value.cache[path]?.data;
   });
 }
@@ -251,10 +355,190 @@ export async function enqueueTask(
   changed();
   return { task };
 }
+export async function enqueuePlanner(
+  path: string,
+  method: string,
+  body: Record<string, unknown>,
+): Promise<{ course?: Course; topic?: Topic }> {
+  if (!navigator.locks)
+    throw new Error('Offline edits are unavailable in this browser.');
+  const kind: PlannerKind = /^\/api\/v1\/courses(?:\/|$)/.test(path)
+    ? 'course'
+    : 'topic';
+  const result = await state(true, (value) => {
+    if (!authorized(value))
+      throw new Error('Sign in online before using offline edits.');
+    const repeated = [...value.jobs, ...queuedPlanner(value)].find(
+      (job) => job.body.operationId === body.operationId,
+    );
+    if (repeated) {
+      if (
+        repeated.path !== path ||
+        repeated.method !== method ||
+        JSON.stringify(repeated.body) !== JSON.stringify(body)
+      )
+        throw new Error('Operation conflict.');
+      if ('kind' in repeated && repeated.kind === kind)
+        return kind === 'course'
+          ? { course: repeated.entity as Course }
+          : { topic: repeated.entity as Topic };
+      throw new Error('Operation conflict.');
+    }
+    const now = new Date().toISOString();
+    let item: Course | Topic;
+    if (method === 'POST') {
+      const clientId =
+        typeof body.clientId === 'string' ? body.clientId : undefined;
+      if (!clientId)
+        throw new Error('Offline creates need a client identifier.');
+      if (kind === 'course') {
+        const input = courseWriteSchema.parse(body);
+        if (projectedCourses(value).some((course) => course.id === clientId))
+          throw new Error('Reload classes before adding another.');
+        item = courseSchema.parse({
+          ...input,
+          id: clientId,
+          version: 1,
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
+        });
+      } else {
+        const input = topicWriteSchema.parse(body);
+        if (
+          !projectedCourses(value).some(
+            (course) => course.id === input.courseId,
+          )
+        )
+          throw new Error('Reload classes before adding a topic.');
+        item = topicSchema.parse({
+          ...input,
+          id: clientId,
+          version: 1,
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
+          academicLabels: null,
+        });
+      }
+    } else {
+      const id = path.split('/').at(-1)!;
+      const original =
+        kind === 'course'
+          ? projectedCourses(value).find((course) => course.id === id)
+          : projectedTopics(value).find((topic) => topic.id === id);
+      if (!original) throw new Error('Reload classes before editing.');
+      if (method === 'PUT' && kind === 'course') {
+        const input = courseWriteSchema.parse(body);
+        if (input.expectedVersion !== original.version)
+          throw new Error('Reload classes before editing.');
+        item = courseSchema.parse({
+          ...original,
+          ...input,
+          version: original.version + 1,
+          updatedAt: now,
+          deletedAt: null,
+        });
+      } else if (method === 'PUT') {
+        const input = topicWriteSchema.parse(body);
+        if (input.expectedVersion !== original.version)
+          throw new Error('Reload classes before editing.');
+        if (input.courseId !== (original as Topic).courseId)
+          throw new Error('A topic must remain in its original class.');
+        item = topicSchema.parse({
+          ...original,
+          ...input,
+          version: original.version + 1,
+          updatedAt: now,
+          deletedAt: null,
+        });
+      } else {
+        const input = deleteItemSchema.parse(body);
+        if (input.expectedVersion !== original.version)
+          throw new Error('Reload classes before editing.');
+        item =
+          kind === 'course'
+            ? courseSchema.parse({
+                ...original,
+                version: original.version + 1,
+                updatedAt: now,
+                deletedAt: now,
+              })
+            : topicSchema.parse({
+                ...original,
+                version: original.version + 1,
+                updatedAt: now,
+                deletedAt: now,
+              });
+      }
+    }
+    const job: PlannerJob = {
+      path,
+      method,
+      body,
+      kind,
+      entity: item,
+      error: null,
+    };
+    value.plannerJobs ??= [];
+    value.plannerJobs.push(job);
+    return kind === 'course'
+      ? { course: item as Course }
+      : { topic: item as Topic };
+  });
+  changed();
+  return result;
+}
 type Transport = (
   path: string,
   options?: { method?: string; body?: unknown },
 ) => Promise<unknown>;
+async function syncPlanner(send: Transport, owner: string) {
+  for (let count = 0; count < 100; count++) {
+    const job = await state(false, (value) =>
+      authorized(value) ? queuedPlanner(value)[0] : undefined,
+    );
+    if (!job || job.error || owner !== currentOwner) break;
+    try {
+      const response = await send(job.path, {
+        method: job.method,
+        body: job.body,
+      });
+      const saved =
+        job.kind === 'course'
+          ? courseResponseSchema.parse(response).course
+          : topicResponseSchema.parse(response).topic;
+      await state(true, (value) => {
+        if (!authorized(value) || value.session?.user?.id !== owner) return;
+        value.plannerJobs = queuedPlanner(value).filter(
+          (item) => item.body.operationId !== job.body.operationId,
+        );
+        mergePlannerCache(value, job.kind, saved);
+      });
+    } catch (error) {
+      const code =
+        error && typeof error === 'object' && 'code' in error
+          ? String(error.code)
+          : '';
+      const status =
+        error && typeof error === 'object' && 'status' in error
+          ? Number(error.status)
+          : 0;
+      if (status === 401 || status === 403) {
+        await lockOffline();
+        window.dispatchEvent(new Event('hub-auth-required'));
+      } else if (status >= 400 && status < 500 && status !== 429)
+        await state(true, (value) => {
+          const item = queuedPlanner(value).find(
+            (item) => item.body.operationId === job.body.operationId,
+          );
+          if (item) item.error = code || 'REQUEST_FAILED';
+        });
+      break;
+    }
+  }
+  changed();
+}
 /** Resolves true only after a server session round-trip, not when skipped. */
 export async function syncTasks(send: Transport): Promise<boolean> {
   if (!navigator.onLine || !navigator.locks || !currentOwner) return false;
@@ -317,30 +601,45 @@ export async function syncTasks(send: Transport): Promise<boolean> {
           break;
         }
       }
+      const tasksRemain = await state(false, (value) =>
+        authorized(value) ? value.jobs.length > 0 : false,
+      );
+      if (!tasksRemain) await syncPlanner(send, owner);
       changed();
       return true;
     },
   );
 }
 export async function offlineStatus() {
-  return state(false, (value) => ({
-    unavailable,
-    pending: value.jobs.length,
-    /** Task IDs with queued, unacknowledged changes (for inline row state). */
-    queued: [...new Set(value.jobs.map((job) => job.task.id))],
-    /** Queued changes wait for the same owner to sign in again. */
-    locked: value.locked && value.jobs.length > 0,
-    lastSaved: value.cache['/api/v1/tasks']?.savedAt ?? null,
-    conflicts: value.jobs
-      .filter((job) => job.error)
-      .map((job) => ({
-        id: job.task.id,
-        title: job.task.title,
-        notes: job.task.notes,
-        task: job.task,
-        error: job.error,
-      })),
-  }));
+  return state(false, (value) => {
+    const planner = queuedPlanner(value);
+    return {
+      unavailable,
+      pending: value.jobs.length + planner.length,
+      /** Task IDs with queued, unacknowledged changes (for inline row state). */
+      queued: [...new Set(value.jobs.map((job) => job.task.id))],
+      /** Queued changes wait for the same owner to sign in again. */
+      locked: value.locked && value.jobs.length + planner.length > 0,
+      lastSaved: value.cache['/api/v1/tasks']?.savedAt ?? null,
+      conflicts: value.jobs
+        .filter((job) => job.error)
+        .map((job) => ({
+          id: job.task.id,
+          title: job.task.title,
+          notes: job.task.notes,
+          task: job.task,
+          error: job.error,
+        })),
+      plannerConflicts: planner
+        .filter((job) => job.error)
+        .map((job) => ({
+          id: job.entity.id,
+          kind: job.kind,
+          title: job.entity.name,
+          error: job.error!,
+        })),
+    };
+  });
 }
 export async function discardTask(id: string) {
   await navigator.locks.request('hub-task-sync', async () => {
@@ -349,6 +648,17 @@ export async function discardTask(id: string) {
       value.jobs = value.jobs.filter((job) => job.task.id !== id);
       // The next authenticated list refresh supplies the current server record.
       value.tasks = value.tasks.filter((task) => task.id !== id);
+    });
+  });
+  changed();
+}
+export async function discardPlanner(kind: PlannerKind, id: string) {
+  await navigator.locks.request('hub-task-sync', async () => {
+    await state(true, (value) => {
+      if (!authorized(value)) throw new Error('Sign in online first.');
+      value.plannerJobs = queuedPlanner(value).filter(
+        (job) => !(job.kind === kind && job.entity.id === id),
+      );
     });
   });
   changed();

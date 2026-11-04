@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { synchronize } from '../lib/api';
-import { offlineChanged, offlineStatus, discardTask } from '../lib/offline';
+import {
+  offlineChanged,
+  offlineStatus,
+  discardPlanner,
+  discardTask,
+} from '../lib/offline';
 import { Banner } from './Banner';
 import { useConfirm } from './ConfirmDialog';
 import { Help } from './Help';
@@ -19,6 +24,7 @@ export function useTaskSync() {
     locked: false,
     lastSaved: null,
     conflicts: [],
+    plannerConflicts: [],
     unavailable: false,
   });
   const [error, setError] = useState('');
@@ -67,8 +73,9 @@ export function useTaskSync() {
     : status.unavailable
       ? 'Server unavailable'
       : 'Online';
-  const queue = status.conflicts.length
-    ? `Conflict · ${status.conflicts.length}`
+  const conflicts = status.conflicts.length + status.plannerConflicts.length;
+  const queue = conflicts
+    ? `Conflict · ${conflicts}`
     : status.locked
       ? `Locked · ${status.pending} queued`
       : status.pending
@@ -144,13 +151,13 @@ export function SyncDetails({ state }: { state: TaskSync }) {
           Sync now
         </button>
         <Help label="Offline tasks">
-          Tasks can be created, edited, completed and deleted offline. Other
-          screens show previously loaded data; their edits require a connection.
-          Only previously visited calendar ranges are cached. Local data is
-          stored on this device until sign-out. Offline access ends when the
-          last verified session expires. Reconnect to check revocation and sync.
-          Local storage can be cleared or evicted. Sync pending changes before
-          clearing browser or app data.
+          Tasks, classes and topics can be created, edited and deleted offline.
+          Other screens show previously loaded data; their edits require a
+          connection. Only previously visited calendar ranges are cached. Local
+          data is stored on this device until sign-out. Offline access ends when
+          the last verified session expires. Reconnect to check revocation and
+          sync. Local storage can be cleared or evicted. Sync pending changes
+          before clearing browser or app data.
         </Help>
       </div>
     </section>
@@ -168,12 +175,13 @@ export function SyncConflicts({
   const [dialog, confirm] = useConfirm();
   const [error, setError] = useState('');
   const { status, sync } = state;
-  if (!status.conflicts.length && !error) return dialog;
+  if (!status.conflicts.length && !status.plannerConflicts.length && !error)
+    return dialog;
   return (
     <Banner
       tone="danger"
-      label="Task conflicts"
-      title="Some queued task changes could not be saved"
+      label="Sync conflicts"
+      title="Some queued changes could not be saved"
     >
       {error && <p role="alert">{error}</p>}
       {status.conflicts.map((item) => (
@@ -222,6 +230,42 @@ export function SyncConflicts({
                 if (!confirmed) return;
                 setError('');
                 void discardTask(item.id).then(
+                  () => sync(),
+                  () => setError('Could not discard changes.'),
+                );
+              });
+            }}
+          >
+            Discard local changes
+          </button>
+        </div>
+      ))}
+      {status.plannerConflicts.map((item) => (
+        <div className="conflict" key={`${item.kind}-${item.id}`}>
+          <strong>
+            {item.kind === 'course' ? 'Class' : 'Topic'} conflict: {item.title}
+          </strong>
+          <p>
+            {item.error === 'VERSION_CONFLICT'
+              ? 'Server record changed.'
+              : item.error === 'NOT_FOUND'
+                ? 'Server record deleted.'
+                : 'Request rejected.'}
+          </p>
+          <p>Local changes are retained until you discard them.</p>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => {
+              void confirm({
+                title: `Discard queued changes to “${item.title}”?`,
+                message:
+                  'The server version will be used. Your local draft cannot be recovered.',
+                confirmLabel: 'Discard changes',
+              }).then((confirmed) => {
+                if (!confirmed) return;
+                setError('');
+                void discardPlanner(item.kind, item.id).then(
                   () => sync(),
                   () => setError('Could not discard changes.'),
                 );

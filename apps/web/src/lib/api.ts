@@ -13,7 +13,7 @@ import {
   cachedResponse,
   cachedAt,
   cacheTask,
-  hasTaskQueue,
+  enqueuePlanner,
   enqueueTask,
   syncTasks,
   ownerContext,
@@ -218,9 +218,13 @@ export async function requestJson<T>(
   } = {},
 ): Promise<T> {
   const method = options.method ?? 'GET';
-  const mutation =
+  const taskMutation =
     /^\/api\/v1\/tasks(?:\/[a-f\d-]{36})?$/.test(path) &&
     ['POST', 'PUT', 'DELETE'].includes(method);
+  const plannerMutation =
+    /^\/api\/v1\/(?:courses|topics)(?:\/[a-f\d-]{36})?$/.test(path) &&
+    ['POST', 'PUT', 'DELETE'].includes(method);
+  const mutation = taskMutation || plannerMutation;
   const body =
     options.body && typeof options.body === 'object'
       ? (options.body as Record<string, unknown>)
@@ -230,13 +234,15 @@ export async function requestJson<T>(
       ? { ...body, clientId: body.clientId ?? body.operationId }
       : body;
   const sourceCreation =
-    mutation && method === 'POST' && !!body.canvasSourceRef;
+    taskMutation && method === 'POST' && !!body.canvasSourceRef;
   if (path === '/api/v1/auth/logout' && (await pendingCount().catch(() => 0)))
-    throw new Error('Sync or discard pending tasks before signing out.');
-  if (mutation && (await hasTaskQueue().catch(() => false))) {
+    throw new Error('Sync or discard pending changes before signing out.');
+  if (mutation && (await pendingCount().catch(() => 0))) {
     if (sourceCreation)
       throw new Error('Sync queued tasks before creating from Canvas.');
-    const response = await enqueueTask(path, method, prepared);
+    const response = taskMutation
+      ? await enqueueTask(path, method, prepared)
+      : await enqueuePlanner(path, method, prepared);
     void synchronize().catch(() => undefined);
     return schema.parse(response);
   }
@@ -257,14 +263,19 @@ export async function requestJson<T>(
     if (method === 'GET' && cachedPath(path)) {
       await cacheResponse(path, response).catch(() => undefined);
       if (
-        path === '/api/v1/tasks' &&
-        (await hasTaskQueue().catch(() => false))
+        (path === '/api/v1/tasks' ||
+          path === '/api/v1/courses' ||
+          path === '/api/v1/topics') &&
+        (await pendingCount().catch(() => 0))
       ) {
-        void synchronize().catch(() => undefined);
-        return schema.parse(await cachedResponse(path));
+        const projected = await cachedResponse(path).catch(() => undefined);
+        if (projected !== undefined) {
+          void synchronize().catch(() => undefined);
+          return schema.parse(projected);
+        }
       }
     }
-    if (mutation)
+    if (taskMutation)
       await cacheTask(taskResponseSchema.parse(response).task).catch(
         () => undefined,
       );
@@ -302,17 +313,17 @@ export async function requestJson<T>(
         throw new Error('Connect to create a task from Canvas.', {
           cause: error,
         });
-      const response = await enqueueTask(path, method, prepared);
+      const response = taskMutation
+        ? await enqueueTask(path, method, prepared)
+        : await enqueuePlanner(path, method, prepared);
       void synchronize().catch(() => undefined);
       return schema.parse(response);
     }
     if (
       method !== 'GET' &&
-      /^\/api\/v1\/(calendar|events|courses|topics|reminders|notifications)/.test(
-        path,
-      )
+      /^\/api\/v1\/(calendar|events|reminders|notifications)/.test(path)
     )
-      throw new Error('Connect to edit calendar, classes or reminders.', {
+      throw new Error('Connect to edit calendar, events or reminders.', {
         cause: error,
       });
     throw error;
