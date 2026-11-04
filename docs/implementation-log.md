@@ -488,3 +488,9 @@ The release-signing path was exercised with a temporary test key on the Android 
 Offline classes and topics now share the durable outbox. The browser adds a client-generated `clientId` to creates, queues ordered course/topic operations when offline or behind pending work, projects queued records into the cached lists, and merges the server response after replay. Deletes remove a class and its topics locally; version conflicts remain visible with an explicit discard action. Tasks still replay before class jobs. Calendar events, academic work and reminders remain online-only.
 
 Validation: 11/11 offline browser tests (new class/topic create, edit, delete and replay case), 18/18 academic-management API tests (new client-ID/idempotency case), 7/7 classes browser tests, 92 web unit tests, typecheck, lint, formatting and the production build.
+
+## 2026-11-04 - Offline reminders
+
+Reminders now use the shared outbox for create, reschedule, snooze, pause, resume, retry and cancel. Creates accept a client-generated ID; the server returns it and rejects a duplicate under another operation. Snoozes use the operation ID as the child reminder ID, update the delivered source version and queue both records. Cached reminder lists project optimistic statuses and times while retaining the server worker state; replay merges the saved reminders and conflicts remain in the global banner.
+
+Validation: 12/12 offline browser tests (new reminder create, reschedule, pause, resume, cancel and replay case), 22/22 reminder-inbox API tests (new client-ID/idempotency case), 9/9 inbox browser tests, 92 web unit tests, typecheck, lint, formatting and the production build. Calendar events and academic work remain online-only; native local alarms are still pending.

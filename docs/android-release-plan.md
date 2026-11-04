@@ -14,7 +14,7 @@ Status: proposal approved by the owner on 2026-11-02 (decision D58). Nothing in 
 
 - Done: bundled UI, native cookie session, task outbox, cached viewing of any GET response loaded at least once (calendar, class and reminder screens included), Back gesture handling, `adjustResize` keyboard behavior, blank-launch recovery, immediate e-ink persistence, and hiding the bottom bar above the soft keyboard. Emulator QA passed (PR #59), and the Kompakt baseline passed the final hardware re-test on `da36089`.
 - Signing path: git-derived versions, the version shown in Settings › Account, environment-only release signing, `apksigner` verification and a SHA-256 file are implemented. Verified 2026-11-04 with a temporary test key (v1 code 224 → v2 code 225, same certificate, install/update on the Android 15 emulator). The production keystore and its signed release APK are still missing; the test key must not ship.
-- Offline edits: classes and topics are done (2026-11-04: queued create/edit/delete, cache projection and retained conflicts). Calendar events, academic work and reminders are still online-only.
+- Offline edits: classes, topics and reminders are done (2026-11-04: queued create/edit/delete and reminder controls, cache projection and retained conflicts). Calendar events and academic work are still online-only.
 - Missing: native reminders, production HTTPS and the `https://localhost` origin allowlist, and about a week of daily use.
 
 ## Phases
@@ -42,7 +42,8 @@ The two hardware findings from the first pass have mitigations that passed the f
 - Server operations must already be idempotent by operation ID. Confirm each one, and add receipts where they are missing.
 - Pending, offline and conflict state stays visible on each touched screen.
 - Done 2026-11-04: classes and topics queue create, edit and delete with client-supplied IDs; cached lists project queued changes; replay merges the server record; conflicts stay in the global banner with explicit discard. Browser coverage includes offline class/topic create, edit, delete and one-time replay.
-- Remaining: calendar events and recurring occurrences, academic work, and reminder create/edit/snooze/pause/cancel.
+- Done 2026-11-04: reminders queue create, reschedule, snooze, pause, resume, retry and cancel. Cached reminder lists project status/time changes; a snooze queues both the source version and the child reminder; replay merges the server records.
+- Remaining: calendar events and recurring occurrences, and academic work.
 - Browser e2e coverage for every queued kind. Emulator instrumentation covers process death and replay.
 
 ### 4. Native reminders
