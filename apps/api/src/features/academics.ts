@@ -73,12 +73,13 @@ export function registerAcademics(
           const user = await auth.requireUser(request);
           const input: Record<string, unknown> & {
             operationId: string;
+            clientId?: string | undefined;
             expectedVersion?: number | undefined;
           } = writeSchema.parse(request.body);
           const id =
             method === 'PUT'
               ? z.object({ id: z.string().uuid() }).parse(request.params).id
-              : randomUUID();
+              : (input.clientId ?? randomUUID());
           return mutate(
             database,
             user.id,
@@ -130,13 +131,21 @@ export function registerAcademics(
               const [row] =
                 method === 'POST'
                   ? await tx.query(
-                      `INSERT INTO ${table} (id,owner_id,${fields.map(([, col]) => col).join(',')}${table === 'topics' ? ',academic_labels' : ''}) VALUES ($1,$2,${values.map((_, i) => `$${i + 3}`).join(',')}) RETURNING ${columns}`,
+                      `INSERT INTO ${table} (id,owner_id,${fields.map(([, col]) => col).join(',')}${table === 'topics' ? ',academic_labels' : ''}) VALUES ($1,$2,${values.map((_, i) => `$${i + 3}`).join(',')}) ON CONFLICT (id) DO NOTHING RETURNING ${columns}`,
                       [id, user.id, ...values],
                     )
                   : await tx.query(
                       `UPDATE ${table} SET ${fields.map(([, col], i) => `${col}=$${i + 3}`).join(',')}${table === 'topics' ? `,academic_labels=$${fields.length + 3}::text[]` : ''},version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${columns}`,
                       [id, user.id, ...values],
                     );
+              if (!row)
+                throw new ApiError(
+                  409,
+                  method === 'POST' ? 'OPERATION_CONFLICT' : 'VERSION_CONFLICT',
+                  method === 'POST'
+                    ? 'This identifier is already in use.'
+                    : 'This item changed elsewhere. Reload before trying again.',
+                );
               // Tombstones can be restored: capture labels while deleted too.
               // Ancestor-first locking and child versions preserve conflict checks.
               if (table === 'courses' && input.sensitivity !== 'unlabeled')

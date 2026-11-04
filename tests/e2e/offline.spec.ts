@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   addTask,
+  classesRegion,
   open,
   openTask,
   showTasks,
@@ -194,7 +195,7 @@ test('academic source relabeling retains an offline task draft and inherited lab
   expect(relabeled.status()).toBe(200);
   await page.unroute('**/api/v1/tasks/*');
   await syncNow(page);
-  const conflicts = page.getByRole('alert', { name: 'Task conflicts' });
+  const conflicts = page.getByRole('alert', { name: 'Sync conflicts' });
   await expect(conflicts).toContainText('Academic retained draft');
   await page.reload();
   await expect(conflicts).toContainText('Academic retained draft');
@@ -263,7 +264,7 @@ test('offline create, edit, completion and delete survive reload and reconcile o
   await expect(
     page
       .getByRole('alert')
-      .filter({ hasText: 'Sync or discard pending tasks' }),
+      .filter({ hasText: 'Sync or discard pending changes' }),
   ).toBeVisible();
   await context.setOffline(false);
   await syncNow(page);
@@ -402,7 +403,7 @@ test('offline conflicts retain local drafts until explicitly discarded', async (
   expect(remote.status()).toBe(200);
   await context.setOffline(false);
   await syncNow(page);
-  const conflicts = page.getByRole('alert', { name: 'Task conflicts' });
+  const conflicts = page.getByRole('alert', { name: 'Sync conflicts' });
   await expect(conflicts).toContainText(
     'Task conflict: Retained offline draft',
   );
@@ -459,9 +460,13 @@ test('sign-out clears private cached data and Help is available by keyboard', as
   const help = page.getByRole('button', { name: 'Help: Offline tasks' });
   await help.focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByText(/Tasks can be created, edited/)).toBeVisible();
+  await expect(
+    page.getByText(/Tasks, classes and topics can be created, edited/),
+  ).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(page.getByText(/Tasks can be created, edited/)).toHaveCount(0);
+  await expect(
+    page.getByText(/Tasks, classes and topics can be created, edited/),
+  ).toHaveCount(0);
   await expect(help).toBeFocused();
   await signOut(page);
   await expect(
@@ -529,4 +534,99 @@ test('views not yet opened load offline at their own URLs after one online visit
     page.getByRole('heading', { name: 'Connections', level: 2 }),
   ).toBeVisible();
   await context.setOffline(false);
+});
+
+test('offline class and topic edits replay once', async ({ page, context }) => {
+  await warm(page);
+  await open(page, 'Classes');
+  const view = classesRegion(page);
+  await expect(
+    view.getByRole('link', { name: 'Add class', exact: true }),
+  ).toBeVisible();
+  await context.setOffline(true);
+
+  await page.goto('/classes/new');
+  await view.getByLabel('Class name').fill('Offline class');
+  await view.getByLabel('Class name').press('Enter');
+  await expect(
+    page.getByRole('heading', { level: 2, name: 'Offline class' }),
+  ).toBeVisible();
+  const id = new URL(page.url()).pathname.split('/')[2]!;
+  await expect(syncState(page)).toContainText('1 queued');
+
+  await page.goto(`/classes/${id}?section=details`);
+  const details = view.getByRole('region', { name: 'Class details' });
+  await details.getByLabel('Instructor').fill('Offline instructor');
+  await details.getByRole('button', { name: 'Save class changes' }).click();
+  await expect(details.getByRole('status')).toHaveText('Saved.');
+  await page.reload();
+  await expect(details.getByLabel('Instructor')).toHaveValue(
+    'Offline instructor',
+  );
+  await expect(syncState(page)).toContainText('2 queued');
+
+  await page.goto(`/classes/${id}`);
+  const topics = view.getByRole('region', { name: 'Topics' });
+  await topics.getByLabel('Topic name').fill('Offline topic');
+  await topics.getByLabel('Topic name').press('Enter');
+  await expect(
+    topics.getByText('Offline topic', { exact: true }),
+  ).toBeVisible();
+  await expect(syncState(page)).toContainText('3 queued');
+
+  await context.setOffline(false);
+  await syncNow(page);
+  await expect(syncState(page)).toContainText('Online · All saved', {
+    timeout: 15000,
+  });
+  const courses = (await (await page.request.get('/api/v1/courses')).json())
+    .courses as { id: string; name: string; instructor: string }[];
+  expect(courses.find((course) => course.id === id)).toMatchObject({
+    name: 'Offline class',
+    instructor: 'Offline instructor',
+  });
+  const savedTopics = (await (await page.request.get('/api/v1/topics')).json())
+    .topics as { courseId: string; name: string }[];
+  expect(
+    savedTopics.find((topic) => topic.name === 'Offline topic')?.courseId,
+  ).toBe(id);
+
+  // Deletes queue in the same ordered outbox.
+  await context.setOffline(true);
+  await page.goto(`/classes/${id}`);
+  await topics
+    .getByRole('button', { name: 'Delete topic Offline topic' })
+    .click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Delete topic' })
+    .click();
+  await expect(topics.getByText('Offline topic', { exact: true })).toHaveCount(
+    0,
+  );
+
+  await page.goto(`/classes/${id}?section=details`);
+  await details.getByRole('button', { name: 'Delete class' }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Delete class' })
+    .click();
+  await expect(
+    page.getByRole('link', { name: 'Offline class', exact: true }),
+  ).toHaveCount(0);
+
+  await context.setOffline(false);
+  await syncNow(page);
+  await expect(syncState(page)).toContainText('Online · All saved', {
+    timeout: 15000,
+  });
+  const afterCourses = (
+    await (await page.request.get('/api/v1/courses')).json()
+  ).courses as { id: string }[];
+  expect(afterCourses.some((course) => course.id === id)).toBe(false);
+  const afterTopics = (await (await page.request.get('/api/v1/topics')).json())
+    .topics as { name: string }[];
+  expect(afterTopics.some((topic) => topic.name === 'Offline topic')).toBe(
+    false,
+  );
 });

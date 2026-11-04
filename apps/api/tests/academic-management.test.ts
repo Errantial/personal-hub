@@ -913,3 +913,33 @@ it('persists selected changes and tombstone receipts across an isolated restart 
     await removeSyntheticArtifact(root, directory);
   }
 });
+
+it('creates a class from a client-supplied id and retries idempotently', async () => {
+  const clientId = randomUUID();
+  const payload = {
+    operationId: randomUUID(),
+    clientId,
+    name: 'Offline synthetic class',
+  };
+  const first = await write('POST', '/api/v1/courses', payload);
+  expect(first.statusCode).toBe(200);
+  expect(first.json().course.id).toBe(clientId);
+
+  const retry = await write('POST', '/api/v1/courses', payload);
+  expect(retry.statusCode).toBe(200);
+  expect(retry.json().course.id).toBe(clientId);
+
+  const list = await get('/api/v1/courses');
+  expect(
+    list
+      .json()
+      .courses.filter((course: { id: string }) => course.id === clientId),
+  ).toHaveLength(1);
+
+  const conflict = await write('POST', '/api/v1/courses', {
+    operationId: randomUUID(),
+    clientId,
+    name: 'Duplicate client id',
+  });
+  expect(conflict.statusCode).toBe(409);
+});

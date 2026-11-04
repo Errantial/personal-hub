@@ -180,11 +180,13 @@ export const topicFields = {
 export const courseWriteSchema = z.strictObject({
   ...courseFields,
   operationId: z.string().uuid(),
+  clientId: z.string().uuid().optional(),
   expectedVersion: z.number().int().positive().optional(),
 });
 export const topicWriteSchema = z.strictObject({
   ...topicFields,
   operationId: z.string().uuid(),
+  clientId: z.string().uuid().optional(),
   expectedVersion: z.number().int().positive().optional(),
 });
 export const courseSchema = z.object({ ...courseFields, ...record });
