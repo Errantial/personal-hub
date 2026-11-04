@@ -16,6 +16,7 @@ import {
 } from './lib/appearance';
 import { getJson, loadWorkspace } from './lib/api';
 import { useResource } from './lib/hooks';
+import { useNativeAlarmSync } from './lib/native-reminders';
 import { routePath, useRoute, viewLabels } from './lib/router';
 import type { Route, View } from './lib/router';
 import { AuthGate } from './components/AuthGate';
@@ -99,6 +100,11 @@ function Workspace({
     refreshWorkspace();
   }, [refreshWorkspace]);
   const sync = useTaskSync();
+  const openReminders = useCallback(
+    () => navigate({ name: 'inbox', section: 'reminders' }),
+    [navigate],
+  );
+  useNativeAlarmSync(sync.successes, openReminders);
   const inbox = useResource(
     (signal) =>
       getJson(

@@ -1,6 +1,6 @@
 # Android prototype
 
-The Capacitor APK bundles the React UI. The framework remains provisional until the owner's Mudita Kompakt passes the checks in [platforms.md](platforms.md). Native local alarms and background synchronization are not implemented.
+The Capacitor APK bundles the React UI. The framework remains provisional until the owner's Mudita Kompakt passes the checks in [platforms.md](platforms.md). Native local reminder alarms are implemented; background synchronization is not.
 
 The path to a release is in [android-release-plan.md](android-release-plan.md) (D58).
 
@@ -28,6 +28,22 @@ Every build gets `versionCode` = the commit count of `HEAD` and `versionName` = 
 Create the key once with `keytool -genkeypair -v -keystore <path> -alias personal-hub -keyalg RSA -keysize 4096 -validity 10000`. Every later release must use the same key. A different key forces an uninstall, which deletes queued offline changes. Never commit or log the keystore or its passwords.
 
 Release builds reject the test connection flag and disable cleartext traffic. Debug builds use the machine's development key and a distinct application ID, `dev.personalhub.app.debug`.
+
+## Native reminder alarms
+
+`@capacitor/local-notifications` 8.3.1 schedules reminder alarms on Android without Google Services. The Capacitor project root lists the plugin so `cap sync` registers its Gradle module; the web workspace imports it lazily and only on Android.
+
+- The app reconciles at launch, when the shell resumes or comes online, after a server round-trip, and whenever the Inbox reminder list changes.
+- Future `queued` or `failed` reminders get one alarm each. A stable FNV-1a hash of the reminder UUID is the Android notification id, so a rescheduled or renamed reminder cancels its own alarm and is scheduled again. Removed or finished reminders cancel theirs. Notifications the app did not schedule are left alone.
+- Alarms use the `reminders` channel (high importance), the `hub_notification` monochrome icon, and `allowWhileIdle`. Exact delivery needs the Android exact-alarm setting; when it is denied the plugin schedules an inexact alarm and Inbox shows **Approximate**.
+- If notification permission is missing, Inbox shows **Not enabled** with an **Enable device alarms** button. A denied permission shows **Blocked in Android settings**; after the owner allows it in Android settings, **Check again** re-reads the state. Requesting permission happens only from that button.
+- Sign-out and session lock cancel the app's pending alarms and remove its delivered alerts so private reminder titles do not remain in the shade or on the lock screen.
+- Android cancels alarms on **force-stop**. Test closed-app delivery with HOME and `adb shell am kill <package>` (or by swiping the app away), not with `force-stop`.
+- The plugin's boot receiver restores pending alarms after a reboot (its manifest declares `RECEIVE_BOOT_COMPLETED`). A one-shot alarm whose time already passed while the phone was off is skipped; the inbox notification arrives from the server on the next launch. Doze and Mudita power modes may delay inexact alarms.
+
+Device check: create a reminder about two minutes ahead, background or kill the app process, and confirm the notification appears; reboot with an alarm still in the future and confirm it fires afterwards. Then deny notifications or the exact-alarm setting and confirm Inbox reports the state instead of silently dropping the reminder.
+
+Android 15/API 35 emulator result (2026-11-04, build `0.1.0+2db789f (test)`): Inbox showed **Allowed** with the scheduled count and **Approximate** while the exact-alarm setting was denied; granting `SCHEDULE_EXACT_ALARM` removed the approximate line. `dumpsys alarm` showed a `RTC_WAKEUP` with `window=0 exactAllowReason=permission` on the plugin's `TimedNotificationPublisher`. With the app process killed by `am kill` and the screen off, the alarm posted a `reminders`-channel notification titled **Personal Hub reminder**. The reboot attempt crashed the emulator process; a cold boot ran `LocalNotificationRestoreReceiver`, but the past-due one-shot alarm was not reposted, so future-alarm survival across a reboot still needs evidence. This is not Kompakt hardware.
 
 ## Isolated emulator workflow
 
@@ -65,7 +81,7 @@ Native service workers are disabled because the shell is bundled. API callers ke
 
 ## Remaining acceptance
 
-Record emulator and hardware results separately. Actual Kompakt API/WebView, input, viewport, monochrome contrast, scrolling/ghosting, sleep modes and battery remain device gates. Local reminder permission denial, closed-app delivery and reboot recovery need implementation and testing. Production TLS login/session recovery and release signing are separate acceptance checks.
+Record emulator and hardware results separately. Actual Kompakt API/WebView, input, viewport, monochrome contrast, scrolling/ghosting, sleep modes and battery remain device gates. Native reminder alarms passed emulator scheduling, permission-state and closed-app delivery checks; future-alarm reboot survival, Doze and Mudita power modes still need device evidence. Production TLS login/session recovery and release signing are separate acceptance checks.
 
 ## Shell changes and the 2026-11-01 emulator regression
 

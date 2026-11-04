@@ -15,7 +15,8 @@ Status: proposal approved by the owner on 2026-11-02 (decision D58). Nothing in 
 - Done: bundled UI, native cookie session, task outbox, cached viewing of any GET response loaded at least once (calendar, class and reminder screens included), Back gesture handling, `adjustResize` keyboard behavior, blank-launch recovery, immediate e-ink persistence, and hiding the bottom bar above the soft keyboard. Emulator QA passed (PR #59), and the Kompakt baseline passed the final hardware re-test on `da36089`.
 - Signing path: git-derived versions, the version shown in Settings › Account, environment-only release signing, `apksigner` verification and a SHA-256 file are implemented. Verified 2026-11-04 with a temporary test key (v1 code 224 → v2 code 225, same certificate, install/update on the Android 15 emulator). The production keystore and its signed release APK are still missing; the test key must not ship.
 - Offline edits: classes, topics, reminders and calendar series are done (2026-11-04: queued create/edit/delete, reminder controls, event and occurrence projection, and retained conflicts). Per-occurrence overrides and academic work remain online-only.
-- Missing: native reminders, production HTTPS and the `https://localhost` origin allowlist, and about a week of daily use.
+- Native reminders: implemented 2026-11-04 with `@capacitor/local-notifications` 8.3.1. Emulator checks passed for scheduling, the permission and exact-alarm states, and delivery with the app process killed and the screen off. Reboot survival and Mudita power modes remain hardware checks.
+- Missing: Kompakt evidence for native alarms (reboot and power modes), production HTTPS and the `https://localhost` origin allowlist, and about a week of daily use.
 
 ## Phases
 
@@ -49,11 +50,13 @@ The two hardware findings from the first pass have mitigations that passed the f
 
 ### 4. Native reminders
 
-- Add `@capacitor/local-notifications`. It does not require Google Services.
-- After each sync, on resume and after each local reminder edit, reconcile server reminders into local alarms, keyed by reminder ID and version. Cancel, snooze, delivery and read state remove or replace alarms, so nothing fires twice.
-- Notification permission (Android 13+) and exact-alarm permission (Android 12+): denied or revoked state stays visible, with a route to system Settings.
-- Reschedule after reboot. Test Doze and Mudita power modes.
+- Done 2026-11-04: `@capacitor/local-notifications` 8.3.1, with no Google Services.
+- Done: reconcile at launch, on resume/online, after a server round-trip and whenever the Inbox reminder list changes. Future `queued`/`failed` reminders get a stable alarm; edits replace their own alarm and finished or removed reminders cancel theirs. See [android.md](android.md#native-reminder-alarms).
+- Done: notification permission (Android 13+) and exact-alarm state stay visible in Inbox, with enable, retry and exact-settings actions. Denied state never hides the reminder.
+- Emulator 2026-11-04: scheduling, exact and inexact states, and delivery after `am kill` with the screen off passed. The reboot attempt crashed the emulator process; future-alarm survival and reboot restore still need evidence.
+- Remaining: Kompakt reboot restore, Doze and Mudita power modes.
 - Known limit: without push, a reminder created on another device only reaches the phone at its next sync. A periodic background sync (WorkManager) is optional and needs its own decision.
+- Known limit: a one-shot alarm whose time passes while the phone is powered off is skipped by plugin 8.3.1's boot restore; the inbox notification still arrives from the server on the next app launch.
 
 ### 5. Production hardening
 

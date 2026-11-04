@@ -30,6 +30,9 @@
     "android:build": "node scripts/android-build.mjs",
     "android:server": "node --import tsx scripts/android-server.mjs"
   },
+  "dependencies": {
+    "@capacitor/local-notifications": "8.3.1"
+  },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
     "@capacitor/android": "8.5.3",
