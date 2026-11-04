@@ -1,4 +1,9 @@
 import {
+  academicWorkBrowseResponseSchema,
+  academicWorkResponseSchema,
+  academicWorkSchema,
+  academicWorkUpdateSchema,
+  academicWorkWriteSchema,
   calendarListSchema,
   calendarRecordSchema,
   calendarResponseSchema,
@@ -30,6 +35,8 @@ import {
 import { z } from 'zod';
 import { nativePlatform } from './transport';
 import type {
+  AcademicWork,
+  AcademicWorkBrowseResponse,
   CalendarInput,
   CalendarRecord,
   Course,
@@ -51,13 +58,14 @@ const reminderControlSchema = deleteItemSchema.extend({
   action: z.enum(['pause', 'resume', 'retry', 'cancel']),
 });
 type ReminderList = z.infer<typeof remindersSchema>;
-type PlannerKind = 'course' | 'topic' | 'event' | 'occurrence' | 'reminder';
+type PlannerKind =
+  'course' | 'topic' | 'event' | 'occurrence' | 'work' | 'reminder';
 type PlannerJob = {
   path: string;
   method: string;
   body: Record<string, unknown>;
   kind: PlannerKind;
-  entity: Course | Topic | CalendarRecord | Reminder;
+  entity: Course | Topic | CalendarRecord | AcademicWork | Reminder;
   related?: Reminder;
   /** Per-occurrence edits carry the series, its date and the replacement. */
   occurrenceDate?: string;
@@ -204,6 +212,125 @@ function projectedTopics(value: LocalState) {
   return byName(
     [...topics.values()].filter((topic) => !deletedCourses.has(topic.courseId)),
   );
+}
+type WorkWithCourse = AcademicWork & {
+  courseName?: string;
+  courseVersion?: number;
+  courseArchived?: boolean;
+};
+const closedWork = (item: AcademicWork) =>
+  item.status === 'submitted' || item.status === 'cancelled';
+function workMatches(status: string, item: AcademicWork) {
+  if (status === 'all') return true;
+  if (status === 'open')
+    return item.status === 'planned' || item.status === 'in_progress';
+  return item.status === status;
+}
+function workOrder(left: AcademicWork, right: AcademicWork) {
+  return (
+    Number(closedWork(left)) - Number(closedWork(right)) ||
+    (left.dueDate ?? '9999-12-31').localeCompare(
+      right.dueDate ?? '9999-12-31',
+    ) ||
+    left.id.localeCompare(right.id)
+  );
+}
+function projectedWork(value: LocalState) {
+  const work = new Map<string, WorkWithCourse>();
+  for (const [path, cached] of Object.entries(value.cache)) {
+    if (!path.startsWith('/api/v1/academic-work/browse?')) continue;
+    const parsed = academicWorkBrowseResponseSchema.safeParse(cached.data);
+    if (!parsed.success) continue;
+    for (const item of parsed.data.work) work.set(item.id, item);
+  }
+  for (const job of queuedPlanner(value)) {
+    if (job.kind !== 'work') continue;
+    const item = job.entity as AcademicWork;
+    if (item.deletedAt) work.delete(item.id);
+    else work.set(item.id, item);
+  }
+  return [...work.values()];
+}
+function workSummary(
+  items: AcademicWork[],
+): AcademicWorkBrowseResponse['summary'] {
+  const open = items.filter(
+    (item) => item.status === 'planned' || item.status === 'in_progress',
+  );
+  return {
+    totalCount: items.length,
+    openCount: open.length,
+    plannedCount: items.filter((item) => item.status === 'planned').length,
+    inProgressCount: items.filter((item) => item.status === 'in_progress')
+      .length,
+    submittedCount: items.filter((item) => item.status === 'submitted').length,
+    cancelledCount: items.filter((item) => item.status === 'cancelled').length,
+    missingDeadlineCount: open.filter((item) => !item.dueDate).length,
+    missingEstimateCount: open.filter((item) => item.estimatedMinutes === null)
+      .length,
+    estimatedOpenMinutes: open.reduce(
+      (sum, item) => sum + (item.estimatedMinutes ?? 0),
+      0,
+    ),
+  };
+}
+function enrichWork(
+  value: LocalState,
+  item: WorkWithCourse,
+): AcademicWorkBrowseResponse['work'][number] {
+  const course = projectedCourses(value).find(
+    (entry) => entry.id === item.courseId,
+  );
+  return {
+    ...item,
+    courseName: course?.name ?? item.courseName ?? 'Class',
+    courseVersion: course?.version ?? item.courseVersion ?? 1,
+    courseArchived: course ? false : (item.courseArchived ?? false),
+  };
+}
+function projectedWorkBrowse(value: LocalState, path: string) {
+  const cached = academicWorkBrowseResponseSchema.safeParse(
+    value.cache[path]?.data,
+  );
+  if (!cached.success) return undefined;
+  const query = new URL(path, 'http://local').searchParams;
+  const courseId = query.get('courseId');
+  const status = query.get('status') ?? 'all';
+  const work = projectedWork(value)
+    .filter(
+      (item) =>
+        (!courseId || item.courseId === courseId) && workMatches(status, item),
+    )
+    .sort(workOrder)
+    .map((item) => enrichWork(value, item));
+  // Recompute totals only when the cached pages hold the whole filtered list.
+  const summary =
+    cached.data.summary.totalCount <= cached.data.work.length
+      ? workSummary(work)
+      : cached.data.summary;
+  return { ...cached.data, work, summary };
+}
+function mergeWorkCache(value: LocalState, item: AcademicWork) {
+  for (const [path, cached] of Object.entries(value.cache)) {
+    if (!path.startsWith('/api/v1/academic-work/browse?')) continue;
+    const parsed = academicWorkBrowseResponseSchema.safeParse(cached.data);
+    if (!parsed.success) continue;
+    const query = new URL(path, 'http://local').searchParams;
+    const courseId = query.get('courseId');
+    if (courseId && item.courseId !== courseId) continue;
+    const work = parsed.data.work.filter((entry) => entry.id !== item.id);
+    if (!item.deletedAt && workMatches(query.get('status') ?? 'all', item))
+      work.push(enrichWork(value, item));
+    work.sort(workOrder);
+    const summary =
+      parsed.data.summary.totalCount <= parsed.data.work.length
+        ? workSummary(work)
+        : parsed.data.summary;
+    value.cache[path] = {
+      ...cached,
+      data: { ...parsed.data, work, summary },
+    };
+  }
 }
 function projectedEvents(value: LocalState) {
   const cached = calendarListSchema.safeParse(
@@ -610,6 +737,12 @@ export async function cachedResponse(path: string) {
     )
       return { topics: projectedTopics(value) };
     if (
+      path.startsWith('/api/v1/academic-work/browse?') &&
+      value.cache[path] &&
+      queuedPlanner(value).some((job) => job.kind === 'work')
+    )
+      return projectedWorkBrowse(value, path);
+    if (
       path === '/api/v1/calendar' &&
       (value.cache[path] ||
         queuedPlanner(value).some(
@@ -716,16 +849,20 @@ export async function enqueuePlanner(
   const isCourse = /^\/api\/v1\/courses(?:\/|$)/.test(path);
   const isTopic = /^\/api\/v1\/topics(?:\/|$)/.test(path);
   const isCalendar = /^\/api\/v1\/calendar(?:\/|$)/.test(path);
+  const isWork = /^\/api\/v1\/academic-work(?:\/|$)/.test(path);
   const kind: PlannerKind = isCourse
     ? 'course'
     : isTopic
       ? 'topic'
       : isCalendar
         ? 'event'
-        : 'reminder';
+        : isWork
+          ? 'work'
+          : 'reminder';
   const snooze = kind === 'reminder' && /\/snooze$/.test(path);
   const needsClientId =
     (kind === 'event' && method === 'POST' && path === '/api/v1/calendar') ||
+    (kind === 'work' && method === 'POST') ||
     (kind === 'reminder' &&
       (snooze || (method === 'POST' && path === '/api/v1/reminders')));
   const normalizedBody = needsClientId
@@ -857,6 +994,80 @@ export async function enqueuePlanner(
       return response;
     }
 
+    if (kind === 'work') {
+      if (/\/restore$/.test(path) || /\/batch$/.test(path))
+        throw new Error('This change needs a connection.');
+      let item: AcademicWork;
+      if (method === 'POST') {
+        const input = academicWorkWriteSchema.parse(normalizedBody);
+        const clientId = input.clientId;
+        if (!clientId)
+          throw new Error('Offline creates need a client identifier.');
+        const course = projectedCourses(value).find(
+          (entry) => entry.id === input.courseId,
+        );
+        if (!course) throw new Error('Reload classes before adding work.');
+        if (projectedWork(value).some((work) => work.id === clientId))
+          throw new Error('Reload work before adding another.');
+        const labels = [
+          ...new Set([input.sensitivity, course.sensitivity]),
+        ].filter(
+          (label): label is 'personal' | 'restricted' =>
+            label === 'personal' || label === 'restricted',
+        );
+        item = academicWorkSchema.parse({
+          ...input,
+          id: clientId,
+          provenance: 'owner-entered',
+          academicLabels: labels,
+          version: 1,
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
+        });
+      } else {
+        const id = path.split('/').at(-1)!;
+        const original = projectedWork(value).find((work) => work.id === id);
+        if (!original) throw new Error('Reload work before editing.');
+        if (method === 'PUT') {
+          const input = academicWorkUpdateSchema.parse(normalizedBody);
+          if (input.expectedVersion !== original.version)
+            throw new Error('Reload work before editing.');
+          if (input.courseId !== original.courseId)
+            throw new Error('Keep the original class for this record.');
+          item = academicWorkSchema.parse({
+            ...original,
+            ...input,
+            version: original.version + 1,
+            updatedAt: now,
+            deletedAt: null,
+          });
+        } else {
+          const input = deleteItemSchema.parse(normalizedBody);
+          if (input.expectedVersion !== original.version)
+            throw new Error('Reload work before editing.');
+          item = academicWorkSchema.parse({
+            ...original,
+            version: original.version + 1,
+            updatedAt: now,
+            deletedAt: now,
+          });
+        }
+      }
+      const response = { work: item };
+      const job: PlannerJob = {
+        path,
+        method,
+        body: normalizedBody,
+        kind: 'work',
+        entity: item,
+        response,
+        error: null,
+      };
+      value.plannerJobs ??= [];
+      value.plannerJobs.push(job);
+      return response;
+    }
     const occurrence =
       /^\/api\/v1\/calendar\/([a-f\d-]{36})\/occurrences\/(\d{4}-\d{2}-\d{2})$/.exec(
         path,
@@ -1162,33 +1373,38 @@ async function syncPlanner(send: Transport, owner: string) {
                 kind: 'topic' as const,
                 entity: topicResponseSchema.parse(response).topic,
               }
-            : job.kind === 'occurrence'
+            : job.kind === 'work'
               ? {
-                  kind: 'occurrence' as const,
-                  entity: calendarResponseSchema.parse(response).event,
-                  date: job.occurrenceDate!,
-                  replacement: job.replacement ?? null,
+                  kind: 'work' as const,
+                  entity: academicWorkResponseSchema.parse(response).work,
                 }
-              : job.kind === 'event'
+              : job.kind === 'occurrence'
                 ? {
-                    kind: 'event' as const,
+                    kind: 'occurrence' as const,
                     entity: calendarResponseSchema.parse(response).event,
+                    date: job.occurrenceDate!,
+                    replacement: job.replacement ?? null,
                   }
-                : /\/snooze$/.test(job.path)
+                : job.kind === 'event'
                   ? {
-                      kind: 'reminder' as const,
-                      entities: (() => {
-                        const parsed =
-                          reminderSnoozeResponseSchema.parse(response);
-                        return [parsed.sourceReminder, parsed.reminder];
-                      })(),
+                      kind: 'event' as const,
+                      entity: calendarResponseSchema.parse(response).event,
                     }
-                  : {
-                      kind: 'reminder' as const,
-                      entities: [
-                        reminderResponseSchema.parse(response).reminder,
-                      ],
-                    };
+                  : /\/snooze$/.test(job.path)
+                    ? {
+                        kind: 'reminder' as const,
+                        entities: (() => {
+                          const parsed =
+                            reminderSnoozeResponseSchema.parse(response);
+                          return [parsed.sourceReminder, parsed.reminder];
+                        })(),
+                      }
+                    : {
+                        kind: 'reminder' as const,
+                        entities: [
+                          reminderResponseSchema.parse(response).reminder,
+                        ],
+                      };
       await state(true, (value) => {
         if (!authorized(value) || value.session?.user?.id !== owner) return;
         value.plannerJobs = queuedPlanner(value).filter(
@@ -1196,6 +1412,7 @@ async function syncPlanner(send: Transport, owner: string) {
         );
         if (saved.kind === 'reminder')
           mergeReminderCache(value, saved.entities);
+        else if (saved.kind === 'work') mergeWorkCache(value, saved.entity);
         else if (saved.kind === 'occurrence')
           mergeOccurrenceCache(
             value,

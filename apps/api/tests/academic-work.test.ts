@@ -1951,3 +1951,26 @@ it('persists scores and mutation receipts across an isolated database restart', 
       await rm(path, { recursive: true, force: true });
   }
 });
+
+it('accepts a client-supplied work id and rejects a different operation reusing it', async () => {
+  const clientId = randomUUID();
+  const body = {
+    courseId,
+    title: 'Client work',
+    operationId: randomUUID(),
+    clientId,
+  };
+  const first = await write('POST', '/api/v1/academic-work', body);
+  expect(first.statusCode).toBe(200);
+  expect(first.json().work.id).toBe(clientId);
+
+  const retry = await write('POST', '/api/v1/academic-work', body);
+  expect(retry.statusCode).toBe(200);
+  expect(retry.json().work.id).toBe(clientId);
+
+  const conflict = await write('POST', '/api/v1/academic-work', {
+    ...body,
+    operationId: randomUUID(),
+  });
+  expect(conflict.statusCode).toBe(409);
+});

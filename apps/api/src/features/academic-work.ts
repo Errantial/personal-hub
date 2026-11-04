@@ -139,7 +139,10 @@ export function registerAcademicWork(
         const input = (
           method === 'PUT' ? academicWorkUpdateSchema : academicWorkWriteSchema
         ).parse(request.body);
-        const id = method === 'POST' ? randomUUID() : idOf(request.params);
+        const id =
+          method === 'POST'
+            ? (input.clientId ?? randomUUID())
+            : idOf(request.params);
         return mutateSchedule(
           database,
           owner.id,
@@ -204,13 +207,19 @@ export function registerAcademicWork(
             const [row] =
               method === 'POST'
                 ? await tx.query(
-                    `INSERT INTO academic_work(id,owner_id,course_id,title,kind,notes,due_date,estimated_minutes,priority,status,grade,sensitivity,academic_labels) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13::text[]) RETURNING ${academicWorkColumns}`,
+                    `INSERT INTO academic_work(id,owner_id,course_id,title,kind,notes,due_date,estimated_minutes,priority,status,grade,sensitivity,academic_labels) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13::text[]) ON CONFLICT (id) DO NOTHING RETURNING ${academicWorkColumns}`,
                     values,
                   )
                 : await tx.query(
                     `UPDATE academic_work SET course_id=$3,title=$4,kind=$5,notes=$6,due_date=$7,estimated_minutes=$8,priority=$9,status=$10,grade=$11::jsonb,sensitivity=$12,academic_labels=$13::text[],version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${academicWorkColumns}`,
                     values,
                   );
+            if (!row)
+              throw new ApiError(
+                409,
+                'OPERATION_CONFLICT',
+                'This identifier is already in use.',
+              );
             const result = academicWorkResponseSchema.parse({ work: row });
             await propagateAcademicPlannerLabels(
               tx,
