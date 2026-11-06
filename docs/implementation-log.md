@@ -548,3 +548,9 @@ Selected academic-work changes now queue in the shared outbox as one atomic batc
 Recently deleted pages for tasks, events and work are cached after their first online load. Cached pages project queued deletes and restores, and restore from the list queues offline for all three kinds. Task restore now shares the task outbox; its local record carries the tombstone version, advances once, and returns to the task list. Calendar and work restores reuse the existing offline restore path. Offline paging still reads only pages already cached, and a list never opened on the device remains unavailable until it is loaded online.
 
 Validation: 20/20 offline browser tests (four new cases: task, work and event restore from Recently deleted, and selected work status changes), 7/7 classes, 17/17 calendar, 7/7 tasks, 96 web unit tests, 58/58 targeted academic API tests, typecheck, lint, formatting and the production build. No production server or provider was contacted.
+
+## 2026-11-06 - Release-candidate build audit (test key)
+
+Built a fresh signed release from `main` at `80af475` on the Windows desktop with the temporary test key (version `0.1.0+80af475`, code 252). `apksigner` verified V2 with the expected test certificate digest. The packaged manifest has `android:allowBackup="false"` and `android:usesCleartextTraffic="false"`; the bundled assets contain the production origin `https://hub.ecg.name` and no `127.0.0.1:3011` test origin. SHA-256: `3c4b21bbb8c1a99aebe97531732845154625df50a61d07e82fb64ec185de70f7`.
+
+This is a pipeline, manifest and packaged-asset audit only. The APK is test-signed and must not ship or be installed over a release build. The production keystore, production-signed APK, Kompakt install and the week of daily use remain owner gates.
