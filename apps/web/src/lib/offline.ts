@@ -24,6 +24,7 @@ import {
   reminderSnoozeResponseSchema,
   reminderSnoozeSchema,
   reminderWriteSchema,
+  restoreItemSchema,
   taskSchema,
   tasksResponseSchema,
   topicResponseSchema,
@@ -843,6 +844,7 @@ export async function enqueuePlanner(
   path: string,
   method: string,
   body: Record<string, unknown>,
+  local?: CalendarRecord | AcademicWork,
 ): Promise<unknown> {
   if (!navigator.locks)
     throw new Error('Offline edits are unavailable in this browser.');
@@ -862,7 +864,7 @@ export async function enqueuePlanner(
   const snooze = kind === 'reminder' && /\/snooze$/.test(path);
   const needsClientId =
     (kind === 'event' && method === 'POST' && path === '/api/v1/calendar') ||
-    (kind === 'work' && method === 'POST') ||
+    (kind === 'work' && method === 'POST' && !/\/restore$/.test(path)) ||
     (kind === 'reminder' &&
       (snooze || (method === 'POST' && path === '/api/v1/reminders')));
   const normalizedBody = needsClientId
@@ -886,6 +888,58 @@ export async function enqueuePlanner(
       throw new Error('Operation conflict.');
     }
     const now = new Date().toISOString();
+    const restore =
+      /^\/api\/v1\/(calendar|academic-work)\/([a-f\d-]{36})\/restore$/.exec(
+        path,
+      );
+    if (restore && method === 'POST') {
+      const resource = restore[1]!;
+      const id = restore[2]!;
+      const input = restoreItemSchema.parse(normalizedBody);
+      const deleted = local;
+      if (!deleted || deleted.id !== id)
+        throw new Error('Reload the deleted list before restoring.');
+      if (input.expectedVersion !== deleted.version)
+        throw new Error('Reload the deleted list before restoring.');
+      if (resource === 'calendar') {
+        const item = calendarRecordSchema.parse({
+          ...(deleted as CalendarRecord),
+          version: deleted.version + 1,
+          updatedAt: now,
+          deletedAt: null,
+        });
+        const response = { event: item };
+        value.plannerJobs ??= [];
+        value.plannerJobs.push({
+          path,
+          method,
+          body: normalizedBody,
+          kind: 'event',
+          entity: item,
+          response,
+          error: null,
+        });
+        return response;
+      }
+      const item = academicWorkSchema.parse({
+        ...(deleted as AcademicWork),
+        version: deleted.version + 1,
+        updatedAt: now,
+        deletedAt: null,
+      });
+      const response = { work: item };
+      value.plannerJobs ??= [];
+      value.plannerJobs.push({
+        path,
+        method,
+        body: normalizedBody,
+        kind: 'work',
+        entity: item,
+        response,
+        error: null,
+      });
+      return response;
+    }
     if (kind === 'course' || kind === 'topic') {
       let item: Course | Topic;
       if (method === 'POST') {
@@ -995,8 +1049,8 @@ export async function enqueuePlanner(
     }
 
     if (kind === 'work') {
-      if (/\/restore$/.test(path) || /\/batch$/.test(path))
-        throw new Error('This change needs a connection.');
+      if (/\/batch$/.test(path))
+        throw new Error('Batch changes need a connection.');
       let item: AcademicWork;
       if (method === 'POST') {
         const input = academicWorkWriteSchema.parse(normalizedBody);
@@ -1128,8 +1182,6 @@ export async function enqueuePlanner(
       return response;
     }
     if (kind === 'event') {
-      if (/\/restore$/.test(path))
-        throw new Error('Restore needs a connection.');
       let item: CalendarRecord;
       if (method === 'POST' && path === '/api/v1/calendar') {
         const input = calendarWriteSchema.parse(normalizedBody);

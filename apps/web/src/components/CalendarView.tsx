@@ -40,7 +40,7 @@ import './CalendarView.css';
 type CalendarRoute = Extract<Route, { name: 'calendar' }>;
 type Notice = {
   text: string;
-  undo?: { id: string; version: number; title: string };
+  undo?: { event: CalendarRecord };
 };
 
 // Dates are plain calendar days; format in UTC so they never shift.
@@ -201,11 +201,7 @@ export function CalendarView({
         ? { text: `Deleted ${occurrenceDate} of “${series.title}”.` }
         : {
             text: `Deleted “${series.title}”.`,
-            undo: {
-              id: series.id,
-              version: result.event.version,
-              title: series.title,
-            },
+            undo: { event: result.event },
           },
     );
     navigate(listRoute);
@@ -217,12 +213,13 @@ export function CalendarView({
     const result = await restore.run(
       calendarResponseSchema,
       'POST',
-      `/api/v1/calendar/${undo.id}/restore`,
-      { expectedVersion: undo.version },
+      `/api/v1/calendar/${undo.event.id}/restore`,
+      { expectedVersion: undo.event.version },
       'Could not undo. Check the connection and try again.',
+      undo.event,
     );
     if (!result) return;
-    setNotice({ text: `Restored “${undo.title}”.` });
+    setNotice({ text: `Restored “${undo.event.title}”.` });
     await reloadAll();
     setDeletedKey((value) => value + 1);
   }

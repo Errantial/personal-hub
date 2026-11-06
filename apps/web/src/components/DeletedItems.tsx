@@ -6,6 +6,7 @@ import {
   deletedPlannerResponseSchema,
   taskResponseSchema,
 } from '@hub/contracts';
+import type { AcademicWork, CalendarRecord } from '@hub/contracts';
 import { requestJson } from '../lib/api';
 import { useMutation } from '../lib/hooks';
 import { Help } from './Help';
@@ -162,6 +163,7 @@ function DeletedList({
                 path,
                 body,
                 failure,
+                item as AcademicWork,
               )
             )?.work.title
           : (
@@ -171,6 +173,7 @@ function DeletedList({
                 path,
                 body,
                 failure,
+                item as CalendarRecord,
               )
             )?.event.title;
     if (title === undefined) return;

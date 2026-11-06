@@ -1,4 +1,5 @@
 import { bootstrapResponseSchema, healthResponseSchema } from '@hub/contracts';
+import type { AcademicWork, CalendarRecord } from '@hub/contracts';
 import { z } from 'zod';
 import { apiFetch } from './transport';
 import { requestSignal } from './request-signal';
@@ -216,6 +217,8 @@ export async function requestJson<T>(
     body?: unknown;
     signal?: AbortSignal;
     onCached?: (savedAt: string | null) => void;
+    /** The deleted record a restore brings back, for offline projection. */
+    local?: CalendarRecord | AcademicWork;
   } = {},
 ): Promise<T> {
   const method = options.method ?? 'GET';
@@ -230,7 +233,9 @@ export async function requestJson<T>(
       /^\/api\/v1\/calendar(?:\/[a-f\d-]{36})?(?:\/(?:occurrences\/\d{4}-\d{2}-\d{2}|restore))?$/.test(
         path,
       ) ||
-      /^\/api\/v1\/academic-work(?:\/[a-f\d-]{36})?$/.test(path)) &&
+      /^\/api\/v1\/academic-work(?:\/[a-f\d-]{36}(?:\/restore)?)?$/.test(
+        path,
+      )) &&
     ['POST', 'PUT', 'DELETE'].includes(method);
   const mutation = taskMutation || plannerMutation;
   const body =
@@ -254,7 +259,7 @@ export async function requestJson<T>(
       throw new Error('Sync queued tasks before creating from Canvas.');
     const response = taskMutation
       ? await enqueueTask(path, method, prepared)
-      : await enqueuePlanner(path, method, prepared);
+      : await enqueuePlanner(path, method, prepared, options.local);
     void synchronize().catch(() => undefined);
     return schema.parse(response);
   }
@@ -331,7 +336,7 @@ export async function requestJson<T>(
         });
       const response = taskMutation
         ? await enqueueTask(path, method, prepared)
-        : await enqueuePlanner(path, method, prepared);
+        : await enqueuePlanner(path, method, prepared, options.local);
       void synchronize().catch(() => undefined);
       return schema.parse(response);
     }

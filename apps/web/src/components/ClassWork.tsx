@@ -159,6 +159,7 @@ export function ClassWork({
       `/api/v1/academic-work/${item.id}/restore`,
       { expectedVersion: item.version },
       'Could not undo. Check the connection and try again.',
+      item,
     );
     if (!result) return;
     setNotice({ text: `Restored “${item.title}”.` });

@@ -534,3 +534,9 @@ Validation: 14/14 offline browser tests (new occurrence edit and delete/replay c
 Class work browse pages are now cached, and individual academic-work creates, edits and deletes queue in the shared outbox. Creates use a client-generated id that the server returns; a duplicate id under a different operation is refused. The cached browse page projects queued work into its filter, preserving the server's closed/due-date order and recomputing counts when the cached pages hold the whole list. Replay merges each saved work record into every cached page. Batch changes, work restore and the Recently deleted list remain online-only.
 
 Validation: 15/15 offline browser tests (new work edit, add and delete/replay case), 7/7 classes browser tests, 40/40 academic-work API tests (new client-id/idempotency case), 96 web unit tests, typecheck, lint, formatting and the production build.
+
+## 2026-11-06 - Offline Undo restore
+
+Series and academic-work restores now queue offline when the deleted record is still in the view's Undo notice. The outbox stores the deleted record, the restore response is projected immediately (the series reappears with its occurrences; work returns to its filtered page), and replay merges the server record. The restore body keeps its expected version and does not receive a create client id. Restores from the Recently deleted list remain online-only because that list itself is not cached.
+
+Validation: 16/16 offline browser tests (new series restore case and work delete/undo/delete in the academic case), 7/7 classes browser tests, 17/17 calendar browser tests, 96 web unit tests, typecheck, lint, formatting and the production build.
