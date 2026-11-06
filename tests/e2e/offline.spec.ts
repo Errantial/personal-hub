@@ -1066,3 +1066,250 @@ test('offline series delete can be undone before sync', async ({
     events.find((event) => event.title === 'Offline restore event'),
   ).toMatchObject({ deletedAt: null });
 });
+
+test('offline recently deleted task can be restored', async ({
+  page,
+  context,
+}) => {
+  const headers = { Origin: 'http://127.0.0.1:5180' };
+  const created = await page.request.post('/api/v1/tasks', {
+    headers,
+    data: {
+      title: 'Offline deleted task',
+      operationId: crypto.randomUUID(),
+    },
+  });
+  expect(created.status()).toBe(200);
+  const task = ((await created.json()) as { task: { id: string } }).task;
+  const removed = await page.request.delete(`/api/v1/tasks/${task.id}`, {
+    headers,
+    data: { expectedVersion: 1, operationId: crypto.randomUUID() },
+  });
+  expect(removed.status()).toBe(200);
+
+  await warm(page);
+  await page.goto('/tasks');
+  const summary = tasksRegion(page)
+    .locator('summary')
+    .filter({ hasText: 'Recently deleted' });
+  await summary.click();
+  const deleted = tasksRegion(page).getByRole('button', {
+    name: 'Restore Offline deleted task',
+  });
+  await expect(deleted).toBeVisible();
+
+  await context.setOffline(true);
+  await page.goto('/tasks');
+  await summary.click();
+  await expect(deleted).toBeVisible();
+  await deleted.click();
+  await expect(deleted).toHaveCount(0);
+  await expect(tasksRegion(page)).toContainText(
+    'Restored “Offline deleted task”.',
+  );
+
+  await context.setOffline(false);
+  await syncNow(page);
+  await expect(syncState(page)).toContainText('Online · All saved', {
+    timeout: 15000,
+  });
+  const tasks = (await (await page.request.get('/api/v1/tasks')).json())
+    .tasks as { title: string; deletedAt: string | null; version: number }[];
+  expect(
+    tasks.find((item) => item.title === 'Offline deleted task'),
+  ).toMatchObject({ deletedAt: null, version: 3 });
+});
+
+test('offline selected work changes queue and replay once', async ({
+  page,
+  context,
+}) => {
+  const headers = { Origin: 'http://127.0.0.1:5180' };
+  const courseReply = await page.request.post('/api/v1/courses', {
+    headers,
+    data: {
+      name: `Offline batch class ${crypto.randomUUID().slice(0, 8)}`,
+      operationId: crypto.randomUUID(),
+    },
+  });
+  expect(courseReply.status()).toBe(200);
+  const course = (await courseReply.json()) as { course: { id: string } };
+  for (const title of ['Offline batch one', 'Offline batch two']) {
+    const reply = await page.request.post('/api/v1/academic-work', {
+      headers,
+      data: {
+        courseId: course.course.id,
+        title,
+        operationId: crypto.randomUUID(),
+      },
+    });
+    expect(reply.status()).toBe(200);
+  }
+
+  const workRegion = page.getByRole('region', { name: 'Work', exact: true });
+  await warm(page);
+  await page.goto(`/classes/${course.course.id}?section=work`);
+  await expect(
+    workRegion.getByText('Offline batch one', { exact: true }),
+  ).toBeVisible();
+
+  await context.setOffline(true);
+  await page.goto(`/classes/${course.course.id}?section=work`);
+  await expect(
+    workRegion.getByText('Offline batch two', { exact: true }),
+  ).toBeVisible();
+
+  await workRegion.getByRole('button', { name: 'Select', exact: true }).click();
+  const selected = workRegion.getByRole('region', { name: 'Selected work' });
+  await selected.getByRole('button', { name: 'Select shown (2)' }).click();
+  await selected.getByLabel('Change').selectOption('status');
+  await selected.getByRole('combobox').nth(1).selectOption('submitted');
+  await selected.getByRole('button', { name: 'Apply to 2 work items' }).click();
+  await expect(workRegion).toContainText('Set status: 2 work items updated.');
+  await expect(syncState(page)).toContainText('1 queued');
+
+  await context.setOffline(false);
+  await syncNow(page);
+  await expect(syncState(page)).toContainText('Online · All saved', {
+    timeout: 15000,
+  });
+  const work = (
+    await (
+      await page.request.get(
+        `/api/v1/academic-work?courseId=${course.course.id}`,
+      )
+    ).json()
+  ).work as { title: string; status: string; version: number }[];
+  expect(
+    work.sort((left, right) => left.title.localeCompare(right.title)),
+  ).toMatchObject([
+    { title: 'Offline batch one', status: 'submitted', version: 2 },
+    { title: 'Offline batch two', status: 'submitted', version: 2 },
+  ]);
+});
+
+test('offline recently deleted work can be restored', async ({
+  page,
+  context,
+}) => {
+  const headers = { Origin: 'http://127.0.0.1:5180' };
+  const courseReply = await page.request.post('/api/v1/courses', {
+    headers,
+    data: {
+      name: `Offline restore class ${crypto.randomUUID().slice(0, 8)}`,
+      operationId: crypto.randomUUID(),
+    },
+  });
+  expect(courseReply.status()).toBe(200);
+  const course = (await courseReply.json()) as { course: { id: string } };
+  const workReply = await page.request.post('/api/v1/academic-work', {
+    headers,
+    data: {
+      courseId: course.course.id,
+      title: 'Offline deleted work',
+      operationId: crypto.randomUUID(),
+    },
+  });
+  expect(workReply.status()).toBe(200);
+  const work = ((await workReply.json()) as { work: { id: string } }).work;
+  const removed = await page.request.delete(
+    `/api/v1/academic-work/${work.id}`,
+    {
+      headers,
+      data: { expectedVersion: 1, operationId: crypto.randomUUID() },
+    },
+  );
+  expect(removed.status()).toBe(200);
+
+  const workRegion = page.getByRole('region', { name: 'Work', exact: true });
+  await warm(page);
+  await page.goto(`/classes/${course.course.id}?section=work`);
+  const summary = workRegion
+    .locator('summary')
+    .filter({ hasText: 'Recently deleted' });
+  await summary.click();
+  const deleted = workRegion.getByRole('button', {
+    name: 'Restore Offline deleted work',
+  });
+  await expect(deleted).toBeVisible();
+
+  await context.setOffline(true);
+  await page.goto(`/classes/${course.course.id}?section=work`);
+  await summary.click();
+  await expect(deleted).toBeVisible();
+  await deleted.click();
+  await expect(deleted).toHaveCount(0);
+  await expect(workRegion).toContainText('Restored “Offline deleted work”.');
+
+  await context.setOffline(false);
+  await syncNow(page);
+  await expect(syncState(page)).toContainText('Online · All saved', {
+    timeout: 15000,
+  });
+  const items = (
+    await (
+      await page.request.get(
+        `/api/v1/academic-work?courseId=${course.course.id}`,
+      )
+    ).json()
+  ).work as { title: string; deletedAt: string | null; version: number }[];
+  expect(
+    items.find((item) => item.title === 'Offline deleted work'),
+  ).toMatchObject({ deletedAt: null, version: 3 });
+});
+
+test('offline recently deleted event can be restored', async ({
+  page,
+  context,
+}) => {
+  const headers = { Origin: 'http://127.0.0.1:5180' };
+  const created = await page.request.post('/api/v1/calendar', {
+    headers,
+    data: {
+      title: 'Offline deleted event',
+      startsAt: '2036-11-02T09:00:00Z',
+      endsAt: '2036-11-02T10:00:00Z',
+      timeZone: 'UTC',
+      operationId: crypto.randomUUID(),
+    },
+  });
+  expect(created.status()).toBe(200);
+  const event = ((await created.json()) as { event: { id: string } }).event;
+  const removed = await page.request.delete(`/api/v1/calendar/${event.id}`, {
+    headers,
+    data: { expectedVersion: 1, operationId: crypto.randomUUID() },
+  });
+  expect(removed.status()).toBe(200);
+
+  await warm(page);
+  await page.goto('/calendar?date=2036-11-02&view=agenda');
+  const summary = calendarRegion(page)
+    .locator('summary')
+    .filter({ hasText: 'Recently deleted' });
+  await summary.click();
+  const deleted = calendarRegion(page).getByRole('button', {
+    name: 'Restore Offline deleted event',
+  });
+  await expect(deleted).toBeVisible();
+
+  await context.setOffline(true);
+  await page.goto('/calendar?date=2036-11-02&view=agenda');
+  await summary.click();
+  await expect(deleted).toBeVisible();
+  await deleted.click();
+  await expect(deleted).toHaveCount(0);
+  await expect(calendarRegion(page)).toContainText(
+    'Restored “Offline deleted event”.',
+  );
+
+  await context.setOffline(false);
+  await syncNow(page);
+  await expect(syncState(page)).toContainText('Online · All saved', {
+    timeout: 15000,
+  });
+  const events = (await (await page.request.get('/api/v1/calendar')).json())
+    .events as { title: string; deletedAt: string | null; version: number }[];
+  expect(
+    events.find((item) => item.title === 'Offline deleted event'),
+  ).toMatchObject({ deletedAt: null, version: 3 });
+});

@@ -1,5 +1,8 @@
 import {
+  academicWorkBatchRequestSchema,
+  academicWorkBatchResponseSchema,
   academicWorkBrowseResponseSchema,
+  academicWorkListSchema,
   academicWorkResponseSchema,
   academicWorkSchema,
   academicWorkUpdateSchema,
@@ -15,6 +18,7 @@ import {
   createTaskSchema,
   updateTaskSchema,
   deleteItemSchema,
+  deletedPlannerResponseSchema,
   expandEvent,
   occurrencesResponseSchema,
   rangeSchema,
@@ -60,13 +64,21 @@ const reminderControlSchema = deleteItemSchema.extend({
 });
 type ReminderList = z.infer<typeof remindersSchema>;
 type PlannerKind =
-  'course' | 'topic' | 'event' | 'occurrence' | 'work' | 'reminder';
+  | 'course'
+  | 'topic'
+  | 'event'
+  | 'occurrence'
+  | 'work'
+  | 'workBatch'
+  | 'reminder';
 type PlannerJob = {
   path: string;
   method: string;
   body: Record<string, unknown>;
   kind: PlannerKind;
   entity: Course | Topic | CalendarRecord | AcademicWork | Reminder;
+  /** A batched academic-work change touches several records at once. */
+  entities?: AcademicWork[];
   related?: Reminder;
   /** Per-occurrence edits carry the series, its date and the replacement. */
   occurrenceDate?: string;
@@ -245,10 +257,16 @@ function projectedWork(value: LocalState) {
     for (const item of parsed.data.work) work.set(item.id, item);
   }
   for (const job of queuedPlanner(value)) {
-    if (job.kind !== 'work') continue;
-    const item = job.entity as AcademicWork;
-    if (item.deletedAt) work.delete(item.id);
-    else work.set(item.id, item);
+    const items =
+      job.kind === 'work'
+        ? [job.entity as AcademicWork]
+        : job.kind === 'workBatch'
+          ? (job.entities ?? [])
+          : [];
+    for (const item of items) {
+      if (item.deletedAt) work.delete(item.id);
+      else work.set(item.id, item);
+    }
   }
   return [...work.values()];
 }
@@ -332,6 +350,72 @@ function mergeWorkCache(value: LocalState, item: AcademicWork) {
       data: { ...parsed.data, work, summary },
     };
   }
+}
+function deletedOrder(
+  left: { deletedAt: string | null; id: string },
+  right: { deletedAt: string | null; id: string },
+) {
+  return (
+    (right.deletedAt ?? '').localeCompare(left.deletedAt ?? '') ||
+    left.id.localeCompare(right.id)
+  );
+}
+/** A cached deleted-planner page with queued deletes and restores applied. */
+function projectedDeletedPlanner(value: LocalState, path: string) {
+  const cached = deletedPlannerResponseSchema.safeParse(
+    value.cache[path]?.data,
+  );
+  if (!cached.success) return undefined;
+  const kind = new URL(path, 'http://local').searchParams.get('kind');
+  if (kind === 'calendar') {
+    const records = new Map(
+      cached.data.events.map((event) => [event.id, event]),
+    );
+    for (const job of queuedPlanner(value)) {
+      if (job.kind !== 'event') continue;
+      const event = job.entity as CalendarRecord;
+      if (event.deletedAt) records.set(event.id, event);
+      else records.delete(event.id);
+    }
+    return {
+      ...cached.data,
+      kind: 'calendar' as const,
+      tasks: [],
+      events: [...records.values()].sort(deletedOrder),
+    };
+  }
+  const records = new Map(cached.data.tasks.map((task) => [task.id, task]));
+  for (const job of value.jobs) {
+    if (job.task.deletedAt) records.set(job.task.id, job.task);
+    else records.delete(job.task.id);
+  }
+  return {
+    ...cached.data,
+    kind: 'task' as const,
+    tasks: [...records.values()].sort(deletedOrder),
+    events: [],
+  };
+}
+/** A cached deleted-work page with queued deletes and restores applied. */
+function projectedDeletedWork(value: LocalState, path: string) {
+  const cached = academicWorkListSchema.safeParse(value.cache[path]?.data);
+  if (!cached.success) return undefined;
+  const courseId = new URL(path, 'http://local').searchParams.get('courseId');
+  const records = new Map(cached.data.work.map((item) => [item.id, item]));
+  for (const job of queuedPlanner(value)) {
+    const items =
+      job.kind === 'work'
+        ? [job.entity as AcademicWork]
+        : job.kind === 'workBatch'
+          ? (job.entities ?? [])
+          : [];
+    for (const item of items) {
+      if (courseId && item.courseId !== courseId) continue;
+      if (item.deletedAt) records.set(item.id, item);
+      else records.delete(item.id);
+    }
+  }
+  return { ...cached.data, work: [...records.values()].sort(deletedOrder) };
 }
 function projectedEvents(value: LocalState) {
   const cached = calendarListSchema.safeParse(
@@ -740,9 +824,27 @@ export async function cachedResponse(path: string) {
     if (
       path.startsWith('/api/v1/academic-work/browse?') &&
       value.cache[path] &&
-      queuedPlanner(value).some((job) => job.kind === 'work')
+      queuedPlanner(value).some(
+        (job) => job.kind === 'work' || job.kind === 'workBatch',
+      )
     )
       return projectedWorkBrowse(value, path);
+    if (
+      path.startsWith('/api/v1/planner/deleted?') &&
+      value.cache[path] &&
+      (value.jobs.length > 0 ||
+        queuedPlanner(value).some((job) => job.kind === 'event'))
+    )
+      return projectedDeletedPlanner(value, path);
+    if (
+      path.startsWith('/api/v1/academic-work?') &&
+      path.includes('deleted=true') &&
+      value.cache[path] &&
+      queuedPlanner(value).some(
+        (job) => job.kind === 'work' || job.kind === 'workBatch',
+      )
+    )
+      return projectedDeletedWork(value, path);
     if (
       path === '/api/v1/calendar' &&
       (value.cache[path] ||
@@ -779,6 +881,7 @@ export async function enqueueTask(
   path: string,
   method: string,
   body: Record<string, unknown>,
+  local?: Task,
 ) {
   if (!navigator.locks)
     throw new Error('Offline edits are unavailable in this browser.');
@@ -798,6 +901,23 @@ export async function enqueueTask(
       return repeated.task;
     }
     const now = new Date().toISOString();
+    const restore = /^\/api\/v1\/tasks\/[a-f\d-]{36}\/restore$/.test(path);
+    if (restore && method === 'POST') {
+      const input = restoreItemSchema.parse(body);
+      const id = path.split('/').at(-2)!;
+      if (!local || local.id !== id)
+        throw new Error('Reload the deleted list before restoring.');
+      if (input.expectedVersion !== local.version)
+        throw new Error('Reload the deleted list before restoring.');
+      const item = taskSchema.parse({
+        ...local,
+        version: local.version + 1,
+        updatedAt: now,
+        deletedAt: null,
+      });
+      value.jobs.push({ path, method, body, task: item, error: null });
+      return item;
+    }
     let item: Task;
     if (method === 'POST') {
       const input = createTaskSchema.parse(body);
@@ -852,15 +972,18 @@ export async function enqueuePlanner(
   const isTopic = /^\/api\/v1\/topics(?:\/|$)/.test(path);
   const isCalendar = /^\/api\/v1\/calendar(?:\/|$)/.test(path);
   const isWork = /^\/api\/v1\/academic-work(?:\/|$)/.test(path);
+  const isWorkBatch = path === '/api/v1/academic-work/batch';
   const kind: PlannerKind = isCourse
     ? 'course'
     : isTopic
       ? 'topic'
       : isCalendar
         ? 'event'
-        : isWork
-          ? 'work'
-          : 'reminder';
+        : isWorkBatch
+          ? 'workBatch'
+          : isWork
+            ? 'work'
+            : 'reminder';
   const snooze = kind === 'reminder' && /\/snooze$/.test(path);
   const needsClientId =
     (kind === 'event' && method === 'POST' && path === '/api/v1/calendar') ||
@@ -935,6 +1058,50 @@ export async function enqueuePlanner(
         body: normalizedBody,
         kind: 'work',
         entity: item,
+        response,
+        error: null,
+      });
+      return response;
+    }
+    if (kind === 'workBatch') {
+      const input = academicWorkBatchRequestSchema.parse(normalizedBody);
+      const projected = projectedWork(value);
+      const items = input.items.map((entry) => {
+        const original = projected.find((work) => work.id === entry.id);
+        if (
+          !original ||
+          original.version !== entry.expectedVersion ||
+          original.courseVersion !== entry.expectedCourseVersion
+        )
+          throw new Error('Reload work before changing the selection.');
+        if (input.action.kind === 'update' && original.courseArchived === true)
+          throw new Error('An archived class cannot be changed.');
+        if (
+          input.action.kind === 'update' &&
+          original.grade !== null &&
+          input.action.changes.status !== undefined &&
+          input.action.changes.status !== 'submitted'
+        )
+          throw new Error(
+            'Clear the recorded score individually before changing its status.',
+          );
+        return academicWorkSchema.parse({
+          ...original,
+          ...(input.action.kind === 'update' ? input.action.changes : {}),
+          version: original.version + 1,
+          updatedAt: now,
+          deletedAt: input.action.kind === 'delete' ? now : null,
+        });
+      });
+      const response = { work: items };
+      value.plannerJobs ??= [];
+      value.plannerJobs.push({
+        path,
+        method,
+        body: normalizedBody,
+        kind: 'workBatch',
+        entity: items[0]!,
+        entities: items,
         response,
         error: null,
       });
@@ -1049,8 +1216,6 @@ export async function enqueuePlanner(
     }
 
     if (kind === 'work') {
-      if (/\/batch$/.test(path))
-        throw new Error('Batch changes need a connection.');
       let item: AcademicWork;
       if (method === 'POST') {
         const input = academicWorkWriteSchema.parse(normalizedBody);
@@ -1430,33 +1595,39 @@ async function syncPlanner(send: Transport, owner: string) {
                   kind: 'work' as const,
                   entity: academicWorkResponseSchema.parse(response).work,
                 }
-              : job.kind === 'occurrence'
+              : job.kind === 'workBatch'
                 ? {
-                    kind: 'occurrence' as const,
-                    entity: calendarResponseSchema.parse(response).event,
-                    date: job.occurrenceDate!,
-                    replacement: job.replacement ?? null,
+                    kind: 'workBatch' as const,
+                    entities:
+                      academicWorkBatchResponseSchema.parse(response).work,
                   }
-                : job.kind === 'event'
+                : job.kind === 'occurrence'
                   ? {
-                      kind: 'event' as const,
+                      kind: 'occurrence' as const,
                       entity: calendarResponseSchema.parse(response).event,
+                      date: job.occurrenceDate!,
+                      replacement: job.replacement ?? null,
                     }
-                  : /\/snooze$/.test(job.path)
+                  : job.kind === 'event'
                     ? {
-                        kind: 'reminder' as const,
-                        entities: (() => {
-                          const parsed =
-                            reminderSnoozeResponseSchema.parse(response);
-                          return [parsed.sourceReminder, parsed.reminder];
-                        })(),
+                        kind: 'event' as const,
+                        entity: calendarResponseSchema.parse(response).event,
                       }
-                    : {
-                        kind: 'reminder' as const,
-                        entities: [
-                          reminderResponseSchema.parse(response).reminder,
-                        ],
-                      };
+                    : /\/snooze$/.test(job.path)
+                      ? {
+                          kind: 'reminder' as const,
+                          entities: (() => {
+                            const parsed =
+                              reminderSnoozeResponseSchema.parse(response);
+                            return [parsed.sourceReminder, parsed.reminder];
+                          })(),
+                        }
+                      : {
+                          kind: 'reminder' as const,
+                          entities: [
+                            reminderResponseSchema.parse(response).reminder,
+                          ],
+                        };
       await state(true, (value) => {
         if (!authorized(value) || value.session?.user?.id !== owner) return;
         value.plannerJobs = queuedPlanner(value).filter(
@@ -1465,6 +1636,8 @@ async function syncPlanner(send: Transport, owner: string) {
         if (saved.kind === 'reminder')
           mergeReminderCache(value, saved.entities);
         else if (saved.kind === 'work') mergeWorkCache(value, saved.entity);
+        else if (saved.kind === 'workBatch')
+          for (const entity of saved.entities) mergeWorkCache(value, entity);
         else if (saved.kind === 'occurrence')
           mergeOccurrenceCache(
             value,

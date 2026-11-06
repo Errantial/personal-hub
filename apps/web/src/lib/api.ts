@@ -1,5 +1,5 @@
 import { bootstrapResponseSchema, healthResponseSchema } from '@hub/contracts';
-import type { AcademicWork, CalendarRecord } from '@hub/contracts';
+import type { AcademicWork, CalendarRecord, Task } from '@hub/contracts';
 import { z } from 'zod';
 import { apiFetch } from './transport';
 import { requestSignal } from './request-signal';
@@ -200,6 +200,9 @@ export async function liveRequestJson<T>(
 }
 
 const cachedPath = (path: string) =>
+  /^\/api\/v1\/planner\/deleted\?.+$/.test(path) ||
+  (path.startsWith('/api/v1/academic-work?') &&
+    path.includes('deleted=true')) ||
   /^\/api\/v1\/connections\/canvas\/planner-work\?.+$/.test(path) ||
   /^\/api\/v1\/connections\/canvas\/lms\/records\?.+$/.test(path) ||
   /^\/api\/v1\/connections\/canvas\/(calendar|items)\?.+$/.test(path) ||
@@ -218,12 +221,12 @@ export async function requestJson<T>(
     signal?: AbortSignal;
     onCached?: (savedAt: string | null) => void;
     /** The deleted record a restore brings back, for offline projection. */
-    local?: CalendarRecord | AcademicWork;
+    local?: Task | CalendarRecord | AcademicWork;
   } = {},
 ): Promise<T> {
   const method = options.method ?? 'GET';
   const taskMutation =
-    /^\/api\/v1\/tasks(?:\/[a-f\d-]{36})?$/.test(path) &&
+    /^\/api\/v1\/tasks(?:\/[a-f\d-]{36}(?:\/restore)?)?$/.test(path) &&
     ['POST', 'PUT', 'DELETE'].includes(method);
   const plannerMutation =
     (/^\/api\/v1\/(?:courses|topics)(?:\/[a-f\d-]{36})?$/.test(path) ||
@@ -233,7 +236,7 @@ export async function requestJson<T>(
       /^\/api\/v1\/calendar(?:\/[a-f\d-]{36})?(?:\/(?:occurrences\/\d{4}-\d{2}-\d{2}|restore))?$/.test(
         path,
       ) ||
-      /^\/api\/v1\/academic-work(?:\/[a-f\d-]{36}(?:\/restore)?)?$/.test(
+      /^\/api\/v1\/academic-work(?:\/[a-f\d-]{36}(?:\/restore)?|\/batch)?$/.test(
         path,
       )) &&
     ['POST', 'PUT', 'DELETE'].includes(method);
@@ -258,8 +261,18 @@ export async function requestJson<T>(
     if (sourceCreation)
       throw new Error('Sync queued tasks before creating from Canvas.');
     const response = taskMutation
-      ? await enqueueTask(path, method, prepared)
-      : await enqueuePlanner(path, method, prepared, options.local);
+      ? await enqueueTask(
+          path,
+          method,
+          prepared,
+          options.local as Task | undefined,
+        )
+      : await enqueuePlanner(
+          path,
+          method,
+          prepared,
+          options.local as CalendarRecord | AcademicWork | undefined,
+        );
     void synchronize().catch(() => undefined);
     return schema.parse(response);
   }
@@ -286,7 +299,10 @@ export async function requestJson<T>(
           path === '/api/v1/calendar' ||
           path.startsWith('/api/v1/calendar/occurrences?') ||
           path === '/api/v1/reminders' ||
-          path.startsWith('/api/v1/academic-work/browse?')) &&
+          path.startsWith('/api/v1/academic-work/browse?') ||
+          path.startsWith('/api/v1/planner/deleted?') ||
+          (path.startsWith('/api/v1/academic-work?') &&
+            path.includes('deleted=true'))) &&
         (await pendingCount().catch(() => 0))
       ) {
         const projected = await cachedResponse(path).catch(() => undefined);
@@ -335,8 +351,18 @@ export async function requestJson<T>(
           cause: error,
         });
       const response = taskMutation
-        ? await enqueueTask(path, method, prepared)
-        : await enqueuePlanner(path, method, prepared, options.local);
+        ? await enqueueTask(
+            path,
+            method,
+            prepared,
+            options.local as Task | undefined,
+          )
+        : await enqueuePlanner(
+            path,
+            method,
+            prepared,
+            options.local as CalendarRecord | AcademicWork | undefined,
+          );
       void synchronize().catch(() => undefined);
       return schema.parse(response);
     }

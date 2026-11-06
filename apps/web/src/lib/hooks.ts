@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { z } from 'zod';
 import { Temporal } from '@hub/contracts';
-import type { AcademicWork, CalendarRecord } from '@hub/contracts';
+import type { AcademicWork, CalendarRecord, Task } from '@hub/contracts';
 import { RequestError, requestJson } from './api';
 import { offlineChanged, offlineStatus } from './offline';
 import { operationTracker } from './operations';
@@ -87,7 +87,7 @@ export function useMutation() {
       path: string,
       body: Record<string, unknown>,
       failure = 'Could not save. Your changes are still here.',
-      local?: CalendarRecord | AcademicWork,
+      local?: Task | CalendarRecord | AcademicWork,
     ): Promise<T | undefined> => {
       setPending(true);
       setError('');

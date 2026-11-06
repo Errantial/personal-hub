@@ -10,11 +10,11 @@ Status: proposal approved by the owner on 2026-11-02 (decision D58). Nothing in 
 - Reminders alert on the device while the app is closed and after a reboot.
 - About a week of daily use on the Kompakt before the release is called done.
 
-## Current state (2026-11-04)
+## Current state (2026-11-06)
 
 - Done: bundled UI, native cookie session, task outbox, cached viewing of any GET response loaded at least once (calendar, class and reminder screens included), Back gesture handling, `adjustResize` keyboard behavior, blank-launch recovery, immediate e-ink persistence, and hiding the bottom bar above the soft keyboard. Emulator QA passed (PR #59), and the Kompakt baseline passed the final hardware re-test on `da36089`.
 - Signing path: git-derived versions, the version shown in Settings › Account, environment-only release signing, `apksigner` verification and a SHA-256 file are implemented. Verified 2026-11-04 with a temporary test key (v1 code 224 → v2 code 225, same certificate, install/update on the Android 15 emulator). The production keystore and its signed release APK are still missing; the test key must not ship.
-- Offline edits: classes, topics, reminders, calendar series, per-occurrence overrides/deletes, individual academic work and Undo restore are done (2026-11-04: queued create/edit/delete, reminder controls, event and occurrence projection, and retained conflicts). Work batch changes and the Recently deleted list remain online-only.
+- Offline edits: classes, topics, reminders, calendar series, per-occurrence overrides/deletes, individual and selected academic work, Undo restore and cached Recently deleted pages are done (2026-11-04 to 2026-11-06: queued create/edit/delete, reminder controls, event and occurrence projection, batch projection and retained conflicts).
 - Native reminders: implemented 2026-11-04 with `@capacitor/local-notifications` 8.3.1. Emulator checks passed for scheduling, the permission and exact-alarm states, and delivery with the app process killed and the screen off. Reboot survival and Mudita power modes remain hardware checks.
 - Missing: Kompakt evidence for native alarms (reboot and power modes), production HTTPS and the `https://localhost` origin allowlist, and about a week of daily use.
 
@@ -46,8 +46,9 @@ The two hardware findings from the first pass have mitigations that passed the f
 - Done 2026-11-04: reminders queue create, reschedule, snooze, pause, resume, retry and cancel. Cached reminder lists project status/time changes; a snooze queues both the source version and the child reminder; replay merges the server records.
 - Done 2026-11-04: calendar series create, edit and delete queue offline. Cached series and occurrence windows project the change, including recurring expansion; replay merges the saved series and refreshes cached occurrence windows.
 - Done 2026-11-04: per-occurrence overrides and occurrence-scoped deletes queue offline. The editor falls back to the view's cached occurrence window when its own wider window was never cached; projection patches only the affected date, and replay keeps other server exceptions. Series restore also queues offline through Undo.
-- Done 2026-11-04: academic work browse pages are cached. Individual work create, edit and delete queue offline with client-generated ids, project into the cached page and replay once. Work Undo restore also queues offline; batch changes and the Recently deleted list remain online-only.
-- Remaining: work batch changes and the Recently deleted list.
+- Done 2026-11-04: academic work browse pages are cached. Individual work create, edit and delete queue offline with client-generated ids, project into the cached page and replay once. Work Undo restore also queues offline.
+- Done 2026-11-06: selected work changes queue as one atomic batch and project into cached pages; cached Recently deleted pages for tasks, events and work project queued deletes and restores, and restore from that list queues offline.
+- Remaining: none for the release bar.
 - Browser e2e coverage for every queued kind. Emulator instrumentation covers process death and replay.
 
 ### 4. Native reminders

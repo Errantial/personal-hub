@@ -46,8 +46,7 @@ const labelText = { personal: 'Personal', restricted: 'Restricted' } as const;
 /**
  * Owner-entered assignments, exams and projects for one class: a filtered,
  * paged list with full counts, individual editing, and selected changes.
- * Browse pages are cached and individual changes queue offline; batch changes
- * and restore still need a connection.
+ * Browse pages are cached and individual or selected changes queue offline.
  */
 export function ClassWork({
   course,
