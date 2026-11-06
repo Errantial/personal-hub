@@ -4,7 +4,7 @@ import { academicWorkBatchResponseSchema } from '@hub/contracts';
 import type { AcademicWork } from '@hub/contracts';
 import { priorityLabel, workBatchBody, workStatusLabels } from '../lib/classes';
 import type { WorkChange } from '../lib/classes';
-import { useMutation, useOnline } from '../lib/hooks';
+import { useMutation } from '../lib/hooks';
 import type { Selection } from '../lib/selection';
 import { useConfirm } from './ConfirmDialog';
 import { SelectionBar, countOf } from './SelectionBar';
@@ -29,10 +29,11 @@ const changeLabels: Record<ChangeKind, string> = {
 const plural = (count: number) => countOf(count, 'work item');
 
 /**
- * Applies one change to explicitly selected academic work in a single
- * atomic, online-only request (see docs/academic-management.md). Titles,
- * notes, labels and scores are never batch-changed; reopening or cancelling
- * scored work is refused for the whole selection.
+ * Applies one change to explicitly selected academic work in a single atomic
+ * request (see docs/academic-management.md). Offline, the same atomic request
+ * queues and projects into the cached pages. Titles, notes, labels and scores
+ * are never batch-changed; reopening or cancelling scored work is refused for
+ * the whole selection.
  */
 export function WorkBatchBar({
   selection,
@@ -59,7 +60,6 @@ export function WorkBatchBar({
   const [estimate, setEstimate] = useState('');
   const [inputError, setInputError] = useState('');
   const batch = useMutation();
-  const online = useOnline();
   const [dialog, confirm] = useConfirm();
   const count = selection.size;
 
@@ -92,7 +92,7 @@ export function WorkBatchBar({
 
   async function apply(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!count || !online) return;
+    if (!count) return;
     const requested = change();
     if (typeof requested === 'string') {
       setInputError(requested);
@@ -133,6 +133,7 @@ export function WorkBatchBar({
       latest={latest}
       onSelect={onSelect}
       batch={batch}
+      offlineAllowed
     >
       <form
         className="batch-bar__row"
@@ -224,7 +225,7 @@ export function WorkBatchBar({
         )}
         <button
           className={kind === 'delete' ? 'danger-button' : 'primary-button'}
-          disabled={!count || !online || batch.pending}
+          disabled={!count || batch.pending}
         >
           {batch.pending ? 'Applying…' : `Apply to ${plural(count)}`}
         </button>

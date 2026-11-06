@@ -13,9 +13,10 @@ export const countOf = (count: number, noun: string) =>
 
 /**
  * Shared frame for selected changes: selection count, Select shown / Clear,
- * the offline notice, and the failure state. Batches are atomic and
- * online-only; a change elsewhere fails the whole batch, and the owner must
- * deliberately review the latest versions before applying again.
+ * the offline notice, and the failure state. Batches are atomic; a change
+ * elsewhere fails the whole batch, and the owner must deliberately review
+ * the latest versions before applying again. Academic-work changes also queue
+ * offline; task changes still need a connection.
  * `children` holds the change controls and Apply button.
  */
 export function SelectionBar<T extends Versioned>({
@@ -27,6 +28,7 @@ export function SelectionBar<T extends Versioned>({
   latest,
   onSelect,
   batch,
+  offlineAllowed = false,
   children,
 }: {
   label: string;
@@ -39,6 +41,8 @@ export function SelectionBar<T extends Versioned>({
   latest: () => Promise<readonly T[] | undefined>;
   onSelect: (selection: Map<string, number>) => void;
   batch: ReturnType<typeof useMutation>;
+  /** The batch queues offline instead of requiring a connection. */
+  offlineAllowed?: boolean;
   children: ReactNode;
 }) {
   const [refreshing, setRefreshing] = useState(false);
@@ -85,7 +89,7 @@ export function SelectionBar<T extends Versioned>({
       <fieldset className="batch-bar__fields" disabled={refreshing}>
         {children}
       </fieldset>
-      {!online && (
+      {!online && !offlineAllowed && (
         <p className="form-error">Selected changes need a connection.</p>
       )}
       {batch.error && (

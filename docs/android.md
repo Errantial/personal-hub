@@ -47,7 +47,7 @@ Prerequisites: the release APK and its `.sha256` file, the matching certificate 
 
 - Sync and resolve every queued change; confirm the header says **Online · All saved**.
 - Export the planner JSON from Settings if the current data matters.
-- Note that "Recently deleted" and reminder history are lost from the device cache but remain on the server.
+- Cached "Recently deleted" pages and reminder history are removed with the app data; the records remain on the server.
 
 Prefer a forward fix with a higher `versionCode` over a rollback. If a rollback is unavoidable, uninstall (`adb uninstall <package>`), install the older APK, sign in again, and re-create alarms from the server reminders.
 

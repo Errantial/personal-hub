@@ -537,6 +537,14 @@ Validation: 15/15 offline browser tests (new work edit, add and delete/replay ca
 
 ## 2026-11-06 - Offline Undo restore
 
-Series and academic-work restores now queue offline when the deleted record is still in the view's Undo notice. The outbox stores the deleted record, the restore response is projected immediately (the series reappears with its occurrences; work returns to its filtered page), and replay merges the server record. The restore body keeps its expected version and does not receive a create client id. Restores from the Recently deleted list remain online-only because that list itself is not cached.
+Series and academic-work restores now queue offline when the deleted record is still in the view's Undo notice. The outbox stores the deleted record, the restore response is projected immediately (the series reappears with its occurrences; work returns to its filtered page), and replay merges the server record. The restore body keeps its expected version and does not receive a create client id. Restores from the Recently deleted list remained online-only at that point because that list itself was not cached; the 2026-11-06 entry adds cached pages and queued restores.
 
 Validation: 16/16 offline browser tests (new series restore case and work delete/undo/delete in the academic case), 7/7 classes browser tests, 17/17 calendar browser tests, 96 web unit tests, typecheck, lint, formatting and the production build.
+
+## 2026-11-06 - Offline selected work and Recently deleted
+
+Selected academic-work changes now queue in the shared outbox as one atomic batch. The client verifies each selected version and class version, projects the new status/priority/deadline/estimate or delete into every cached browse page, and replays the same `POST /api/v1/academic-work/batch`. Replay merges each returned record into the cached pages. The server's all-or-nothing rules still apply: a stale selection, archived class or blocked score/status change fails the whole job and stays in the global conflict banner with explicit discard.
+
+Recently deleted pages for tasks, events and work are cached after their first online load. Cached pages project queued deletes and restores, and restore from the list queues offline for all three kinds. Task restore now shares the task outbox; its local record carries the tombstone version, advances once, and returns to the task list. Calendar and work restores reuse the existing offline restore path. Offline paging still reads only pages already cached, and a list never opened on the device remains unavailable until it is loaded online.
+
+Validation: 20/20 offline browser tests (four new cases: task, work and event restore from Recently deleted, and selected work status changes), 7/7 classes, 17/17 calendar, 7/7 tasks, 96 web unit tests, 58/58 targeted academic API tests, typecheck, lint, formatting and the production build. No production server or provider was contacted.

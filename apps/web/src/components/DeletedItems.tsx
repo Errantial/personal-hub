@@ -6,7 +6,7 @@ import {
   deletedPlannerResponseSchema,
   taskResponseSchema,
 } from '@hub/contracts';
-import type { AcademicWork, CalendarRecord } from '@hub/contracts';
+import type { AcademicWork, CalendarRecord, Task } from '@hub/contracts';
 import { requestJson } from '../lib/api';
 import { useMutation } from '../lib/hooks';
 import { Help } from './Help';
@@ -16,12 +16,7 @@ import './DeletedItems.css';
 const limit = 20;
 
 type Kind = 'task' | 'calendar' | 'work';
-type Item = {
-  id: string;
-  title: string;
-  version: number;
-  deletedAt?: string | null;
-};
+type Item = Task | CalendarRecord | AcademicWork;
 
 /* Wording and endpoints that differ between deletable record kinds. */
 const kinds = {
@@ -29,27 +24,27 @@ const kinds = {
     noun: 'task',
     nouns: 'tasks',
     path: 'tasks',
-    help: 'Restoring a task keeps its notes, labels and sources. Reminders that were cancelled when it was deleted are not restarted. Restoring needs a connection.',
+    help: 'Restoring a task keeps its notes, labels and sources. Reminders that were cancelled when it was deleted are not restarted.',
     note: ' Reminders cancelled by the deletion stay cancelled.',
   },
   calendar: {
     noun: 'event',
     nouns: 'events',
     path: 'calendar',
-    help: 'Restoring an event brings back its whole series, notes, labels and sources. Restoring needs a connection.',
+    help: 'Restoring an event brings back its whole series, notes, labels and sources.',
     note: '',
   },
   work: {
     noun: 'work item',
     nouns: 'work items',
     path: 'academic-work',
-    help: 'Restoring work keeps its notes, score and labels. Reminders cancelled by the deletion stay cancelled. Restoring needs a connection.',
+    help: 'Restoring work keeps its notes, score and labels. Reminders cancelled by the deletion stay cancelled.',
     note: ' Reminders cancelled by the deletion stay cancelled.',
   },
 } as const;
 
-/** Deleted records, newest first, restorable while online. Opening the section
- *  loads the first page; deleted records are never cached for offline use. */
+/** Deleted records, newest first. Opening the section loads the first page;
+ *  the page is cached and queued deletes or restores are projected offline. */
 export function DeletedItems({
   kind,
   courseId,
@@ -153,8 +148,16 @@ function DeletedList({
     const path = `/api/v1/${words.path}/${item.id}/restore`;
     const title =
       kind === 'task'
-        ? (await restore.run(taskResponseSchema, 'POST', path, body, failure))
-            ?.task.title
+        ? (
+            await restore.run(
+              taskResponseSchema,
+              'POST',
+              path,
+              body,
+              failure,
+              item as Task,
+            )
+          )?.task.title
         : kind === 'work'
           ? (
               await restore.run(

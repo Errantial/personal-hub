@@ -1,6 +1,6 @@
 # Academic browsing and selected changes
 
-Implemented 2026-10-12. Owned online backend routes add guarded browsing across manual work and atomic changes to explicit selections. UI/offline integration remains pending. These routes do not import provider grades/submissions, run AI or change linked planner tasks/study blocks.
+Implemented 2026-10-12. Owned backend routes add guarded browsing across manual work and atomic changes to explicit selections. The class Work UI uses them, including offline batch queueing and replay. These routes do not import provider grades/submissions, run AI or change linked planner tasks/study blocks.
 
 ## Browsing
 
@@ -35,8 +35,8 @@ Retry the exact request/operation after a lost response. Changed payload reuse r
 
 ## Boundaries and verification
 
-No migration, dependency, AI action authority, provider write or offline batch replay is added. Portable export already retains changed records/scores/tombstones; batch receipts are not a revision timeline. Filter-wide selection, score changes, automatic deadline shifts and batch restore remain pending.
+Selected changes queue offline through the shared outbox: optimistic records project into cached browse pages and one atomic request replays on reconnect. A conflicting or restricted selection keeps the whole batch queued with explicit discard. No migration, dependency, AI action authority, provider write or per-item split of a batch is added. Portable export already retains changed records/scores/tombstones; batch receipts are not a revision timeline. Filter-wide selection, score changes, automatic deadline shifts and batch restore remain pending.
 
 Synthetic coverage includes strict filters/actions, 207-record guarded paging and complete totals, archived-class browsing, ownership, ancestor/work conflicts, field/score/label preservation, mixed-class changes, rollback, competing and duplicate writes, reminder suppression, receipt replay and persisted restart. Standard PostgreSQL browsing/duplicate/overlapping-batch coverage is added but remains opt-in through the disposable test URL.
 
-Final validation: all 17 academic-management tests and three shared batch-authorization tests pass. `npm run check` passed 505 API/client tests with one optional PostgreSQL skip, lint, types, formatting and builds. All 84 browser regressions passed on an isolated rerun; compiled API smoke verified the endpoint wiring and migration guard. The final error-copy correction also passed focused checks and a refreshed API build. UI/offline controls and standard PostgreSQL verification remain pending.
+Final validation: all 17 academic-management tests and three shared batch-authorization tests pass. `npm run check` passed 505 API/client tests with one optional PostgreSQL skip, lint, types, formatting and builds. All 84 browser regressions passed on an isolated rerun; compiled API smoke verified the endpoint wiring and migration guard. Offline UI controls were added later (2026-11-06) with browser coverage; standard PostgreSQL verification remains pending.
