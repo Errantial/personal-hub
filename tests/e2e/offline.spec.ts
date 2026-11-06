@@ -898,7 +898,7 @@ test('offline occurrence edit and delete replay into the series once', async ({
   expect(events.find((event) => event.id === series.event.id)?.version).toBe(3);
 });
 
-test('offline academic work edit, add and delete replay once', async ({
+test('offline academic work edit, add, delete and undo replay once', async ({
   page,
   context,
 }) => {
@@ -966,6 +966,25 @@ test('offline academic work edit, add and delete replay once', async ({
   ).toHaveCount(0);
   await expect(syncState(page)).toContainText('3 queued');
 
+  await workRegion.getByRole('button', { name: 'Undo' }).click();
+  await expect(
+    workRegion.getByText('Offline work edited', { exact: true }),
+  ).toBeVisible();
+  await expect(syncState(page)).toContainText('4 queued');
+
+  await workRegion
+    .getByRole('button', { name: 'Edit Offline work edited' })
+    .click();
+  await workRegion.getByRole('button', { name: 'Delete work' }).click();
+  await page
+    .getByRole('dialog', { name: 'Delete “Offline work edited”?' })
+    .getByRole('button', { name: 'Delete work' })
+    .click();
+  await expect(
+    workRegion.getByText('Offline work edited', { exact: true }),
+  ).toHaveCount(0);
+  await expect(syncState(page)).toContainText('5 queued');
+
   await context.setOffline(false);
   await syncNow(page);
   await expect(syncState(page)).toContainText('Online · All saved', {
@@ -988,4 +1007,62 @@ test('offline academic work edit, add and delete replay once', async ({
   await expect(
     workRegion.getByText('Offline work edited', { exact: true }),
   ).toHaveCount(0);
+});
+
+test('offline series delete can be undone before sync', async ({
+  page,
+  context,
+}) => {
+  const reply = await page.request.post('/api/v1/calendar', {
+    headers: { Origin: 'http://127.0.0.1:5180' },
+    data: {
+      title: 'Offline restore event',
+      startsAt: '2036-10-01T09:00:00Z',
+      endsAt: '2036-10-01T10:00:00Z',
+      timeZone: 'UTC',
+      operationId: crypto.randomUUID(),
+    },
+  });
+  expect(reply.status()).toBe(200);
+  const id = ((await reply.json()) as { event: { id: string } }).event.id;
+
+  await warm(page);
+  await page.goto('/calendar?date=2036-10-01&view=agenda');
+  await showCalendar(page, {
+    date: '2036-10-01',
+    view: 'Agenda',
+    zone: 'UTC',
+  });
+  const view = calendarRegion(page);
+  await expect(
+    view.getByRole('link', { name: 'Offline restore event', exact: true }),
+  ).toBeVisible();
+
+  await context.setOffline(true);
+  await page.goto(`/calendar/${id}?date=2036-10-01&view=agenda`);
+  const editor = eventEditor(page);
+  await editor
+    .getByRole('button', { name: 'Delete event', exact: true })
+    .click();
+  await expect(
+    view.getByRole('link', { name: 'Offline restore event', exact: true }),
+  ).toHaveCount(0);
+  await expect(syncState(page)).toContainText('1 queued');
+
+  await view.getByRole('button', { name: 'Undo' }).click();
+  await expect(
+    view.getByRole('link', { name: 'Offline restore event', exact: true }),
+  ).toBeVisible();
+  await expect(syncState(page)).toContainText('2 queued');
+
+  await context.setOffline(false);
+  await syncNow(page);
+  await expect(syncState(page)).toContainText('Online · All saved', {
+    timeout: 15000,
+  });
+  const events = (await (await page.request.get('/api/v1/calendar')).json())
+    .events as { title: string; deletedAt: string | null }[];
+  expect(
+    events.find((event) => event.title === 'Offline restore event'),
+  ).toMatchObject({ deletedAt: null });
 });
