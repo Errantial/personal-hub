@@ -188,6 +188,113 @@ export function startReminderWorker(database: Database) {
     },
   };
 }
+/** Server-side reminder writes for Assistant/agent proposals (same table and worker). */
+export async function saveReminderProposal(
+  database: Database,
+  owner: string,
+  method: 'POST' | 'PUT',
+  target: string | null,
+  body: unknown,
+) {
+  const input = reminderWriteSchema.parse(body);
+  if (method === 'POST') {
+    if (input.targetKind !== 'task' || !input.targetId)
+      throw new ApiError(
+        400,
+        'INVALID_INPUT',
+        'Agent reminders must target one task.',
+      );
+    return mutate(
+      database,
+      owner,
+      input.operationId,
+      { kind: 'reminder.create', input },
+      async (tx) => {
+        await active(tx, 'tasks', owner, input.targetId!);
+        const [row] = await tx.query(
+          `INSERT INTO reminders (id,owner_id,title,scheduled_at,target_kind,target_id,occurrence_date) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING RETURNING ${reminderColumns}`,
+          [
+            randomUUID(),
+            owner,
+            input.title,
+            input.scheduledAt,
+            input.targetKind,
+            input.targetId,
+            input.occurrenceDate,
+          ],
+        );
+        if (!row)
+          throw new ApiError(
+            409,
+            'OPERATION_CONFLICT',
+            'This reminder identifier is already in use.',
+          );
+        return reminderResponseSchema.parse({ reminder: row });
+      },
+    );
+  }
+  const id = z.string().uuid().parse(target);
+  return mutate(
+    database,
+    owner,
+    input.operationId,
+    { kind: 'reminder.update', id, input },
+    async (tx) => {
+      const current = await active(tx, 'reminders', owner, id);
+      version(current, input.expectedVersion);
+      if (!['queued', 'paused', 'failed'].includes(String(current.status)))
+        throw new ApiError(
+          409,
+          'REMINDER_STATE',
+          'This reminder cannot be rescheduled.',
+        );
+      const [row] = await tx.query(
+        `UPDATE reminders SET title=$3,scheduled_at=$4,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${reminderColumns}`,
+        [id, owner, input.title, input.scheduledAt],
+      );
+      if (!row)
+        throw new ApiError(
+          409,
+          'VERSION_CONFLICT',
+          'This reminder changed elsewhere. Reload before trying again.',
+        );
+      return reminderResponseSchema.parse({ reminder: row });
+    },
+  );
+}
+
+export async function cancelReminderProposal(
+  database: Database,
+  owner: string,
+  id: string,
+  body: unknown,
+) {
+  const input = deleteItemSchema.parse(body);
+  return mutate(
+    database,
+    owner,
+    input.operationId,
+    { kind: 'reminder.cancel', id, input },
+    async (tx) => {
+      const row = await active(tx, 'reminders', owner, id);
+      version(row, input.expectedVersion);
+      if (
+        !['queued', 'running', 'paused', 'failed'].includes(String(row.status))
+      )
+        throw new ApiError(
+          409,
+          'REMINDER_STATE',
+          'This reminder cannot be cancelled.',
+        );
+      const [saved] = await tx.query(
+        `UPDATE reminders SET status='cancelled',attempts=0,last_error=NULL,lease_token=NULL,lease_until=NULL,next_attempt_at=CURRENT_TIMESTAMP,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${reminderColumns}`,
+        [id, owner],
+      );
+      return reminderResponseSchema.parse({ reminder: saved });
+    },
+  );
+}
+
 export function registerReminders(
   app: FastifyInstance,
   database: Database,

@@ -8,12 +8,15 @@ export const aiActionModeSchema = z.enum([
 export const aiActionPolicySchema = z.strictObject({
   tasks: aiActionModeSchema,
   calendar: aiActionModeSchema,
+  /** Reminder create/update/cancel. Cancel still always asks first. */
+  reminders: aiActionModeSchema.default('approval-required'),
   email: z.literal('approval-required'),
 });
 /** For owners who never saved action settings (D57: tasks ask first). */
 export const defaultAIActionPolicy = aiActionPolicySchema.parse({
   tasks: 'approval-required',
   calendar: 'automatic',
+  reminders: 'approval-required',
   email: 'approval-required',
 });
 export const aiActionSettingsSchema = z.object({
@@ -30,6 +33,10 @@ export const aiActionWriteSchema = z.strictObject({
 export const aiActionSchema = z.union([
   z.strictObject({
     kind: z.enum(['task.create', 'task.update', 'task.delete', 'task.restore']),
+    connection: z.literal('hub'),
+  }),
+  z.strictObject({
+    kind: z.enum(['reminder.create', 'reminder.update', 'reminder.cancel']),
     connection: z.literal('hub'),
   }),
   z.strictObject({

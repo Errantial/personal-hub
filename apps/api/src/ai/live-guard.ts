@@ -16,12 +16,16 @@ import { guardBrokerRetrieval } from './mail-broker.js';
 import {
   livePlannerContext,
   mailSources,
+  projectCourse,
   projectEvent,
+  projectReminder,
   projectTask,
 } from './live-projections.js';
 import type { MailProjected } from './live-projections.js';
 import { reprojectTrackedDeadlineSource } from './tracked-deadline-context.js';
 import { readAssistantSettings } from './live-request.js';
+import { courseSchema, reminderSchema } from '@hub/contracts';
+import { reminderColumns } from '../features/reminders.js';
 import { exchange, pinnedRouting } from './openrouter-live.js';
 import type { ExchangeResult, OpenRouterFetch } from './openrouter-live.js';
 
@@ -284,6 +288,52 @@ export async function verifyLive(
     }
   }
 
+  for (const source of manifest.sources.filter(
+    (item) => item.kind === 'reminder' || item.kind === 'course',
+  )) {
+    if (source.kind === 'reminder') {
+      const [row] = await tx.query(
+        `SELECT ${reminderColumns} FROM reminders WHERE owner_id=$1 AND id=$2`,
+        [owner, source.id],
+      );
+      if (!row || Number(row.version) !== source.version)
+        return 'context-changed';
+      const reminder = reminderSchema.parse(row);
+      if (
+        sourceDigest(
+          owner,
+          requestId,
+          source.projection,
+          source.id,
+          projectReminder(reminder, source.ref, manifest.timeZone ?? 'UTC'),
+        ) !== source.digest
+      )
+        return 'context-changed';
+    } else {
+      const [row] = await tx.query(
+        `SELECT id,name,term,instructor,notes,sensitivity,version,
+           to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
+           to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
+           NULL::text AS "deletedAt"
+         FROM courses WHERE owner_id=$1 AND id=$2 AND deleted_at IS NULL`,
+        [owner, source.id],
+      );
+      if (!row || Number(row.version) !== source.version)
+        return 'context-changed';
+      const course = courseSchema.parse(row);
+      if (
+        sourceDigest(
+          owner,
+          requestId,
+          source.projection,
+          source.id,
+          projectCourse(course, source.ref),
+        ) !== source.digest
+      )
+        return 'context-changed';
+    }
+  }
+
   const deadlines = manifest.sources.filter(
     (source) => source.kind === 'tracked-deadline',
   );
@@ -410,7 +460,6 @@ export async function verifyLive(
       ) !== agent.goalDigest ||
       (deadlines.length > 0 &&
         (agent.version === undefined ||
-          agent.template !== 'deadline-watch' ||
           Number(responsibility.version) !== agent.version ||
           responsibility.template !== agent.template))
     )

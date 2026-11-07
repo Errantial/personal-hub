@@ -72,12 +72,17 @@ Each selection is resolved to an allowlisted projection — title, kind, date-on
 
 Sent items appear in the sealed manifest as `academic-work-v1` sources with their labels and pinned `academicCourse={id,version}`. The final guard re-projects each bound source and withholds the send as `context-changed` (no charge, hold released) if it changed between prepare and transmit, matching planner and mail sources; history eligibility re-verifies them, so a follow-up keeps an unchanged academic turn and drops a changed one. Applied proposals inherit the academic labels and `bound-derived` origin. The turn echoes the sent summaries in `academic` (migration 063), which survive conversation deletion. The composer selection picker and withheld-item coverage UI are the next slice; grounded academic proposals (P8) follow later. See [Manual academic AI context](ai-academic-context.md).
 
+## Agent context
+
+Both owner asks and scheduled agents now receive a server-assembled context snapshot: the current time and timezone, open tasks with due dates and their queued/paused reminders, upcoming ordinary events, classes, tracked Canvas deadlines within the owner's labels, and the authorized mail selection when Use mail is active. The builder fits a 24,000-character projected budget by dropping lower-priority items and records every included record as a manifest source (`planner-task-v1`, `planner-event-v1`, `planner-reminder-v1`, `planner-course-v1`, `tracked-deadline-v1`). Agent run responses expose a redacted `contextSources` list. Bound history reads up to 40 turns, keeps 12,000 characters and sends a deterministic summary of older bound turns instead of silently dropping them. See [the plan](plans/agent-context-and-permissions.md).
+
 ## Proposals
 
 The model may return up to 10 actions; each is checked and converted server-side, invalid ones are counted as `dropped`:
 
 - `task.create` (title, due date, priority, notes) and `task.update` (title, due date or clear, priority, completed) of a context task.
 - `event.create` (timed local start/end in the request timezone, end defaulting to +1 hour; or all-day with an inclusive last day) and `event.update` (title, start/end of a timed one-time event; moving only the start keeps the duration).
+- `reminder.create` for a context task, `reminder.update` (title and scheduled time) and `reminder.cancel` of a context reminder. Automatic apply requires the owner's `reminders` grant; cancellation always asks first. The ordinary reminder worker delivers the notification.
 - Skipped local times (DST gaps) are rejected; repeated times use the earlier offset only through `disambiguation: 'reject'`, which also rejects them.
 
 Updates carry the full record the model saw. The server applies each selected proposal through the ordinary `PUT /api/v1/tasks/:id` or `PUT /api/v1/calendar/:id` with that version, so a change made in between returns a conflict instead of being overwritten; creates use `POST`. Each write has its own stable operation ID. Undo deletes created items and restores updated ones to their previous fields, newest first. Apply and Undo are online-only, never queued, and composed on the server from the saved proposal and its recorded origin — not from a client-supplied body.
@@ -96,4 +101,4 @@ API tests inject the provider exchange and forbid global fetch: missing key, uns
 
 ## Known limits
 
-No mail search by body text or date, no conversation rename or search, no reconciliation of uncertain holds, no repeating-event or delete actions, no labeled-item support, no memory, no composer selection picker or withheld-item coverage UI for academic sources, no grounded academic proposals (P8), and no export of assistant records.
+No mail search by body text or date, no conversation rename or search, no reconciliation of uncertain holds, no repeating-event or task/event delete actions, no labeled-item support beyond the existing allowlists, no composer selection picker or withheld-item coverage UI for academic sources, no grounded academic proposals (P8), and no export of assistant records.

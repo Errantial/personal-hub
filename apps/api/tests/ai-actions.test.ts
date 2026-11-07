@@ -86,6 +86,7 @@ it('exposes confirmed calendar authority with ask-first task defaults without en
     policy: {
       tasks: 'approval-required',
       calendar: 'automatic',
+      reminders: 'approval-required',
       email: 'approval-required',
     },
   });
@@ -175,6 +176,7 @@ it('keeps read-only and unverified targets blocked even when all category permis
   const policy: AIActionPolicy = {
     tasks: 'automatic',
     calendar: 'automatic',
+    reminders: 'automatic',
     email: 'approval-required',
   };
   expect((await save(change(policy))).statusCode).toBe(200);
@@ -291,7 +293,12 @@ it('serializes competing policy writes without affecting manual planner permissi
     (
       await save(
         change(
-          { tasks: 'blocked', calendar: 'blocked', email: 'approval-required' },
+          {
+            tasks: 'blocked',
+            calendar: 'blocked',
+            reminders: 'blocked',
+            email: 'approval-required',
+          },
           setting.version,
         ),
       )
@@ -407,7 +414,7 @@ it('applies the additive migration to populated storage and enforces policy shap
   );
   await db.exec('DROP TABLE ai_action_policies');
   await db.query(
-    "DELETE FROM schema_migrations WHERE name='030_ai_action_policies.sql'",
+    "DELETE FROM schema_migrations WHERE name IN ('030_ai_action_policies.sql','077_ai_capability_audit.sql')",
   );
   await migrate(db);
   expect((await get(`/api/v1/tasks/${task.id}`)).json().task).toEqual(task);

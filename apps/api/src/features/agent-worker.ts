@@ -425,6 +425,7 @@ async function execute(
         transactionDatabase(tx),
         run.ownerId,
         turn,
+        agent.id,
       );
       const outcome: RunOutcome = outcomeOf(counts, turn);
       const finished = clock();

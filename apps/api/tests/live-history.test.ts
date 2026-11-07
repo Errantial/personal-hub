@@ -7,7 +7,6 @@ import {
 } from '../src/ai/live-history.js';
 import {
   maxHistorySources,
-  maxHistoryTurns,
   historyRefs,
   turnDigest,
 } from '../src/ai/live-manifest.js';
@@ -46,7 +45,7 @@ describe('bound history', () => {
     expect(query.mock.calls[0]).toEqual(
       expect.arrayContaining([
         expect.stringContaining('LIMIT $3'),
-        [owner, conversation, maxHistoryTurns],
+        [owner, conversation, 40],
       ]),
     );
     row.reply = 'Changed after binding';
@@ -167,7 +166,8 @@ describe('bound history', () => {
     expect(result.sources).toHaveLength(600);
     expect(result.turns.map((turn) => turn.id)).toEqual([recent.id]);
     expect(result.withheld).toBe(1);
-    expect(query).toHaveBeenCalledTimes(2);
+    // One read plus source-union checks for the kept turn and the summary candidate.
+    expect(query).toHaveBeenCalledTimes(3);
   });
 
   it('keeps every inherited label when direct and history sources overlap', () => {

@@ -87,6 +87,23 @@ export function describeProposal(
       ];
       return `Change event “${target.title}”: ${parts.join(', ')}`;
     }
+    case 'reminder.create':
+      return `Add reminder “${proposal.reminder.title}” for task “${proposal.target.title}” · ${time(proposal.reminder.scheduledAt)}`;
+    case 'reminder.update': {
+      const parts = [
+        ...(proposal.changes.title !== undefined
+          ? [`rename to “${proposal.changes.title}”`]
+          : []),
+        ...(proposal.changes.scheduledAt
+          ? [
+              `${time(proposal.target.scheduledAt)} → ${time(proposal.changes.scheduledAt)}`,
+            ]
+          : []),
+      ];
+      return `Change reminder “${proposal.target.title}”: ${parts.join(', ')}`;
+    }
+    case 'reminder.cancel':
+      return `Cancel reminder “${proposal.target.title}”`;
   }
 }
 /** End dates are exclusive; show the last day. */

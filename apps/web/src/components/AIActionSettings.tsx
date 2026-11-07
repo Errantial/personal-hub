@@ -75,7 +75,8 @@ export function AIActionSettings() {
       <h2>Actions</h2>
       <Help label="Agent actions">
         These settings govern agent runs. Assistant answers always ask first.
-        Automatic changes apply to hub tasks and calendar records.
+        Automatic changes apply to hub tasks, calendar records and task
+        reminders. Destructive reminder changes still ask first.
       </Help>
       {!online && <p role="status">Offline. Reconnect to save.</p>}
       {error && <p role="alert">{error}</p>}
@@ -100,9 +101,15 @@ export function AIActionSettings() {
             void save();
           }}
         >
-          {(['tasks', 'calendar'] as const).map((group) => (
+          {(['tasks', 'calendar', 'reminders'] as const).map((group) => (
             <fieldset key={group} disabled={busy}>
-              <legend>{group === 'tasks' ? 'Tasks' : 'Calendar'}</legend>
+              <legend>
+                {group === 'tasks'
+                  ? 'Tasks'
+                  : group === 'calendar'
+                    ? 'Calendar'
+                    : 'Task reminders'}
+              </legend>
               {modes.map(([value, label]) => (
                 <label key={value} className="checkbox-label">
                   <input

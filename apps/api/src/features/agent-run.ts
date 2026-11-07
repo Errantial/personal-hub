@@ -8,6 +8,7 @@ import {
 import type {
   AgentTemplate,
   AssistantItem,
+  AssistantProposal,
   AssistantTurn,
   RunOutcome,
 } from '@hub/contracts';
@@ -19,6 +20,7 @@ import { lockSchedule } from '../planner/schedule-lock.js';
 import { readAIActionPolicy } from './ai-actions.js';
 import { plannedWrite } from './planner-write.js';
 import { applySavedProposal, transactionDatabase } from './assistant-apply.js';
+import { recordCapabilityAudit } from './capability-audit.js';
 export { transactionDatabase } from './assistant-apply.js';
 
 // One agent run's work after the model answers (D57): apply each proposal
@@ -79,10 +81,22 @@ export function agentPrompt(
  * `not_allowed`). A conflict fails that item only. Email is never sent:
  * Assistant proposals cannot contain email.
  */
+/** Owner policy for one proposal; destructive reminder cancels never auto-apply. */
+export function proposalPolicyMode(
+  proposal: AssistantProposal,
+  policy: { tasks: string; calendar: string; reminders: string },
+) {
+  if (proposal.kind.startsWith('task.')) return policy.tasks;
+  if (proposal.kind.startsWith('event.')) return policy.calendar;
+  if (proposal.kind === 'reminder.cancel') return 'approval-required';
+  return policy.reminders;
+}
+
 export async function applyByPolicy(
   database: Database,
   owner: string,
   turn: AssistantTurn,
+  agentId?: string,
 ): Promise<RunCounts> {
   return database.transaction(async (tx) => {
     const parent = await tx.query(
@@ -122,6 +136,7 @@ export async function applyByPolicy(
       owner,
       current,
       Number(saved.not_allowed),
+      agentId,
     );
   });
 }
@@ -131,6 +146,7 @@ async function applyInTransaction(
   owner: string,
   turn: AssistantTurn,
   notAllowed: number,
+  agentId?: string,
 ): Promise<RunCounts> {
   // Lock the owner's policy for this short database-only effect transaction.
   await database.query(
@@ -176,6 +192,16 @@ async function applyInTransaction(
           owner,
           applyRequest(proposal, item.applyId),
         );
+        await recordCapabilityAudit(
+          database,
+          owner,
+          turn.id,
+          proposal,
+          'applied',
+          {
+            agentId,
+          },
+        );
         counts.applied++;
         items.push({ ...item, state: 'applied', applied, error: null });
       } catch (error) {
@@ -190,20 +216,42 @@ async function applyInTransaction(
       continue;
     }
     if (turn.proposalAccess === 'read-only') {
+      await recordCapabilityAudit(
+        database,
+        owner,
+        turn.id,
+        proposal,
+        'proposed',
+        { agentId, reason: 'mail-derived read-only proposal' },
+      );
       proposals.push(proposal);
       items.push(item);
       counts.proposed++;
       continue;
     }
-    const mode = proposal.kind.startsWith('task.')
-      ? policy.tasks
-      : policy.calendar;
-    if (mode === 'blocked') {
+    const requestedMode = proposalPolicyMode(proposal, policy);
+    if (requestedMode === 'blocked') {
+      await recordCapabilityAudit(
+        database,
+        owner,
+        turn.id,
+        proposal,
+        'blocked',
+        { agentId, reason: 'blocked by owner policy' },
+      );
       counts.notAllowed++;
       continue;
     }
     proposals.push(proposal);
-    if (mode === 'approval-required') {
+    if (requestedMode === 'approval-required') {
+      await recordCapabilityAudit(
+        database,
+        owner,
+        turn.id,
+        proposal,
+        'proposed',
+        { agentId, reason: 'owner approval required' },
+      );
       counts.proposed++;
       items.push(item);
       continue;
@@ -217,6 +265,7 @@ async function applyInTransaction(
         proposal,
         item,
         verified,
+        agentId,
       );
       counts.applied++;
       items.push({ ...item, state: 'applied', applied, error: null });

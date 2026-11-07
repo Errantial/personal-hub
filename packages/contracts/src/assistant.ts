@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { taskSchema } from './core.js';
+import { reminderSchema } from './features.js';
 import { calendarRecordSchema, dateOnly, instant, zone } from './features.js';
 import { runOutcomeSchema } from './responsibilities.js';
 import { mailBrokerReceiptSchema } from './mail-broker.js';
@@ -220,6 +221,27 @@ export const assistantProposalSchema = z.discriminatedUnion('kind', [
       startsAt: instant.optional(),
       endsAt: instant.optional(),
     }),
+  }),
+  z.object({
+    kind: z.literal('reminder.create'),
+    /** The task as it was sent; Apply attaches the reminder to its id. */
+    target: taskSchema,
+    reminder: z.object({
+      title,
+      scheduledAt: instant,
+    }),
+  }),
+  z.object({
+    kind: z.literal('reminder.update'),
+    target: reminderSchema,
+    changes: z.object({
+      title: title.optional(),
+      scheduledAt: instant.optional(),
+    }),
+  }),
+  z.object({
+    kind: z.literal('reminder.cancel'),
+    target: reminderSchema,
   }),
 ]);
 export type AssistantProposal = z.infer<typeof assistantProposalSchema>;

@@ -227,6 +227,16 @@ function RunDetails({ run }: { run: AgentRun }) {
         Attempts: {run.attempts} · Settled {formatCost(run.settledMicros)} ·
         Held {formatCost(run.heldMicros)}
       </p>
+      {run.contextSources.length > 0 && (
+        <p className="meta">
+          Context: {run.contextSources.length} source
+          {run.contextSources.length === 1 ? '' : 's'} (
+          {[...new Set(run.contextSources.map((source) => source.kind))].join(
+            ', ',
+          )}
+          )
+        </p>
+      )}
       {run.errorCode && (
         <p className="form-error">
           {runErrorMessage(run.errorCode)}

@@ -4,11 +4,11 @@ Backend settings and authority preview implemented 2026-10-11. D57 adds Settings
 
 ## Owner settings
 
-GET `/api/v1/ai/actions` returns `{ version, policy }`. Unsaved owners receive version 1 without inserting a row, with `policy: { tasks: 'approval-required', calendar: 'automatic', email: 'approval-required' }` (D57). Saved policies are unchanged.
+GET `/api/v1/ai/actions` returns `{ version, policy }`. Unsaved owners receive version 1 without inserting a row, with `policy: { tasks: 'approval-required', calendar: 'automatic', reminders: 'approval-required', email: 'approval-required' }` (D57; `reminders` was added 2026-11-07). Saved policies are unchanged.
 
-Calendar defaults reflect confirmed authority on writable calendars; current execution writes hub records only. Tasks default to ask-first. Owners may select automatic, approval-required or blocked task/calendar modes. Email is always approval-required. Manual planner operations remain available when automation is blocked.
+Calendar defaults reflect confirmed authority on writable calendars; current execution writes hub records only. Tasks default to ask-first. Owners may select automatic, approval-required or blocked task/calendar/reminder modes. Reminder cancellation still always asks first. Email is always approval-required. Manual planner operations remain available when automation is blocked.
 
-PUT requires `{ operationId, expectedVersion, policy }`, with exactly tasks/calendar/email fields. Writes are optimistic, atomic, owner-scoped and receipt-backed. The first successful save advances version 1 to 2. Concurrent same-version distinct writes allow one winner. Stale versions return `VERSION_CONFLICT`; a saved operation ID reused with changed payload returns `OPERATION_CONFLICT`. Exact retries return historical results even after later changes/restart. Preserve the exact request after a lost response and refresh before another action.
+PUT requires `{ operationId, expectedVersion, policy }`, with exactly tasks/calendar/reminders/email fields; older saved rows without `reminders` read as approval-required. Migration 077 replaces the policy-shape constraint additively. Writes are optimistic, atomic, owner-scoped and receipt-backed. The first successful save advances version 1 to 2. Concurrent same-version distinct writes allow one winner. Stale versions return `VERSION_CONFLICT`; a saved operation ID reused with changed payload returns `OPERATION_CONFLICT`. Exact retries return historical results even after later changes/restart. Preserve the exact request after a lost response and refresh before another action.
 
 Migration 030 adds only `ai_action_policies`; existing planner records, source history, receipts and prior migrations are unchanged. SQL constraints enforce the shape and mandatory email approval. Portable export adds `records.aiActions`: nullable/default-null for older format-v1 files, current/default owner settings in new exports. No settings import or execution token is added.
 
@@ -19,6 +19,7 @@ POST `/api/v1/ai/actions/preview` takes `{ expectedPolicyVersion, action }`:
 | Kind | Connection | Additional field |
 | --- | --- | --- |
 | `task.create`, `task.update`, `task.delete`, `task.restore` | `hub` | None |
+| `reminder.create`, `reminder.update`, `reminder.cancel` | `hub` | None |
 | `calendar.create`, `calendar.update`, `calendar.delete`, `calendar.restore` | `hub`, `canvas`, `proton-calendar`, `outlook-calendar` | `outboundEmail`: none (default), invitation, attendee-update, cancellation |
 | `email.send` | `proton-mail`, `outlook-mail` | None |
 
