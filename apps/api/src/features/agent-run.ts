@@ -203,16 +203,17 @@ async function applyInTransaction(
           applyRequest(proposal, item.applyId),
           { turnId: turn.id, agentId: agentId ?? undefined },
         );
-        await recordCapabilityAudit(
-          database,
-          owner,
-          turn.id,
-          proposal,
-          'applied',
-          {
-            agentId,
-          },
-        );
+        if (proposal.kind !== 'capability')
+          await recordCapabilityAudit(
+            database,
+            owner,
+            turn.id,
+            proposal,
+            'applied',
+            {
+              agentId,
+            },
+          );
         counts.applied++;
         items.push({ ...item, state: 'applied', applied, error: null });
       } catch (error) {

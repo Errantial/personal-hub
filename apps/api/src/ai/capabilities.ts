@@ -130,6 +130,11 @@ export async function executeCapability(
     throw new ApiError(400, 'CAPABILITY_UNKNOWN', 'Unknown agent capability.');
   const args = definition.schema.parse(raw) as Record<string, unknown>;
   const summary = definition.summary(args);
+  const [existing] = await database.query(
+    'SELECT id FROM ai_capability_audit WHERE owner_id=$1 AND operation_id=$2 AND tool=$3 LIMIT 1',
+    [owner, operationId, capability],
+  );
+  if (existing) return { id: String(existing.id), version: 1 };
   const auditId = await database.transaction(async (tx) => {
     let before: unknown = null;
     let after: unknown = null;

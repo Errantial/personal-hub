@@ -2,6 +2,10 @@
 ALTER TABLE ai_capability_audit
   DROP CONSTRAINT IF EXISTS ai_capability_audit_capability_check;
 ALTER TABLE ai_capability_audit
+  DROP CONSTRAINT IF EXISTS ai_capability_audit_action_check;
+ALTER TABLE ai_capability_audit
+  ADD CONSTRAINT ai_capability_audit_action_check CHECK (action IN ('create','update','cancel','delete','restore','send'));
+ALTER TABLE ai_capability_audit
   ADD CONSTRAINT ai_capability_audit_capability_check CHECK (capability IN ('task','calendar','reminder','email','general'));
 ALTER TABLE ai_capability_audit
   ADD COLUMN operation_id uuid,
@@ -10,6 +14,9 @@ ALTER TABLE ai_capability_audit
   ADD COLUMN after jsonb,
   ADD COLUMN undoable boolean NOT NULL DEFAULT false,
   ADD COLUMN undone_at timestamptz;
+CREATE UNIQUE INDEX ai_capability_audit_operation
+  ON ai_capability_audit(owner_id, operation_id, tool)
+  WHERE operation_id IS NOT NULL AND tool IS NOT NULL;
 CREATE INDEX ai_capability_audit_undo
   ON ai_capability_audit(owner_id, created_at DESC)
   WHERE undoable AND undone_at IS NULL;
