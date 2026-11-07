@@ -63,3 +63,17 @@ Still missing from the full matrix: classes/topics, academic-work CRUD/batch/res
 ## Auto-approve toggle (added 2026-11-07)
 
 Settings > AI > Actions has an owner-only **Auto-approve agent changes** switch, default OFF. When ON, Tier 1 and Tier 2 proposals that would normally wait for approval are applied automatically for both direct owner asks and scheduled agents. Tier 3 actions still prompt; the agent has no capability that can read or change this switch, and a setting change is itself audited with before/after policy state. Auto-applied actions carry `auto_approved=true` in `ai_capability_audit`, remain undoable through the proposal UI or the audit Undo button, and deletes remain soft deletes in Recently deleted. A separate Tier 3 opt-in is not built.
+
+## Recurrence requirement (2026-11-07, not implemented in PR #75)
+
+Emil added repeating reminders/tasks/events as part of this update. This is a separate, substantial slice:
+
+- Reuse the existing Calendar recurrence shape where possible, but extend it with weekday sets, `BYMONTHDAY`, `BYSETPOS` (e.g. 2nd Tuesday), until/count, an explicit IANA timezone and a canonical RRULE string. Do not invent a second recurrence dialect.
+- Add additive columns/tables for reminder/task recurrence, occurrence identity, skipped/completed occurrences and series edits. Existing rows remain non-repeating.
+- Add a deterministic expansion/next-occurrence service with DST and month-end tests; reminder/task completion must create exactly one next occurrence idempotently.
+- Add this-occurrence vs this-and-future edit/skip/delete, notification generation for each occurrence, multiple offsets, snooze presets and richer due/all-day controls.
+- Add a web/Android recurrence picker with human-readable summaries and list repeat icons.
+- Add Level 1 recurring create/edit and Level 2 series/delete agent tools, including before/after rule snapshots and auto-approve behavior.
+- Add tests for parsing, DST, month-end, idempotent completion, this-vs-future, agent recurrence and series-delete tier.
+
+This cannot be safely folded into PR #75 without a dedicated recurrence migration, worker/scheduler changes, UI picker and a new test matrix. It should be a separate PR/release, reviewed under the same gate. PR #75 remains unmerged and must not deploy until this decision is recorded.
