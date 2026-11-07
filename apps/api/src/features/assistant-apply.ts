@@ -18,6 +18,14 @@ import {
 } from './ai-planner-origin.js';
 import { retainDeadlinePlannerSource } from './deadline-planner-origin.js';
 import { plannedWrite } from './planner-write.js';
+import { taskColumns } from '../planner/routes.js';
+import { eventColumns } from './common.js';
+import { reminderColumns } from './reminders.js';
+import {
+  calendarRecordSchema,
+  reminderSchema,
+  taskSchema,
+} from '@hub/contracts';
 import { transactionDatabase } from '../planner/nested-database.js';
 import { recordCapabilityAudit } from './capability-audit.js';
 
@@ -74,11 +82,39 @@ export async function applySavedProposal(
       applyRequest(proposal, item.applyId),
       { turnId, agentId: agentId ?? undefined, autoApproved },
     );
-    if (proposal.kind !== 'capability')
+    if (proposal.kind !== 'capability') {
+      const before = 'target' in proposal ? proposal.target : null;
+      let after: unknown = null;
+      try {
+        if (proposal.kind.startsWith('task.')) {
+          const [row] = await inner.query(
+            `SELECT ${taskColumns} FROM tasks WHERE owner_id=$1 AND id=$2`,
+            [owner, applied.id],
+          );
+          after = row ? taskSchema.parse(row) : null;
+        } else if (proposal.kind.startsWith('event.')) {
+          const [row] = await inner.query(
+            `SELECT ${eventColumns} FROM events WHERE owner_id=$1 AND id=$2`,
+            [owner, applied.id],
+          );
+          after = row ? calendarRecordSchema.parse(row) : null;
+        } else {
+          const [row] = await inner.query(
+            `SELECT ${reminderColumns} FROM reminders WHERE owner_id=$1 AND id=$2`,
+            [owner, applied.id],
+          );
+          after = row ? reminderSchema.parse(row) : null;
+        }
+      } catch {
+        after = null;
+      }
       await recordCapabilityAudit(inner, owner, turnId, proposal, 'applied', {
         agentId,
         autoApproved,
+        before,
+        after,
       });
+    }
     if (proposal.kind.startsWith('task.') || proposal.kind.startsWith('event.'))
       await retainPlannerOrigin(
         inner,
