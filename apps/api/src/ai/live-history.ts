@@ -20,6 +20,7 @@ import {
   brokerLineageEligible,
   brokerDependencyCount,
 } from './broker-lineage.js';
+import { trackedDeadlineHistoryEligible } from './tracked-deadline-context.js';
 
 // Bound conversation history (docs/live-context-admission-design.md). Only
 // turns whose kept reply came from a verified exchange are resent, together
@@ -64,6 +65,9 @@ export async function historySourcesEligible(
       return false;
   if (refs.some((ref) => ref.labels.some((l) => !rules.allowed.includes(l))))
     return false;
+  for (const ref of refs.filter((item) => item.kind === 'tracked-deadline'))
+    if (!(await trackedDeadlineHistoryEligible(tx, owner, ref, rules.allowed)))
+      return false;
   const ids = (kind: LiveHistorySource['kind']) =>
     refs.filter((ref) => ref.kind === kind).map((ref) => ref.id);
   const mail = ids('mail-message');
@@ -165,6 +169,7 @@ export async function historySourcesEligible(
         });
   return refs.every((ref) => {
     if (ref.kind === 'mail-broker') return true;
+    if (ref.kind === 'tracked-deadline') return true;
     const now = current.get(`${ref.kind}:${ref.id}`);
     return (
       !!now &&

@@ -5,6 +5,8 @@ import { pathToFileURL } from 'node:url';
 import {
   brokerModel,
   brokerRubricRevision,
+  brokerBoundsRevision,
+  brokerThresholdRevision,
   brokerEnvelopeLimit,
   brokerOutputTokens,
   buildBrokerEnvelope,
@@ -54,10 +56,13 @@ export async function prepareEvaluation() {
     };
   });
   return {
+    adapter: 'openrouter',
     corpus: corpus.version,
     corpusSha256: hash(raw),
     model: brokerModel,
     rubric: brokerRubricRevision,
+    bounds: brokerBoundsRevision,
+    threshold: brokerThresholdRevision,
     quote,
     cases,
   };
@@ -106,10 +111,17 @@ export function decodeEvaluation(prepared, responses) {
       });
   }
   return {
+    adapter: prepared.adapter,
     corpus: prepared.corpus,
     corpusSha256: prepared.corpusSha256,
     model: prepared.model,
     rubric: prepared.rubric,
+    bounds: prepared.bounds,
+    threshold: prepared.threshold,
+    requests: prepared.cases.map(({ caseId, requestSha256 }) => ({
+      caseId,
+      requestSha256,
+    })),
     valid: predictions.length === prepared.cases.length,
     confirmedMicros,
     uncertainCases,

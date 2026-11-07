@@ -110,7 +110,12 @@ export function registerAuth(
   config: Config,
 ) {
   const auth = authService(database, config);
-  const limit = { rateLimit: { max: 10, timeWindow: '15 minutes' } };
+  const limit = {
+    rateLimit: {
+      max: config.NODE_ENV === 'test' ? 1000 : 10,
+      timeWindow: '15 minutes',
+    },
+  };
   app.get('/api/v1/auth/session', async (request, reply) => {
     reply.header('Cache-Control', 'no-store');
     const [owner] = await database.query(

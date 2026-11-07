@@ -8,6 +8,7 @@ import {
 } from '@hub/contracts';
 import type { AssistantTurn } from '@hub/contracts';
 import { answerTurn } from '../src/features/assistant.js';
+import type { QueryExecutor } from '../src/db/database.js';
 import {
   agentPrompt,
   agentSpend,
@@ -150,6 +151,97 @@ it('fails only the item whose target changed after the model read it', async () 
   expect(saved.items[1]).toMatchObject({ state: 'applied' });
   expect(outcomeOf(counts, saved)).toBe('applied');
 });
+
+it.each([
+  'task.create',
+  'task.update',
+  'event.create',
+  'event.update',
+] as const)(
+  'rolls back an automatic %s effect and receipt if final turn persistence fails',
+  async (kind) => {
+    h = await startHarness();
+    await setPolicy('automatic', 'automatic');
+    let eventUpdateStart: string | null = null;
+
+    if (kind === 'task.update') {
+      const created = await h.call('POST', '/api/v1/tasks', {
+        title: 'Existing task',
+        priority: 'normal',
+        operationId: randomUUID(),
+      });
+      expect(created.statusCode).toBe(200);
+    }
+    if (kind === 'event.update') {
+      const starts = Temporal.Now.instant().add({ hours: 48 }).round('minute');
+      eventUpdateStart = starts
+        .add({ hours: 2 })
+        .toZonedDateTimeISO('UTC')
+        .toPlainDateTime()
+        .toString({ smallestUnit: 'minute' });
+      const created = await h.call('POST', '/api/v1/calendar', {
+        title: 'Existing event',
+        startsAt: starts.toString(),
+        endsAt: starts.add({ hours: 1 }).toString(),
+        timeZone: 'UTC',
+        operationId: randomUUID(),
+      });
+      expect(created.statusCode).toBe(200);
+    }
+
+    const beforeTasks = (await h.call('GET', '/api/v1/tasks')).json().tasks;
+    const beforeEvents = (await h.call('GET', '/api/v1/calendar')).json()
+      .events;
+    h.state.chat = () =>
+      answer('Change one planner item.', [
+        kind === 'task.create'
+          ? action({ type: kind, title: 'Created task' })
+          : kind === 'task.update'
+            ? action({ type: kind, ref: 't1', priority: 'high' })
+            : kind === 'event.create'
+              ? action({
+                  type: kind,
+                  title: 'Created event',
+                  start: '2036-03-09T11:00',
+                  end: '2036-03-09T12:00',
+                })
+              : action({ type: kind, ref: 'e1', start: eventUpdateStart }),
+      ]);
+    const turn = await agentTurn();
+    expect(turn.request.proposals).toHaveLength(1);
+    expect(turn.request.proposals[0]!.kind).toBe(kind);
+    const applyId = turn.items[0]!.applyId;
+
+    const transaction = h.database.transaction.bind(h.database);
+    vi.spyOn(h.database, 'transaction').mockImplementation((work) =>
+      transaction((tx) =>
+        work({
+          ...tx,
+          query: (async (sql: string, values?: unknown[]) => {
+            if (sql.startsWith('UPDATE ai_conversation_turns SET proposals='))
+              throw new Error('synthetic final turn persistence interruption');
+            return tx.query(sql, values);
+          }) as QueryExecutor['query'],
+        }),
+      ),
+    );
+
+    await expect(applyByPolicy(h.database, h.owner, turn)).rejects.toThrow(
+      'synthetic final turn persistence interruption',
+    );
+    expect((await h.call('GET', '/api/v1/tasks')).json().tasks).toEqual(
+      beforeTasks,
+    );
+    expect((await h.call('GET', '/api/v1/calendar')).json().events).toEqual(
+      beforeEvents,
+    );
+    const [receipt] = await h.database.query(
+      'SELECT count(*)::int AS count FROM mutation_receipts WHERE operation_id=$1',
+      [applyId],
+    );
+    expect(receipt!.count).toBe(0);
+  },
+);
 
 it('undoes an auto-applied item through the ordinary endpoints', async () => {
   h = await startHarness();

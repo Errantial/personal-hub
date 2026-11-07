@@ -4,6 +4,7 @@ import { calendarRecordSchema, dateOnly, instant, zone } from './features.js';
 import { runOutcomeSchema } from './responsibilities.js';
 import { mailBrokerReceiptSchema } from './mail-broker.js';
 import { studyRangeSchema } from './study.js';
+import { trackedDeadlineDueSchema } from './tracked-deadlines.js';
 
 /**
  * Natural-language planner assistant (live OpenRouter). The model only
@@ -158,6 +159,13 @@ export const assistantRequestInputSchema = z.strictObject({
 
 const title = z.string().trim().min(1).max(200);
 const priority = z.enum(['low', 'normal', 'high']);
+export const assistantDeadlineSourceSchema = z.strictObject({
+  id: z.string().uuid(),
+  expectedVersion: z.number().int().positive(),
+  title,
+  due: trackedDeadlineDueSchema,
+  priority,
+});
 export const assistantProposalSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('task.create'),
@@ -170,6 +178,8 @@ export const assistantProposalSchema = z.discriminatedUnion('kind', [
         title: z.string().max(200),
       })
       .optional(),
+    /** Server-resolved tracked deadline source; absent on ordinary tasks. */
+    deadlineSource: assistantDeadlineSourceSchema.optional(),
     task: z.object({
       title,
       notes: z.string().max(2000),
@@ -190,6 +200,8 @@ export const assistantProposalSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     kind: z.literal('event.create'),
+    /** Server-resolved tracked deadline source; absent on ordinary events. */
+    deadlineSource: assistantDeadlineSourceSchema.optional(),
     event: z.object({
       title,
       startsAt: instant,

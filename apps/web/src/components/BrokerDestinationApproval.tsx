@@ -1,14 +1,20 @@
+import { useEffect, useState } from 'react';
 import {
   aiProviderRegistrySchema,
   aiProviderReadinessResponseSchema,
   aiProviderConsentSchema,
+  mailBrokerSettingsResponseSchema,
 } from '@hub/contracts';
+import type { MailBrokerAlias } from '@hub/contracts';
 import { getSnapshot } from '../lib/api';
 import { useMutation, useOnline, useResource } from '../lib/hooks';
 import { Help } from './Help';
 import { ReadState } from './ReadState';
 
-/** Separate consent for mail selection; never reuses the receiving model's approval. */
+const classifierName = (alias: MailBrokerAlias) =>
+  alias === 'mail-broker' ? 'OpenRouter / Gemini' : 'Jev / TypeSafe';
+
+/** Separate classifier selection and provider consent; neither changes mail grants. */
 export function BrokerDestinationApproval({
   onSaved,
 }: {
@@ -29,33 +35,92 @@ export function BrokerDestinationApproval({
       ),
     { failure: 'Broker approval unavailable. Reload.' },
   );
-  const save = useMutation();
-  const profile = registry.data?.data.profiles.find(
-    (p) => p.alias === 'mail-broker',
+  const settings = useResource(
+    (signal) =>
+      getSnapshot(
+        '/api/v1/mail-broker/settings',
+        mailBrokerSettingsResponseSchema,
+        signal,
+      ),
+    { failure: 'Mail classifier unavailable. Reload.' },
   );
+  const selectionSave = useMutation();
+  const approvalSave = useMutation();
+  const savedSettings = settings.data?.data.settings;
+  const selectedAlias = savedSettings?.selectedAlias ?? 'mail-broker';
+  const [draftAlias, setDraftAlias] = useState<MailBrokerAlias>(selectedAlias);
+
+  useEffect(() => {
+    if (savedSettings) setDraftAlias(savedSettings.selectedAlias);
+  }, [savedSettings?.version, savedSettings?.selectedAlias]);
+
+  const profiles = registry.data?.data.profiles ?? [];
+  const profile = profiles.find((item) => item.alias === selectedAlias);
   const current = consents.data?.data.profiles.find(
-    (p) => p.alias === 'mail-broker',
+    (item) => item.alias === selectedAlias,
   );
-  const fresh =
+  const selectedDraftProfile = profiles.find(
+    (item) => item.alias === draftAlias,
+  );
+  const settingsFresh =
     online &&
+    !settings.loading &&
     !registry.loading &&
-    !consents.loading &&
+    !settings.error &&
     !registry.error &&
+    settings.data?.cachedAt === null &&
+    registry.data?.cachedAt === null;
+  const approvalFresh =
+    settingsFresh &&
+    draftAlias === selectedAlias &&
+    !consents.loading &&
     !consents.error &&
-    registry.data?.cachedAt === null &&
     consents.data?.cachedAt === null &&
-    registry.data.data.revision === consents.data.data.registryRevision;
+    registry.data?.data.revision === consents.data?.data.registryRevision;
   const approved = !!current?.consentCurrent;
+
   async function reload() {
-    save.reset();
-    await Promise.all([registry.reload(), consents.reload()]);
+    selectionSave.reset();
+    approvalSave.reset();
+    await Promise.all([
+      registry.reload(),
+      consents.reload(),
+      settings.reload(),
+    ]);
   }
+
+  async function saveClassifier() {
+    if (
+      !settingsFresh ||
+      !savedSettings ||
+      !selectedDraftProfile ||
+      draftAlias === selectedAlias ||
+      selectionSave.pending
+    )
+      return;
+    const result = await selectionSave.run(
+      mailBrokerSettingsResponseSchema,
+      'PUT',
+      '/api/v1/mail-broker/settings',
+      {
+        expectedVersion: savedSettings.version,
+        selectedAlias: draftAlias,
+      },
+      'Could not save the mail classifier. Reload and try again.',
+    );
+    if (result) {
+      setDraftAlias(result.settings.selectedAlias);
+      await reload();
+      onSaved();
+    }
+  }
+
   async function setApproval(value: boolean) {
-    if (!fresh || !profile || !current || save.pending) return;
-    const result = await save.run(
+    if (!approvalFresh || !profile || !current || approvalSave.pending) return;
+    const result = await approvalSave.run(
       aiProviderConsentSchema,
       'PUT',
-      '/api/v1/ai/provider-consents/mail-broker',
+      `/api/v1/ai/provider-consents/${selectedAlias}`,
       {
         approved: value,
         expectedVersion: current.consent.version,
@@ -68,8 +133,70 @@ export function BrokerDestinationApproval({
       onSaved();
     }
   }
+
   return (
     <section aria-label="Broker destination approval">
+      <h3>Mail classifier</h3>
+      <ReadState
+        resource={settings}
+        label="mail classifier"
+        showReload={false}
+      />
+      <label>
+        Classifier
+        <select
+          aria-label="Mail classifier"
+          value={draftAlias}
+          disabled={!settingsFresh || selectionSave.pending}
+          onChange={(event) =>
+            setDraftAlias(event.target.value as MailBrokerAlias)
+          }
+        >
+          <option
+            value="mail-broker"
+            disabled={!profiles.some((p) => p.alias === 'mail-broker')}
+          >
+            OpenRouter / Gemini (default)
+          </option>
+          <option
+            value="jev-mail"
+            disabled={!profiles.some((p) => p.alias === 'jev-mail')}
+          >
+            Jev / TypeSafe
+          </option>
+        </select>
+      </label>
+      <p role="status">
+        Selected: {classifierName(selectedAlias)} · version{' '}
+        {savedSettings?.version ?? 1}
+      </p>
+      <Help label="Mail classifier">
+        This chooses which approved classifier handles future brokered-mail
+        retrievals. Saving it does not approve a provider, change mail grants or
+        change the receiving Assistant. There is no fallback between
+        classifiers. Unfinished searches become stale after a switch; completed
+        history keeps the classifier that originally judged it.
+      </Help>
+      <div className="actions">
+        <button
+          type="button"
+          disabled={
+            !settingsFresh ||
+            selectionSave.pending ||
+            !savedSettings ||
+            !selectedDraftProfile ||
+            draftAlias === selectedAlias
+          }
+          onClick={() => void saveClassifier()}
+        >
+          Save classifier
+        </button>
+      </div>
+      {selectionSave.error && <p role="alert">{selectionSave.error}</p>}
+      {selectionSave.conflict && (
+        <p role="alert">Mail classifier changed. Reload before saving.</p>
+      )}
+
       <h3>Broker destination</h3>
       <ReadState
         resource={registry}
@@ -81,6 +208,12 @@ export function BrokerDestinationApproval({
         label="broker approval"
         showReload={false}
       />
+      {!registry.loading && !registry.error && !profile && (
+        <p role="alert">
+          The selected classifier is not configured. Choose an available
+          classifier above.
+        </p>
+      )}
       {profile && current && (
         <>
           <p role="status">
@@ -94,7 +227,11 @@ export function BrokerDestinationApproval({
             <dt>Model</dt>
             <dd>{profile.model}</dd>
             <dt>Route</dt>
-            <dd>OpenRouter · {profile.upstreamProvider}</dd>
+            <dd>
+              {profile.adapter === 'openrouter'
+                ? `OpenRouter · ${profile.upstreamProvider}`
+                : 'TypeSafe · direct'}
+            </dd>
             <dt>Retention terms</dt>
             <dd>{profile.retentionDisclosure?.summary ?? 'Not configured'}</dd>
             <dt>Input / output per million tokens</dt>
@@ -105,17 +242,17 @@ export function BrokerDestinationApproval({
             </dd>
           </dl>
           <Help label="Broker approval">
-            This approves the displayed destination to judge eligible imported
+            This approves the displayed classifier to judge eligible imported
             mail. The receiving Assistant needs its own approval. Source grants,
-            labels, spending limits and endpoint checks still apply. Changed
-            server profiles require approval again.
+            labels and spending limits still apply. Changed server profiles
+            require approval again.
           </Help>
           <div className="actions">
             <button
               type="button"
               disabled={
-                !fresh ||
-                save.pending ||
+                !approvalFresh ||
+                approvalSave.pending ||
                 approved ||
                 profile.configuration !== 'configured' ||
                 !profile.retentionDisclosure ||
@@ -127,7 +264,11 @@ export function BrokerDestinationApproval({
             </button>
             <button
               type="button"
-              disabled={!fresh || save.pending || !current.consent.approved}
+              disabled={
+                !approvalFresh ||
+                approvalSave.pending ||
+                !current.consent.approved
+              }
               onClick={() => void setApproval(false)}
             >
               Revoke broker
@@ -138,14 +279,19 @@ export function BrokerDestinationApproval({
       {!online && (
         <p role="status">Offline · broker approval cannot be changed.</p>
       )}
-      {save.error && <p role="alert">{save.error}</p>}
-      {(save.conflict || save.code === 'REGISTRY_CONFLICT') && (
+      {approvalSave.error && <p role="alert">{approvalSave.error}</p>}
+      {(approvalSave.conflict || approvalSave.code === 'REGISTRY_CONFLICT') && (
         <p role="alert">Broker approval changed. Reload before saving.</p>
       )}
       <button
         type="button"
         disabled={
-          !online || save.pending || registry.loading || consents.loading
+          !online ||
+          selectionSave.pending ||
+          approvalSave.pending ||
+          registry.loading ||
+          consents.loading ||
+          settings.loading
         }
         onClick={() => void reload()}
       >

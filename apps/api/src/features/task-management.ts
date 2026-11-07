@@ -37,9 +37,10 @@ export function registerTaskManagement(
               id: string;
               version: number;
               dueDate: string | null;
+              dueAt: string | null;
               completed: boolean;
             }>(
-              `SELECT id,version,completed,to_char(due_date,'YYYY-MM-DD') AS "dueDate" FROM tasks WHERE ${selected} AND id=$5`,
+              `SELECT id,version,completed,to_char(due_date,'YYYY-MM-DD') AS "dueDate",to_char(due_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "dueAt" FROM tasks WHERE ${selected} AND id=$5`,
               [...values, input.after],
             )
           )[0]
@@ -58,14 +59,15 @@ export function registerTaskManagement(
       );
       const rows = await tx.query(
         `SELECT ${taskColumns} FROM tasks WHERE ${selected}
-          ${anchor ? "AND (completed,COALESCE(due_date,'infinity'::date),id)>($6::boolean,COALESCE($7::date,'infinity'::date),$8::uuid)" : ''}
-          ORDER BY completed ASC,due_date ASC NULLS LAST,id ASC LIMIT $5`,
+          ${anchor ? "AND (completed,COALESCE(due_date,'infinity'::date),COALESCE(due_at,'infinity'::timestamptz),id)>($6::boolean,COALESCE($7::date,'infinity'::date),COALESCE($8::timestamptz,'infinity'::timestamptz),$9::uuid)" : ''}
+          ORDER BY completed ASC,due_date ASC NULLS LAST,due_at ASC NULLS LAST,id ASC LIMIT $5`,
         anchor
           ? [
               ...values,
               input.limit + 1,
               anchor.completed,
               anchor.dueDate,
+              anchor.dueAt,
               anchor.id,
             ]
           : [...values, input.limit + 1],
@@ -118,6 +120,8 @@ export function registerTaskManagement(
             : await tx.query(
                 `UPDATE tasks SET completed=COALESCE($3::boolean,completed),priority=COALESCE($4::text,priority),
               due_date=CASE WHEN $5::boolean THEN $6::date ELSE due_date END,
+              due_at=CASE WHEN $7::boolean THEN $8::timestamptz WHEN $5::boolean AND $6::date IS DISTINCT FROM due_date THEN NULL ELSE due_at END,
+              due_time_zone=CASE WHEN $7::boolean THEN $9::text WHEN $5::boolean AND $6::date IS DISTINCT FROM due_date THEN NULL ELSE due_time_zone END,
               updated_at=CURRENT_TIMESTAMP,version=version+1 WHERE owner_id=$1 AND id=ANY($2::uuid[]) RETURNING ${taskColumns}`,
                 [
                   user.id,
@@ -126,6 +130,9 @@ export function registerTaskManagement(
                   input.action.changes.priority ?? null,
                   input.action.changes.dueDate !== undefined,
                   input.action.changes.dueDate ?? null,
+                  input.action.changes.dueAt !== undefined,
+                  input.action.changes.dueAt ?? null,
+                  input.action.changes.dueTimeZone ?? null,
                 ],
               );
         const byId = new Map(rows.map((row) => [row.id, row]));

@@ -57,6 +57,7 @@ export function countByFilter(
 
 const byDeadline = (a: Task, b: Task) =>
   (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999') ||
+  (a.dueAt ?? '9999').localeCompare(b.dueAt ?? '9999') ||
   a.title.localeCompare(b.title) ||
   a.id.localeCompare(b.id);
 

@@ -180,6 +180,12 @@ export async function saveEvent(
     );
   }
   const input = calendarWriteSchema.parse(body);
+  if (method === 'PUT' && input.clientId)
+    throw new ApiError(
+      400,
+      'INVALID_INPUT',
+      'clientId is only supported when creating an event.',
+    );
   const id =
     method === 'PUT'
       ? z.string().uuid().parse(target)
@@ -200,6 +206,18 @@ export async function saveEvent(
         method === 'POST'
           ? await captureCanvasSource(tx, owner, input.canvasSourceRef)
           : null;
+      if (method === 'POST' && input.clientId) {
+        const [existing] = await tx.query(
+          'SELECT id FROM events WHERE owner_id=$1 AND id=$2',
+          [owner, id],
+        );
+        if (existing)
+          throw new ApiError(
+            409,
+            'OPERATION_CONFLICT',
+            'This event ID is already in use.',
+          );
+      }
       if (source && (!input.courseId || input.allDay || input.recurrence))
         throw new ApiError(
           400,

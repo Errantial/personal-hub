@@ -116,6 +116,10 @@ it('projects point deadlines and intervals in the viewing timezone with exclusiv
     ).statusCode,
   ).toBe(400);
   await db.query('DELETE FROM canvas_sync_jobs WHERE owner_id=$1', [owner]);
+  await db.query('DELETE FROM tracked_deadline_sources WHERE owner_id=$1', [
+    owner,
+  ]);
+  await db.query('DELETE FROM tracked_deadlines WHERE owner_id=$1', [owner]);
   await db.query('DELETE FROM canvas_items WHERE owner_id=$1', [owner]);
 });
 beforeAll(async () => {
@@ -341,6 +345,10 @@ it('links owned classes without overwriting notes, preserves links on refresh, a
   ).toBe(404);
   // Reset only this synthetic fixture before the pre-existing snapshot assertions.
   await db.query('DELETE FROM canvas_sync_jobs WHERE owner_id=$1', [owner]);
+  await db.query('DELETE FROM tracked_deadline_sources WHERE owner_id=$1', [
+    owner,
+  ]);
+  await db.query('DELETE FROM tracked_deadlines WHERE owner_id=$1', [owner]);
   await db.query('DELETE FROM canvas_items WHERE owner_id=$1', [owner]);
 });
 
@@ -373,6 +381,10 @@ it('schedules automatic refreshes only when enabled and retains upload provenanc
   expect((await read()).items[0]!.inputKind).toBe('calendar-feed');
   // Leave the independent snapshot cases below with a clean synthetic source.
   await db.query('DELETE FROM canvas_sync_jobs WHERE owner_id=$1', [owner]);
+  await db.query('DELETE FROM tracked_deadline_sources WHERE owner_id=$1', [
+    owner,
+  ]);
+  await db.query('DELETE FROM tracked_deadlines WHERE owner_id=$1', [owner]);
   await db.query('DELETE FROM canvas_items WHERE owner_id=$1', [owner]);
   await db.query('UPDATE canvas_sources SET enabled=false WHERE owner_id=$1', [
     owner,

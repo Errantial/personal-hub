@@ -12,13 +12,22 @@ import { ApiError } from '../errors.js';
 import { brokerPolicy, requireBrokerReady } from './broker-policy.js';
 import { maxLiveSources } from './live-manifest.js';
 import { lockBudget } from './budget.js';
-import {
-  fitBrokerCandidates,
-  brokerBoundsRevision,
-  brokerRubricRevision,
-  brokerThresholdRevision,
-} from './broker-protocol.js';
 import { agentSpend } from './agent-spend.js';
+import type { MailBrokerAlias } from './broker-settings.js';
+
+export type BrokerIdentity = {
+  alias: MailBrokerAlias;
+  adapter: 'openrouter' | 'typesafe';
+  selectorVersion: number;
+  profileRevision: string;
+  consentVersion: number;
+  credentialRevision: string | null;
+  verificationRevision: string;
+  verificationDigest: string;
+  rubricRevision: string;
+  boundsRevision: string;
+  thresholdRevision: string;
+};
 
 const canonical = (value: unknown): unknown =>
   Array.isArray(value)
@@ -237,6 +246,7 @@ type Retrieval = {
     windowEnd?: { receivedAt: string; id: string };
     snapshotAt?: string;
     verificationDigest?: string;
+    broker?: BrokerIdentity;
   };
   cursor_token: string;
   position: number;
@@ -264,6 +274,30 @@ export const brokerReceipt = (r: Retrieval) =>
     status: r.status,
     coverage: r.coverage,
   });
+
+export function brokerIdentity(
+  policy: Awaited<ReturnType<typeof brokerPolicy>>,
+): BrokerIdentity {
+  if (!policy.profile || !policy.verification)
+    throw new ApiError(
+      409,
+      'MAIL_BROKER_BLOCKED',
+      'Broker identity unavailable.',
+    );
+  return {
+    alias: policy.alias,
+    adapter: policy.adapter.kind,
+    selectorVersion: policy.selector.version,
+    profileRevision: policy.profile.policyRevision,
+    consentVersion: policy.consent.version,
+    credentialRevision: policy.credentialRevision,
+    verificationRevision: policy.verification.revision,
+    verificationDigest: brokerDigest(policy.verification),
+    rubricRevision: policy.adapter.rubricRevision,
+    boundsRevision: policy.adapter.boundsRevision,
+    thresholdRevision: policy.adapter.thresholdRevision,
+  };
+}
 
 /** INTERNAL: context/labels/lease/headroom must come from the server, never a model or HTTP input. No dispatch. */
 export async function beginBrokerRetrieval(
@@ -316,6 +350,7 @@ export async function beginBrokerRetrieval(
     }
     const policy = await brokerPolicy(tx, config, owner);
     requireBrokerReady(policy);
+    const identity = brokerIdentity(policy);
     if (context.requestLabels.some((label) => !policy.allowed.includes(label)))
       throw new ApiError(
         409,
@@ -339,7 +374,10 @@ export async function beginBrokerRetrieval(
         prior.grant_version !== grant.version ||
         prior.agent_id !== (context.agent?.id ?? null) ||
         Number(prior.position) < (prior.snapshot as unknown[]).length ||
-        !(prior.limits as Retrieval['limits']).windowHasMore
+        !(prior.limits as Retrieval['limits']).windowHasMore ||
+        !(prior.limits as Retrieval['limits']).broker ||
+        brokerDigest((prior.limits as Retrieval['limits']).broker) !==
+          brokerDigest(identity)
       )
         throw new ApiError(
           409,
@@ -470,6 +508,7 @@ export async function beginBrokerRetrieval(
           windowHasMore: hasMore,
           snapshotAt,
           verificationDigest: brokerDigest(policy.verification),
+          broker: identity,
           windowEnd: (() => {
             const end =
               eligible.length > snapshot.length
@@ -504,9 +543,17 @@ export async function guardBrokerRetrieval(
     throw new ApiError(409, 'MAIL_GRANT_CHANGED', 'Mail grant changed.');
   await checkBrokerContext(tx, owner, retrieval.context);
   await validateBrokerScope(tx, owner, grant.scope);
+  if (!retrieval.limits.broker)
+    throw new ApiError(
+      409,
+      'MAIL_BROKER_LEGACY_RECEIPT',
+      'This historical mail receipt cannot authorize a new broker handoff.',
+    );
   const policy = await brokerPolicy(tx, config, owner);
   requireBrokerReady(policy);
+  const currentIdentity = brokerIdentity(policy);
   if (
+    brokerDigest(currentIdentity) !== brokerDigest(retrieval.limits.broker) ||
     brokerDigest(policy.downstream) !==
       brokerDigest(retrieval.limits.downstream) ||
     policy.settingsVersion !== retrieval.limits.settingsVersion ||
@@ -569,11 +616,10 @@ export async function prepareBrokerPage(
         'MAIL_SOURCE_CHANGED',
         'Mail changed since selection began.',
       );
-    const candidates = fitBrokerCandidates(
-      policy.profile!.model,
+    const candidates = policy.adapter.fitCandidates(
+      policy.profile!,
       intent,
       page,
-      policy.profile!.maxInputCharacters,
     );
     if (!candidates.length)
       throw new ApiError(
@@ -604,9 +650,9 @@ export async function prepareBrokerPage(
         retrieval.position,
         retrieval.position + candidates.length,
         JSON.stringify(candidates.map(candidateBinding)),
-        brokerBoundsRevision,
-        brokerRubricRevision,
-        brokerThresholdRevision,
+        policy.adapter.boundsRevision,
+        policy.adapter.rubricRevision,
+        policy.adapter.thresholdRevision,
       ],
     );
     return {

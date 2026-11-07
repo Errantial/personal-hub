@@ -118,14 +118,14 @@ export function SyncIndicator({ state }: { state: TaskSync }) {
   );
 }
 
-/** Task sync details, in the page flow so they never cover content. */
+/** Offline sync details, in the page flow so they never cover content. */
 export function SyncDetails({ state }: { state: TaskSync }) {
   const { online, status, error, busy, sync, summary } = state;
   return (
     <section
       id={detailsId}
       className="sync__details"
-      aria-label="Task sync"
+      aria-label="Offline sync"
       hidden={!state.detailsOpen}
       onKeyDown={(event) => {
         if (event.key !== 'Escape' || event.defaultPrevented) return;

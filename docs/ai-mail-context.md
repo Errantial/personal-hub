@@ -1,6 +1,6 @@
 # Verified mail context
 
-Implemented 2026-10-13 as the prerequisite for email classification through the provider-routing gateway. This adds source resolution, bounded text assembly and integrity binding; it does not enable classification, paid dispatch, background processing or provider-side mail changes.
+Implemented 2026-10-13 as the original prerequisite for email classification through the provider-routing gateway. This slice added source resolution, bounded text assembly and integrity binding; by itself it did not enable classification, paid dispatch, background processing or provider-side mail changes. Later Assistant/mail-broker slices added separately gated live mail use without changing these provenance rules.
 
 ## Source contract
 
@@ -20,6 +20,6 @@ Owned source resolution and assembly share a repeatable snapshot. Existing reque
 
 ## Boundaries and next work
 
-The existing context preview is transient, `no-store`, owner-authorized and dispatch-disabled. Ordinary paid planner-assistant requests do not use or retrieve Mail. Routine tests use synthetic messages/databases and prohibit network calls.
+The general gateway context preview remains transient, `no-store`, owner-authorized and dispatch-disabled. The live Assistant has a separate, explicitly gated mail path, now brokered under the recorded grant/routing/accounting controls; this historical gateway slice should not be read as disabling that later path. Routine tests use synthetic messages/databases and prohibit network calls.
 
-Classification categories, owner corrections, explicit rules, grounded deadline proposals, mail selection controls and actual approved-provider execution remain pending. No automatic mail selection, mailbox writes, email sends, attachment processing, background agent or permission bypass is introduced.
+Classification categories, owner corrections, explicit rules, selected-message suggestions, live Assistant mail controls and approved-provider execution were delivered in later slices. The current remaining mail gates are source completeness/freshness, owner usefulness and any provider-side writes/sends. Attachments and attachment-derived text remain excluded; there is no implicit permission bypass, and email sends still require their own explicit approval path.

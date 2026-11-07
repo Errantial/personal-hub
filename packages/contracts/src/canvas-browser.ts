@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { sensitivitySchema } from './core.js';
+import { canvasDeadlineIdentity } from './canvas-identity.js';
 
 export const canvasBrowserHealthStatusSchema = z.enum([
   'never-synced',
@@ -34,8 +35,6 @@ export const canvasBrowserAttemptOutcomeSchema = z.enum([
 
 const providerId = z.string().regex(/^[1-9]\d{0,19}$/);
 const courseUrl = /^https:\/\/canvas\.colorado\.edu\/courses\/[1-9]\d*$/;
-const itemUrl =
-  /^https:\/\/canvas\.colorado\.edu\/courses\/([1-9]\d*)\/(assignments|quizzes)\/([1-9]\d*)$/;
 
 const courseDataShape = {
   providerId,
@@ -57,17 +56,25 @@ export const canvasBrowserCourseDataSchema = z
 const itemDataShape = {
   resourceKind: canvasBrowserResourceKindSchema,
   providerId,
-  canonicalUrl: z.string().url().regex(itemUrl, 'Unsafe Canvas item URL.'),
+  canonicalUrl: z
+    .string()
+    .url()
+    .refine(
+      (value) => canvasDeadlineIdentity(value) !== null,
+      'Unsafe Canvas item URL.',
+    ),
   title: z.string().min(1).max(200),
   dueAt: z.string().datetime().nullable(),
 };
 export const canvasBrowserItemDataSchema = z
   .object(itemDataShape)
   .superRefine((value, ctx) => {
-    const match = itemUrl.exec(value.canonicalUrl);
-    const expected =
-      value.resourceKind === 'assignment' ? 'assignments' : 'quizzes';
-    if (!match || match[2] !== expected || match[3] !== value.providerId)
+    const identity = canvasDeadlineIdentity(value.canonicalUrl);
+    if (
+      !identity ||
+      identity.resourceKind !== value.resourceKind ||
+      identity.providerId !== value.providerId
+    )
       ctx.addIssue({
         code: 'custom',
         path: ['canonicalUrl'],

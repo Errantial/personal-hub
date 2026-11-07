@@ -17,6 +17,7 @@ import { stamp, strongest, version } from '../features/common.js';
 import { ApiError } from '../errors.js';
 import { readCanvasItems } from './canvas.js';
 import { readCanvasLms } from './canvas-lms.js';
+import { refreshTrackedDeadlineLabelFloor } from './canvas-deadlines.js';
 export const reconciliationColumns = `id,item_id AS "itemId",assignment_id AS "assignmentId",version,${stamp('created_at', 'createdAt')},${stamp('updated_at', 'updatedAt')},${stamp('deleted_at', 'deletedAt')}`;
 export const browserReconciliationColumns = `id,browser_item_id AS "browserItemId",item_id AS "itemId",version,${stamp('created_at', 'createdAt')},${stamp('updated_at', 'updatedAt')},${stamp('deleted_at', 'deletedAt')}`;
 export async function readReconciliations(
@@ -147,6 +148,7 @@ export function registerCanvasReconciliation(
             'VERSION_CONFLICT',
             'Reload reconciliation records.',
           );
+        await refreshTrackedDeadlineLabelFloor(tx, user.id);
         if (input.assignmentId) {
           const [assignment] = await tx.query(
             'SELECT * FROM canvas_lms_assignments WHERE owner_id=$1 AND id=$2 FOR UPDATE',
@@ -224,6 +226,7 @@ export function registerCanvasReconciliation(
           'UPDATE canvas_lms_assignments SET version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=ANY($2::uuid[])',
           [user.id, affected],
         );
+        await refreshTrackedDeadlineLabelFloor(tx, user.id);
         return canvasReconciliationResponseSchema.parse({ link });
       },
     );
@@ -274,6 +277,7 @@ export function registerCanvasReconciliation(
             'VERSION_CONFLICT',
             'Reload browser reconciliation records.',
           );
+        await refreshTrackedDeadlineLabelFloor(tx, user.id);
         if (input.itemId) {
           const [item] = await tx.query(
             'SELECT * FROM canvas_items WHERE owner_id=$1 AND id=$2 FOR UPDATE',
@@ -342,6 +346,7 @@ export function registerCanvasReconciliation(
           'UPDATE canvas_items SET version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=ANY($2::uuid[])',
           [user.id, [...new Set(affected)]],
         );
+        await refreshTrackedDeadlineLabelFloor(tx, user.id);
         return canvasBrowserReconciliationResponseSchema.parse({ link });
       },
     );

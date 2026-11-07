@@ -1,5 +1,15 @@
 # UI agent ledger
 
+## Imported Canvas deadlines (Release C development, 2026-10-19)
+
+Tasks now has a separate **Imported deadlines** section backed by the owned tracked-deadline API. Open and completed imported deadlines remain distinct from ordinary owner-created tasks. Opening one uses `/tasks/deadline/:id`; the editor can keep the Canvas title/due value or save Personal Hub overrides for title, due date/time, priority, notes and sensitivity. Completion/reopen and every edit are local Personal Hub state: they do not submit, reopen, reschedule or otherwise change work in Canvas.
+
+The editor shows the primary Canvas due value, every retained source value/version/availability and explicit source-conflict state. A Personal Hub due override is preserved when imported source facts refresh until the owner deliberately chooses **Use Canvas value**. **Open in Canvas** is rendered only for a canonical `https://canvas.colorado.edu/courses/.../(assignments|quizzes)/...` identity returned by the tracked record. Imported-deadline writes are online-only and stay outside the task offline outbox; offline or stale-version states keep the draft and block saving until reconnect/reload.
+
+Today independently reads open tracked deadlines, prefers them over a raw Canvas calendar item with the same canonical identity, and links them to the same local editor. If the tracked-deadline read is unavailable, the independent Canvas source can still render rather than being silently treated as empty. Calendar tracked-deadline integration remains separate; this slice does not change Calendar layout.
+
+Browser acceptance uses only synthetic Canvas imports and the isolated test database. Coverage includes automatic materialization/discoverability, complete/reopen, local overrides and reload, source refresh/conflict review, explicit return to the Canvas due value, Today deep linking, offline-disabled writes, and Tasks/editor automated accessibility/overflow/target checks at standard width and 320 px e-ink. This is development UI evidence, not Canvas submission authority, live-provider completeness or Kompakt hardware acceptance.
+
 ## Grounded study suggestions (P8 part 2, development)
 
 See [contracts and limits](ai-study-suggestions.md). Owner answers can show one date range and admitted source titles with Review study plan. The existing Study plan view loads the owned saved turn afresh, fixes the suggested range, and passes its origin through preview/draft creation. No slot or approval comes from the model. Keep explicit preview, save, trimming/recheck, approval, cancellation, warnings and later-edit preservation. Pending/offline/stale-source errors remain visible; retry cannot silently rebase a source. Mail-derived suggestions are read-only and have no review link; agents gain no academic scope.
@@ -12,11 +22,17 @@ The opt-in synthetic runner has a separate experiment allowance and journal; it 
 
 Offline CLI artifacts do not change owner controls or readiness. A valid completion-decoding receipt means all synthetic outputs passed the production decoder, not that quality thresholds, provider availability, owner disclosure approval or live usefulness passed. Preserve the existing Mail access and answer contracts below; do not display this receipt as live readiness.
 
+## Optional Jev mail classifier (Release E work-ahead, 2026-10-19)
+
+Settings › AI › Mail access now has a versioned classifier selector. Missing persisted state is `OpenRouter / Gemini` version 1, preserving deployed behavior. `Jev / TypeSafe` is offered only when the server exposes that profile. Saving the selector is online-only and changes only the future classifier preference: it does not approve either provider, alter Permissions, modify owner/agent mail grants, change the receiving Assistant or provide fallback. Show the selected classifier and selector version. A stale save reports a version conflict and requires reload. After any switch, unfinished retrievals/continuations stay stale even if the owner later switches back; completed history continues to revalidate against its original classifier.
+
+The Broker destination approval panel follows the saved classifier and keeps each provider's consent independent. OpenRouter displays its pinned upstream; Jev displays its direct TypeSafe route and uses the server-configured API key. Readiness uses the selected adapter and preserves actionable blockers for profile/key availability, consent, routing, downstream authority, quote and budget state. There is no separate Jev account-evidence or credential-revision blocker. Offline selector and approval writes are disabled. Preserve keyboard/tap Help, 320px/e-ink layout, source grants, downstream approval, budgets, coverage and no-resend states.
+
 ## Small OpenRouter mail broker (development, 2026-10-16)
 
 See [implemented contracts and limits](openrouter-mail-broker.md). Mail access displays broker model/OpenRouter/host separately from the receiving Assistant. A dedicated Broker destination section exposes the safe profile, retention terms, input/output pricing, current/stale approval and versioned Approve/Revoke with registry guards. Existing Use mail and Jev approval never approve the replacement. Writes require fresh noncached profile/consent reads and connectivity; conflicts show one combined Reload that refreshes profile and consent, and offline controls remain disabled. Loading/error/cache indicators remain per read; suppress duplicate reload buttons in this form. Provider registry inspection remains read-only.
 
-Preserve grants, pending/error/conflict drafts, keyboard/tap Help, 320px/e-ink layout and existing coverage/continuations. Local configured readiness explicitly leaves endpoint availability unchecked; public ZDR/schema/host-price/context checks run before each paid batch. Blocked disclosure, stale/revoked approval, missing key/quote/route, budget limits and pending/partial/failed/uncertain outcomes stay visible. Actual model quality, deployment and hardware acceptance remain unverified. Historical J4 controls below describe the inherited behavior.
+Preserve grants, pending/error/conflict drafts, keyboard/tap Help, 320px/e-ink layout and existing coverage/continuations. Local configured readiness explicitly leaves endpoint availability unchecked; public ZDR/schema/host-price/context checks run before each paid batch. Blocked disclosure, stale/revoked approval, missing key/quote/route, budget limits and pending/partial/failed/uncertain outcomes stay visible. Synthetic model quality, production deployment and one bounded private-mail technical flow are now evidenced; external mailbox completeness, owner usefulness and hardware acceptance remain unverified. Historical J4 controls below describe the inherited behavior.
 
 ## J3 broker workflow contracts (development, 2026-10-15)
 
@@ -431,7 +447,7 @@ Verification: `npm run check` passed with 123 API/client tests and one optional 
 | App/navigation | `apps/web/src/App.tsx` | Owner authorization gates private views; preferences include e-ink mode. |
 | Appearance | `AppearanceSettings.tsx`, `lib/appearance.ts`, `styles/tokens.css` | Device-local theme, contrast-checked colors, named profiles, e-ink overrides. |
 | Authentication/account | `AuthGate.tsx`, `AccountSettings.tsx` | Enrollment, sign-in, password reauthentication, session rotation/revocation, planner export. |
-| Tasks/sync | `TasksView.tsx`, `DeletedItems.tsx`, `QuickCapture.tsx`, `SyncStatus.tsx`, `lib/tasks.ts`, `lib/offline.ts` | Durable task outbox, stable IDs, version conflicts, same-owner recovery. |
+| Offline sync | `TasksView.tsx`, `CalendarEditor.tsx`, `ClassForms.tsx`, `ReminderEditor.tsx`, `SyncStatus.tsx`, `lib/offline.ts` | Bounded multi-record outbox, stable create IDs, FIFO replay, version conflicts, dependency guards and same-owner recovery. |
 | Calendar | `CalendarView.tsx`, `CalendarEditor.tsx`, `DeletedItems.tsx`, `TimeZoneInput.tsx`, `lib/calendar.ts`, shared `occurrences.ts` | Timezones, date-only events, recurring series/occurrences, separate study blocks and imported deadlines. |
 | Classes | `ClassesView.tsx`, `ClassForms.tsx`, `lib/classes.ts`, `ClassCanvasEntries.tsx`, `ClassCanvasAssignments.tsx` | Manual class/topic assessments, explicit Canvas links, cached loaded portfolios. |
 | Inbox/Reminders | `InboxView.tsx`, `ReminderEditor.tsx`, `lib/reminders.ts` | Durable server inbox/worker state, snooze once, versioned reminder drafts, explicit optional browser permission. |
@@ -446,9 +462,9 @@ Component paths above are relative to `apps/web/src/components` unless qualified
 
 ## State and interaction requirements
 
-### Authentication and offline tasks
+### Authentication and offline changes
 
-Task edits can be queued offline; calendar, academic, connection, reminder, account, and AI settings writes are online-only. Previously loaded views can be cached; arbitrary ranges or unseen records are not guaranteed offline. Cached data must remain associated with the authenticated owner/server.
+The ordered IndexedDB outbox covers task mutations; ordinary whole Calendar event create/edit/delete; reminder add/reschedule; class/topic create/delete; and metadata edits to existing topics only when their effective/captured labels are unlabeled. Existing class edits/label changes, class-linked study events, single-occurrence Calendar edits, recurring schedule/rule resets, reminder controls/snooze, source-derived Canvas planning, batch/settings/account/AI writes remain online-only. Previously loaded views can be cached; arbitrary ranges or unseen records are not guaranteed offline. Cached data must remain associated with the authenticated owner/server.
 
 Session expiry/revocation locks queued edits until the same owner signs in again. Do not discard an outbox or expose it to another owner. Keep conflict drafts and pending operations visible. Reloading a server version does not silently apply a conflicting edit. Lost-response retries reuse the same operation ID and payload; changed edits need a new operation ID. See offline.ts before changing task forms or sign-out flows.
 
@@ -492,7 +508,7 @@ Use `RequestError.code` from `lib/api.ts` for structured handling; never render 
 | Invalid input/incompatible response | Retain the draft and show an error. Schema failure is not success or an empty result. |
 | Accepted blocked preflight | A persisted metadata result, separate from an HTTP failure or executable queue. Show its reason; dispatch remains disabled. |
 
-Task transport alone has durable offline mutation support. `cachedPath` in api.ts defines the loaded-view cache allowlist; AI/account/settings endpoints are excluded. Reuse transport helpers instead of introducing a universal offline cache or background mutation retry.
+`offlineMutationKind`/`enqueueMutation` in api.ts/offline.ts define the bounded durable mutation allowlist; `cachedPath` defines loaded-view caching. AI/account/settings and other unspecified writes are excluded. Preserve resource dependency guards, stable create IDs, FIFO receipt replay and the distinction between actual offline queueing and an online lost-response whose outcome is unknown. Reuse these helpers instead of introducing a universal offline cache or background mutation retry.
 
 ## Deferred UI/device work
 
@@ -505,6 +521,15 @@ Actual Mudita Kompakt verification, Kindle Scribe, and a dedicated Windows app a
 Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authentication changes. Browser tests own their ports and synthetic database. Keep API/provider fixtures synthetic; never reset the owner's database or send real provider/paid requests for routine verification. Update locators when layout changes without weakening state, privacy, offline, conflict, or retry assertions.
 
 ## Change ledger
+
+### 2026-10-18 — Bounded multi-record offline outbox
+
+- `lib/offline.ts` now stores one owner-scoped FIFO queue across task, Calendar, reminder, class and topic records. Creates use stable client IDs so later queued operations and dependent topic creation keep the same identity through replay. Web Locks continue to serialize competing tabs.
+- Offline Calendar support is limited to ordinary whole-event create/edit/delete. Single-occurrence edits, class-linked study events and recurrence anchor/timezone/rule changes remain online-only. Confirmed Calendar replay invalidates occurrence-range caches so the next read cannot retain stale expansion; all-day range projection re-expands the full span.
+- Reminder add/reschedule can queue; pause/resume/cancel, snooze, delivery/history/read controls remain online-only. A queued task conflict does not disable unrelated live reminder controls.
+- Classes/topics may be created/deleted offline. Existing class edits and all sensitivity-changing edits stay online-only. Existing topic notes/progress/confidence may queue only when the topic carries no effective/captured labels; labeled-topic edits require a connection. Queued class/topic parents block dependent academic/study writes until synchronization.
+- Conflict discard restores the last confirmed cached record when one exists. Session expiry/revocation locks the queue for the same owner; sign-out still requires sync/discard and clears private cache. Newly supported non-task mutations distinguish actual offline queueing from an online lost response whose outcome is unknown, preserving the exact operation ID for deliberate retry.
+- Browser acceptance covers these boundaries. Android shares the web storage mechanism, but expanded mutation kinds have no new emulator/process-death or Kompakt evidence; retain that distinction in UI/help/status claims.
 
 ### 2026-10-16 — School Outlook access gate (P12 development)
 
@@ -621,6 +646,14 @@ Use Node 24/npm 11. Run `npm run check`, then `npm run test:e2e` for UI/authenti
 - **Next 7 days · N** and **Unread reminders · N** are collapsed `<details>` groups.
 - Removed from Today: the inline Assistant panel (answers live on the Assistant page) and the separate Due today box.
 - Tests: `tests/e2e/today.spec.ts` (order and tags, Overdue only when relevant, collapsed counts, command bar modes, offline add at 320 px e-ink, per-source failure) and `apps/web/tests/today.test.ts`. Assistant flows formerly on Today are tested on `/assistant`.
+
+### 2026-10-19 — Optional due time for owner-created tasks (migration 073)
+
+- **Task contract.** `dueDate` remains the task's calendar-day deadline. `dueAt` and `dueTimeZone` are a nullable pair; when present, the instant must resolve to `dueDate` in that IANA timezone. Date-only tasks stay date-only. No due time implies a reminder, notification, Calendar reservation or guessed midnight/noon instant. The first AI planner-task contract remains date-only.
+- **Editing and compatibility.** Tasks, Quick capture and Today’s Add task mode accept an optional due time after a date is chosen. The timezone appears only with a time and starts from the device zone. DST gaps are rejected. Repeated wall times expose explicit Earlier/Later choices; changing the date, time or zone resets that choice. Clearing the time preserves the date. Clearing/changing the date without replacement timing clears stale timing. Older single-task clients that omit timing preserve an existing time only when the due date is omitted or unchanged. Completion/priority edits preserve timing. A batch-assigned date clears timing on rows where the date actually changes unless the request supplies replacement timing; reapplying the same date preserves it.
+- **Display and ordering.** Task rows and Today show the stored local due time in the task's saved timezone. Date-based overdue/today/upcoming grouping is unchanged. Inside one date, timed tasks sort by `dueAt` before date-only tasks. On Today, date-only tasks remain in the all-day deadline group while timed tasks join timed items by instant. The Calendar Day/Week integration contract is a point marker at the task's due time with no duration; date-only tasks remain in the all-day strip.
+- **Offline/export.** The task outbox projects and replays the same preserve/clear rules, including explicit clear-time and changed-date clearing, while retaining the existing operation ID/version conflict behavior. Planner export includes `dueAt`/`dueTimeZone` through the shared task projection. No source/provider data or new authority is introduced.
+- **Validation targets.** Synthetic coverage includes null/date-only/timed writes, stale-client updates, explicit time clearing, changed-date clearing, completion/priority preservation, batch replacement/clearing, due-time ordering, DST gap/fold behavior, schema composability for date-only AI/academic consumers, export/storage constraints, Today ordering and timed offline replay. Calendar point-marker rendering is validated with the Calendar release slice when that integration lands.
 
 ### 2026-10-14 — Assistant: Use mail (D56)
 

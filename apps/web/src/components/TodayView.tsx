@@ -6,6 +6,7 @@ import {
   canvasItemsResponseSchema,
   notificationsSchema,
   remindersSchema,
+  trackedDeadlineListSchema,
 } from '@hub/contracts';
 import type { Task } from '@hub/contracts';
 import { getSnapshot } from '../lib/api';
@@ -19,6 +20,7 @@ import type { Route } from '../lib/router';
 import { formatDate, formatInstant } from '../lib/format';
 import { todayItems } from '../lib/today';
 import type { TodayItem } from '../lib/today';
+import { formatTaskDueTime } from '../lib/task-deadline';
 import './TodayView.css';
 
 export function TodayView({ navigate }: { navigate: (route: Route) => void }) {
@@ -50,6 +52,15 @@ export function TodayView({ navigate }: { navigate: (route: Route) => void }) {
         signal,
       ),
     { failure: 'Canvas deadlines unavailable. Retry Canvas.' },
+  );
+  const deadlines = useResource(
+    (signal) =>
+      getSnapshot(
+        '/api/v1/deadlines?status=open&limit=200',
+        trackedDeadlineListSchema,
+        signal,
+      ),
+    { failure: 'Imported deadlines unavailable. Retry imported deadlines.' },
   );
   const reminders = useResource(
     (signal) => getSnapshot('/api/v1/reminders', remindersSchema, signal),
@@ -103,25 +114,42 @@ export function TodayView({ navigate }: { navigate: (route: Route) => void }) {
     tasks: tasks.data?.data.tasks ?? [],
     occurrences: schedule.data?.data.occurrences ?? [],
     canvas: canvas.data?.data.items ?? [],
+    deadlines: deadlines.data?.data.deadlines ?? [],
     today,
     timeZone,
   });
-  const loaded = !!(tasks.data && schedule.data && canvas.data);
-  const time = (instant: string) =>
+  const loaded = !!(
+    tasks.data &&
+    schedule.data &&
+    canvas.data &&
+    deadlines.data
+  );
+  const time = (instant: string, zone = timeZone) =>
     new Date(instant).toLocaleTimeString(undefined, {
-      timeZone,
+      timeZone: zone,
       hour: 'numeric',
       minute: '2-digit',
     });
   const when = (item: TodayItem) =>
     item.kind === 'task'
-      ? 'Due today'
+      ? item.start
+        ? `Due ${time(item.start, item.timeZone ?? timeZone)}`
+        : 'Due today'
       : item.allDay || !item.start
         ? 'All day'
         : !item.end || item.end === item.start
           ? `Due ${time(item.start)}`
           : `${time(item.start)} – ${time(item.end)}`;
   const title = (item: TodayItem) => {
+    if (item.deadlineId)
+      return (
+        <Link
+          route={{ name: 'tasks', deadline: item.deadlineId }}
+          navigate={navigate}
+        >
+          {item.title}
+        </Link>
+      );
     const target = item.target;
     if (target.type === 'task')
       return (
@@ -200,6 +228,7 @@ export function TodayView({ navigate }: { navigate: (route: Route) => void }) {
         <ReadState resource={reminders} label="reminder status" />
         <ReadState resource={schedule} label="schedule" />
         <ReadState resource={canvas} label="Canvas" />
+        <ReadState resource={deadlines} label="imported deadlines" />
         {items.length > 0 && (
           <ul className="today-rows">
             {items.map((item) => (
@@ -280,7 +309,9 @@ function TaskList({ tasks }: { tasks: Task[] }) {
         <li key={task.id}>
           <strong>{task.title}</strong>
           <small>
-            {task.dueDate ? `Due ${formatDate(task.dueDate)}` : 'No due date'}
+            {task.dueDate
+              ? `Due ${formatDate(task.dueDate)}${formatTaskDueTime(task) ? `, ${formatTaskDueTime(task)}` : ''}`
+              : 'No due date'}
             {task.priority === 'high' ? ' · High priority' : ''}
           </small>
         </li>

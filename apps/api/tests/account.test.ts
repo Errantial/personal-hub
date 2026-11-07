@@ -240,6 +240,10 @@ it('exports owner records and tombstones with a versioned format and excludes op
     'INSERT INTO notifications(id,reminder_id,owner_id,title) VALUES($1,$2,$3,$4)',
     [randomUUID(), reminder.id, owner, 'Export inbox'],
   );
+  await db.query(
+    "INSERT INTO mail_broker_settings(owner_id,version,selected_alias) VALUES($1,4,'jev-mail')",
+    [owner],
+  );
   const response = await get('/api/v1/planner/export');
   expect(response.statusCode).toBe(200);
   expect(response.headers['content-disposition']).toContain('attachment;');
@@ -262,6 +266,10 @@ it('exports owner records and tombstones with a versioned format and excludes op
   });
   expect(output.records.reminders[0]!.id).toBe(reminder.id);
   expect(output.records.notifications[0]!.title).toBe('Export inbox');
+  expect(output.records.mailBrokerSettings).toEqual({
+    version: 4,
+    selectedAlias: 'jev-mail',
+  });
   for (const forbidden of [
     'Other owner only',
     'password_hash',
@@ -269,6 +277,7 @@ it('exports owner records and tombstones with a versioned format and excludes op
     'lease_token',
     'mutation_receipts',
     'setupToken',
+    'credentialRevision',
   ])
     expect(response.body).not.toContain(forbidden);
   expect(

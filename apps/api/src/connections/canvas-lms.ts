@@ -24,6 +24,10 @@ import {
   validateCanvasSnapshot,
 } from './canvas-api.js';
 import type { CanvasApiSnapshot, CanvasApiFetcher } from './canvas-api.js';
+import {
+  materializeCanvasDeadlineFromAssignment,
+  refreshTrackedDeadlineLabelFloor,
+} from './canvas-deadlines.js';
 
 async function ensure(tx: QueryExecutor, owner: string) {
   await tx.query(
@@ -145,6 +149,11 @@ export async function applyCanvasLmsSnapshot(
         [owner, saved!.id, item.providerId],
       );
       assignmentIds.push(String(record!.id));
+      await materializeCanvasDeadlineFromAssignment(
+        tx,
+        owner,
+        String(record!.id),
+      );
     }
   }
   counts.missing += (
@@ -153,12 +162,13 @@ export async function applyCanvasLmsSnapshot(
       [owner, snapshot.courses.map((course) => course.providerId)],
     )
   ).length;
-  counts.missing += (
-    await tx.query(
-      "UPDATE canvas_lms_assignments SET availability='missing',version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND availability='available' AND NOT(id=ANY($2::uuid[])) RETURNING id",
-      [owner, assignmentIds],
-    )
-  ).length;
+  const missingAssignments = await tx.query<{ id: string }>(
+    "UPDATE canvas_lms_assignments SET availability='missing',version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND availability='available' AND NOT(id=ANY($2::uuid[])) RETURNING id",
+    [owner, assignmentIds],
+  );
+  counts.missing += missingAssignments.length;
+  for (const assignment of missingAssignments)
+    await materializeCanvasDeadlineFromAssignment(tx, owner, assignment.id);
   await tx.query(
     'UPDATE canvas_lms_sources SET last_imported_at=CURRENT_TIMESTAMP,account_provider_id=COALESCE(account_provider_id,$2) WHERE owner_id=$1',
     [owner, snapshot.accountProviderId],
@@ -353,6 +363,7 @@ export function registerCanvasLms(
             "UPDATE canvas_lms_jobs SET status='cancelled',lease_token=NULL,lease_until=NULL,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND status IN ('queued','running')",
             [user.id],
           );
+        await refreshTrackedDeadlineLabelFloor(tx, user.id);
         return { ok: true };
       },
     );
@@ -436,6 +447,9 @@ export function registerCanvasLms(
                 ]
               : [user.id, id, input.notes, input.sensitivity],
           );
+          if (kind === 'assignments')
+            await materializeCanvasDeadlineFromAssignment(tx, user.id, id);
+          await refreshTrackedDeadlineLabelFloor(tx, user.id);
           const records = await readCanvasLms(tx, user.id);
           return kind === 'courses'
             ? {

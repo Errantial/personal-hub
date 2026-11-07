@@ -18,7 +18,7 @@ Migration 045 prevents deletion or rewriting of direct origin identity, snapshot
 
 Preflight, request admission and the final synthetic callback recheck share the existing snapshot, exact-context, routing, consent and budget gates. Stale references fail before a hold. Changes after committed admission prevent the callback and retain uncertainty. Guidance may refer to the admitted academic source, but grants no action authority. Per-request answer saving and content-clearing forget tombstones remain unchanged.
 
-New metadata is omitted from ordinary/older manifests, preserving their serialized integrity bindings. Public history/export remain metadata-only; saved answer text remains confined to dedicated reads/export with explicit consent. UI source selection, offline references, workload-plan provenance and live execution remain pending.
+New metadata is omitted from ordinary/older manifests, preserving their serialized integrity bindings. Public history/export remain metadata-only; saved answer text remains confined to dedicated reads/export with explicit consent. The separate general gateway remains dispatch-disabled, while the live Assistant now has the explicit P7 selection path below. Offline references and workload-plan provenance remain separate pending boundaries.
 
 ## Verification
 
@@ -28,7 +28,7 @@ All 41 context tests pass, including 18 new academic tests and seven new transie
 
 ## Live owner asks (P7)
 
-Implemented 2026-10-15 on `ai/academic-context` (development, not deployed). A live owner ask may now carry explicit, version-pinned manual academic work, separate from the disabled gateway path above. `POST /api/v1/assistant/requests` accepts an optional `academic` array of `{ id, expectedVersion, expectedCourseVersion }` (up to 20, unique ids); the class version is required for every entry. Selection is per work item only — there is no class-level "all open work" mode.
+Implemented 2026-10-15 on `ai/academic-context` and subsequently integrated into the deployed live Assistant path. A live owner ask may carry explicit, version-pinned manual academic work, separate from the disabled general gateway path above. `POST /api/v1/assistant/requests` accepts an optional `academic` array of `{ id, expectedVersion, expectedCourseVersion }` (up to 20, unique ids); the class version is required for every entry. Selection is per work item only — there is no class-level "all open work" mode.
 
 The prepare snapshot resolves each selection from `academic_work` joined to its active `courses` row and sends only an allowlisted projection: title, kind, date-only due date, estimated minutes, status and priority, with positional `w1…` refs. Notes, grades, class/instructor text, provider data and attachments never leave the server. A missing deadline or effort stays `null`, never zero or "none". The operation hash includes `academic` only when non-empty, so a device that omits an empty selection still replays an earlier no-academic operation.
 
@@ -36,7 +36,7 @@ Identity and version problems block the ask before any hold: missing, foreign or
 
 Each sent item is recorded in the sealed manifest as an `academic-work-v1` / `kind=academic-work` source carrying its labels and `academicCourse={id,version}`, bound by a private digest. The final transmission guard re-projects every bound academic source and withholds the send as `context-changed` (no charge, hold released) if the work or class was edited, deleted, relabelled or changed between prepare and transmit, matching the planner and mail guards. History eligibility re-verifies bound academic sources, so a follow-up keeps an unchanged academic turn and drops a changed one. Applied proposals inherit the academic labels and `bound-derived` origin through the existing lineage. Sent summaries are persisted on the turn (`ai_conversation_turns.academic`, migration 063) and survive conversation deletion; agent runs never carry academic sources.
 
-The composer picker and withheld-item coverage UI are the next slice; grounded academic proposals (P8) follow later. Validation is recorded in [implementation-log.md](implementation-log.md).
+The composer picker/withheld-item coverage UI and grounded P8 proposal slices were delivered afterward. Validation and deployment status are recorded in [implementation-log.md](implementation-log.md); owner usefulness and imported-source completeness remain separate live gates.
 
 ### Per-ask selection UI (2026-10-15)
 
@@ -44,8 +44,8 @@ The shared Today/Assistant composer now supports explicit manual work selection 
 
 ## Grounded academic task proposals (P8 part 1, 2026-10-15)
 
-Implemented in development on ai/academic-proposals; not deployed. A task.create action may refer to an explicitly admitted open manual work item using its w reference. The server resolves that reference to the work identity and work/class versions and records the source title in the reviewable proposal. Invented, withheld and submitted/cancelled references are dropped; they never silently become unlinked task creates. An ordinary create with no reference remains an ordinary task, with the answer's conservative AI lineage.
+Implemented on `ai/academic-proposals` and subsequently integrated into the deployed Assistant path. A task.create action may refer to an explicitly admitted open manual work item using its w reference. The server resolves that reference to the work identity and work/class versions and records the source title in the reviewable proposal. Invented, withheld and submitted/cancelled references are dropped; they never silently become unlinked task creates. An ordinary create with no reference remains an ordinary task, with the answer's conservative AI lineage.
 
 Apply uses the same academic planner operation as manual source-linked creation, under the existing schedule lock and server-owned proposal digest. It rechecks source versions/open status, retains the immutable academic capture, inherits labels and saves AI output lineage atomically. Receipt retry creates no duplicate; Undo tombstones the new task and retains both origins. The task's planning deadline can differ from the captured academic deadline; task completion never changes work submission or estimated effort.
 
-This part does not add AI study reservations or certify workload-plan provenance. P8 part 2 must use deterministic study preview/approval with fresh context, capacity and conflict checks; the direct academic study endpoint alone is not sufficient. Existing study UI remains the planning route, and external calendar conflicts remain unchecked.
+This part does not itself certify workload-plan provenance. P8 part 2 was implemented later by grounding suggestions in the deterministic study preview/approval path with fresh context, capacity and conflict checks; the direct academic study endpoint alone is still not sufficient. Existing study UI remains the planning route, and external calendar conflicts remain unchecked.

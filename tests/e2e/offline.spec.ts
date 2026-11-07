@@ -831,7 +831,7 @@ test('offline occurrence edit and delete replay into the series once', async ({
   await expect(editor.getByRole('status').first()).toHaveText('Saved.');
   await expect(syncState(page)).toContainText('1 queued');
 
-  await page.goto('/calendar?date=2036-06-01&view=agenda');
+  await page.goBack();
   await expect(
     calendarDay(page, '2036-06-01').getByRole('link', {
       name: 'Occurrence series',
@@ -1312,4 +1312,43 @@ test('offline recently deleted event can be restored', async ({
   expect(
     events.find((item) => item.title === 'Offline deleted event'),
   ).toMatchObject({ deletedAt: null, version: 3 });
+});
+
+test('offline task due time replays with its timezone', async ({
+  page,
+  context,
+}) => {
+  await warm(page);
+  await page.goto('/tasks');
+  await context.setOffline(true);
+  const panel = tasksRegion(page);
+  await panel.getByRole('button', { name: 'Add task', exact: true }).click();
+  const capture = panel.getByRole('region', { name: 'Quick task capture' });
+  await capture.getByLabel('Task title').fill('Offline due time');
+  await capture.getByLabel('Due date (optional)').fill('2030-04-04');
+  await capture.getByLabel('Due time (optional)').fill('11:00');
+  await capture.getByLabel('Timezone').fill('America/New_York');
+  await capture.getByRole('button', { name: 'Save task', exact: true }).click();
+  await expect(syncState(page)).toContainText('1 queued');
+
+  await context.setOffline(false);
+  await syncNow(page);
+  await expect(syncState(page)).toContainText('Online · All saved', {
+    timeout: 15000,
+  });
+  const saved = (
+    (await (await page.request.get('/api/v1/tasks')).json()) as {
+      tasks: Array<{
+        title: string;
+        dueDate: string | null;
+        dueAt: string | null;
+        dueTimeZone: string | null;
+      }>;
+    }
+  ).tasks.find((task) => task.title === 'Offline due time');
+  expect(saved).toMatchObject({
+    dueDate: '2030-04-04',
+    dueAt: '2030-04-04T15:00:00.000Z',
+    dueTimeZone: 'America/New_York',
+  });
 });

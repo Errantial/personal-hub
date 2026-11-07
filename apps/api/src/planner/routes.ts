@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   createTaskSchema,
+  createTaskRequestSchema,
   updateTaskSchema,
   deleteItemSchema,
   restoreItemSchema,
@@ -35,6 +36,7 @@ import {
 const idSchema = z.object({ id: z.string().uuid() });
 // SQL aliases and to_char preserve date-only deadlines and normalize timestamps on both drivers.
 export const taskColumns = `${mailTaskSourceColumns}, ${academicSourceColumns('tasks')}, ${plannerSourceColumns('tasks')}, id, title, notes, to_char(due_date, 'YYYY-MM-DD') AS "dueDate", priority, completed, sensitivity, version,
+  to_char(due_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "dueAt", due_time_zone AS "dueTimeZone",
   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
   to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
   to_char(deleted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "deletedAt"`;
@@ -57,13 +59,15 @@ export async function createTaskRecord(
     input.canvasSourceRef,
   );
   const [task] = await transaction.query(
-    `INSERT INTO tasks (id, owner_id, title, notes, due_date, priority, completed, sensitivity,canvas_source_id,canvas_source_snapshot,canvas_assignment_id,canvas_assignment_snapshot) VALUES ($1, $2, $3, $4, $5, $6, $7, $8,$9,$10::jsonb,$11,$12::jsonb) ON CONFLICT (id) DO NOTHING RETURNING ${taskColumns}`,
+    `INSERT INTO tasks (id, owner_id, title, notes, due_date, due_at, due_time_zone, priority, completed, sensitivity,canvas_source_id,canvas_source_snapshot,canvas_assignment_id,canvas_assignment_snapshot) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,$11,$12::jsonb,$13,$14::jsonb) ON CONFLICT (id) DO NOTHING RETURNING ${taskColumns}`,
     [
       id,
       owner,
       input.title,
       input.notes,
       input.dueDate,
+      input.dueAt ?? null,
+      input.dueTimeZone ?? null,
       input.priority,
       input.completed,
       input.sensitivity,
@@ -95,7 +99,7 @@ export async function saveTask(
   body: unknown,
 ): Promise<z.infer<typeof taskResponseSchema>> {
   if (method === 'POST') {
-    const input = createTaskSchema.parse(body);
+    const input = createTaskRequestSchema.parse(body);
     return mutate(
       database,
       owner,
@@ -121,13 +125,21 @@ export async function saveTask(
         );
         labels.push(...(await mailTaskLabels(transaction, owner, id)));
         const [task] = await transaction.query(
-          `UPDATE tasks SET title = $3, notes = $4, due_date = $5, priority = $6, completed = $7, sensitivity = COALESCE($8, sensitivity), version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE owner_id = $1 AND id = $2 AND version = $9 AND deleted_at IS NULL RETURNING ${taskColumns}`,
+          `UPDATE tasks SET title = $3, notes = $4,
+            due_date = CASE WHEN $5::boolean THEN $6::date ELSE due_date END,
+            due_at = CASE WHEN $7::boolean THEN $8::timestamptz WHEN $5::boolean AND $6::date IS DISTINCT FROM due_date THEN NULL ELSE due_at END,
+            due_time_zone = CASE WHEN $7::boolean THEN $9::text WHEN $5::boolean AND $6::date IS DISTINCT FROM due_date THEN NULL ELSE due_time_zone END,
+            priority = $10, completed = $11, sensitivity = COALESCE($12, sensitivity), version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE owner_id = $1 AND id = $2 AND version = $13 AND deleted_at IS NULL RETURNING ${taskColumns}`,
           [
             owner,
             id,
             input.title,
             input.notes,
-            input.dueDate,
+            input.dueDate !== undefined,
+            input.dueDate ?? null,
+            input.dueAt !== undefined,
+            input.dueAt ?? null,
+            input.dueTimeZone ?? null,
             input.priority,
             input.completed,
             input.sensitivity === undefined
@@ -209,7 +221,7 @@ export function registerPlanner(
     const user = await auth.requireUser(request);
     return tasksResponseSchema.parse({
       tasks: await database.query(
-        `SELECT ${taskColumns} FROM tasks WHERE owner_id = $1 AND deleted_at IS NULL ORDER BY completed, due_date NULLS LAST, created_at DESC`,
+        `SELECT ${taskColumns} FROM tasks WHERE owner_id = $1 AND deleted_at IS NULL ORDER BY completed, due_date NULLS LAST, due_at NULLS LAST, created_at DESC`,
         [user.id],
       ),
     });

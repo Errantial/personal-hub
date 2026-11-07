@@ -1,6 +1,6 @@
 # OpenRouter mail broker
 
-Implemented in development on `ai/openrouter-mail-broker`, 2026-10-16, and included in the integrated release deployed 2026-10-17. Validation receipts are in [implementation-log.md](implementation-log.md). A separately authorized 60-case synthetic model-quality evaluation passed on 2026-10-17; production broker profile installation/approval and owner private-mail usefulness acceptance remain pending. This replaces the TypeSafe-specific adapter in J1-J4; the older Jev documents retain historical receipts. See the [approved direction and plan](openrouter-mail-broker-plan.md).
+Implemented on `ai/openrouter-mail-broker`, 2026-10-16, and included in the integrated release deployed 2026-10-17. Validation receipts are in [implementation-log.md](implementation-log.md). A separately authorized 60-case synthetic model-quality evaluation passed on 2026-10-17; the production profile, approval/routing and one bounded owner mail grant are installed, and one bounded private-mail Assistant request completed on 2026-10-18. External mailbox completeness and owner usefulness remain open. OpenRouter remains the deployed and missing-row/default classifier. Release E work-ahead adds an optional owner-selectable Jev classifier without changing this production default; see the [optional Jev plan](superpowers/plans/2026-10-19-jev-mail-broker-option.md). Jev configuration/private-mail use remains separately gated.
 
 ## Runtime
 
@@ -12,7 +12,7 @@ Before paid admission, public catalog reads verify text-model pricing and the pi
 
 Reservation uses the complete 20 KiB serialized-envelope ceiling plus token-template allowance within the configured input bound and 2,048 output tokens. Actual charges settle from OpenRouter-reported usage/cost, including invalid output and confirmed overruns; an overrun blocks selection while recording its full cost. Missing trustworthy billing, oversized responses and uncertain transport retain the original hold. Both hops count against the logical-request, owner and agent limits. Stored profile, consent, source, label, grant, budget and lease guards remain enforced immediately before handoff and forwarding.
 
-No schema migration is needed: existing generic broker receipt columns store the new versioned envelope/rubric/threshold identity. Old uncertain/completed batches are receipts, never invitations to resend to the replacement model. Old selections and derived forwarding/history bindings fail current policy checks. Existing grants preserve their saved scope but approve no new provider. `TYPESAFE_VERIFICATION` remains parseable for legacy environment compatibility only; it is unused by the broker. TypeSafe execution/protocol code has been removed.
+The deployed OpenRouter replacement needed no schema migration: existing generic broker receipt columns store its versioned envelope/rubric/threshold identity. Release E work-ahead adds migration `076_mail_broker_settings.sql` only for the versioned classifier preference; missing rows still mean OpenRouter/version 1. Old uncertain/completed batches are receipts, never invitations to resend through another classifier. Existing grants preserve their saved scope but approve no new provider. Optional Jev restores a strictly pinned TypeSafe adapter behind separate account verification and consent; no legacy TypeSafe receipt is inferred from the current selector.
 
 ## Server configuration
 
@@ -48,7 +48,7 @@ After deployment and separately authorized evaluation, the owner approves the br
 
 ## Owner controls
 
-Mail access displays broker model/OpenRouter/host, current approval, retention disclosure and input/output prices. Approve/Revoke uses the existing versioned consent API and registry revision, with idempotent operations, disabled offline writes and explicit reload after a conflict. Existing Use mail and Jev approval never approve this destination. Providers remains a read-only registry inspector; broker approval is available in Mail access.
+Mail access displays the saved classifier, selector version, model/route, current approval, retention disclosure and input/output prices. OpenRouter is the default. Saving a different classifier does not create consent or routing/grant authority, and there is no fallback. Approve/Revoke follows the saved classifier through the existing versioned consent API and registry revision, with idempotent operations, disabled offline writes and explicit reload after a conflict. Providers remains a read-only registry inspector; broker approval is available in Mail access. Jev uses its configured server API key directly and has no separate account-evidence readiness object.
 
 Configured readiness is local configuration/permission readiness. `endpointStatus: unchecked` explicitly separates it from endpoint checks performed at each paid batch; no background paid health probe exists. The UI explains this distinction. Coverage/freshness, clipping, partial/blocked/uncertain outcomes, original messages sent and older-mail continuation retain J4 behavior. Imported coverage never establishes external Gmail/Proton completeness.
 
@@ -74,7 +74,7 @@ For a separately authorized model run, send only each case's intent and candidat
 node scripts/evaluate-mail-broker.mjs predictions.json
 ```
 
-The scorer rejects missing/duplicate cases and foreign/duplicate references and requires at least 90% direct-relevance precision and recall. It has no provider transport or credentials. Fake-adapter integration tests prove enforcement and recovery, not these quality thresholds. The authorized 2026-10-17 synthetic run completed all 60 cases through `google/gemini-2.5-flash-lite` pinned to `google-vertex`: precision `0.9433962264`, recall `1.0`, 60 confirmed outputs, zero uncertain/invalid outputs and $0.002426 confirmed provider cost. This establishes only synthetic retrieval quality. Owner live acceptance must separately assess private-mail usefulness and completeness warnings before expanding use.
+The scorer rejects missing/duplicate cases and foreign/duplicate references and requires at least 90% direct-relevance precision and recall. It has no provider transport or credentials. Fake-adapter integration tests prove enforcement and recovery, not these quality thresholds. The authorized 2026-10-17 synthetic run completed all 60 cases through `google/gemini-2.5-flash-lite` pinned to `google-vertex`: precision `0.9433962264`, recall `1.0`, 60 confirmed outputs, zero uncertain/invalid outputs and $0.002426 confirmed provider cost. A later bounded private-mail request verified the end-to-end technical path; answer usefulness and external mailbox completeness remain owner/source acceptance gates before expanding use.
 
 ### Separately authorized synthetic execution
 

@@ -49,6 +49,10 @@
   color: var(--text-muted);
   font-size: var(--text-caption);
 }
+.time-grid__strip-day {
+  min-width: 0;
+  border-left: var(--border-width) solid var(--border-subtle);
+}
 .time-grid__chips {
   display: grid;
   gap: 2px;
@@ -57,7 +61,23 @@
   margin: 0;
   padding: 2px;
   list-style: none;
-  border-left: var(--border-width) solid var(--border-subtle);
+}
+.time-grid__more {
+  width: 100%;
+  min-height: var(--target);
+  padding: var(--space-1);
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-caption);
+  text-align: left;
+  cursor: pointer;
+}
+.time-grid__more:hover,
+.time-grid__more:focus-visible {
+  background: var(--surface-subtle);
+  color: var(--text);
 }
 .time-grid__scroll {
   max-height: max(24rem, calc(100dvh - 18rem));
@@ -133,6 +153,37 @@
 .time-grid__block--cancelled .time-grid__title {
   text-decoration: line-through;
 }
+.time-grid__deadline {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-1);
+  min-height: 1.5rem;
+  padding: 1px var(--space-1);
+  overflow: hidden;
+  border: 1px solid var(--surface);
+  border-left-width: 3px;
+  border-radius: calc(var(--radius-control) / 2);
+  background: var(--chip-bg);
+  color: var(--chip-text);
+  font-size: var(--text-caption);
+  line-height: 1.25;
+  text-decoration: none;
+}
+.time-grid__deadline:hover,
+.time-grid__deadline:focus-visible {
+  z-index: 3;
+}
+.time-grid__deadline-title {
+  overflow: hidden;
+  font-weight: var(--weight-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.time-grid__deadline-time {
+  white-space: nowrap;
+}
 .time-grid__now {
   position: absolute;
   z-index: 3;
@@ -186,7 +237,8 @@
   white-space: nowrap;
 }
 [data-theme='eink'] .calendar-chip,
-[data-theme='eink'] .time-grid__block {
+[data-theme='eink'] .time-grid__block,
+[data-theme='eink'] .time-grid__deadline {
   border: 1px solid #000;
 }
 [data-theme='eink'] .calendar-chip__type {

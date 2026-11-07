@@ -1,5 +1,10 @@
 import { expect, it } from 'vitest';
-import type { CanvasItem, Occurrence, Task } from '@hub/contracts';
+import type {
+  CanvasItem,
+  Occurrence,
+  Task,
+  TrackedDeadline,
+} from '@hub/contracts';
 import { todayItems } from '../src/lib/today';
 
 const today = '2026-10-14';
@@ -44,6 +49,34 @@ const canvas = (title: string, data: Partial<CanvasItem['providerData']>) =>
       ...data,
     },
   }) as CanvasItem;
+const deadline = (title: string, extra: Partial<TrackedDeadline> = {}) =>
+  ({
+    id: `deadline-${title}`,
+    providerKind: 'canvas',
+    canonicalKey: 'canvas:canvas.colorado.edu:/courses/1/assignments/2',
+    version: 1,
+    completedAt: null,
+    priority: 'normal',
+    notes: '',
+    titleOverride: null,
+    dueOverride: { kind: 'provider' },
+    sensitivity: 'unlabeled',
+    sourceLabels: ['unlabeled'],
+    createdAt: '2026-10-14T12:00:00.000Z',
+    updatedAt: '2026-10-14T12:00:00.000Z',
+    title,
+    due: { kind: 'date', dueDate: today },
+    providerDue: { kind: 'date', dueDate: today },
+    sourceUrl: 'https://canvas.colorado.edu/courses/1/assignments/2',
+    sourceAvailability: 'available',
+    sourceCoverage: ['calendar-feed'],
+    sourceConflict: false,
+    alternateTimedDue: null,
+    labels: ['unlabeled'],
+    effectiveSensitivity: 'unlabeled',
+    sources: [],
+    ...extra,
+  }) as TrackedDeadline;
 
 it('todayItems orders all-day deadlines and due tasks, then all-day events, then timed by start', () => {
   const items = todayItems({
@@ -134,6 +167,31 @@ it('todayItems keeps a timed Canvas deadline in time order as a deadline', () =>
   ]);
 });
 
+it('todayItems keeps date-only tasks in the deadline strip and timed tasks in time order', () => {
+  const items = todayItems({
+    today,
+    timeZone,
+    tasks: [
+      task('Date only'),
+      task('Timed', {
+        dueAt: '2026-10-14T16:30:00.000Z',
+        dueTimeZone: 'America/Denver',
+      }),
+    ],
+    canvas: [],
+    occurrences: [occurrence('Early event')],
+  });
+  expect(items.map((item) => [item.kind, item.title, item.allDay])).toEqual([
+    ['task', 'Date only', true],
+    ['event', 'Early event', false],
+    ['task', 'Timed', false],
+  ]);
+  expect(items[2]).toMatchObject({
+    start: '2026-10-14T16:30:00.000Z',
+    timeZone: 'America/Denver',
+  });
+});
+
 it('todayItems marks Canvas items that are no longer available as cancelled', () => {
   const item = canvas('Old quiz', {});
   const [result] = todayItems({
@@ -144,4 +202,42 @@ it('todayItems marks Canvas items that are no longer available as cancelled', ()
     occurrences: [],
   });
   expect(result).toMatchObject({ kind: 'deadline', cancelled: true });
+});
+
+it('todayItems prefers a tracked deadline over its raw Canvas source and opens the local editor', () => {
+  const raw = canvas('Raw Canvas title', {
+    sourceUrl: 'https://canvas.colorado.edu/courses/1/assignments/2',
+  });
+  const tracked = deadline('Personal Hub title');
+  const items = todayItems({
+    today,
+    timeZone,
+    tasks: [],
+    canvas: [raw],
+    deadlines: [tracked],
+    occurrences: [],
+  });
+  expect(items).toHaveLength(1);
+  expect(items[0]).toMatchObject({
+    title: 'Personal Hub title',
+    kind: 'deadline',
+    deadlineId: tracked.id,
+  });
+});
+
+it('todayItems excludes completed tracked deadlines and keeps raw Canvas fallback when untracked', () => {
+  const raw = canvas('Untracked Canvas', {
+    sourceUrl: 'https://canvas.colorado.edu/courses/1/assignments/9',
+  });
+  const items = todayItems({
+    today,
+    timeZone,
+    tasks: [],
+    canvas: [raw],
+    deadlines: [
+      deadline('Completed', { completedAt: '2026-10-14T10:00:00.000Z' }),
+    ],
+    occurrences: [],
+  });
+  expect(items.map((item) => item.title)).toEqual(['Untracked Canvas']);
 });

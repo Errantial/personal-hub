@@ -10,13 +10,20 @@ import {
   occurrencesResponseSchema,
   plannerSensitivity,
   tasksResponseSchema,
+  trackedDeadlineListSchema,
   topicsSchema,
   zone as zoneSchema,
 } from '@hub/contracts';
-import type { CalendarRecord, Occurrence } from '@hub/contracts';
+import type {
+  CalendarRecord,
+  Occurrence,
+  TrackedDeadline,
+} from '@hub/contracts';
 import { getJson, getSnapshot } from '../lib/api';
 import { dayOccurrences, timeLabel, viewRange } from '../lib/calendar';
 import type { StudyDraft } from '../lib/calendar';
+import { rawCanvasWithoutTracked } from '../lib/calendar-grid';
+import { dueFallsOn } from '../lib/deadlines';
 import { useMutation, useResource, useToday } from '../lib/hooks';
 import type { CalendarView as View, Route } from '../lib/router';
 import { maxSelection } from '../lib/selection';
@@ -52,6 +59,23 @@ const dayFormat = new Intl.DateTimeFormat(undefined, {
 });
 const formatDay = (day: string) =>
   dayFormat.format(new Date(`${day}T12:00:00Z`));
+
+async function loadTrackedDeadlines(signal: AbortSignal) {
+  const deadlines: TrackedDeadline[] = [];
+  let after: string | null = null;
+  do {
+    const query = new URLSearchParams({ status: 'all', limit: '200' });
+    if (after) query.set('after', after);
+    const page = await getJson(
+      `/api/v1/deadlines?${query}`,
+      trackedDeadlineListSchema,
+      signal,
+    );
+    deadlines.push(...page.deadlines);
+    after = page.nextAfter;
+  } while (after && !signal.aborted);
+  return { deadlines, nextAfter: null };
+}
 /** Day view is the default on phone-width screens, Week otherwise. */
 const narrowQuery = '(max-width: 639.98px)';
 function useNarrow() {
@@ -120,6 +144,10 @@ export function CalendarView({
     (signal) => getSnapshot('/api/v1/tasks', tasksResponseSchema, signal),
     { failure: 'Tasks unavailable. Reload calendar to retry.' },
   );
+  const deadlines = useResource((signal) => loadTrackedDeadlines(signal), {
+    failure:
+      'Imported deadlines unavailable. Raw Canvas entries remain visible.',
+  });
   const courses = useResource(
     (signal) => getJson('/api/v1/courses', coursesSchema, signal),
     { failure: 'Classes unavailable.' },
@@ -164,6 +192,7 @@ export function CalendarView({
       occurrences.reload(),
       canvas.reload(),
       tasks.reload(),
+      deadlines.reload(),
     ]);
   };
 
@@ -271,7 +300,16 @@ export function CalendarView({
     else next.set(record.id, record.version);
     select(next);
   }
-  const canvasItems = sources.canvas ? (canvas.data?.items ?? []) : [];
+  const trackedItems = deadlines.data?.deadlines ?? [];
+  const openTrackedItems = trackedItems.filter(
+    (deadline) => !deadline.completedAt,
+  );
+  const preferredCanvasItems = rawCanvasWithoutTracked(
+    canvas.data?.items ?? [],
+    trackedItems,
+  );
+  const canvasItems = sources.canvas ? preferredCanvasItems : [];
+  const deadlineItems = sources.canvas ? openTrackedItems : [];
   const taskItems = tasks.data?.data.tasks ?? [];
   const sections = days.map((day) => {
     const entries: Entry[] = [
@@ -303,6 +341,20 @@ export function CalendarView({
           />
         ),
       })),
+      ...deadlineItems
+        .filter((deadline) => dueFallsOn(deadline.due, day, viewingZone))
+        .map((deadline) => ({
+          id: `tracked-${deadline.id}`,
+          allDay: deadline.due.kind === 'date',
+          start: deadline.due.kind === 'timed' ? deadline.due.dueAt : '',
+          node: (
+            <DeadlineAgendaRow
+              deadline={deadline}
+              zone={viewingZone}
+              navigate={navigate}
+            />
+          ),
+        })),
       ...canvasItems
         .filter((item) =>
           canvasItemInRange(
@@ -333,7 +385,10 @@ export function CalendarView({
         .map((item) => [item.id, records.get(item.id) ?? item]),
     ).values(),
   ];
-  const ready = !!occurrences.data;
+  const ready =
+    !!occurrences.data &&
+    (!sources.canvas ||
+      (!!canvas.data && (!!deadlines.data || !!deadlines.error)));
   const readState = {
     loading: events.loading || occurrences.loading,
     error: events.error || occurrences.error,
@@ -384,9 +439,10 @@ export function CalendarView({
             <div className="list-header calendar-pane-head">
               <Help label="Calendar">
                 Times are shown in {viewingZone}. Task deadlines are separate
-                from reserved calendar time. Canvas entries are read-only;
-                deadlines are single moments, and cancelled or missing entries
-                stay visible without reserving time.
+                from reserved calendar time. Tracked Canvas deadlines open their
+                Personal Hub editor; unsupported raw Canvas entries stay
+                read-only. Deadlines are single moments and never reserve
+                calendar time.
                 {canvas.data?.lastImportedAt &&
                   ` Canvas last import: ${formatInstant(canvas.data.lastImportedAt)}.`}
               </Help>
@@ -424,6 +480,11 @@ export function CalendarView({
                 {canvas.error}
               </p>
             )}
+            {sources.canvas && deadlines.error && (
+              <p role="alert" className="form-error">
+                {deadlines.error}
+              </p>
+            )}
             {!agenda && tasks.error && (
               <p role="alert" className="form-error">
                 {tasks.error}
@@ -435,8 +496,9 @@ export function CalendarView({
                 today={today}
                 timeZone={viewingZone}
                 occurrences={allItems}
-                canvas={canvas.data?.items ?? []}
+                canvas={preferredCanvasItems}
                 tasks={taskItems}
+                deadlines={trackedItems}
                 sources={sources}
                 base={listRoute}
                 navigate={navigate}
@@ -447,8 +509,9 @@ export function CalendarView({
                 today={today}
                 timeZone={viewingZone}
                 occurrences={allItems}
-                canvas={canvas.data?.items ?? []}
+                canvas={preferredCanvasItems}
                 tasks={taskItems}
+                deadlines={trackedItems}
                 sources={sources}
                 base={listRoute}
                 navigate={navigate}
@@ -515,6 +578,54 @@ export function CalendarView({
 }
 
 type Entry = { id: string; allDay: boolean; start: string; node: ReactNode };
+
+function DeadlineAgendaRow({
+  deadline,
+  zone,
+  navigate,
+}: {
+  deadline: TrackedDeadline;
+  zone: string;
+  navigate: (route: Route) => void;
+}) {
+  const when =
+    deadline.due.kind === 'date'
+      ? 'Deadline · All day'
+      : deadline.due.kind === 'timed'
+        ? `Deadline · ${new Date(deadline.due.dueAt).toLocaleTimeString(
+            undefined,
+            {
+              timeZone: zone,
+              hour: 'numeric',
+              minute: '2-digit',
+            },
+          )}`
+        : 'Deadline · No date';
+  return (
+    <article
+      className="calendar-row"
+      aria-label={`Imported deadline ${deadline.title}`}
+    >
+      <Link
+        className="calendar-row__title"
+        route={{ name: 'tasks', deadline: deadline.id }}
+        navigate={navigate}
+      >
+        {deadline.title}
+      </Link>
+      <span className="calendar-row__time">{when}</span>
+      <div className="calendar-row__meta">
+        <StatusChip>Canvas · Personal Hub deadline</StatusChip>
+        {deadline.sourceConflict && (
+          <StatusChip>Canvas sources differ</StatusChip>
+        )}
+        {deadline.sourceAvailability !== 'available' && (
+          <StatusChip>{deadline.sourceAvailability}</StatusChip>
+        )}
+      </div>
+    </article>
+  );
+}
 
 /** The timezone the agenda is shown in, kept behind a disclosure. */
 function ViewingZone({
