@@ -178,6 +178,17 @@ describe('agent context and reminder permissions', () => {
         reminders: 'blocked',
       }),
     ).toBe('blocked');
+    const tier = (tier: number) =>
+      assistantProposalSchema.parse({
+        kind: 'capability',
+        capability: 'study.preferences.update',
+        arguments: {},
+        summary: 'Preference change',
+        tier,
+      });
+    expect(proposalPolicyMode(tier(1), policy)).toBe('automatic');
+    expect(proposalPolicyMode(tier(2), policy)).toBe('approval-required');
+    expect(proposalPolicyMode(tier(3), policy)).toBe('blocked');
     await h.app.close();
   });
 
