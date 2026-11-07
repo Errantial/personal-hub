@@ -58,3 +58,8 @@ Implemented `apps/api/src/ai/capabilities.ts` with owner-scoped definitions for 
 `GET /api/v1/ai/capabilities/audit` returns recent decisions; `POST /api/v1/ai/capabilities/undo` reverses a stored snapshot. Settings > AI > Actions shows the new grant group, a Tier-1 automatic button and the audit list with Undo. Marked task/event updates continue through the existing audited proposal path; their existing proposal Undo is unchanged.
 
 Still missing from the full matrix: classes/topics, academic-work CRUD/batch/restore, tracked-deadline overrides/completion, responsibilities, memory, study goals/plans, notification reads, and mail labels/read/archive/drafts. These are the next phases; the registry and audit/undo schema are ready for them.
+
+
+## Auto-approve toggle (added 2026-11-07)
+
+Settings > AI > Actions has an owner-only **Auto-approve agent changes** switch, default OFF. When ON, Tier 1 and Tier 2 proposals that would normally wait for approval are applied automatically for both direct owner asks and scheduled agents. Tier 3 actions still prompt; the agent has no capability that can read or change this switch, and a setting change is itself audited with before/after policy state. Auto-applied actions carry `auto_approved=true` in `ai_capability_audit`, remain undoable through the proposal UI or the audit Undo button, and deletes remain soft deletes in Recently deleted. A separate Tier 3 opt-in is not built.

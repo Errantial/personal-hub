@@ -25,11 +25,14 @@ export const defaultAIActionPolicy = aiActionPolicySchema.parse({
 export const aiActionSettingsSchema = z.object({
   version: z.number().int().positive(),
   policy: aiActionPolicySchema,
+  /** Owner-only switch: auto-apply Tier 1/2 proposals; never Tier 3. */
+  autoApprove: z.boolean().default(false),
 });
 export const aiActionWriteSchema = z.strictObject({
   operationId: z.string().uuid(),
   expectedVersion: z.number().int().positive(),
   policy: aiActionPolicySchema,
+  autoApprove: z.boolean(),
 });
 // An authority preview describes a proposed action, not executable arguments or
 // approved source content. Capability is declared by the server, never the client.

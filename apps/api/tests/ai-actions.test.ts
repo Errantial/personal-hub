@@ -32,9 +32,14 @@ const preview = (action: object, expectedPolicyVersion = 1, session = cookie) =>
     headers: headers(session),
     payload: { action, expectedPolicyVersion },
   });
-const change = (policy: AIActionPolicy, expectedVersion = 1) => ({
+const change = (
+  policy: AIActionPolicy,
+  expectedVersion = 1,
+  autoApprove = false,
+) => ({
   policy,
   expectedVersion,
+  autoApprove,
   operationId: randomUUID(),
 });
 beforeEach(async () => {
@@ -83,6 +88,7 @@ afterEach(async () => {
 it('exposes confirmed calendar authority with ask-first task defaults without enabling or persisting execution', async () => {
   expect(aiActionSettingsSchema.parse((await get()).json())).toEqual({
     version: 1,
+    autoApprove: false,
     policy: {
       tasks: 'approval-required',
       calendar: 'automatic',
@@ -248,7 +254,11 @@ it('deduplicates settings writes, rejects stale/changed operations and retains h
   const [first, duplicate] = await Promise.all([save(payload), save(payload)]);
   expect(first.statusCode).toBe(200);
   expect(duplicate.json()).toEqual(first.json());
-  expect(first.json()).toEqual({ version: 2, policy: payload.policy });
+  expect(first.json()).toEqual({
+    version: 2,
+    policy: payload.policy,
+    autoApprove: false,
+  });
   expect((await save(change(defaultAIActionPolicy))).json().error.code).toBe(
     'VERSION_CONFLICT',
   );
@@ -337,6 +347,7 @@ it('isolates owner settings and receipts, protects preview sessions and exports 
   expect((await get(base, otherCookie)).json()).toEqual({
     version: 1,
     policy: defaultAIActionPolicy,
+    autoApprove: false,
   });
   const otherPayload = {
     ...payload,
@@ -359,6 +370,7 @@ it('isolates owner settings and receipts, protects preview sessions and exports 
   expect(exported.records.aiActions).toEqual({
     version: 2,
     policy: payload.policy,
+    autoApprove: false,
   });
   const oldExport = structuredClone(exported) as {
     records: { aiActions?: unknown };
@@ -431,6 +443,7 @@ it('applies the additive migration to populated storage and enforces policy shap
   expect((await get()).json()).toEqual({
     version: 1,
     policy: defaultAIActionPolicy,
+    autoApprove: false,
   });
   for (const policy of [
     { ...defaultAIActionPolicy, email: 'automatic' },
@@ -508,4 +521,25 @@ it('retains policy versions and exact receipts after persisted restart without d
     expect(dirname(path)).toBe(root);
     await rm(path, { recursive: true, force: true });
   }
+});
+
+it('persists the owner auto-approve switch and audits the change', async () => {
+  const saved = await save(change(defaultAIActionPolicy, 1, true));
+  expect(saved.statusCode).toBe(200);
+  expect(saved.json()).toMatchObject({ autoApprove: true });
+  expect((await get()).json()).toMatchObject({ autoApprove: true });
+  const [audit] = await db.query(
+    'SELECT tool,decision,auto_approved AS "autoApproved" FROM ai_capability_audit WHERE owner_id=$1 AND tool=\'settings.auto_approve\' ORDER BY created_at DESC LIMIT 1',
+    [owner],
+  );
+  expect(audit).toMatchObject({
+    tool: 'settings.auto_approve',
+    decision: 'applied',
+    autoApproved: false,
+  });
+  const off = await save(
+    change(defaultAIActionPolicy, saved.json().version, false),
+  );
+  expect(off.statusCode).toBe(200);
+  expect(off.json()).toMatchObject({ autoApprove: false });
 });

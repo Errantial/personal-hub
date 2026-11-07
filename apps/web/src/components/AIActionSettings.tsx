@@ -45,7 +45,11 @@ export function AIActionSettings() {
     setBusy(true);
     setError('');
     setStatus('');
-    const body = { expectedVersion: draft.version, policy: draft.policy };
+    const body = {
+      expectedVersion: draft.version,
+      policy: draft.policy,
+      autoApprove: draft.autoApprove,
+    };
     const key = JSON.stringify(body);
     if (pending.current?.key !== key)
       pending.current = { key, id: crypto.randomUUID() };
@@ -102,6 +106,23 @@ export function AIActionSettings() {
             void save();
           }}
         >
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={draft.autoApprove}
+              onChange={(event) =>
+                setDraft({ ...draft, autoApprove: event.target.checked })
+              }
+            />
+            Auto-approve agent changes
+          </label>
+          {draft.autoApprove && (
+            <p role="alert" className="form-error">
+              Tier 1 and Tier 2 agent changes apply without a prompt. Tier 3
+              actions still ask, and every applied change is audited and
+              undoable.
+            </p>
+          )}
           {(['tasks', 'calendar', 'reminders', 'capabilities'] as const).map(
             (group) => (
               <fieldset key={group} disabled={busy}>
@@ -173,6 +194,7 @@ function CapabilityAudit({ online }: { online: boolean }) {
       decision: string;
       createdAt: string;
       undoable: boolean;
+      autoApproved: boolean;
       undoneAt: string | null;
     }>
   >([]);
@@ -187,6 +209,7 @@ function CapabilityAudit({ online }: { online: boolean }) {
         decision: z.string(),
         createdAt: z.string(),
         undoable: z.boolean(),
+        autoApproved: z.boolean(),
         undoneAt: z.string().nullable(),
       }),
     ),
@@ -229,6 +252,7 @@ function CapabilityAudit({ online }: { online: boolean }) {
           {entries.map((entry) => (
             <li key={entry.id}>
               {entry.tool ?? entry.capability} · {entry.decision}
+              {entry.autoApproved ? ' · auto-approved' : ''}
               {entry.undoneAt ? ' · undone' : ''}{' '}
               {entry.undoable && !entry.undoneAt && (
                 <button

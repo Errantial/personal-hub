@@ -13,10 +13,19 @@ import { toProposal } from '../src/features/assistant.js';
 import { plannedWrite } from '../src/features/planner-write.js';
 import { reminderColumns } from '../src/features/reminders.js';
 import { runReminderBatch } from '../src/features/reminders.js';
-import { proposalPolicyMode } from '../src/features/agent-run.js';
+import {
+  applyByPolicy,
+  proposalPolicyMode,
+} from '../src/features/agent-run.js';
 import { recordCapabilityAudit } from '../src/features/capability-audit.js';
-import { executeCapability, undoCapability } from '../src/ai/capabilities.js';
+import {
+  executeCapability,
+  modelCapabilityProposal,
+  undoCapability,
+} from '../src/ai/capabilities.js';
 import { readStudyPreferences } from '../src/features/study-engine.js';
+import { readTurn } from '../src/features/assistant-conversations.js';
+import { proposalDigest } from '../src/features/ai-planner-origin.js';
 
 async function seedTask(
   h: Awaited<ReturnType<typeof startHarness>>,
@@ -188,7 +197,10 @@ describe('agent context and reminder permissions', () => {
       });
     expect(proposalPolicyMode(tier(1), policy)).toBe('automatic');
     expect(proposalPolicyMode(tier(2), policy)).toBe('approval-required');
-    expect(proposalPolicyMode(tier(3), policy)).toBe('blocked');
+    expect(proposalPolicyMode(tier(3), policy)).toBe('approval-required');
+    expect(
+      modelCapabilityProposal('settings.auto_approve', '{}', context),
+    ).toBeNull();
     await h.app.close();
   });
 
@@ -364,6 +376,161 @@ describe('agent context and reminder permissions', () => {
         randomUUID(),
       ),
     ).rejects.toThrow();
+    await h.app.close();
+  });
+
+  it('auto-approves tier 1/2 proposals only when the owner toggle is on', async () => {
+    const h = await startHarness();
+    const first = await seedTurn(h);
+    const firstTask = await seedTask(h, 'Auto-approved delete');
+    const proposal = assistantProposalSchema.parse({
+      kind: 'capability',
+      capability: 'task.delete',
+      arguments: { id: firstTask.id, expectedVersion: 1 },
+      summary: 'Delete task',
+      tier: 2,
+    });
+    const item = {
+      state: 'proposed',
+      applied: null,
+      error: null,
+      applyId: randomUUID(),
+      undoId: randomUUID(),
+    };
+    await h.database.query(
+      'UPDATE ai_conversation_turns SET proposals=$2::jsonb,items=$3::jsonb WHERE owner_id=$1 AND id=$4',
+      [h.owner, JSON.stringify([proposal]), JSON.stringify([item]), first],
+    );
+    await h.database.query(
+      `INSERT INTO ai_turn_origins(owner_id,turn_id,request_id,capture,proposal_digests)
+       VALUES($1,$2,$2,$3::jsonb,$4::jsonb)`,
+      [
+        h.owner,
+        first,
+        JSON.stringify({
+          requestId: first,
+          labels: ['unlabeled'],
+          sources: [],
+          useMail: false,
+          destination: {
+            model: 'synthetic/model',
+            upstream: 'google-vertex',
+            revision: 'a'.repeat(64),
+            version: 1,
+          },
+        }),
+        JSON.stringify({
+          [item.applyId]: proposalDigest(
+            h.owner,
+            first,
+            item.applyId,
+            proposal,
+          ),
+        }),
+      ],
+    );
+    const policy = {
+      tasks: 'approval-required',
+      calendar: 'approval-required',
+      reminders: 'approval-required',
+      capabilities: 'approval-required',
+      email: 'approval-required',
+    };
+    await h.database.query(
+      `INSERT INTO ai_action_policies(owner_id,policy,auto_approve)
+       VALUES($1,$2::jsonb,true) ON CONFLICT(owner_id) DO UPDATE SET policy=EXCLUDED.policy,auto_approve=true`,
+      [h.owner, JSON.stringify(policy)],
+    );
+    await applyByPolicy(
+      h.database,
+      h.owner,
+      (await readTurn(h.database, h.owner, first))!,
+    );
+    const [deleted] = await h.database.query(
+      'SELECT deleted_at AS "deletedAt" FROM tasks WHERE id=$1',
+      [firstTask.id],
+    );
+    expect(deleted!.deletedAt).not.toBeNull();
+    const [audit] = await h.database.query(
+      'SELECT auto_approved AS "autoApproved" FROM ai_capability_audit WHERE owner_id=$1 AND tool=$2',
+      [h.owner, 'task.delete'],
+    );
+    expect(audit!.autoApproved).toBe(true);
+
+    const second = await seedTurn(h);
+    const secondTask = await seedTask(h, 'Prompted delete');
+    const secondProposal = assistantProposalSchema.parse({
+      kind: 'capability',
+      capability: 'task.delete',
+      arguments: { id: secondTask.id, expectedVersion: 1 },
+      summary: 'Delete task',
+      tier: 2,
+    });
+    const secondItem = {
+      ...item,
+      applyId: randomUUID(),
+      undoId: randomUUID(),
+    };
+    await h.database.query(
+      'UPDATE ai_conversation_turns SET proposals=$2::jsonb,items=$3::jsonb WHERE owner_id=$1 AND id=$4',
+      [
+        h.owner,
+        JSON.stringify([secondProposal]),
+        JSON.stringify([secondItem]),
+        second,
+      ],
+    );
+    await h.database.query(
+      `INSERT INTO ai_turn_origins(owner_id,turn_id,request_id,capture,proposal_digests)
+       VALUES($1,$2,$2,$3::jsonb,$4::jsonb)`,
+      [
+        h.owner,
+        second,
+        JSON.stringify({
+          requestId: second,
+          labels: ['unlabeled'],
+          sources: [],
+          useMail: false,
+          destination: {
+            model: 'synthetic/model',
+            upstream: 'google-vertex',
+            revision: 'a'.repeat(64),
+            version: 1,
+          },
+        }),
+        JSON.stringify({
+          [secondItem.applyId]: proposalDigest(
+            h.owner,
+            second,
+            secondItem.applyId,
+            secondProposal,
+          ),
+        }),
+      ],
+    );
+    await h.database.query(
+      'UPDATE ai_action_policies SET auto_approve=false WHERE owner_id=$1',
+      [h.owner],
+    );
+    await applyByPolicy(
+      h.database,
+      h.owner,
+      (await readTurn(h.database, h.owner, second))!,
+    );
+    const [stillActive] = await h.database.query(
+      'SELECT deleted_at AS "deletedAt" FROM tasks WHERE id=$1',
+      [secondTask.id],
+    );
+    expect(stillActive!.deletedAt).toBeNull();
+    expect(assistantProposalSchema.parse(secondProposal).kind).toBe(
+      'capability',
+    );
+    expect(
+      await h.database.query(
+        "SELECT 1 FROM ai_capability_audit WHERE owner_id=$1 AND tool='settings.auto_approve'",
+        [h.owner],
+      ),
+    ).toHaveLength(0);
     await h.app.close();
   });
 

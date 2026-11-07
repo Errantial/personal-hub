@@ -54,6 +54,8 @@ import {
   memorySources,
 } from '../ai/live-projections.js';
 import { assistantContext } from '../ai/assistant-context.js';
+import { applyByPolicy } from './agent-run.js';
+import { readAIActionPolicy } from './ai-actions.js';
 import { modelCapabilityProposal, undoCapability } from '../ai/capabilities.js';
 import type {
   AcademicContextItem,
@@ -825,6 +827,7 @@ export async function answerTurn(
   let prepared = await database.transaction(async (tx) => {
     await tx.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
     const settings = await readAssistantSettings(tx, owner);
+    const actionSettings = await readAIActionPolicy(tx, owner);
     if (
       input.agentId &&
       (agentGoal === undefined ||
@@ -935,6 +938,7 @@ export async function answerTurn(
     };
     return {
       settings,
+      autoApprove: actionSettings.autoApprove,
       context,
       academic,
       memory,
@@ -1207,9 +1211,21 @@ export async function answerTurn(
         : 'applicable',
     binding,
   });
-  const saved = await readTurn(database, owner, id);
+  let saved = await readTurn(database, owner, id);
   if (!saved)
     throw new ApiError(404, 'NOT_FOUND', 'This conversation no longer exists.');
+  if (
+    input.trigger === 'owner' &&
+    saved.request.proposals.length > 0 &&
+    prepared.autoApprove
+  ) {
+    try {
+      await applyByPolicy(database, owner, saved);
+      saved = (await readTurn(database, owner, id)) ?? saved;
+    } catch {
+      // Keep the proposals reviewable if an automatic effect could not commit.
+    }
+  }
   return saved;
 }
 
@@ -1295,7 +1311,7 @@ export function registerAssistant(
     const owner = await auth.requireUser(request);
     const rows = await database.query(
       `SELECT id,capability,tool,action,decision,reason,target_kind AS "targetKind",target_id AS "targetId",
-         undoable,${stamp('created_at', 'createdAt')},${stamp('undone_at', 'undoneAt')}
+         undoable,auto_approved AS "autoApproved",${stamp('created_at', 'createdAt')},${stamp('undone_at', 'undoneAt')}
        FROM ai_capability_audit WHERE owner_id=$1 ORDER BY created_at DESC,id DESC LIMIT 100`,
       [owner.id],
     );

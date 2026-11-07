@@ -11,6 +11,7 @@ import type {
   AIActionPreview,
 } from '@hub/contracts';
 import type { FastifyInstance } from 'fastify';
+import { randomUUID } from 'node:crypto';
 import type { Database, QueryExecutor } from '../db/database.js';
 import type { authService } from '../auth/routes.js';
 import { mutate } from '../planner/mutations.js';
@@ -19,11 +20,15 @@ import { ApiError } from '../errors.js';
 
 export async function readAIActionPolicy(tx: QueryExecutor, owner: string) {
   const [row] = await tx.query(
-    'SELECT version,policy FROM ai_action_policies WHERE owner_id=$1',
+    'SELECT version,policy,auto_approve AS "autoApprove" FROM ai_action_policies WHERE owner_id=$1',
     [owner],
   );
   return aiActionSettingsSchema.parse(
-    row ?? { version: 1, policy: defaultAIActionPolicy },
+    row ?? {
+      version: 1,
+      policy: defaultAIActionPolicy,
+      autoApprove: false,
+    },
   );
 }
 export function previewAIAction(
@@ -87,13 +92,19 @@ export function registerAIActions(
       input.operationId,
       { kind: 'ai.actions.permissions', input },
       async (tx) => {
+        const before = await readAIActionPolicy(tx, user.id);
         await tx.query(
           'INSERT INTO ai_action_policies(owner_id) VALUES($1) ON CONFLICT DO NOTHING',
           [user.id],
         );
         const [row] = await tx.query(
-          'UPDATE ai_action_policies SET policy=$3::jsonb,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND version=$2 RETURNING version,policy',
-          [user.id, input.expectedVersion, JSON.stringify(input.policy)],
+          'UPDATE ai_action_policies SET policy=$3::jsonb,auto_approve=$4,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND version=$2 RETURNING version,policy,auto_approve AS "autoApprove"',
+          [
+            user.id,
+            input.expectedVersion,
+            JSON.stringify(input.policy),
+            input.autoApprove,
+          ],
         );
         if (!row)
           throw new ApiError(
@@ -101,6 +112,24 @@ export function registerAIActions(
             'VERSION_CONFLICT',
             'Reload action permissions.',
           );
+        await tx.query(
+          `INSERT INTO ai_capability_audit
+            (id,owner_id,capability,action,decision,reason,tool,before,after,undoable)
+           VALUES($1,$2,'general','update','applied',$3,'settings.auto_approve',$4::jsonb,$5::jsonb,false)`,
+          [
+            randomUUID(),
+            user.id,
+            'Agent permission settings changed.',
+            JSON.stringify({
+              policy: before.policy,
+              autoApprove: before.autoApprove,
+            }),
+            JSON.stringify({
+              policy: input.policy,
+              autoApprove: input.autoApprove,
+            }),
+          ],
+        );
         return aiActionSettingsSchema.parse(row);
       },
     );

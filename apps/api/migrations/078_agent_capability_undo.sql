@@ -1,4 +1,8 @@
 -- Extend the 077 capability audit with before/after snapshots and undo state.
+ALTER TABLE ai_action_policies
+  ADD COLUMN auto_approve boolean NOT NULL DEFAULT false;
+ALTER TABLE ai_capability_audit
+  ADD COLUMN auto_approved boolean NOT NULL DEFAULT false;
 ALTER TABLE ai_capability_audit
   DROP CONSTRAINT IF EXISTS ai_capability_audit_capability_check;
 ALTER TABLE ai_capability_audit

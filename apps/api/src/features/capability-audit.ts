@@ -54,14 +54,15 @@ export async function recordCapabilityAudit(
     before?: unknown;
     after?: unknown;
     undoable?: boolean;
+    autoApproved?: boolean;
   } = {},
 ) {
   const item = target(proposal);
   const id = randomUUID();
   await tx.query(
     `INSERT INTO ai_capability_audit
-      (id,owner_id,agent_id,turn_id,capability,action,target_kind,target_id,decision,reason,operation_id,before,after,undoable,tool)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14,$15)`,
+      (id,owner_id,agent_id,turn_id,capability,action,target_kind,target_id,decision,reason,operation_id,before,after,undoable,tool,auto_approved)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14,$15,$16)`,
     [
       id,
       owner,
@@ -78,6 +79,7 @@ export async function recordCapabilityAudit(
       options.after === undefined ? null : JSON.stringify(options.after),
       options.undoable ?? false,
       options.tool ?? null,
+      options.autoApproved ?? false,
     ],
   );
   return id;

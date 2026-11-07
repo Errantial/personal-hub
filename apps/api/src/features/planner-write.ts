@@ -17,7 +17,11 @@ export async function plannedWrite(
   database: Database,
   owner: string,
   request: PlannedRequest,
-  audit?: { turnId: string; agentId?: string | undefined },
+  audit?: {
+    turnId: string;
+    agentId?: string | undefined;
+    autoApproved?: boolean;
+  },
 ): Promise<{ id: string; version: number }> {
   if (request.path === '/internal/ai/capability') {
     if (!audit) throw new Error('Capability execution needs a turn.');
@@ -29,6 +33,7 @@ export async function plannedWrite(
       request.body.arguments,
       String(request.body.operationId),
       audit.agentId,
+      audit.autoApproved ?? false,
     );
   }
   if (request.path === '/internal/ai/capability/undo') {

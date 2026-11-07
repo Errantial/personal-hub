@@ -81,6 +81,13 @@ export function agentPrompt(
  * `not_allowed`). A conflict fails that item only. Email is never sent:
  * Assistant proposals cannot contain email.
  */
+/** Approval tier; Level 3 is never auto-applied. */
+export function proposalTier(proposal: AssistantProposal) {
+  if (proposal.kind === 'capability') return proposal.tier;
+  if (proposal.kind === 'reminder.cancel') return 2;
+  return 1;
+}
+
 /** Owner policy for one proposal; destructive reminder cancels never auto-apply. */
 export function proposalPolicyMode(
   proposal: AssistantProposal,
@@ -92,7 +99,7 @@ export function proposalPolicyMode(
   },
 ) {
   if (proposal.kind === 'capability') {
-    if (proposal.tier >= 3) return 'blocked';
+    if (proposal.tier >= 3) return 'approval-required';
     if (proposal.tier >= 2) return 'approval-required';
     return policy.capabilities;
   }
@@ -167,7 +174,7 @@ async function applyInTransaction(
     'SELECT owner_id FROM ai_action_policies WHERE owner_id=$1 FOR SHARE',
     [owner],
   );
-  const { policy } = await readAIActionPolicy(database, owner);
+  const { policy, autoApprove } = await readAIActionPolicy(database, owner);
   const counts: RunCounts = {
     applied: 0,
     proposed: 0,
@@ -242,7 +249,12 @@ async function applyInTransaction(
       continue;
     }
     const requestedMode = proposalPolicyMode(proposal, policy);
-    if (requestedMode === 'blocked') {
+    const autoApproved =
+      autoApprove === true &&
+      proposalTier(proposal) <= 2 &&
+      requestedMode === 'approval-required';
+    const mode = autoApproved ? 'automatic' : requestedMode;
+    if (mode === 'blocked') {
       await recordCapabilityAudit(
         database,
         owner,
@@ -255,7 +267,7 @@ async function applyInTransaction(
       continue;
     }
     proposals.push(proposal);
-    if (requestedMode === 'approval-required') {
+    if (mode === 'approval-required') {
       await recordCapabilityAudit(
         database,
         owner,
@@ -278,6 +290,7 @@ async function applyInTransaction(
         item,
         verified,
         agentId,
+        autoApproved,
       );
       counts.applied++;
       items.push({ ...item, state: 'applied', applied, error: null });

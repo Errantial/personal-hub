@@ -124,6 +124,7 @@ export async function executeCapability(
   raw: unknown,
   operationId: string,
   agentId?: string,
+  autoApproved = false,
 ) {
   const definition = capabilityDefinitions[capability];
   if (!definition)
@@ -231,6 +232,7 @@ export async function executeCapability(
         undoable: true,
         reason: summary,
         tool: capability,
+        autoApproved,
       },
     );
   });

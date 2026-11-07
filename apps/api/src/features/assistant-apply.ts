@@ -32,6 +32,7 @@ export async function applySavedProposal(
   item: AssistantItem,
   verified?: VerifiedTurnOrigin,
   agentId?: string,
+  autoApproved = false,
 ) {
   return transactionDatabase(tx).transaction(async (inner) => {
     await lockSchedule(inner, owner);
@@ -71,11 +72,12 @@ export async function applySavedProposal(
       transactionDatabase(inner),
       owner,
       applyRequest(proposal, item.applyId),
-      { turnId, agentId: agentId ?? undefined },
+      { turnId, agentId: agentId ?? undefined, autoApproved },
     );
     if (proposal.kind !== 'capability')
       await recordCapabilityAudit(inner, owner, turnId, proposal, 'applied', {
         agentId,
+        autoApproved,
       });
     if (proposal.kind.startsWith('task.') || proposal.kind.startsWith('event.'))
       await retainPlannerOrigin(
