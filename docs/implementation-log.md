@@ -554,3 +554,15 @@ Validation: 20/20 offline browser tests (four new cases: task, work and event re
 Built a fresh signed release from `main` at `80af475` on the Windows desktop with the temporary test key (version `0.1.0+80af475`, code 252). `apksigner` verified V2 with the expected test certificate digest. The packaged manifest has `android:allowBackup="false"` and `android:usesCleartextTraffic="false"`; the bundled assets contain the production origin `https://hub.ecg.name` and no `127.0.0.1:3011` test origin. SHA-256: `3c4b21bbb8c1a99aebe97531732845154625df50a61d07e82fb64ec185de70f7`.
 
 This is a pipeline, manifest and packaged-asset audit only. The APK is test-signed and must not ship or be installed over a release build. The production keystore, production-signed APK, Kompakt install and the week of daily use remain owner gates.
+
+## 2026-11-07 - Production signing and Android origin allowlist
+
+Generated the production keystore on the Windows build host at `C:\Users\Emil\.personal-hub-signing\personal-hub-release.jks` (alias `personal-hub`, RSA 4096, validity 10000 days). The generated password lives only in the sibling `personal-hub-release.password`; the directory and files are ACL-restricted to Emil and SYSTEM. The backup is `/mnt/data/secrets/personal-hub-signing/` on server1 (directory 0700, files 0600), and `keytool` read it back with the same certificate. Certificate SHA-256: `F9:F1:69:37:1A:E0:E7:FA:D1:3B:0A:99:B3:10:BE:54:FC:28:94:01:00:C8:91:1F:BC:51:8D:C3:10:92:53:E7`.
+
+Built the production-signed APK from clean `main` at `f433b9c`: `personal-hub-0.1.0+f433b9c.apk`, version code 254, V2 signature, production origin `https://hub.ecg.name`, no test origin, `allowBackup=false`, `usesCleartextTraffic=false`. SHA-256: `d5d14945d4d0306533018ca8d76efef26e3161ca53f106fddf741818122ad127`. The APK is also copied to `.artifacts/android/` in the checkout.
+
+Production `WEB_ORIGINS` now allows `https://localhost` beside `https://hub.ecg.name`. The pre-change env was backed up under `/var/backups/personal-hub/` and `/root/` (root-only, mode 0600), the service restarted cleanly, `/api/ready` and the public site returned 200, a POST with the allowed origin returned the normal credential error, and a random origin returned 403 `ORIGIN_REJECTED`.
+
+Deploying current `main` to production was **not** performed. The live release is `551167bdc91b1ede7ae9f24e6fb14eb8c473d45f` (directory dated 2026-10-31), which is not on GitHub `main` or any remote ref and contains migrations 073-076 plus tracked-deadline, responsibility-inbox and mail-broker-setting code absent from `main`. `main` stops at migration 072. Deploying it would remove live features and fail the applied-migration preflight. Production remains on `551167b`; the missing release must be reconciled into `main` before a normal deploy.
+
+The APK was not smoke-tested on the emulator: the last headless AVD run ended in a System UI ANR, and a production sign-in needs the owner's credentials. Installation and sign-in on the Kompakt remain owner steps.
