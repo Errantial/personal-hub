@@ -2,7 +2,17 @@
 
 Deployed 2026-10-13 at https://hub.ecg.name from application commit `265a99d`. Updated the same day to `main` at `4491762` (Assistant, Mail ingestion, verified mail context; migrations through 048) after a verified backup/restore check; release `265a99d` is kept for rollback. The inspected host is Oracle Linux 9.7 / ARM64, with two CPUs, 10 GiB RAM and a 30 GiB root filesystem. The existing Java service was preserved. The server has a fresh database; development records have not been transferred. Planner JSON exports are not supported imports.
 
+## Production state (2026-11-07)
+
+The live symlink `/srv/personal-hub/current` points to `releases/551167b`. Its `release-manifest.json` records commit `551167bdc91b1ede7ae9f24e6fb14eb8c473d45f` and tree `54b57b5f82e8c3e2c86bc1f895d5cd237c36bdb0` (release directory dated 2026-10-31). That commit is not present on GitHub `main` or in any fetched remote ref. The release contains migrations `073_task_due_times` through `076_mail_broker_settings`, and the live database has 76 applied migrations; `main` stops at migration 072 and lacks the release's tracked-deadline, responsibility-inbox and mail-broker-setting code.
+
+Do **not** deploy current `main` over `551167b`. It would remove production features and the staged preflight correctly rejects a release that omits applied migrations. Reconcile the missing production source into `main` first, then use the staged-release process below. This is a source/ownership blocker, not a database or service fault.
+
+On 2026-11-07 the production origin allowlist was extended for the Android shell. `/etc/personal-hub/hub.env` was backed up to `/var/backups/personal-hub/hub.env.pre-localhost-20261107T022506Z` and `/root/hub.env.pre-localhost-20261107T022506Z` (root-only, mode 0600), then `WEB_ORIGINS` was set to `https://hub.ecg.name,https://localhost`. `personal-hub` restarted with `NRestarts=0`, `/api/ready` returned ready, the public site returned 200, a POST with `Origin: https://localhost` returned the normal `INVALID_CREDENTIALS` response, and the same POST with a random origin returned 403 `ORIGIN_REJECTED`.
+
 ## Current release (2026-10-17)
+
+This section is historical; the live release is `551167b` as recorded above.
 
 Release `431cd8d` (merge commit `431cd8d57def75f8e17765e6c45e1e713d795acb`, tree `e1a1ce64f1c1079a83cb64f1ac1996dbb66907ec`, migrations through 072) is live. The sealed archive SHA-256 was `EE7E5D178718B06104755F6D6A01B00B5D50EB7CD9DE67118972516DF1B5F17E`. A fresh backup and isolated restore (`20261017T200421Z`) passed before activation; the staged artifact, exact manifest identity, applied-migration compatibility, service-user imports and static readability passed preflight. A disposable restored database upgraded through migration 072 and the prior live binary `5c219a6` still passed basic readiness/auth checks against that upgraded copy; rollback remains manual/reviewed rather than automatic. After activation the API and Caddy were active with zero API restarts, `/api/ready` returned ready, public `index.html` and `sw.js` hashes matched the staged build, unauthenticated agent access returned 401, and both agent/reminder worker heartbeats were current. The previous release is retained and no owner database was reset or restored.
 

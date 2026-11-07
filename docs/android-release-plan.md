@@ -10,13 +10,14 @@ Status: proposal approved by the owner on 2026-11-02 (decision D58). Nothing in 
 - Reminders alert on the device while the app is closed and after a reboot.
 - About a week of daily use on the Kompakt before the release is called done.
 
-## Current state (2026-11-06)
+## Current state (2026-11-07)
 
 - Done: bundled UI, native cookie session, task outbox, cached viewing of any GET response loaded at least once (calendar, class and reminder screens included), Back gesture handling, `adjustResize` keyboard behavior, blank-launch recovery, immediate e-ink persistence, and hiding the bottom bar above the soft keyboard. Emulator QA passed (PR #59), and the Kompakt baseline passed the final hardware re-test on `da36089`.
-- Signing path: git-derived versions, the version shown in Settings › Account, environment-only release signing, `apksigner` verification and a SHA-256 file are implemented. Verified 2026-11-04 with a temporary test key (v1 code 224 → v2 code 225, same certificate, install/update on the Android 15 emulator). The production keystore and its signed release APK are still missing; the test key must not ship.
+- Signing path: git-derived versions, the version shown in Settings › Account, environment-only release signing, `apksigner` verification and a SHA-256 file are implemented. The production keystore was created 2026-11-07 (RSA 4096, alias `personal-hub`, certificate SHA-256 `F9:F1:69:37:1A:E0:E7:FA:D1:3B:0A:99:B3:10:BE:54:FC:28:94:01:00:C8:91:1F:BC:51:8D:C3:10:92:53:E7`) and backed up outside the repository. The production-signed APK is `0.1.0+f433b9c` (code 254), SHA-256 `d5d14945d4d0306533018ca8d76efef26e3161ca53f106fddf741818122ad127`.
 - Offline edits: classes, topics, reminders, calendar series, per-occurrence overrides/deletes, individual and selected academic work, Undo restore and cached Recently deleted pages are done (2026-11-04 to 2026-11-06: queued create/edit/delete, reminder controls, event and occurrence projection, batch projection and retained conflicts).
 - Native reminders: implemented 2026-11-04 with `@capacitor/local-notifications` 8.3.1. Emulator checks passed for scheduling, the permission and exact-alarm states, and delivery with the app process killed and the screen off. Reboot survival and Mudita power modes remain hardware checks.
-- Missing: Kompakt evidence for native alarms (reboot and power modes), production HTTPS and the `https://localhost` origin allowlist, and about a week of daily use.
+- Production: `https://localhost` is now allowed beside `https://hub.ecg.name`; a live POST with that origin returned the normal credential error and a random origin returned 403. Deploying current `main` is blocked because production is running a newer unmerged release (`551167b`, migrations through 076) while `main` stops at migration 072; see [the deployment note](../deploy/oracle-linux/README.md#production-state-2026-11-07).
+- Missing: Kompakt evidence for native alarms (reboot and power modes), the week of daily use, and reconciliation of the newer production release before `main` can be redeployed.
 
 ## Phases
 
@@ -34,8 +35,9 @@ The two hardware findings from the first pass have mitigations that passed the f
 
 - Keep the release keystore outside the repository, with an offline backup. Every update must be signed with the same key. A different key forces an uninstall, which deletes queued offline edits.
 - Done 2026-11-04: `versionCode` and `versionName` come from git, and the version is shown in Settings › Account.
-- Signing code done 2026-11-04: `npm run android:build -- --release` signs from environment variables, verifies with `apksigner` and writes a checksum. The pipeline was exercised with a temporary test key: release v1 (code 224) installed, then v2 (code 225) installed over it with the same certificate. A production keystore and signed release APK are still missing.
-- Production: deploy current `main` and add `https://localhost` to `WEB_ORIGINS`.
+- Signing code done 2026-11-04: `npm run android:build -- --release` signs from environment variables, verifies with `apksigner` and writes a checksum. The pipeline was exercised with a temporary test key: release v1 (code 224) installed, then v2 (code 225) installed over it with the same certificate.
+- Done 2026-11-07: production keystore generated on the Windows build host and backed up to server1; production-signed APK `0.1.0+f433b9c` (code 254) built from clean `main`, V2 verified, manifest audited and SHA-256 written. Install on the Kompakt remains.
+- Production allowlist done 2026-11-07: `WEB_ORIGINS=https://hub.ecg.name,https://localhost`, env backed up, service restarted, site ready, allowed origin accepted and a random origin rejected. Deploying current `main` is blocked by the production/main divergence recorded in [the deployment note](../deploy/oracle-linux/README.md#production-state-2026-11-07).
 
 ### 3. Offline calendar, class and reminder edits
 

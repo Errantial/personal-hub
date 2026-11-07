@@ -25,7 +25,9 @@ Every build gets `versionCode` = the commit count of `HEAD` and `versionName` = 
 - `HUB_ANDROID_KEYSTORE_PASSWORD` and `HUB_ANDROID_KEY_ALIAS`.
 - `HUB_ANDROID_KEY_PASSWORD`: only if it differs from the keystore password.
 
-Create the key once with `keytool -genkeypair -v -keystore <path> -alias personal-hub -keyalg RSA -keysize 4096 -validity 10000`. Every later release must use the same key. A different key forces an uninstall, which deletes queued offline changes. Never commit or log the keystore or its passwords.
+The production key was created 2026-11-07 on the Windows build host: `C:\Users\Emil\.personal-hub-signing\personal-hub-release.jks`, alias `personal-hub`, RSA 4096, validity 10000 days. Its password is in the sibling `personal-hub-release.password`; the directory and both files are ACL-restricted to Emil and SYSTEM. The offline backup is `/mnt/data/secrets/personal-hub-signing/` on server1 (directory 0700, files 0600). Every later release must use the same key. A different key forces an uninstall, which deletes queued offline changes. Never commit or log the keystore or its passwords.
+
+Certificate SHA-256 fingerprint: `F9:F1:69:37:1A:E0:E7:FA:D1:3B:0A:99:B3:10:BE:54:FC:28:94:01:00:C8:91:1F:BC:51:8D:C3:10:92:53:E7`.
 
 Release builds reject the test connection flag and disable cleartext traffic. Debug builds use the machine's development key and a distinct application ID, `dev.personalhub.app.debug`.
 
