@@ -84,7 +84,7 @@ export async function applySavedProposal(
     );
     if (proposal.kind !== 'capability') {
       const before = 'target' in proposal ? proposal.target : null;
-      let after: unknown = null;
+      let after: unknown;
       try {
         if (proposal.kind.startsWith('task.')) {
           const [row] = await inner.query(
