@@ -10,6 +10,8 @@ export const aiActionPolicySchema = z.strictObject({
   calendar: aiActionModeSchema,
   /** Reminder create/update/cancel. Cancel still always asks first. */
   reminders: aiActionModeSchema.default('approval-required'),
+  /** Tier-1 general capabilities such as preference updates. */
+  capabilities: aiActionModeSchema.default('approval-required'),
   email: z.literal('approval-required'),
 });
 /** For owners who never saved action settings (D57: tasks ask first). */
@@ -17,6 +19,7 @@ export const defaultAIActionPolicy = aiActionPolicySchema.parse({
   tasks: 'approval-required',
   calendar: 'automatic',
   reminders: 'approval-required',
+  capabilities: 'approval-required',
   email: 'approval-required',
 });
 export const aiActionSettingsSchema = z.object({

@@ -84,8 +84,18 @@ export function agentPrompt(
 /** Owner policy for one proposal; destructive reminder cancels never auto-apply. */
 export function proposalPolicyMode(
   proposal: AssistantProposal,
-  policy: { tasks: string; calendar: string; reminders: string },
+  policy: {
+    tasks: string;
+    calendar: string;
+    reminders: string;
+    capabilities: string;
+  },
 ) {
+  if (proposal.kind === 'capability') {
+    if (proposal.tier >= 3) return 'blocked';
+    if (proposal.tier >= 2) return 'approval-required';
+    return policy.capabilities;
+  }
   if (proposal.kind.startsWith('task.')) return policy.tasks;
   if (proposal.kind.startsWith('event.')) return policy.calendar;
   if (proposal.kind === 'reminder.cancel') return 'approval-required';
@@ -191,6 +201,7 @@ async function applyInTransaction(
           database,
           owner,
           applyRequest(proposal, item.applyId),
+          { turnId: turn.id, agentId: agentId ?? undefined },
         );
         await recordCapabilityAudit(
           database,

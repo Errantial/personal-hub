@@ -87,6 +87,7 @@ it('exposes confirmed calendar authority with ask-first task defaults without en
       tasks: 'approval-required',
       calendar: 'automatic',
       reminders: 'approval-required',
+      capabilities: 'approval-required',
       email: 'approval-required',
     },
   });
@@ -177,6 +178,7 @@ it('keeps read-only and unverified targets blocked even when all category permis
     tasks: 'automatic',
     calendar: 'automatic',
     reminders: 'automatic',
+    capabilities: 'automatic',
     email: 'approval-required',
   };
   expect((await save(change(policy))).statusCode).toBe(200);
@@ -297,6 +299,7 @@ it('serializes competing policy writes without affecting manual planner permissi
             tasks: 'blocked',
             calendar: 'blocked',
             reminders: 'blocked',
+            capabilities: 'blocked',
             email: 'approval-required',
           },
           setting.version,
@@ -412,9 +415,11 @@ it('applies the additive migration to populated storage and enforces policy shap
     'SELECT * FROM mutation_receipts WHERE owner_id=$1',
     [owner],
   );
-  await db.exec('DROP TABLE ai_action_policies');
+  await db.exec(
+    'DROP TABLE ai_capability_audit; DROP TABLE ai_action_policies',
+  );
   await db.query(
-    "DELETE FROM schema_migrations WHERE name IN ('030_ai_action_policies.sql','077_ai_capability_audit.sql')",
+    "DELETE FROM schema_migrations WHERE name IN ('030_ai_action_policies.sql','077_ai_capability_audit.sql','078_agent_capability_undo.sql')",
   );
   await migrate(db);
   expect((await get(`/api/v1/tasks/${task.id}`)).json().task).toEqual(task);

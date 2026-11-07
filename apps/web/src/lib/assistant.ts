@@ -104,6 +104,8 @@ export function describeProposal(
     }
     case 'reminder.cancel':
       return `Cancel reminder “${proposal.target.title}”`;
+    case 'capability':
+      return proposal.summary;
   }
 }
 /** End dates are exclusive; show the last day. */

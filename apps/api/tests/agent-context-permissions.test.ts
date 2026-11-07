@@ -15,6 +15,8 @@ import { reminderColumns } from '../src/features/reminders.js';
 import { runReminderBatch } from '../src/features/reminders.js';
 import { proposalPolicyMode } from '../src/features/agent-run.js';
 import { recordCapabilityAudit } from '../src/features/capability-audit.js';
+import { executeCapability, undoCapability } from '../src/ai/capabilities.js';
+import { readStudyPreferences } from '../src/features/study-engine.js';
 
 async function seedTask(
   h: Awaited<ReturnType<typeof startHarness>>,
@@ -27,6 +29,40 @@ async function seedTask(
   });
   expect(reply.statusCode).toBe(200);
   return reply.json().task as { id: string; title: string; version: number };
+}
+
+async function seedTurn(h: Awaited<ReturnType<typeof startHarness>>) {
+  const conversationId = randomUUID();
+  const turnId = randomUUID();
+  const reservation = randomUUID();
+  await h.database.query(
+    'INSERT INTO ai_conversations(id,owner_id,title) VALUES($1,$2,$3)',
+    [conversationId, h.owner, 'Capability test'],
+  );
+  await h.database.query(
+    `INSERT INTO ai_budget_reservations
+      (id,owner_id,request_id,request_hash,month,provider,model,policy_version,reserved_micros,actual_micros,status)
+     VALUES($1,$2,$3,$4,'2026-11-01','synthetic','synthetic/model',1,1000,0,'released')`,
+    [reservation, h.owner, turnId, 'h'.repeat(64)],
+  );
+  await h.database.query(
+    `INSERT INTO ai_assistant_requests
+      (id,owner_id,operation_id,request_hash,model,reservation_id,status,cost_micros)
+     VALUES($1,$2,$3,$4,'synthetic/model',$5,'completed',0)`,
+    [turnId, h.owner, randomUUID(), 'h'.repeat(64), reservation],
+  );
+  await h.database.query(
+    `INSERT INTO ai_conversation_turns
+      (id,owner_id,conversation_id,position,ask,reply,inference_history,inference_digest,inference_sources)
+     VALUES($1,$2,$3,0,'Test','Done','bound',$4,'[]'::jsonb)`,
+    [
+      turnId,
+      h.owner,
+      conversationId,
+      turnDigest(h.owner, turnId, 'Test', 'Done'),
+    ],
+  );
+  return turnId;
 }
 
 describe('agent context and reminder permissions', () => {
@@ -128,6 +164,7 @@ describe('agent context and reminder permissions', () => {
       tasks: 'automatic',
       calendar: 'automatic',
       reminders: 'automatic',
+      capabilities: 'automatic',
     };
     expect(
       proposalPolicyMode(assistantProposalSchema.parse(create), policy),
@@ -250,6 +287,72 @@ describe('agent context and reminder permissions', () => {
     const context = await assistantContext(h.database, h.owner, 'UTC');
     expect(context.tasks.length).toBeLessThanOrEqual(60);
     expect(context.trimmed).toBeGreaterThanOrEqual(10);
+    await h.app.close();
+  });
+
+  it('executes and undoes permissioned capabilities with owner scoping and audit snapshots', async () => {
+    const h = await startHarness();
+    const turnId = await seedTurn(h);
+    const task = await seedTask(h, 'Capability delete task');
+    const deleted = await executeCapability(
+      h.database,
+      h.owner,
+      turnId,
+      'task.delete',
+      { id: task.id, expectedVersion: 1 },
+      randomUUID(),
+    );
+    const [tombstone] = await h.database.query(
+      'SELECT deleted_at AS "deletedAt" FROM tasks WHERE id=$1',
+      [task.id],
+    );
+    expect(tombstone!.deletedAt).not.toBeNull();
+    const [audit] = await h.database.query(
+      'SELECT capability,decision,undoable,before,after FROM ai_capability_audit WHERE id=$1',
+      [deleted.id],
+    );
+    expect(audit).toMatchObject({
+      capability: 'general',
+      decision: 'applied',
+      undoable: true,
+    });
+    const beforeSnapshot = audit!.before as { id: string };
+    const afterSnapshot = audit!.after as { deletedAt: string | null };
+    expect(beforeSnapshot.id).toBe(task.id);
+    expect(afterSnapshot.deletedAt).not.toBeNull();
+    await undoCapability(h.database, h.owner, deleted.id);
+    const [restored] = await h.database.query(
+      'SELECT deleted_at AS "deletedAt" FROM tasks WHERE id=$1',
+      [task.id],
+    );
+    expect(restored!.deletedAt).toBeNull();
+
+    const before = await readStudyPreferences(h.database, h.owner);
+    const changed = await executeCapability(
+      h.database,
+      h.owner,
+      turnId,
+      'study.preferences.update',
+      { sessionMinutes: 25 },
+      randomUUID(),
+    );
+    const after = await readStudyPreferences(h.database, h.owner);
+    expect(after.sessionMinutes).toBe(25);
+    expect(after.version).toBe(before.version + 1);
+    await undoCapability(h.database, h.owner, changed.id);
+    const undone = await readStudyPreferences(h.database, h.owner);
+    expect(undone.sessionMinutes).toBe(before.sessionMinutes);
+
+    await expect(
+      executeCapability(
+        h.database,
+        h.owner,
+        turnId,
+        'task.delete',
+        { id: randomUUID(), expectedVersion: 1 },
+        randomUUID(),
+      ),
+    ).rejects.toThrow();
     await h.app.close();
   });
 

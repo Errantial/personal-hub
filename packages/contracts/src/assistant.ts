@@ -243,6 +243,13 @@ export const assistantProposalSchema = z.discriminatedUnion('kind', [
     kind: z.literal('reminder.cancel'),
     target: reminderSchema,
   }),
+  z.object({
+    kind: z.literal('capability'),
+    capability: z.string().min(1).max(80),
+    arguments: z.record(z.string(), z.unknown()),
+    summary: z.string().max(500),
+    tier: z.number().int().min(1).max(3),
+  }),
 ]);
 export type AssistantProposal = z.infer<typeof assistantProposalSchema>;
 

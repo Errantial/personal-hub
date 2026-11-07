@@ -54,6 +54,7 @@ import {
   memorySources,
 } from '../ai/live-projections.js';
 import { assistantContext } from '../ai/assistant-context.js';
+import { modelCapabilityProposal, undoCapability } from '../ai/capabilities.js';
 import type {
   AcademicContextItem,
   AcademicProjected,
@@ -89,6 +90,7 @@ import {
 } from './assistant-mail.js';
 import { sealEnvelope } from '../ai/live-envelope.js';
 import { releaseUnsent, transmitLive } from '../ai/live-guard.js';
+import { stamp } from './common.js';
 import type { GuardContext } from '../ai/live-guard.js';
 import { readBoundHistory } from '../ai/live-history.js';
 import { sourceDigest, maxLiveSources } from '../ai/live-manifest.js';
@@ -123,6 +125,7 @@ const instructions = `You are the planning assistant in the owner's personal hub
 Rules:
 - Allowed actions: task.create, task.update, event.create, event.update, reminder.create, reminder.update, reminder.cancel. You cannot delete tasks/events, send email or invite people.
 - reminder.create takes a t ref in ref and a title/start (local wall time). reminder.update and reminder.cancel take an r ref in ref. A cancel is destructive and will always be reviewed by the owner.
+- tools: use capability calls for delete/extended actions. Available: task.delete {ref, expectedVersion}, event.delete {ref, expectedVersion}, study.preferences.update {sessionMinutes?, breakMinutes?, dailyMaximumMinutes?, timeZone?, windows?}. arguments is a JSON object string. A delete always requires owner approval.
 - To change an existing item, use its ref from the context. Never invent refs.
 - Dates are YYYY-MM-DD. Times are local wall-clock YYYY-MM-DDTHH:MM in the owner's time zone. For all-day events set allDay true and give start and end as dates; end is the last day, inclusive.
 - Set every field you are not using to null (clearDueDate to false).
@@ -139,8 +142,20 @@ const nullable = (type: string) => ({
 const outputSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['reply', 'actions', 'studySuggestions'],
+  required: ['reply', 'actions', 'tools', 'studySuggestions'],
   properties: {
+    tools: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['capability', 'arguments'],
+        properties: {
+          capability: { type: 'string' },
+          arguments: { type: 'string' },
+        },
+      },
+    },
     studySuggestions: {
       type: 'array',
       items: {
@@ -231,6 +246,15 @@ const answerSchema = z.object({
   studySuggestions: z.array(z.unknown()).max(1).default([]),
   reply: z.string().max(2000),
   actions: z.array(z.unknown()).max(maxActions),
+  tools: z
+    .array(
+      z.strictObject({
+        capability: z.string().max(80),
+        arguments: z.string().max(5000),
+      }),
+    )
+    .max(maxActions)
+    .default([]),
   mailSearch: z.array(z.string().max(200)).max(maxSearchTerms).optional(),
   read: z.array(z.string().max(10)).max(maxReads).optional(),
 });
@@ -615,9 +639,15 @@ export function readAnswer(
   deadlines: TrackedDeadlineContextItem[] = [],
 ) {
   const answer = answerSchema.parse(JSON.parse(content));
-  const proposals = answer.actions
+  const actionProposals = answer.actions
     .map((action) => toProposal(action, context, timeZone, academic, deadlines))
     .filter((value): value is AssistantProposal => value !== null);
+  const toolProposals = answer.tools
+    .map((tool) =>
+      modelCapabilityProposal(tool.capability, tool.arguments, context),
+    )
+    .filter((value): value is AssistantProposal => value !== null);
+  const proposals = [...actionProposals, ...toolProposals];
   const studySuggestions = answer.studySuggestions.flatMap((raw) => {
     const parsed = z
       .strictObject({
@@ -665,7 +695,8 @@ export function readAnswer(
     reply: answer.reply.trim() || null,
     proposals,
     dropped:
-      answer.actions.length -
+      answer.actions.length +
+      answer.tools.length -
       proposals.length +
       answer.studySuggestions.length -
       studySuggestions.length,
@@ -1260,6 +1291,27 @@ export function registerAssistant(
     return destination(owner.id);
   });
 
+  app.get('/api/v1/ai/capabilities/audit', async (request) => {
+    const owner = await auth.requireUser(request);
+    const rows = await database.query(
+      `SELECT id,capability,tool,action,decision,reason,target_kind AS "targetKind",target_id AS "targetId",
+         undoable,${stamp('created_at', 'createdAt')},${stamp('undone_at', 'undoneAt')}
+       FROM ai_capability_audit WHERE owner_id=$1 ORDER BY created_at DESC,id DESC LIMIT 100`,
+      [owner.id],
+    );
+    return { entries: rows };
+  });
+  app.post('/api/v1/ai/capabilities/undo', async (request) => {
+    const owner = await auth.requireUser(request);
+    const input = z
+      .strictObject({
+        auditId: z.string().uuid(),
+        operationId: z.string().uuid(),
+      })
+      .parse(request.body);
+    await undoCapability(database, owner.id, input.auditId);
+    return { undone: true };
+  });
   app.post('/api/v1/assistant/requests', async (request) => {
     const owner = await auth.requireUser(request);
     const input = assistantRequestInputSchema.parse(request.body);

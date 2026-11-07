@@ -18,40 +18,10 @@ import {
 } from './ai-planner-origin.js';
 import { retainDeadlinePlannerSource } from './deadline-planner-origin.js';
 import { plannedWrite } from './planner-write.js';
+import { transactionDatabase } from '../planner/nested-database.js';
 import { recordCapabilityAudit } from './capability-audit.js';
 
-const sequences = new WeakMap<QueryExecutor, number>();
-const wrapped = new WeakMap<QueryExecutor, Database>();
-
-/** Nested planner receipts, effects and origin retention roll back together. */
-export function transactionDatabase(tx: QueryExecutor): Database {
-  const existing = wrapped.get(tx);
-  if (existing) return existing;
-  const db: Database = {
-    ...tx,
-    async transaction(work) {
-      const next = (sequences.get(tx) ?? 0) + 1;
-      sequences.set(tx, next);
-      const savepoint = `assistant_action_${next}`;
-      await tx.exec(`SAVEPOINT ${savepoint}`);
-      try {
-        const result = await work(tx);
-        await tx.exec(`RELEASE SAVEPOINT ${savepoint}`);
-        return result;
-      } catch (error) {
-        await tx.exec(`ROLLBACK TO SAVEPOINT ${savepoint}`);
-        await tx.exec(`RELEASE SAVEPOINT ${savepoint}`);
-        throw error;
-      }
-    },
-    async close() {
-      throw new Error('Cannot close an active assistant transaction.');
-    },
-  };
-  wrapped.set(tx, db);
-  wrapped.set(db, db);
-  return db;
-}
+export { transactionDatabase } from '../planner/nested-database.js';
 
 /** Only saved proposals reach this helper; new effects require verified origin. */
 export async function applySavedProposal(
@@ -101,10 +71,12 @@ export async function applySavedProposal(
       transactionDatabase(inner),
       owner,
       applyRequest(proposal, item.applyId),
+      { turnId, agentId: agentId ?? undefined },
     );
-    await recordCapabilityAudit(inner, owner, turnId, proposal, 'applied', {
-      agentId,
-    });
+    if (proposal.kind !== 'capability')
+      await recordCapabilityAudit(inner, owner, turnId, proposal, 'applied', {
+        agentId,
+      });
     if (proposal.kind.startsWith('task.') || proposal.kind.startsWith('event.'))
       await retainPlannerOrigin(
         inner,
