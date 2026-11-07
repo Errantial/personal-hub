@@ -218,7 +218,10 @@ function Workspace({
                 </button>
               }
             >
-              <p>Cached views remain available; changes to tasks are queued.</p>
+              <p>
+                Cached views remain available; supported offline changes are
+                queued for sync.
+              </p>
             </Banner>
           )}
           <SyncConflicts state={sync} navigate={navigate} />

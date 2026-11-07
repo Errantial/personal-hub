@@ -20,7 +20,7 @@ const blockers: Record<string, string> = {
   PINNED_MODEL_REQUIRED:
     'The broker profile needs a pinned model before it can judge mail.',
   RETENTION_REQUIRED:
-    'The broker profile needs OpenRouter and upstream retention terms before approval.',
+    'The broker profile needs current retention terms before approval.',
   CONSENT_REQUIRED: 'Approve the broker destination below.',
   QUOTE_REQUIRED:
     'The broker profile needs verified pricing that covers the whole envelope.',
@@ -106,15 +106,18 @@ export function MailBrokerSettings() {
       <ReadState resource={readiness} label="broker status" />
       {state?.destination && (
         <p className="meta">
-          Broker: {state.destination.model} · OpenRouter ·{' '}
-          {state.destination.upstream}
+          Broker: {state.destination.model} ·{' '}
+          {state.destination.adapter === 'openrouter'
+            ? `OpenRouter · ${state.destination.upstream}`
+            : 'TypeSafe · direct'}
         </p>
       )}
       <Help label="Broker endpoint checks">
-        Broker approval is separate from the Assistant destination. The server
+        Broker approval is separate from the Assistant destination. OpenRouter
         checks the pinned endpoint's zero retention, structured outputs and
-        published price before each batch. Configured status does not prove
-        availability or mail quality.
+        price before each batch. Jev uses the configured server API key with a
+        fixed direct transport. Neither classifier falls back to the other.
+        Configured status does not prove mail quality.
       </Help>
       {state &&
         (state.status === 'ready' ? (
@@ -135,7 +138,7 @@ export function MailBrokerSettings() {
           </div>
         ))}
       <ReadState resource={grants} label="mail access" />
-      {state?.destination && <BrokerDestinationApproval onSaved={reload} />}
+      <BrokerDestinationApproval onSaved={reload} />
       <BrokerGrantForm
         target="owner"
         heading="Assistant asks"

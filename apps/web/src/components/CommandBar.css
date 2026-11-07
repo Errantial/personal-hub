@@ -37,6 +37,10 @@
   flex: 1 1 14rem;
   min-width: 0;
 }
+.command-bar__date {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
 .command-bar__field input,
 .command-bar__date input {
   width: 100%;

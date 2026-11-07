@@ -176,6 +176,7 @@ test('Canvas class links survive refreshes and appear as read-only entries in po
   const linkedFeed = (title: string) =>
     feed(title, '20270321T003000Z')
       .replace('browser-canvas-entry', 'linked-browser-entry')
+      .replace('assignments/2', 'assignments/920020')
       .replace(
         'END:VCALENDAR',
         'BEGIN:VEVENT\r\nUID:linked-all-day\r\nDTSTART;VALUE=DATE:20270320\r\nDTEND;VALUE=DATE:20270321\r\nSUMMARY:Canvas all-day browser\r\nEND:VEVENT\r\nEND:VCALENDAR',
@@ -238,13 +239,17 @@ test('Canvas class links survive refreshes and appear as read-only entries in po
   });
   const agenda = calendarDay(page, '2027-03-20');
   const point = agenda.getByRole('article', {
-    name: 'Canvas entry Canvas refreshed deadline',
+    name: 'Imported deadline Canvas refreshed deadline',
     exact: true,
   });
+  // The first read can race the feed import's tracked-deadline projection.
+  await page.getByRole('button', { name: 'Reload calendar' }).click();
+  await expect(point).toBeVisible({ timeout: 15000 });
   await expect(point).toContainText('Deadline');
-  await expect(point).toContainText('Read only');
-  await expect(point).toContainText('Canvas linked browser class');
-  await expect(point.getByRole('button')).toHaveCount(0);
+  await expect(point).toContainText('Personal Hub deadline');
+  await expect(
+    point.getByRole('link', { name: 'Canvas refreshed deadline', exact: true }),
+  ).toHaveAttribute('href', /^\/tasks\/deadline\//);
   await expect(
     agenda.getByText('Canvas all-day browser', { exact: true }),
   ).toBeVisible();
@@ -265,7 +270,12 @@ test('Canvas class links survive refreshes and appear as read-only entries in po
     date: '2027-03-20',
     view: 'Agenda',
   });
-  await expect(point).toBeVisible();
+  const offlinePoint = agenda.getByRole('article', {
+    name: 'Canvas entry Canvas refreshed deadline',
+    exact: true,
+  });
+  await expect(offlinePoint).toBeVisible();
+  await expect(offlinePoint).toContainText('Read only');
   await context.setOffline(false);
 });
 

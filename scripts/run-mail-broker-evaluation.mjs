@@ -65,8 +65,11 @@ export async function runEvaluation({
       kind: 'experiment',
       corpus: prepared.corpus,
       corpusSha256: prepared.corpusSha256,
+      adapter: prepared.adapter,
       model: prepared.model,
       rubric: prepared.rubric,
+      bounds: prepared.bounds,
+      threshold: prepared.threshold,
       maxMicros,
       quote: { ...prepared.quote, ...evaluationQuote },
     });
@@ -134,10 +137,17 @@ export async function runEvaluation({
       });
     }
     const receipt = {
+      adapter: prepared.adapter,
       corpus: prepared.corpus,
       corpusSha256: prepared.corpusSha256,
       model: prepared.model,
       rubric: prepared.rubric,
+      bounds: prepared.bounds,
+      threshold: prepared.threshold,
+      requests: prepared.cases.map(({ caseId, requestSha256 }) => ({
+        caseId,
+        requestSha256,
+      })),
       valid: predictions.length === prepared.cases.length,
       confirmedMicros,
       heldMicros,

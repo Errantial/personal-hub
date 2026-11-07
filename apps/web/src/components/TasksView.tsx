@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { taskResponseSchema, tasksResponseSchema } from '@hub/contracts';
+import {
+  taskResponseSchema,
+  tasksResponseSchema,
+  trackedDeadlineListSchema,
+} from '@hub/contracts';
 import type { Task } from '@hub/contracts';
-import { getSnapshot } from '../lib/api';
+import { getJson, getSnapshot } from '../lib/api';
 import {
   useMutation,
   useOfflineStatus,
@@ -25,6 +29,15 @@ import { ReadState } from './ReadState';
 import { StatusChip } from './StatusChip';
 import { TaskBatchBar } from './TaskBatch';
 import { formatDate } from '../lib/format';
+import {
+  formatTaskDueTime,
+  taskDueDraft,
+  taskDuePayload,
+} from '../lib/task-deadline';
+import type { TaskDueDraft } from '../lib/task-deadline';
+import { TaskDueFields } from './TaskDueFields';
+import { DeadlineEditor } from './DeadlineEditor';
+import { DeadlineList } from './DeadlineList';
 import './TasksView.css';
 
 type TasksRoute = Extract<Route, { name: 'tasks' }>;
@@ -55,6 +68,15 @@ export function TasksView({
   const tasks = useResource(
     (signal) => getSnapshot('/api/v1/tasks', tasksResponseSchema, signal),
     { failure: 'Tasks unavailable. Retry tasks.' },
+  );
+  const deadlines = useResource(
+    (signal) =>
+      getJson(
+        '/api/v1/deadlines?status=all&limit=200',
+        trackedDeadlineListSchema,
+        signal,
+      ),
+    { failure: 'Imported deadlines unavailable. Retry.', key: 'all' },
   );
   const status = useOfflineStatus();
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -226,7 +248,7 @@ export function TasksView({
         </ul>
       </nav>
       <div
-        className={`tasks-layout ${route.id ? 'tasks-layout--editing' : ''}`}
+        className={`tasks-layout ${route.id || route.deadline ? 'tasks-layout--editing' : ''}`}
       >
         <section
           className="panel tasks-list-pane"
@@ -262,6 +284,11 @@ export function TasksView({
             />
           )}
           <ReadState resource={tasks} label="tasks" />
+          <DeadlineList
+            resource={deadlines}
+            route={route}
+            navigate={navigate}
+          />
           {tasks.data && !visible.length && <p>{emptyMessages[filter]}</p>}
           {groups.map((group) => (
             <section
@@ -316,6 +343,15 @@ export function TasksView({
             reload={reload}
             onDelete={deleteTask}
             deleting={remove.pending}
+          />
+        )}
+        {route.deadline && (
+          <DeadlineEditor
+            key={route.deadline}
+            id={route.deadline}
+            listRoute={listRoute}
+            navigate={navigate}
+            onChanged={deadlines.reload}
           />
         )}
       </div>
@@ -408,7 +444,12 @@ function TaskRow({
           {task.title}
         </Link>
         <div className="task-row__meta">
-          {task.dueDate && <span>Due {formatDate(task.dueDate)}</span>}
+          {task.dueDate && (
+            <span>
+              Due {formatDate(task.dueDate)}
+              {formatTaskDueTime(task) ? `, ${formatTaskDueTime(task)}` : ''}
+            </span>
+          )}
           {task.priority === 'high' && (
             <StatusChip tone="attention">High priority</StatusChip>
           )}
@@ -437,26 +478,27 @@ function TaskRow({
   );
 }
 
-type Draft = {
+type Draft = TaskDueDraft & {
   title: string;
   notes: string;
-  dueDate: string;
   priority: Task['priority'];
   sensitivity: Task['sensitivity'];
   completed: boolean;
 };
 const toDraft = (task: Task): Draft => ({
+  ...taskDueDraft(task),
   title: task.title,
   notes: task.notes,
-  dueDate: task.dueDate ?? '',
   priority: task.priority,
   sensitivity: task.sensitivity,
   completed: task.completed,
 });
-const fieldLabels: Record<keyof Draft, string> = {
+const fieldLabels: Record<Exclude<keyof Draft, 'dueOffset'>, string> = {
   title: 'Title',
   notes: 'Notes',
   dueDate: 'Due date',
+  dueTime: 'Due time',
+  dueTimeZone: 'Timezone',
   priority: 'Priority',
   sensitivity: 'Content label',
   completed: 'Completed',
@@ -527,7 +569,7 @@ function TaskEditor({
   const blocked = queuedConflict || deletedElsewhere || changedElsewhere;
   const current = toDraft(server ?? latest ?? ({} as Task));
   const differences = server
-    ? (Object.keys(fieldLabels) as (keyof Draft)[]).filter(
+    ? (Object.keys(fieldLabels) as Exclude<keyof Draft, 'dueOffset'>[]).filter(
         (field) => current[field] !== draft[field],
       )
     : [];
@@ -557,6 +599,15 @@ function TaskEditor({
       title.current?.focus();
       return;
     }
+    let deadline;
+    try {
+      deadline = taskDuePayload(draft);
+    } catch (error) {
+      save.setError(
+        error instanceof Error ? error.message : 'Choose a valid due time.',
+      );
+      return;
+    }
     const result = await save.run(
       taskResponseSchema,
       'PUT',
@@ -564,7 +615,7 @@ function TaskEditor({
       {
         title: draft.title,
         notes: draft.notes,
-        dueDate: draft.dueDate || null,
+        ...deadline,
         priority: draft.priority,
         sensitivity: draft.sensitivity,
         completed: draft.completed,
@@ -664,14 +715,15 @@ function TaskEditor({
             onChange={(event) => update('notes', event.target.value)}
           />
         </label>
-        <label>
-          Due date (optional)
-          <input
-            type="date"
-            value={draft.dueDate}
-            onChange={(event) => update('dueDate', event.target.value)}
-          />
-        </label>
+        <TaskDueFields
+          value={draft}
+          disabled={save.pending}
+          onChange={(deadline) => {
+            setDraft({ ...draft, ...deadline });
+            setMessage('');
+            save.setError('');
+          }}
+        />
         <label>
           Priority
           <select

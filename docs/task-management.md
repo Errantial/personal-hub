@@ -1,6 +1,6 @@
 # Task browsing and selected changes
 
-Backend implemented 2026-10-11. UI integration remains pending. These additive routes use shared `taskBrowseQuerySchema`, `taskBrowseResponseSchema`, `taskBatchRequestSchema` and `taskBatchResponseSchema`. Existing list, detail, single-record writes, deadline agenda, restore, export and offline task edits retain their contracts. No migration or dependency is added.
+The task browse/batch routes were implemented 2026-10-11. Migration 073 extends the shared task record with optional `dueAt` and `dueTimeZone` while retaining `dueDate`; existing IDs, optimistic versions, receipts, tombstones and owner authorization remain unchanged. Tasks, Quick capture and Today now expose the optional owner-created due time. AI planner task creation remains date-only in this release.
 
 ## Browse
 
@@ -14,7 +14,7 @@ GET `/api/v1/tasks/browse` accepts:
 | `limit` | 1-200, default 50 |
 | `after`, `expectedCursorVersion` | Paired UUID and positive version from `nextAfter` |
 
-Only owned undeleted tasks are eligible. Results contain full shared task records, including current embedded academic/Canvas provenance. Order is incomplete first, then completed; each group sorts by deadline ascending, undated last, then UUID ascending. The older `/tasks` list keeps its existing order.
+Only owned undeleted tasks are eligible. Results contain full shared task records, including current embedded academic/Canvas provenance. Order is incomplete first, then completed; each group sorts by `dueDate` ascending, then `dueAt` ascending when present, date-only tasks after timed tasks on the same date, undated last, then UUID ascending. The ordinary `/tasks` list follows the same date/time ordering before its existing creation-time tie break.
 
 `summary: { totalCount, openCount, completedCount }` covers all active tasks matching priority and date-presence filters, independently of status selection and paging. This supports status counts even while browsing only completed tasks. Empty matches return explicit zeros. `totalCount = openCount + completedCount`.
 
@@ -39,11 +39,11 @@ POST `/api/v1/tasks/batch` applies one explicit action to 1-100 distinct active 
 }
 ```
 
-For `kind: update`, provide at least one of `completed` (boolean), `priority` (low/normal/high), or `dueDate` (valid date-only string or null). Omitted fields remain unchanged; null deliberately removes a deadline. The same supplied values apply to every selected task. Successful assignments advance each task version once even when a value already matches, consistent with ordinary PUT behavior.
+For `kind: update`, provide at least one of `completed` (boolean), `priority` (low/normal/high), `dueDate` (valid date-only string or null), or the timing pair `dueAt` + `dueTimeZone`. A non-null timing pair requires `dueDate` in the same change, and the instant must land on that date in the supplied IANA zone. An explicit null timing pair may be sent without `dueDate` to clear only the time. A row whose batch-assigned `dueDate` actually changes clears prior timing unless the batch supplies replacement timing; reapplying the same date and completion/priority-only batches preserve timing. The same supplied values apply to every selected task. Successful assignments advance each task version once even when a value already matches, consistent with ordinary PUT behavior.
 
 For deletion use `action: { "kind": "delete" }`, with no changes object. Deletion preserves normal tombstones and advances each version once. Existing per-task restore operations are available; batch restore/permanent deletion is not implemented. Reminder suppression happens when the existing worker rechecks the target, with the same owner lock as task writes. Reopening/restoring never automatically revives cancelled reminders. Rescheduling a deadline does not reschedule an explicitly scheduled reminder.
 
-Title, notes, sensitivity, creation timestamps, captured/current source relationships and snapshots are preserved. The route accepts no arbitrary fields, source attachment/unlinking or label changes. Task completion does not submit an assignment, change estimated effort/mastery, or alter imported deadlines. Existing inherited labels and AI provenance restrictions remain in force.
+Title, notes, sensitivity, creation timestamps, captured/current source relationships and snapshots are preserved. The route accepts no arbitrary fields, source attachment/unlinking or label changes. Task timing does not create or move a reminder and does not reserve Calendar duration. Task completion does not submit an assignment, change estimated effort/mastery, or alter imported deadlines. Existing inherited labels and AI provenance restrictions remain in force.
 
 All selected records and versions are checked under the shared owner schedule lock before one database update. A missing, foreign or deleted selection returns 404; any stale version returns 409 `VERSION_CONFLICT`. No task or receipt is saved on failure, including a database interruption. Records, source projections and the durable receipt commit together. The response is `{ tasks: [...] }` in input selection order, including deletion tombstones.
 

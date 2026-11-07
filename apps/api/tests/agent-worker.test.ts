@@ -297,6 +297,43 @@ it('finishes a running run after the owner pauses the agent', async () => {
   });
 });
 
+it('rechecks the current action policy at the planner write boundary', async () => {
+  h = await startHarness();
+  const agent = await seedAgent({ daysAgo: -2 });
+  const id = await queueRun(agent);
+  h.state.chat = async () => {
+    const current = (await h.call('GET', '/api/v1/ai/actions')).json();
+    const changed = await h.call('PUT', '/api/v1/ai/actions', {
+      operationId: randomUUID(),
+      expectedVersion: current.version,
+      policy: {
+        tasks: 'blocked',
+        calendar: 'automatic',
+        email: 'approval-required',
+      },
+    });
+    expect(changed.statusCode).toBe(200);
+    return answer('Add a task.', [
+      action({ type: 'task.create', title: 'Must stay blocked' }),
+    ]);
+  };
+  await tick();
+  const finished = await run(id);
+  expect(finished).toMatchObject({ status: 'completed', outcome: 'quiet' });
+  expect((await h.call('GET', '/api/v1/tasks')).json().tasks).toEqual([]);
+  const conversation = (
+    await h.call(
+      'GET',
+      `/api/v1/assistant/conversations/${agent.conversationId}`,
+    )
+  ).json();
+  expect(conversation.turns[0]).toMatchObject({
+    id: finished.turn_id,
+    notAllowed: 1,
+    items: [],
+  });
+});
+
 it('notifies only when a run needs the owner', async () => {
   h = await startHarness();
   const agent = await seedAgent({ daysAgo: -2 });

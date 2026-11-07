@@ -42,7 +42,8 @@
   min-width: 0;
 }
 .tasks-list-pane,
-.task-editor {
+.task-editor,
+.deadline-editor {
   min-width: 0;
 }
 .tasks-view .panel {
@@ -56,6 +57,83 @@
   list-style: none;
   margin: 0;
   padding: 0;
+}
+.deadline-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+  padding: var(--space-3) 0;
+  border-top: var(--border-width) solid var(--border);
+  border-bottom: var(--border-width) solid var(--border);
+}
+.deadline-list__head,
+.deadline-editor__heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.deadline-list__head h3,
+.deadline-editor__heading h2 {
+  margin: 0;
+}
+.deadline-list__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.deadline-list__filters button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--selected-bg);
+  color: var(--selected-text);
+  font-weight: var(--weight-strong);
+}
+.deadline-rows,
+.deadline-source-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.deadline-row {
+  display: grid;
+  grid-template-columns: var(--target) minmax(0, 1fr);
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+.deadline-row input[type='checkbox'] {
+  width: var(--target);
+  height: var(--target);
+  margin: 0;
+}
+.deadline-row__body {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.deadline-row__title {
+  display: flex;
+  align-items: center;
+  min-height: var(--target);
+  font-weight: var(--weight-strong);
+}
+.deadline-row--done .deadline-row__title {
+  text-decoration: line-through;
+}
+.deadline-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  color: var(--text-muted);
+  font-size: var(--text-small);
+}
+.deadline-row[aria-current='true'] {
+  background: var(--selected-bg);
+}
+.deadline-row__error {
+  margin: 0;
 }
 .task-row {
   display: grid;
@@ -118,6 +196,56 @@
 }
 .task-editor .editor-form {
   margin-top: var(--space-4);
+}
+.deadline-editor .editor-form {
+  margin-top: var(--space-4);
+}
+.deadline-editor__boundary {
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--border);
+  background: var(--surface-subtle);
+}
+.deadline-editor__source-status {
+  font-weight: var(--weight-strong);
+}
+.deadline-editor__due-mode {
+  display: grid;
+  gap: var(--space-2);
+}
+.deadline-editor__due-mode label {
+  display: flex;
+  align-items: center;
+  min-height: var(--target);
+  gap: var(--space-2);
+}
+.deadline-editor__due-mode input {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+.deadline-editor__sources {
+  margin-top: var(--space-4);
+}
+.deadline-editor__sources > summary {
+  min-height: var(--target);
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-weight: var(--weight-strong);
+}
+.deadline-source-list {
+  display: grid;
+  gap: var(--space-3);
+}
+.deadline-source-list li {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  overflow-wrap: anywhere;
+}
+.deadline-editor > .link-button,
+.deadline-editor > .text-button {
+  margin-top: var(--space-3);
 }
 .task-editor .editor-form > .checkbox-label {
   display: flex;

@@ -317,11 +317,18 @@ export function TopicForm({
         : 0,
       sensitivity: draft.sensitivity,
     };
+    let topicFields: Omit<typeof fields, 'sensitivity'> | typeof fields =
+      fields;
+    if (topic && draft.sensitivity === topic.sensitivity) {
+      const { sensitivity, ...rest } = fields;
+      void sensitivity;
+      topicFields = rest;
+    }
     const result = await save.run(
       topicResponseSchema,
       topic ? 'PUT' : 'POST',
       topic ? `/api/v1/topics/${topic.id}` : '/api/v1/topics',
-      topic ? { ...fields, expectedVersion: base } : fields,
+      topic ? { ...topicFields, expectedVersion: base } : topicFields,
     );
     if (!result) return;
     await reload();

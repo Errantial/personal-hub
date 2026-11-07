@@ -103,7 +103,7 @@ export type Route =
       section?: ClassSection;
       assistant?: { turnId: string; suggestionId: string };
     }
-  | { name: 'tasks'; id?: string; filter?: TaskFilter }
+  | { name: 'tasks'; id?: string; deadline?: string; filter?: TaskFilter }
   | {
       name: 'calendar';
       date?: string;
@@ -199,7 +199,11 @@ export function parseRoute(pathname: string, search: string): Route {
     const filter = query.get('filter');
     return {
       name,
-      ...(isUuid(detail) ? { id: detail } : {}),
+      ...(detail === 'deadline' && isUuid(extra)
+        ? { deadline: extra }
+        : isUuid(detail)
+          ? { id: detail }
+          : {}),
       ...(isTaskFilter(filter) ? { filter } : {}),
     };
   }
@@ -270,7 +274,13 @@ export function routePath(route: Route): string {
         : ''
     }`;
   if (route.name === 'tasks')
-    return `/tasks${route.id ? `/${route.id}` : ''}${
+    return `/tasks${
+      route.deadline
+        ? `/deadline/${route.deadline}`
+        : route.id
+          ? `/${route.id}`
+          : ''
+    }${
       route.filter && route.filter !== 'open' ? `?filter=${route.filter}` : ''
     }`;
   if (route.name === 'classes')

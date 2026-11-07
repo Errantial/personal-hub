@@ -38,8 +38,13 @@ export async function readTaskAgenda(
   const selected = `${eligible} AND ($4::text='all' OR (${bucket})=$4)`;
   const anchor = input.after
     ? (
-        await tx.query<{ id: string; version: number; dueDate: string | null }>(
-          `SELECT id,version,to_char(due_date,'YYYY-MM-DD') AS "dueDate" FROM tasks WHERE ${selected} AND id=$5`,
+        await tx.query<{
+          id: string;
+          version: number;
+          dueDate: string | null;
+          dueAt: string | null;
+        }>(
+          `SELECT id,version,to_char(due_date,'YYYY-MM-DD') AS "dueDate",to_char(due_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "dueAt" FROM tasks WHERE ${selected} AND id=$5`,
           [...values, input.after],
         )
       )[0]
@@ -54,10 +59,10 @@ export async function readTaskAgenda(
   const summary = await readTaskDeadlineSummary(tx, owner, input);
   const rows = await tx.query(
     `SELECT ${taskColumns},(${bucket}) AS bucket FROM tasks WHERE ${selected}
-     ${anchor ? "AND (COALESCE(due_date,'infinity'::date),id)>(COALESCE($6::date,'infinity'::date),$7::uuid)" : ''}
-     ORDER BY due_date ASC NULLS LAST,id ASC LIMIT $5`,
+     ${anchor ? "AND (COALESCE(due_date,'infinity'::date),COALESCE(due_at,'infinity'::timestamptz),id)>(COALESCE($6::date,'infinity'::date),COALESCE($7::timestamptz,'infinity'::timestamptz),$8::uuid)" : ''}
+     ORDER BY due_date ASC NULLS LAST,due_at ASC NULLS LAST,id ASC LIMIT $5`,
     anchor
-      ? [...values, input.limit + 1, anchor.dueDate, anchor.id]
+      ? [...values, input.limit + 1, anchor.dueDate, anchor.dueAt, anchor.id]
       : [...values, input.limit + 1],
   );
   const last = rows[input.limit - 1];

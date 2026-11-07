@@ -20,6 +20,7 @@ import { readAIPreflights } from './ai-preflight.js';
 import { readAIBudget } from './ai-budget.js';
 import { readBudgetReservations } from '../ai/budget.js';
 import { readAIProviderConsents } from '../ai/provider-policy.js';
+import { readMailBrokerSettings } from '../ai/broker-settings.js';
 import { readAIRequests } from '../ai/requests.js';
 import { exportAISavedAnswers } from '../ai/saved-answers.js';
 import { exportStudy } from './study-engine.js';
@@ -32,6 +33,7 @@ import {
   canvasItemColumns,
   canvasEffectiveSensitivity,
 } from '../connections/canvas.js';
+import { readTrackedDeadlines } from '../connections/canvas-deadlines.js';
 
 export function registerExport(
   app: FastifyInstance,
@@ -118,6 +120,7 @@ export function registerExport(
         ...(await exportCanvasBrowser(tx, owner.id)),
         canvasReconciliations,
         canvasBrowserReconciliations,
+        trackedDeadlines: await readTrackedDeadlines(tx, owner.id, 10000),
         outlookAccessGate: await readOutlookAccessGate(tx, owner.id),
         aiRouting: await readAIRoutingPolicy(tx, owner.id),
         aiActions: await readAIActionPolicy(tx, owner.id),
@@ -128,6 +131,7 @@ export function registerExport(
         aiBudget: await readAIBudget(tx, owner.id),
         aiBudgetReservations: await readBudgetReservations(tx, owner.id),
         aiProviderConsents: await readAIProviderConsents(tx, owner.id),
+        mailBrokerSettings: await readMailBrokerSettings(tx, owner.id),
         aiRequests: await readAIRequests(tx, owner.id),
         aiSavedAnswers: await exportAISavedAnswers(tx, owner.id),
         ...(await exportStudy(tx, owner.id)),

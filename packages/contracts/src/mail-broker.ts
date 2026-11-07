@@ -2,6 +2,21 @@ import { z } from 'zod';
 import { emailConnectorHealthStatusSchema } from './email-ingestion.js';
 
 const uuid = z.string().uuid();
+export const mailBrokerAliasSchema = z.enum(['mail-broker', 'jev-mail']);
+export const mailBrokerSettingsSchema = z.strictObject({
+  version: z.number().int().positive(),
+  selectedAlias: mailBrokerAliasSchema,
+});
+export const mailBrokerSettingsWriteSchema = z.strictObject({
+  operationId: uuid,
+  expectedVersion: z.number().int().positive(),
+  selectedAlias: mailBrokerAliasSchema,
+});
+export const mailBrokerSettingsResponseSchema = z.strictObject({
+  settings: mailBrokerSettingsSchema,
+});
+export type MailBrokerAlias = z.infer<typeof mailBrokerAliasSchema>;
+export type MailBrokerSettings = z.infer<typeof mailBrokerSettingsSchema>;
 const uniqueIds = z
   .array(uuid)
   .min(1)
@@ -95,24 +110,43 @@ export const mailBrokerResultSchema = z.object({
     )
     .max(50),
 });
-export const mailBrokerReadinessSchema = z.object({
-  destination: z
-    .object({
-      alias: z.string(),
-      model: z.string(),
-      router: z.literal('openrouter'),
-      upstream: z.string(),
-    })
-    .nullable()
-    .default(null),
-  endpointStatus: z.literal('unchecked').default('unchecked'),
-  status: z.enum(['ready', 'blocked']),
-  blockers: z.array(z.string()),
-  profileRevision: z.string().nullable(),
-  approvalVersion: z.number().int().positive(),
-  downstream: z.enum(['ready', 'blocked']),
-  dispatchConnectedToAgents: z.boolean(),
-});
+export const mailBrokerDestinationSchema = z.discriminatedUnion('alias', [
+  z.object({
+    alias: z.literal('mail-broker'),
+    adapter: z.literal('openrouter').default('openrouter'),
+    model: z.string(),
+    // Kept for compatibility with the deployed OpenRouter readiness response.
+    router: z.literal('openrouter').default('openrouter'),
+    upstream: z.string().min(1),
+  }),
+  z.object({
+    alias: z.literal('jev-mail'),
+    adapter: z.literal('typesafe'),
+    model: z.string(),
+    upstream: z.null(),
+  }),
+]);
+export const mailBrokerReadinessSchema = z
+  .object({
+    selectorVersion: z.number().int().positive().default(1),
+    selectedAlias: mailBrokerAliasSchema.default('mail-broker'),
+    destination: mailBrokerDestinationSchema.nullable().default(null),
+    endpointStatus: z.literal('unchecked').default('unchecked'),
+    status: z.enum(['ready', 'blocked']),
+    blockers: z.array(z.string()),
+    profileRevision: z.string().nullable(),
+    approvalVersion: z.number().int().positive(),
+    downstream: z.enum(['ready', 'blocked']),
+    dispatchConnectedToAgents: z.boolean(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.destination && value.destination.alias !== value.selectedAlias)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['destination', 'alias'],
+        message: 'Broker destination must match the selected classifier.',
+      });
+  });
 export const mailBrokerGrantsResponseSchema = z.object({
   grants: z.array(mailBrokerGrantSchema),
 });

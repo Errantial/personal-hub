@@ -512,6 +512,14 @@ for (const { theme, width, target } of [
       startsAt: '2028-05-01T00:00:00Z',
       endsAt: '2028-05-02T00:00:00Z',
     });
+    for (const index of [2, 3, 4])
+      await createEvent(page, `Layout all-day ${theme} ${index}`, {
+        allDay: true,
+        startDate: '2028-05-01',
+        endDate: '2028-05-02',
+        startsAt: '2028-05-01T00:00:00Z',
+        endsAt: '2028-05-02T00:00:00Z',
+      });
     // [path, whether Select mode is open with a series deletion pending]
     const paths = [
       ['/calendar?date=2028-05-01&view=agenda', false],
@@ -605,7 +613,12 @@ for (const { theme, width, target } of [
 
 /* Week, Day and Month grids (docs/superpowers/specs/2026-10-14-ui-rework-design.md). */
 
-async function createTask(page: Page, title: string, dueDate: string) {
+async function createTask(
+  page: Page,
+  title: string,
+  dueDate: string,
+  timing?: { dueAt: string; dueTimeZone: string },
+) {
   const reply = await page.request.post('/api/v1/tasks', {
     headers,
     data: {
@@ -616,9 +629,37 @@ async function createTask(page: Page, title: string, dueDate: string) {
       completed: false,
       sensitivity: 'unlabeled',
       operationId: crypto.randomUUID(),
+      ...(timing ?? {}),
     },
   });
   expect(reply.status()).toBe(200);
+  const body = await reply.json();
+  return body.task as { id: string };
+}
+
+async function importCanvasCalendar(page: Page, feed: string) {
+  const reply = await page.request.post('/api/v1/connections/canvas/import', {
+    headers,
+    data: { operationId: crypto.randomUUID(), feed },
+  });
+  expect(reply.status()).toBe(200);
+}
+
+async function trackedDeadlineByProviderId(page: Page, providerId: string) {
+  const reply = await page.request.get(
+    '/api/v1/deadlines?status=all&limit=200',
+  );
+  expect(reply.status()).toBe(200);
+  const deadlines = (await reply.json()).deadlines as Array<{
+    id: string;
+    canonicalKey: string;
+    title: string;
+  }>;
+  const deadline = deadlines.find((item) =>
+    item.canonicalKey.endsWith(`/courses/1/assignments/${providerId}`),
+  );
+  expect(deadline).toBeDefined();
+  return deadline!;
 }
 
 test('the sidebar mini month moves to a date and keeps the view', async ({
@@ -660,6 +701,229 @@ test('the all-day strip shows task due dates, and Show toggles hide a source and
   await expect(
     strip.getByRole('link', { name: new RegExp(title) }),
   ).toBeVisible();
+});
+
+test('timed task deadlines use point markers, stay out of all-day and remain visible in Month', async ({
+  page,
+}) => {
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const timedTitle = `Timed task ${suffix}`;
+  const dateTitle = `Date task ${suffix}`;
+  const timed = await createTask(page, timedTitle, '2029-01-24', {
+    dueAt: '2029-01-24T18:30:00.000Z',
+    dueTimeZone: 'America/Denver',
+  });
+  await createTask(page, dateTitle, '2029-01-24');
+
+  await page.goto('/calendar?date=2029-01-24&view=week');
+  await showCalendar(page, { zone: 'UTC' });
+  const view = calendarRegion(page);
+  const strip = view.getByRole('list', {
+    name: /^All day, Wednesday, January 24/,
+  });
+  const marker = view.getByRole('link', {
+    name: new RegExp(`^Deadline: ${timedTitle}, due 6:30 PM$`),
+  });
+
+  await expect(marker).toBeVisible();
+  await expect(
+    strip.getByRole('link', { name: new RegExp(timedTitle) }),
+  ).toHaveCount(0);
+  await expect(
+    strip.getByRole('link', { name: new RegExp(dateTitle) }),
+  ).toBeVisible();
+
+  const taskToggle = view.getByRole('checkbox', { name: 'Task due dates' });
+  await taskToggle.uncheck();
+  await expect(marker).toHaveCount(0);
+  await expect(
+    strip.getByRole('link', { name: new RegExp(dateTitle) }),
+  ).toHaveCount(0);
+  await taskToggle.check();
+
+  await expect(marker).toBeVisible();
+  await marker.click();
+  await expect(page).toHaveURL(new RegExp(`/tasks/${timed.id}$`));
+
+  await page.goto('/calendar?date=2029-01-24&view=month');
+  await showCalendar(page, { zone: 'UTC' });
+  const cell = calendarRegion(page)
+    .getByRole('cell')
+    .filter({
+      has: page.getByRole('link', {
+        name: 'Wednesday, January 24',
+        exact: true,
+      }),
+    });
+  await expect(
+    cell.getByRole('link', { name: new RegExp(timedTitle) }),
+  ).toBeVisible();
+});
+
+test('tracked Canvas deadlines replace raw duplicates across Calendar views while all-day cells stay bounded', async ({
+  page,
+}) => {
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const timedTitle = `Timed Canvas ${suffix}`;
+  const allDayTitle = `Date-only Canvas ${suffix}`;
+  await importCanvasCalendar(
+    page,
+    `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:timed-${suffix}\r\nDTSTART:20290411T235900Z\r\nDTEND:20290411T235900Z\r\nSUMMARY:${timedTitle}\r\nURL:https://canvas.colorado.edu/courses/1/assignments/991234\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:all-day-${suffix}\r\nDTSTART;VALUE=DATE:20290411\r\nDTEND;VALUE=DATE:20290412\r\nSUMMARY:${allDayTitle}\r\nURL:https://canvas.colorado.edu/courses/1/assignments/991235\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`,
+  );
+  const timedDeadline = await trackedDeadlineByProviderId(page, '991234');
+  const dateDeadline = await trackedDeadlineByProviderId(page, '991235');
+  for (const index of [1, 2, 3])
+    await createTask(page, `Bounded ${index} ${suffix}`, '2029-04-11');
+  for (const index of [1, 2, 3, 4])
+    await createTask(page, `Other day ${index} ${suffix}`, '2029-04-12');
+
+  await page.goto('/calendar?date=2029-04-11&view=week');
+  await showCalendar(page, { zone: 'UTC' });
+  const view = calendarRegion(page);
+  const wednesdayStrip = view.getByRole('list', {
+    name: /^All day, Wednesday, April 11/,
+  });
+  const thursdayStrip = view.getByRole('list', {
+    name: /^All day, Thursday, April 12/,
+  });
+  const marker = view.getByRole('link', {
+    name: new RegExp(`^Deadline: ${timedTitle}, due 11:59 PM$`),
+  });
+
+  await expect(marker).toBeVisible();
+  await expect(marker).toHaveCount(1);
+  await expect(marker).toHaveAttribute(
+    'href',
+    `/tasks/deadline/${timedDeadline.id}`,
+  );
+  await expect(
+    wednesdayStrip.getByRole('link', { name: new RegExp(timedTitle) }),
+  ).toHaveCount(0);
+  const dateChip = wednesdayStrip.getByRole('link', {
+    name: new RegExp(allDayTitle),
+  });
+  await expect(dateChip).toBeVisible();
+  await expect(dateChip).toHaveCount(1);
+  await expect(dateChip).toHaveAttribute(
+    'href',
+    `/tasks/deadline/${dateDeadline.id}`,
+  );
+  await expect(wednesdayStrip.getByRole('listitem')).toHaveCount(3);
+  await expect(thursdayStrip.getByRole('listitem')).toHaveCount(3);
+  const wednesdayMore = view.locator(
+    'button.time-grid__more[aria-controls="calendar-all-day-2029-04-11"]',
+  );
+  const thursdayMore = view.locator(
+    'button.time-grid__more[aria-controls="calendar-all-day-2029-04-12"]',
+  );
+  await expect(wednesdayMore).toHaveText('+1 more');
+  await expect(wednesdayMore).toHaveAttribute(
+    'aria-label',
+    'Show all 4 all-day items for Wednesday, April 11',
+  );
+  await expect(wednesdayMore).toHaveAttribute('aria-expanded', 'false');
+  await expect(thursdayMore).toHaveAttribute('aria-expanded', 'false');
+  expect((await wednesdayMore.boundingBox())!.height).toBeGreaterThanOrEqual(
+    44,
+  );
+
+  const hour = await marker.evaluate(
+    (element) => element.offsetTop / (element.parentElement!.offsetHeight / 24),
+  );
+  expect(hour).toBeCloseTo(23 + 59 / 60, 1);
+
+  await wednesdayMore.focus();
+  await page.keyboard.press('Enter');
+  await expect(wednesdayMore).toHaveAttribute('aria-expanded', 'true');
+  await expect(wednesdayMore).toHaveAttribute(
+    'aria-label',
+    'Show fewer all-day items for Wednesday, April 11',
+  );
+  await expect(wednesdayStrip.getByRole('listitem')).toHaveCount(4);
+  await expect(thursdayMore).toHaveAttribute('aria-expanded', 'false');
+  await expect(thursdayStrip.getByRole('listitem')).toHaveCount(3);
+
+  const taskToggle = view.getByRole('checkbox', { name: 'Task due dates' });
+  await taskToggle.uncheck();
+  await expect(wednesdayStrip.getByRole('listitem')).toHaveCount(1);
+  await expect(thursdayStrip.getByRole('listitem')).toHaveCount(0);
+  await expect(wednesdayMore).toHaveCount(0);
+  await expect(thursdayMore).toHaveCount(0);
+  await taskToggle.check();
+
+  await page.goto('/calendar?date=2029-04-11&view=month');
+  await showCalendar(page, { zone: 'UTC' });
+  const month = calendarRegion(page);
+  await month.getByRole('checkbox', { name: 'Task due dates' }).uncheck();
+  const cell = month.getByRole('cell').filter({
+    has: page.getByRole('link', {
+      name: 'Wednesday, April 11',
+      exact: true,
+    }),
+  });
+  const monthTimed = cell.getByRole('link', { name: new RegExp(timedTitle) });
+  const monthDate = cell.getByRole('link', { name: new RegExp(allDayTitle) });
+  await expect(monthTimed).toHaveCount(1);
+  await expect(monthDate).toHaveCount(1);
+  await expect(monthTimed).toHaveAttribute(
+    'href',
+    `/tasks/deadline/${timedDeadline.id}`,
+  );
+
+  await page.goto('/calendar?date=2029-04-11&view=agenda');
+  await showCalendar(page, { zone: 'UTC' });
+  const agendaDay = calendarDay(page, '2029-04-11');
+  const agendaTimed = agendaDay.getByRole('link', {
+    name: timedTitle,
+    exact: true,
+  });
+  const agendaDate = agendaDay.getByRole('link', {
+    name: allDayTitle,
+    exact: true,
+  });
+  await expect(agendaTimed).toHaveCount(1);
+  await expect(agendaDate).toHaveCount(1);
+  await expect(agendaTimed).toHaveAttribute(
+    'href',
+    `/tasks/deadline/${timedDeadline.id}`,
+  );
+  await expect(agendaDay.getByText('Deadline · 11:59 PM')).toBeVisible();
+
+  // Expansion remains in normal flow and does not cover hour-grid hit targets.
+  await page.goto('/calendar?date=2029-04-11&view=week');
+  await showCalendar(page, { zone: 'UTC' });
+  await view
+    .getByRole('button', { name: 'New event Wed 1 PM', exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/calendar\/new\?.*start=2029-04-11T13%3A00/);
+});
+
+test('unsupported Canvas calendar entries remain raw when no tracked identity exists', async ({
+  page,
+}) => {
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const title = `Unsupported Canvas ${suffix}`;
+  const sourceUrl =
+    'https://canvas.colorado.edu/courses/1/calendar_events/991236';
+  await importCanvasCalendar(
+    page,
+    `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:unsupported-${suffix}\r\nDTSTART:20290412T140000Z\r\nDTEND:20290412T140000Z\r\nSUMMARY:${title}\r\nURL:${sourceUrl}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`,
+  );
+  const tracked = (
+    await (
+      await page.request.get('/api/v1/deadlines?status=all&limit=200')
+    ).json()
+  ).deadlines as Array<{ title: string }>;
+  expect(tracked.some((deadline) => deadline.title === title)).toBe(false);
+
+  await page.goto('/calendar?date=2029-04-12&view=week');
+  await showCalendar(page, { zone: 'UTC' });
+  const marker = calendarRegion(page).getByRole('link', {
+    name: new RegExp(`^Deadline: ${title}, due 2:00 PM$`),
+  });
+  await expect(marker).toHaveCount(1);
+  await expect(marker).toHaveAttribute('href', sourceUrl);
+  await expect(marker).toHaveAttribute('target', '_blank');
 });
 
 test('below 1024 px the sidebar is behind a Calendars button', async ({

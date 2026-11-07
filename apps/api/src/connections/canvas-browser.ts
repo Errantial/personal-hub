@@ -23,6 +23,10 @@ import type { Database, QueryExecutor } from '../db/database.js';
 import { ApiError } from '../errors.js';
 import { active, stamp, strongest, version } from '../features/common.js';
 import { mutate } from '../planner/mutations.js';
+import {
+  materializeCanvasDeadlineFromBrowserItem,
+  refreshTrackedDeadlineLabelFloor,
+} from './canvas-deadlines.js';
 
 export const canvasBrowserCollectorPathPrefix =
   '/api/v1/canvas/browser/collector/';
@@ -265,6 +269,7 @@ export function registerCanvasBrowser(
             'VERSION_CONFLICT',
             'Reload Canvas browser settings.',
           );
+        await refreshTrackedDeadlineLabelFloor(tx, owner.id);
         return { version: row.version };
       },
     );
@@ -388,6 +393,7 @@ export function registerCanvasBrowser(
             input.sensitivity,
           ],
         );
+        await refreshTrackedDeadlineLabelFloor(tx, owner.id);
         return { id };
       },
     );
@@ -428,6 +434,8 @@ export function registerCanvasBrowser(
            WHERE owner_id=$1 AND id=$2`,
           [owner.id, id, input.notes, input.sensitivity],
         );
+        await materializeCanvasDeadlineFromBrowserItem(tx, owner.id, id);
+        await refreshTrackedDeadlineLabelFloor(tx, owner.id);
         return { id };
       },
     );
@@ -736,20 +744,30 @@ export function registerCanvasBrowser(
               input.capturedAt,
             ],
           );
+          await materializeCanvasDeadlineFromBrowserItem(
+            tx,
+            collector.owner,
+            itemId,
+          );
         }
         let missing = 0;
         if (input.status === 'complete') {
           const identities = input.items.map(
             (item) => `${item.resourceKind}:${item.providerId}`,
           );
-          missing = (
-            await tx.query(
-              `UPDATE canvas_browser_items SET availability='missing',version=version+1,updated_at=CURRENT_TIMESTAMP
+          const missingItems = await tx.query<{ id: string }>(
+            `UPDATE canvas_browser_items SET availability='missing',version=version+1,updated_at=CURRENT_TIMESTAMP
                WHERE owner_id=$1 AND browser_course_id=$2 AND availability='available'
                  AND NOT((resource_kind || ':' || provider_id)=ANY($3::text[])) RETURNING id`,
-              [collector.owner, input.courseId, identities],
-            )
-          ).length;
+            [collector.owner, input.courseId, identities],
+          );
+          missing = missingItems.length;
+          for (const missingItem of missingItems)
+            await materializeCanvasDeadlineFromBrowserItem(
+              tx,
+              collector.owner,
+              missingItem.id,
+            );
         }
         const counts = { added, updated, missing };
         const changed = added + updated + missing;

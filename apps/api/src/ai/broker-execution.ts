@@ -6,8 +6,7 @@ import { ApiError } from '../errors.js';
 import { reserveAIBudgetInTransaction, lockBudget } from './budget.js';
 import { agentSpend } from './agent-spend.js';
 import {
-  brokerAlias,
-  brokerPolicy,
+  brokerAdapterQuote,
   requireBrokerReady,
   verifyBrokerCatalog,
 } from './broker-policy.js';
@@ -19,14 +18,8 @@ import {
   readBrokerRetrieval,
 } from './mail-broker.js';
 import type { BrokerBinding } from './mail-broker.js';
-import {
-  buildBrokerEnvelope,
-  exchangeBroker,
-  brokerThresholdRevision,
-  brokerRubricRevision,
-  brokerBoundsRevision,
-} from './broker-protocol.js';
-import type { BrokerDecision, BrokerExchange } from './broker-protocol.js';
+import { readBrokerDecision } from './broker-adapter.js';
+import type { BrokerAdapter, BrokerExchange } from './broker-adapter.js';
 
 async function reserveBatch(
   tx: QueryExecutor,
@@ -43,13 +36,13 @@ async function reserveBatch(
   if (!batch) throw new ApiError(404, 'NOT_FOUND', 'Mail batch not available.');
   // Durable at-most-once claim: uncertain/completed rows are receipts, never resend invitations.
   if (batch.status !== 'prepared') return null;
-  requireCurrentSelectionPolicy(batch);
   const { retrieval, grant, policy } = await guardBrokerRetrieval(
     tx,
     config,
     owner,
     String(batch.retrieval_id),
   );
+  requireCurrentSelectionPolicy(batch, policy.adapter);
   if (
     !['pending', 'partial'].includes(retrieval.status) ||
     Number(batch.position) !== retrieval.position
@@ -79,7 +72,11 @@ async function reserveBatch(
   );
   if (brokerDigest(candidates.map(candidateBinding)) !== brokerDigest(bindings))
     throw new ApiError(409, 'MAIL_SOURCE_CHANGED', 'Mail source changed.');
-  const bytes = buildBrokerEnvelope(policy.profile!.model, intent, candidates);
+  const bytes = policy.adapter.buildEnvelope(
+    policy.profile!,
+    intent,
+    candidates,
+  );
   if (
     Buffer.byteLength(bytes) >
       Math.min(20480, policy.verification!.envelopeByteLimit) ||
@@ -164,7 +161,7 @@ async function reserveBatch(
   const held = await reserveAIBudgetInTransaction(tx, owner, {
     requestId: batchId,
     expectedPolicyVersion: Number(budget!.version),
-    provider: brokerAlias,
+    provider: policy.alias,
     model: policy.profile!.model,
     maximumChargeMicros: policy.quote!.maximumChargeMicros,
   });
@@ -174,15 +171,16 @@ async function reserveBatch(
   );
   const metadata = {
     sources: bindings,
+    broker: retrieval.limits.broker,
     profile: policy.profile!.policyRevision,
     consent: policy.consent.version,
     verification: policy.verification!.revision,
     verificationDigest: brokerDigest(policy.verification),
     downstream: policy.downstream,
     requestLabels: context.requestLabels,
-    rubric: brokerRubricRevision,
-    bounds: brokerBoundsRevision,
-    threshold: brokerThresholdRevision,
+    rubric: policy.adapter.rubricRevision,
+    bounds: policy.adapter.boundsRevision,
+    threshold: policy.adapter.thresholdRevision,
   };
   const hash = brokerDigest([owner, batchId, bytes, metadata]);
   await tx.query(
@@ -201,6 +199,9 @@ async function reserveBatch(
     "UPDATE mail_broker_retrievals SET status='uncertain' WHERE owner_id=$1 AND id=$2",
     [owner, retrieval.id],
   );
+  const quote = brokerAdapterQuote(policy);
+  if (!quote)
+    throw new ApiError(409, 'MAIL_BROKER_BLOCKED', 'Broker quote unavailable.');
   return {
     bytes,
     hash,
@@ -208,11 +209,8 @@ async function reserveBatch(
     candidates,
     model: policy.profile!.model,
     secret: policy.secret!,
-    quote: {
-      inputTokenLimit: policy.quote!.inputTokenLimit,
-      outputTokenLimit: policy.profile!.maxOutputTokens,
-      maximumChargeMicros: policy.quote!.maximumChargeMicros,
-    },
+    quote,
+    adapter: policy.adapter,
     retrievalId: retrieval.id,
   };
 }
@@ -233,20 +231,21 @@ export async function executeBrokerBatch(
 ) {
   const existing = await readBrokerBatch(database, owner, batchId);
   if (existing.status !== 'prepared') return existing;
-  const checkedPolicy = await brokerPolicy(database, config, owner);
-  requireBrokerReady(checkedPolicy);
-  await verifyBrokerCatalog(fetcher, checkedPolicy);
+  const [claim] = await database.query(
+    'SELECT retrieval_id FROM mail_broker_batches WHERE owner_id=$1 AND id=$2',
+    [owner, batchId],
+  );
+  if (!claim) throw new ApiError(404, 'NOT_FOUND', 'Mail batch not available.');
+  const checked = await guardBrokerRetrieval(
+    database,
+    config,
+    owner,
+    String(claim.retrieval_id),
+  );
+  requireBrokerReady(checked.policy);
+  await verifyBrokerCatalog(fetcher, checked.policy);
   const sealed = await database.transaction((tx) =>
-    (async () => {
-      const current = await brokerPolicy(tx, config, owner);
-      if (brokerDigest(current) !== brokerDigest(checkedPolicy))
-        throw new ApiError(
-          409,
-          'MAIL_ROUTE_CHANGED',
-          'Mail broker policy changed.',
-        );
-      return reserveBatch(tx, config, owner, batchId, intent);
-    })(),
+    reserveBatch(tx, config, owner, batchId, intent),
   );
   if (!sealed) return readBrokerBatch(database, owner, batchId);
   await options.beforeGuard?.();
@@ -263,7 +262,7 @@ export async function executeBrokerBatch(
           'MAIL_AUTHORITY_CHANGED',
           'Owner authorization expired.',
         );
-      const { grant, policy } = await guardBrokerRetrieval(
+      const { retrieval, grant, policy } = await guardBrokerRetrieval(
         tx,
         config,
         owner,
@@ -273,7 +272,7 @@ export async function executeBrokerBatch(
         'SELECT * FROM mail_broker_batches WHERE owner_id=$1 AND id=$2',
         [owner, batchId],
       );
-      if (batch) requireCurrentSelectionPolicy(batch);
+      if (batch) requireCurrentSelectionPolicy(batch, policy.adapter);
       const current = await brokerCandidates(
         tx,
         owner,
@@ -291,6 +290,8 @@ export async function executeBrokerBatch(
         batch.profile_revision !== policy.profile!.policyRevision ||
         batch.approval_version !== policy.consent.version ||
         batch.verification_revision !== policy.verification!.revision ||
+        brokerDigest(sealed.metadata.broker) !==
+          brokerDigest(retrieval.limits.broker) ||
         sealed.metadata.verificationDigest !==
           brokerDigest(policy.verification) ||
         Buffer.byteLength(sealed.bytes) > policy.verification!.envelopeByteLimit
@@ -320,7 +321,7 @@ export async function executeBrokerBatch(
     await releaseBrokerHeadroom(database, owner, sealed.retrievalId);
     return readBrokerBatch(database, owner, batchId);
   }
-  const result = await exchangeBroker(
+  const result = await sealed.adapter.exchange(
     fetcher,
     sealed.secret,
     sealed.bytes,
@@ -469,7 +470,9 @@ export async function selectedBrokerMail(
         'MAIL_ROUTE_CHANGED',
         'Selection approval changed.',
       );
-    batches.forEach(requireCurrentSelectionPolicy);
+    batches.forEach((batch) =>
+      requireCurrentSelectionPolicy(batch, policy.adapter),
+    );
     const sources = batches.flatMap((b) => b.sources as BrokerBinding[]);
     const originals = await brokerCandidates(
       tx,
@@ -485,7 +488,7 @@ export async function selectedBrokerMail(
         'A selection dependency changed.',
       );
     const decisions = batches
-      .flatMap((b) => b.decisions as BrokerDecision[])
+      .flatMap((b) => (b.decisions as unknown[]).map(readBrokerDecision))
       .filter((d) => d.selected);
     const messages = [];
     let bytes = 2,
@@ -550,11 +553,14 @@ export async function selectedBrokerMail(
   });
 }
 
-function requireCurrentSelectionPolicy(batch: Record<string, unknown>) {
+function requireCurrentSelectionPolicy(
+  batch: Record<string, unknown>,
+  adapter: BrokerAdapter,
+) {
   if (
-    batch.rubric_revision !== brokerRubricRevision ||
-    batch.bounds_revision !== brokerBoundsRevision ||
-    batch.threshold_revision !== brokerThresholdRevision
+    batch.rubric_revision !== adapter.rubricRevision ||
+    batch.bounds_revision !== adapter.boundsRevision ||
+    batch.threshold_revision !== adapter.thresholdRevision
   )
     throw new ApiError(
       409,

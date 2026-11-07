@@ -27,6 +27,8 @@ export const academicPlanningWriteSchema = z.discriminatedUnion('kind', [
       operationId: true,
       canvasSourceRef: true,
       clientId: true,
+      dueAt: true,
+      dueTimeZone: true,
     }),
   }),
   z.strictObject({

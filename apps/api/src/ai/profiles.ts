@@ -60,34 +60,36 @@ export function readAIProfiles(
 }
 export function publicAIRegistry(profiles: ReturnType<typeof readAIProfiles>) {
   const safe = profiles
-    .map((profile) => ({
-      alias: profile.alias,
-      adapter: profile.adapter,
-      accessMode:
-        profile.adapter === 'claude-code' ||
-        profile.adapter === 'codex-subscription'
-          ? 'owner-subscription'
-          : profile.adapter === 'prem-confidential'
-            ? 'confidential-api'
-            : 'api-key',
-      upstreamProvider: profile.upstreamProvider,
-      model: profile.model,
-      configuration: !profile.enabled
-        ? 'disabled'
-        : profile.credential
-          ? 'configured'
-          : 'credential_missing',
-      maxInputCharacters: profile.maxInputCharacters,
-      maxOutputTokens: profile.maxOutputTokens,
-      pricing: profile.pricing,
-      retentionDisclosure: profile.retentionDisclosure,
-    }))
-    .map((profile) => ({
-      ...profile,
-      policyRevision: createHash('sha256')
-        .update(JSON.stringify(profile))
-        .digest('hex'),
-    }))
+    .map((profile) => {
+      const publicProfile = {
+        alias: profile.alias,
+        adapter: profile.adapter,
+        accessMode:
+          profile.adapter === 'claude-code' ||
+          profile.adapter === 'codex-subscription'
+            ? 'owner-subscription'
+            : profile.adapter === 'prem-confidential'
+              ? 'confidential-api'
+              : 'api-key',
+        upstreamProvider: profile.upstreamProvider,
+        model: profile.model,
+        configuration: !profile.enabled
+          ? 'disabled'
+          : profile.credential
+            ? 'configured'
+            : 'credential_missing',
+        maxInputCharacters: profile.maxInputCharacters,
+        maxOutputTokens: profile.maxOutputTokens,
+        pricing: profile.pricing,
+        retentionDisclosure: profile.retentionDisclosure,
+      };
+      return {
+        ...publicProfile,
+        policyRevision: createHash('sha256')
+          .update(JSON.stringify(publicProfile))
+          .digest('hex'),
+      };
+    })
     .sort((a, b) => a.alias.localeCompare(b.alias));
   // Credentials and their names never enter responses or fingerprints.
   return aiProviderRegistrySchema.parse({

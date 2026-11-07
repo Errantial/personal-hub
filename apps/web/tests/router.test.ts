@@ -102,6 +102,21 @@ it('addresses a task and its list filter', () => {
   const id = '3f2b8c1e-5a4d-4e6f-9a0b-1c2d3e4f5a6b';
   expect(routePath({ name: 'tasks', id })).toBe(`/tasks/${id}`);
   expect(parseRoute(`/tasks/${id}`, '')).toEqual({ name: 'tasks', id });
+  expect(routePath({ name: 'tasks', deadline: id })).toBe(
+    `/tasks/deadline/${id}`,
+  );
+  expect(parseRoute(`/tasks/deadline/${id}`, '')).toEqual({
+    name: 'tasks',
+    deadline: id,
+  });
+  expect(routePath({ name: 'tasks', deadline: id, filter: 'done' })).toBe(
+    `/tasks/deadline/${id}?filter=done`,
+  );
+  expect(parseRoute(`/tasks/deadline/${id}`, '?filter=done')).toEqual({
+    name: 'tasks',
+    deadline: id,
+    filter: 'done',
+  });
   expect(routePath({ name: 'tasks', filter: 'overdue' })).toBe(
     '/tasks?filter=overdue',
   );
@@ -112,6 +127,9 @@ it('addresses a task and its list filter', () => {
   // The default filter has no query; unknown filters and ids are ignored.
   expect(routePath({ name: 'tasks', filter: 'open' })).toBe('/tasks');
   expect(parseRoute('/tasks/not-an-id', '?filter=nope')).toEqual({
+    name: 'tasks',
+  });
+  expect(parseRoute('/tasks/deadline/not-an-id', '')).toEqual({
     name: 'tasks',
   });
 });

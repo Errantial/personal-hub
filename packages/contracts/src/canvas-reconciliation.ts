@@ -83,9 +83,4 @@ export const canvasBrowserReconciliationResponseSchema = z.object({
   link: canvasBrowserReconciliationSchema,
 });
 export type CanvasReconciliation = z.infer<typeof canvasReconciliationSchema>;
-export function canvasAssignmentUrl(
-  courseProviderId: string,
-  assignmentProviderId: string,
-) {
-  return `https://canvas.colorado.edu/courses/${courseProviderId}/assignments/${assignmentProviderId}`;
-}
+export { canvasAssignmentUrl } from './canvas-identity.js';

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { sensitivitySchema } from '@hub/contracts';
+import { agentTemplateSchema, sensitivitySchema } from '@hub/contracts';
 import { z } from 'zod';
 
 // Server-only live exchange manifest (docs/live-context-admission-design.md).
@@ -27,6 +27,7 @@ export const liveProjectionSchema = z.enum([
   'academic-work-v1',
   'mail-broker-v1',
   'memory-item-v1',
+  'tracked-deadline-v1',
 ]);
 export type LiveProjection = z.infer<typeof liveProjectionSchema>;
 const kind = z.enum([
@@ -36,9 +37,15 @@ const kind = z.enum([
   'academic-work',
   'mail-broker',
   'memory',
+  'tracked-deadline',
 ]);
 const academicCourse = z.strictObject({ id: uuid, version: positive });
 const memorySettings = z.strictObject({ version: positive });
+const deadlineSource = z.strictObject({
+  kind: z.enum(['calendar-feed', 'assignment-api']),
+  id: uuid,
+  version: positive,
+});
 
 /** One projected source exactly as sent, bound by a private digest. */
 export const liveSourceSchema = z.strictObject({
@@ -51,6 +58,7 @@ export const liveSourceSchema = z.strictObject({
   connector: connector.optional(),
   academicCourse: academicCourse.optional(),
   memorySettings: memorySettings.optional(),
+  deadlineSources: z.array(deadlineSource).min(1).max(8).optional(),
   truncated: z.boolean().optional(),
   digest: sha256Hex,
   brokerDigest: sha256Hex.optional(),
@@ -69,6 +77,8 @@ export const liveHistorySourceSchema = z.strictObject({
   connector: connector.optional(),
   academicCourse: academicCourse.optional(),
   memorySettings: memorySettings.optional(),
+  version: positive.optional(),
+  deadlineSources: z.array(deadlineSource).min(1).max(8).optional(),
   brokerDigest: sha256Hex.optional(),
 });
 export type LiveHistorySource = z.infer<typeof liveHistorySourceSchema>;
@@ -94,7 +104,16 @@ export const liveManifestSchema = z
     request: z.strictObject({
       provenance: z.enum(['owner-entered', 'agent-goal', 'none']),
       labels,
-      agent: z.strictObject({ id: uuid, goalDigest: sha256Hex }).optional(),
+      agent: z
+        .strictObject({
+          id: uuid,
+          goalDigest: sha256Hex,
+          // Optional for pre-075 retained manifests. New agent exchanges bind
+          // both fields; tracked-deadline context requires them in the guard.
+          version: positive.optional(),
+          template: agentTemplateSchema.optional(),
+        })
+        .optional(),
     }),
     timeZone: z.string().nullable(),
     history: z.strictObject({
@@ -155,6 +174,12 @@ export function historyRefs(manifest: LiveManifest): LiveHistorySource[] {
       kind: source.kind,
       id: source.id,
       labels: source.labels,
+      ...(source.kind === 'tracked-deadline'
+        ? { version: source.version }
+        : {}),
+      ...(source.deadlineSources
+        ? { deadlineSources: source.deadlineSources }
+        : {}),
       ...(source.brokerDigest ? { brokerDigest: source.brokerDigest } : {}),
       ...(source.connector ? { connector: source.connector } : {}),
       ...(source.academicCourse

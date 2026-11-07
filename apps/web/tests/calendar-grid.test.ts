@@ -1,6 +1,21 @@
 import { expect, it } from 'vitest';
-import type { CanvasItem, Occurrence, Task } from '@hub/contracts';
-import { allDayStrip, dayLength, layoutDay } from '../src/lib/calendar-grid';
+import type {
+  CanvasItem,
+  Occurrence,
+  Task,
+  TrackedDeadline,
+  TrackedDeadlineDue,
+} from '@hub/contracts';
+import {
+  allDayStrip,
+  canvasDeadlinePoints,
+  dayLength,
+  layoutDay,
+  layoutDayWithDeadlines,
+  rawCanvasWithoutTracked,
+  taskDeadlinePoints,
+  trackedDeadlinePoints,
+} from '../src/lib/calendar-grid';
 
 const day = '2026-10-14';
 const zone = 'America/Denver'; // UTC-6 in October
@@ -19,6 +34,58 @@ const event = (title: string, startsAt: string, endsAt: string, extra = {}) =>
     courseId: null,
     ...extra,
   }) as Occurrence;
+
+const canvas = (title: string, data: Partial<CanvasItem['providerData']>) =>
+  ({
+    id: `canvas-${title}`,
+    providerData: {
+      title,
+      description: '',
+      startsAt: null,
+      endsAt: null,
+      startDate: day,
+      endDate: '2026-10-15',
+      allDay: true,
+      sourceUrl: 'https://canvas.example/1',
+      ...data,
+    },
+  }) as CanvasItem;
+
+const task = (title: string, extra: Partial<Task>) =>
+  ({ id: `task-${title}`, title, completed: false, ...extra }) as Task;
+
+const tracked = (
+  title: string,
+  due: TrackedDeadlineDue,
+  extra: Partial<TrackedDeadline> = {},
+) =>
+  ({
+    id: `00000000-0000-4000-8000-${String(title.length).padStart(12, '0')}`,
+    providerKind: 'canvas',
+    canonicalKey: `canvas:canvas.colorado.edu:/courses/1/assignments/${title.length}`,
+    version: 1,
+    completedAt: null,
+    priority: 'normal',
+    notes: '',
+    titleOverride: null,
+    dueOverride: { kind: 'provider' },
+    sensitivity: 'unlabeled',
+    sourceLabels: ['unlabeled'],
+    createdAt: '2026-10-14T12:00:00.000Z',
+    updatedAt: '2026-10-14T12:00:00.000Z',
+    title,
+    due,
+    providerDue: due,
+    sourceUrl: `https://canvas.colorado.edu/courses/1/assignments/${title.length}`,
+    sourceAvailability: 'available',
+    sourceCoverage: ['calendar-feed'],
+    sourceConflict: false,
+    alternateTimedDue: null,
+    labels: ['unlabeled'],
+    effectiveSensitivity: 'unlabeled',
+    sources: [],
+    ...extra,
+  }) as TrackedDeadline;
 
 it('layoutDay places a 09:00–10:30 event at top 540, height 90', () => {
   const [block] = layoutDay(
@@ -139,24 +206,132 @@ it('layoutDay leaves out all-day events and marks study blocks', () => {
   ]);
 });
 
-it('allDayStrip includes all-day events, Canvas deadlines and open tasks due that day', () => {
-  const canvas = (title: string, data: Partial<CanvasItem['providerData']>) =>
-    ({
-      id: `canvas-${title}`,
-      providerData: {
-        title,
-        description: '',
-        startsAt: null,
-        endsAt: null,
-        startDate: day,
-        endDate: '2026-10-15',
-        allDay: true,
-        sourceUrl: 'https://canvas.example/1',
-        ...data,
+it('layoutDayWithDeadlines places a Canvas point at its exact local due minute', () => {
+  const deadlines = canvasDeadlinePoints([
+    canvas('Quiz', {
+      allDay: false,
+      startDate: null,
+      endDate: null,
+      startsAt: '2026-10-15T05:59:00Z',
+      endsAt: '2026-10-15T05:59:00Z',
+    }),
+  ]);
+  const layout = layoutDayWithDeadlines([], deadlines, day, zone);
+  expect(layout.deadlines).toHaveLength(1);
+  expect(layout.deadlines[0]).toMatchObject({
+    title: 'Quiz',
+    source: 'canvas',
+    top: 1439,
+    column: 0,
+    columns: 1,
+  });
+});
+
+it('deadline points share overlap columns with timed events without becoming events', () => {
+  const deadlines = canvasDeadlinePoints([
+    canvas('Quiz', {
+      allDay: false,
+      startDate: null,
+      endDate: null,
+      startsAt: '2026-10-14T15:05:00Z',
+      endsAt: '2026-10-14T15:05:00Z',
+    }),
+  ]);
+  const layout = layoutDayWithDeadlines(
+    [event('Class', '2026-10-14T15:00:00Z', '2026-10-14T16:00:00Z')],
+    deadlines,
+    day,
+    zone,
+  );
+  expect(layout.blocks[0]).toMatchObject({ column: 0, columns: 2 });
+  expect(layout.deadlines[0]).toMatchObject({ column: 1, columns: 2 });
+  expect('occurrence' in layout.deadlines[0]!).toBe(false);
+});
+
+it('timed tasks become task deadline points and use their instant in the viewing zone', () => {
+  const points = taskDeadlinePoints([
+    task('Submit', {
+      dueDate: day,
+      dueAt: '2026-10-15T01:30:00.000Z',
+      dueTimeZone: 'America/New_York',
+    }),
+    task('Date only', { dueDate: day, dueAt: null, dueTimeZone: null }),
+    task('Done timed', {
+      completed: true,
+      dueDate: day,
+      dueAt: '2026-10-14T16:00:00.000Z',
+      dueTimeZone: zone,
+    }),
+  ]);
+  expect(points).toEqual([
+    {
+      key: 'task:task-Submit',
+      source: 'task',
+      title: 'Submit',
+      startsAt: '2026-10-15T01:30:00.000Z',
+      target: { type: 'task', id: 'task-Submit' },
+    },
+  ]);
+  expect(
+    layoutDayWithDeadlines([], points, day, zone).deadlines[0],
+  ).toMatchObject({
+    source: 'task',
+    title: 'Submit',
+    top: 1170,
+  });
+});
+
+it('tracked timed deadlines use the point seam and target the local deadline editor', () => {
+  const points = trackedDeadlinePoints([
+    tracked('Tracked quiz', {
+      kind: 'timed',
+      dueAt: '2026-10-15T05:59:00.000Z',
+      timeZone: 'America/Denver',
+    }),
+    tracked('Date only tracked', { kind: 'date', dueDate: day }),
+    tracked(
+      'Completed tracked',
+      {
+        kind: 'timed',
+        dueAt: '2026-10-14T18:00:00.000Z',
+        timeZone: zone,
       },
-    }) as CanvasItem;
-  const task = (title: string, extra: Partial<Task>) =>
-    ({ id: `task-${title}`, title, completed: false, ...extra }) as Task;
+      { completedAt: '2026-10-14T12:00:00.000Z' },
+    ),
+  ]);
+  expect(points).toHaveLength(1);
+  expect(points[0]).toMatchObject({
+    source: 'canvas',
+    title: 'Tracked quiz',
+    startsAt: '2026-10-15T05:59:00.000Z',
+    target: { type: 'deadline' },
+  });
+  expect(
+    layoutDayWithDeadlines([], points, day, zone).deadlines[0],
+  ).toMatchObject({ top: 1439 });
+});
+
+it('exact tracked Canvas identities suppress raw duplicates without hiding unsupported entries', () => {
+  const deadline = tracked('Match', { kind: 'date', dueDate: day });
+  const items = [
+    canvas('Matching raw', {
+      sourceUrl: deadline.sourceUrl,
+    }),
+    canvas('Unsupported raw', {
+      sourceUrl: 'https://canvas.colorado.edu/calendar?event=42',
+    }),
+  ];
+  expect(
+    rawCanvasWithoutTracked(items, [deadline]).map((item) => item.id),
+  ).toEqual(['canvas-Unsupported raw']);
+  expect(
+    rawCanvasWithoutTracked(items, [
+      { ...deadline, completedAt: '2026-10-14T12:00:00.000Z' },
+    ]).map((item) => item.id),
+  ).toEqual(['canvas-Unsupported raw']);
+});
+
+it('allDayStrip keeps date-only Canvas deadlines and excludes timed Canvas points', () => {
   const strip = allDayStrip(day, {
     timeZone: zone,
     occurrences: [
@@ -179,21 +354,42 @@ it('allDayStrip includes all-day events, Canvas deadlines and open tasks due tha
       canvas('Tomorrow', { startDate: '2026-10-15', endDate: '2026-10-16' }),
     ],
     tasks: [
-      task('Laundry', { dueDate: day }),
+      task('Laundry', { dueDate: day, dueAt: null, dueTimeZone: null }),
+      task('Timed', {
+        dueDate: day,
+        dueAt: '2026-10-14T18:00:00.000Z',
+        dueTimeZone: zone,
+      }),
       task('Done', { dueDate: day, completed: true }),
       task('Later', { dueDate: '2026-10-16' }),
+    ],
+    deadlines: [
+      tracked('Tracked date', { kind: 'date', dueDate: day }),
+      tracked('Tracked timed', {
+        kind: 'timed',
+        dueAt: '2026-10-14T18:00:00.000Z',
+        timeZone: zone,
+      }),
+      tracked(
+        'Tracked done',
+        { kind: 'date', dueDate: day },
+        {
+          completedAt: '2026-10-14T12:00:00.000Z',
+        },
+      ),
     ],
   });
   expect(strip.map((item) => [item.title, item.source])).toEqual([
     ['Holiday', 'event'],
     ['Essay', 'canvas'],
-    ['Quiz', 'canvas'],
+    ['Tracked date', 'canvas'],
     ['Laundry', 'task'],
   ]);
   expect(strip[1]!.target).toEqual({
     type: 'external',
     url: 'https://canvas.example/1',
   });
-  expect(strip[2]!.time).toBe('2026-10-15T05:59:00Z');
+  expect(strip[1]!.time).toBeNull();
+  expect(strip[2]!.target).toMatchObject({ type: 'deadline' });
   expect(strip[3]!.target).toEqual({ type: 'task', id: 'task-Laundry' });
 });

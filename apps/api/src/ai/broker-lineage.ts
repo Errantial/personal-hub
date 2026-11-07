@@ -5,12 +5,12 @@ import {
   brokerCandidates,
   brokerDigest,
   candidateBinding,
-  readBrokerGrant,
   guardBrokerRetrieval,
+  readBrokerGrant,
   validateBrokerScope,
 } from './mail-broker.js';
-import type { BrokerBinding } from './mail-broker.js';
-import { brokerPolicy, requireBrokerReady } from './broker-policy.js';
+import type { BrokerBinding, BrokerIdentity } from './mail-broker.js';
+import { brokerPolicyForAlias, requireBrokerReady } from './broker-policy.js';
 import {
   brokerBoundsRevision,
   brokerRubricRevision,
@@ -18,7 +18,7 @@ import {
 } from './broker-protocol.js';
 import type { LiveSource } from './live-manifest.js';
 
-export type ForwardingBinding = {
+type ForwardingBindingV1 = {
   grantId: string;
   grantVersion: number;
   sources: BrokerBinding[];
@@ -26,12 +26,25 @@ export type ForwardingBinding = {
   policy: string;
 };
 
+export type ForwardingBinding = {
+  policyVersion: 2;
+  grantId: string;
+  grantVersion: number;
+  sources: BrokerBinding[];
+  selectedIds: string[];
+  broker: BrokerIdentity;
+  downstream: unknown;
+  settingsVersion: number;
+  allowed: string[];
+};
+
+/** Exact pre-076 OpenRouter policy digest, retained only for legacy history. */
 export async function brokerPolicyDigest(
   tx: QueryExecutor,
   config: Config,
   owner: string,
 ) {
-  const policy = await brokerPolicy(tx, config, owner);
+  const policy = await brokerPolicyForAlias(tx, config, owner, 'mail-broker');
   requireBrokerReady(policy);
   return brokerDigest([
     policy.profile!.policyRevision,
@@ -57,6 +70,13 @@ export async function bindBrokerForwarding(
   sources: BrokerBinding[],
 ): Promise<LiveSource> {
   const guarded = await guardBrokerRetrieval(tx, config, owner, retrievalId);
+  const identity = guarded.retrieval.limits.broker;
+  if (!identity)
+    throw new ApiError(
+      409,
+      'MAIL_BROKER_LEGACY_RECEIPT',
+      'Historical mail receipts cannot create new forwarding authority.',
+    );
   const batches = await tx.query(
     "SELECT sources,profile_revision,approval_version,verification_revision,rubric_revision,bounds_revision,threshold_revision FROM mail_broker_batches WHERE owner_id=$1 AND retrieval_id=$2 AND status='completed' ORDER BY position",
     [owner, retrievalId],
@@ -67,17 +87,18 @@ export async function bindBrokerForwarding(
   );
   if (
     ['blocked', 'uncertain'].includes(guarded.retrieval.status) ||
-    brokerDigest(batches.flatMap((b) => b.sources as BrokerBinding[])) !==
-      brokerDigest(sources) ||
+    brokerDigest(
+      batches.flatMap((batch) => batch.sources as BrokerBinding[]),
+    ) !== brokerDigest(sources) ||
     brokerDigest(selection?.selected_ids) !== brokerDigest(selectedIds) ||
     batches.some(
-      (b) =>
-        b.profile_revision !== guarded.policy.profile!.policyRevision ||
-        b.approval_version !== guarded.policy.consent.version ||
-        b.verification_revision !== guarded.policy.verification!.revision ||
-        b.rubric_revision !== brokerRubricRevision ||
-        b.bounds_revision !== brokerBoundsRevision ||
-        b.threshold_revision !== brokerThresholdRevision,
+      (batch) =>
+        batch.profile_revision !== identity.profileRevision ||
+        batch.approval_version !== identity.consentVersion ||
+        batch.verification_revision !== identity.verificationRevision ||
+        batch.rubric_revision !== identity.rubricRevision ||
+        batch.bounds_revision !== identity.boundsRevision ||
+        batch.threshold_revision !== identity.thresholdRevision,
     )
   )
     throw new ApiError(
@@ -96,11 +117,15 @@ export async function bindBrokerForwarding(
       'Mail selection is unavailable.',
     );
   const binding: ForwardingBinding = {
+    policyVersion: 2,
     grantId: String(retrieval.grant_id),
     grantVersion: Number(retrieval.grant_version),
     sources,
     selectedIds,
-    policy: await brokerPolicyDigest(tx, config, owner),
+    broker: identity,
+    downstream: guarded.policy.downstream,
+    settingsVersion: guarded.policy.settingsVersion,
+    allowed: guarded.policy.allowed,
   };
   const digest = brokerDigest(binding);
   await tx.query(
@@ -123,15 +148,15 @@ export async function bindBrokerForwarding(
     id: retrievalId,
     version: 1,
     ref: 'broker',
-    labels: [...new Set(sources.flatMap((s) => s.labels))].length
-      ? [...new Set(sources.flatMap((s) => s.labels))]
+    labels: [...new Set(sources.flatMap((source) => source.labels))].length
+      ? [...new Set(sources.flatMap((source) => source.labels))]
       : ['unlabeled'],
     digest,
     brokerDigest: digest,
   };
 }
 
-/** History has no live run/deadline requirement. Its grant and complete original bindings still apply. */
+/** History has no live run/deadline or current-selector requirement. */
 export async function brokerLineageEligible(
   tx: QueryExecutor,
   owner: string,
@@ -150,17 +175,57 @@ export async function brokerLineageEligible(
     (requestId && row.request_id !== requestId)
   )
     return false;
-  const binding = row.binding as ForwardingBinding;
+  const binding = row.binding as ForwardingBinding | ForwardingBindingV1;
   if (brokerDigest(binding) !== digest) return false;
   try {
     const grant = await readBrokerGrant(tx, owner, binding.grantId);
     if (!grant.enabled || grant.version !== binding.grantVersion) return false;
     await validateBrokerScope(tx, owner, grant.scope);
+
+    if ('policyVersion' in binding) {
+      const policy = config
+        ? await brokerPolicyForAlias(tx, config, owner, binding.broker.alias)
+        : null;
+      if (policy) {
+        requireBrokerReady(policy);
+        const current = historyBrokerIdentity(
+          policy,
+          binding.broker.selectorVersion,
+        );
+        if (
+          brokerDigest(current) !== brokerDigest(binding.broker) ||
+          brokerDigest(policy.downstream) !==
+            brokerDigest(binding.downstream) ||
+          policy.settingsVersion !== binding.settingsVersion ||
+          brokerDigest(policy.allowed) !== brokerDigest(binding.allowed)
+        )
+          return false;
+      }
+      const originals = await brokerCandidates(
+        tx,
+        owner,
+        grant,
+        binding.sources.map((source) => source.id),
+        policy?.allowed ?? ['unlabeled', 'personal'],
+      );
+      if (
+        brokerDigest(originals.map(candidateBinding)) !==
+        brokerDigest(binding.sources)
+      )
+        return false;
+      if (
+        config &&
+        !(await batchesMatchIdentity(tx, owner, id, binding.broker))
+      )
+        return false;
+      return true;
+    }
+
     const current = await brokerCandidates(
       tx,
       owner,
       grant,
-      binding.sources.map((s) => s.id),
+      binding.sources.map((source) => source.id),
       ['unlabeled', 'personal'],
     );
     if (
@@ -168,16 +233,83 @@ export async function brokerLineageEligible(
       brokerDigest(binding.sources)
     )
       return false;
-    if (
-      config &&
-      (await brokerPolicyDigest(tx, config, owner)) !== binding.policy
-    )
-      return false;
+    if (config) {
+      const policy = await brokerPolicyForAlias(
+        tx,
+        config,
+        owner,
+        'mail-broker',
+      );
+      requireBrokerReady(policy);
+      const legacyIdentity: BrokerIdentity = {
+        alias: 'mail-broker',
+        adapter: 'openrouter',
+        selectorVersion: 1,
+        profileRevision: policy.profile!.policyRevision,
+        consentVersion: policy.consent.version,
+        credentialRevision: null,
+        verificationRevision: policy.verification!.revision,
+        verificationDigest: brokerDigest(policy.verification),
+        rubricRevision: brokerRubricRevision,
+        boundsRevision: brokerBoundsRevision,
+        thresholdRevision: brokerThresholdRevision,
+      };
+      if (!(await batchesMatchIdentity(tx, owner, id, legacyIdentity)))
+        return false;
+      if ((await brokerPolicyDigest(tx, config, owner)) !== binding.policy)
+        return false;
+    }
     return true;
   } catch (error) {
     if (error instanceof ApiError) return false;
     throw error;
   }
+}
+
+function historyBrokerIdentity(
+  policy: Awaited<ReturnType<typeof brokerPolicyForAlias>>,
+  selectorVersion: number,
+): BrokerIdentity {
+  if (!policy.profile || !policy.verification)
+    throw new ApiError(
+      409,
+      'MAIL_BROKER_BLOCKED',
+      'Broker identity unavailable.',
+    );
+  return {
+    alias: policy.alias,
+    adapter: policy.adapter.kind,
+    selectorVersion,
+    profileRevision: policy.profile.policyRevision,
+    consentVersion: policy.consent.version,
+    credentialRevision: policy.credentialRevision,
+    verificationRevision: policy.verification.revision,
+    verificationDigest: brokerDigest(policy.verification),
+    rubricRevision: policy.adapter.rubricRevision,
+    boundsRevision: policy.adapter.boundsRevision,
+    thresholdRevision: policy.adapter.thresholdRevision,
+  };
+}
+
+async function batchesMatchIdentity(
+  tx: QueryExecutor,
+  owner: string,
+  id: string,
+  identity: BrokerIdentity,
+) {
+  const batches = await tx.query(
+    "SELECT profile_revision,approval_version,verification_revision,rubric_revision,bounds_revision,threshold_revision FROM mail_broker_batches WHERE owner_id=$1 AND retrieval_id=$2 AND status='completed'",
+    [owner, id],
+  );
+  return batches.every(
+    (batch) =>
+      batch.profile_revision === identity.profileRevision &&
+      batch.approval_version === identity.consentVersion &&
+      batch.verification_revision === identity.verificationRevision &&
+      batch.rubric_revision === identity.rubricRevision &&
+      batch.bounds_revision === identity.boundsRevision &&
+      batch.threshold_revision === identity.thresholdRevision,
+  );
 }
 
 export async function brokerDependencyCount(

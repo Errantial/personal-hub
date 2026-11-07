@@ -212,7 +212,7 @@ export const syncState = (page: Page) =>
   page.getByRole('banner').getByRole('status');
 
 export async function syncNow(page: Page) {
-  const details = page.getByRole('region', { name: 'Task sync' });
+  const details = page.getByRole('region', { name: 'Offline sync' });
   if (!(await details.isVisible()))
     await page.getByRole('button', { name: 'Sync', exact: true }).click();
   await details.getByRole('button', { name: 'Sync now' }).click();

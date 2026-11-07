@@ -25,6 +25,7 @@ import {
   version,
   mergeAcademicLabels,
 } from './common.js';
+import { refreshTrackedDeadlineLabelFloor } from '../connections/canvas-deadlines.js';
 
 export function registerAcademics(
   app: FastifyInstance,
@@ -76,16 +77,34 @@ export function registerAcademics(
             clientId?: string | undefined;
             expectedVersion?: number | undefined;
           } = writeSchema.parse(request.body);
+          if (method === 'PUT' && input.clientId)
+            throw new ApiError(
+              400,
+              'INVALID_INPUT',
+              'clientId is only supported when creating a record.',
+            );
           const id =
             method === 'PUT'
               ? z.object({ id: z.string().uuid() }).parse(request.params).id
-              : (input.clientId ?? randomUUID());
+              : String(input.clientId ?? '') || randomUUID();
           return mutate(
             database,
             user.id,
             input.operationId,
             { table, method, id: method === 'PUT' ? id : null, input },
             async (tx) => {
+              if (method === 'POST' && input.clientId) {
+                const [existing] = await tx.query(
+                  `SELECT id FROM ${table} WHERE owner_id=$1 AND id=$2`,
+                  [user.id, id],
+                );
+                if (existing)
+                  throw new ApiError(
+                    409,
+                    'OPERATION_CONFLICT',
+                    `This ${table === 'courses' ? 'class' : 'topic'} ID is already in use.`,
+                  );
+              }
               // Class -> topic -> event matches label propagation and calendar edits.
               const parent =
                 table === 'topics'
@@ -186,6 +205,8 @@ export function registerAcademics(
                   );
                   await extendAcademicTopicLabels(tx, user.id, id, [label]);
                 }
+              if (table === 'courses')
+                await refreshTrackedDeadlineLabelFloor(tx, user.id);
               return response.parse({ [key]: row });
             },
           );

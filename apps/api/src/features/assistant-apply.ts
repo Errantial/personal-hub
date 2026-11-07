@@ -16,6 +16,7 @@ import {
   verifyProposalOrigin,
   retainPlannerOrigin,
 } from './ai-planner-origin.js';
+import { retainDeadlinePlannerSource } from './deadline-planner-origin.js';
 import { plannedWrite } from './planner-write.js';
 
 const sequences = new WeakMap<QueryExecutor, number>();
@@ -79,6 +80,21 @@ export async function applySavedProposal(
         'This academic source was not admitted with the answer.',
       );
     }
+    if (
+      (proposal.kind === 'task.create' || proposal.kind === 'event.create') &&
+      proposal.deadlineSource &&
+      !origin.capture.sources.some(
+        (source) =>
+          source.kind === 'tracked-deadline' &&
+          source.id === proposal.deadlineSource!.id &&
+          source.version === proposal.deadlineSource!.expectedVersion,
+      )
+    )
+      throw new ApiError(
+        409,
+        'PROVENANCE_UNAVAILABLE',
+        'This tracked deadline was not admitted with the answer.',
+      );
     const applied = await plannedWrite(
       transactionDatabase(inner),
       owner,
@@ -92,6 +108,15 @@ export async function applySavedProposal(
       turnId,
       origin.capture,
     );
+    if (proposal.kind === 'task.create' || proposal.kind === 'event.create')
+      await retainDeadlinePlannerSource(
+        inner,
+        owner,
+        proposal.kind === 'task.create' ? 'task' : 'event',
+        applied.id,
+        proposal,
+        origin,
+      );
     return applied;
   });
 }

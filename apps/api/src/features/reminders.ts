@@ -221,6 +221,12 @@ export function registerReminders(
       handler: async (request) => {
         const user = await auth.requireUser(request);
         const input = reminderWriteSchema.parse(request.body);
+        if (method === 'PUT' && input.clientId)
+          throw new ApiError(
+            400,
+            'INVALID_INPUT',
+            'clientId is only supported when creating a reminder.',
+          );
         const id =
           method === 'PUT'
             ? z.object({ id: z.string().uuid() }).parse(request.params).id
@@ -231,6 +237,18 @@ export function registerReminders(
           input.operationId,
           { method, id: method === 'PUT' ? id : null, input },
           async (tx) => {
+            if (method === 'POST' && input.clientId) {
+              const [existing] = await tx.query(
+                'SELECT id FROM reminders WHERE owner_id=$1 AND id=$2',
+                [user.id, id],
+              );
+              if (existing)
+                throw new ApiError(
+                  409,
+                  'OPERATION_CONFLICT',
+                  'This reminder ID is already in use.',
+                );
+            }
             if (method === 'PUT') {
               const current = await active(tx, 'reminders', user.id, id);
               version(current, input.expectedVersion);

@@ -55,10 +55,8 @@ test('AI suggestions are reviewed, then applied as owner categories', async ({
   const [receipt, restricted] = subjects.map((subject) =>
     listed.messages.find((m) => m.subject === subject)!,
   );
-  let asked: { messages?: { id: string }[] } = {};
   // Only the classify endpoint is simulated; no provider is called.
   await page.route('**/api/v1/email/classify', (route) => {
-    asked = route.request().postDataJSON() as typeof asked;
     return route.fulfill({
       json: {
         request: {
@@ -90,7 +88,15 @@ test('AI suggestions are reviewed, then applied as owner categories', async ({
   for (const subject of subjects)
     await mail.getByRole('checkbox', { name: new RegExp(subject) }).check();
   const panel = mail.getByRole('region', { name: 'AI suggestions' });
+  const classify = page.waitForRequest(
+    (request) =>
+      request.method() === 'POST' &&
+      new URL(request.url()).pathname === '/api/v1/email/classify',
+  );
   await panel.getByRole('button', { name: 'Suggest categories for 2' }).click();
+  const asked = (await classify).postDataJSON() as {
+    messages?: { id: string }[];
+  };
   expect(asked.messages?.map((m) => m.id).sort()).toEqual(
     [receipt!.id, restricted!.id].sort(),
   );

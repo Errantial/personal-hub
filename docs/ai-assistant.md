@@ -1,14 +1,14 @@
 # Planner assistant (first live AI flow)
 
-J3 development replaces mail-enabled asks and agent runs with the explicit-grant [Jev broker workflow](jev-mail-workflow.md). The historical search/read behavior below describes the deployed baseline, not the J3 runtime. J3 is not deployed; J4 controls and actual provider/owner acceptance remain pending.
+J3/J4 mail-enabled asks and agent runs now use the explicit-grant broker workflow, with the small pinned OpenRouter broker replacing the historical Jev/TypeSafe adapter. Release `431cd8d` is deployed with the broker profile and owner controls installed. One bounded private-mail Assistant flow completed technically; external mailbox completeness and owner usefulness remain separate gates. Historical search/read behavior below is retained as background, not the current runtime.
 
 Implemented 2026-10-13 (plan step 4, D47). The Assistant on Today and its conversation page turn natural-language requests into proposed task and event changes through OpenRouter. Owner requests change nothing until Apply; changes use the ordinary versioned planner writes and can be undone. Since the P5/P6 boundary 2 slice, Apply and Undo are server-owned and derived records keep inherited labels and origin. The older general gateway remains separate from dispatch.
 
-## Scheduled agents (D57, deployed 2026-10-14 as release 519054d)
+## Scheduled agents (D57, deployed and current in release 431cd8d)
 
 Agents share `answerTurn`, privacy checks, text-only mail access, spending holds and conversation history with owner requests. Runs are turns with `trigger: 'agent'`; owner replies in pinned conversations steer later runs. Settings > AI > Actions governs automatic changes with Undo, ask-first proposals and dropped blocked proposals (`notAllowed`). Uncertain requests and expired leases are never resent. Open threads and agent states refresh periodically; failed prechecks stay visible even without a turn.
 
-Inbox and Today link run notifications to retained conversations. Opening a conversation marks only its own notifications read, paging unread history (up to 10,000 rows per pass, with a visible warning at the limit). Read failures can be retried. Agent notifications never trigger browser alerts. See the [design and exclusions](superpowers/specs/2026-10-14-persistent-agents-design.md#out-of-scope-recorded-for-future-work); the first owner-created agent/run and live owner acceptance remain pending.
+Inbox and Today link run notifications to retained conversations. Opening a conversation marks only its own notifications read, paging unread history (up to 10,000 rows per pass, with a visible warning at the limit). Read failures can be retried. Agent notifications never trigger browser alerts. See the [design and exclusions](superpowers/specs/2026-10-14-persistent-agents-design.md#out-of-scope-recorded-for-future-work); one bounded owner-controlled paid canary completed successfully, while multi-run scheduling/restart reliability and owner usefulness acceptance remain pending.
 
 ## Owner decisions (2026-10-13)
 

@@ -93,10 +93,7 @@ export function ClassesView({
       <div
         className={`classes-layout ${route.id ? 'classes-layout--detail' : ''}`}
       >
-        <section
-          className="panel classes-list-pane"
-          aria-labelledby="class-list-title"
-        >
+        <section className="panel classes-list-pane" aria-label="Class list">
           <h2 id="class-list-title" ref={heading} tabIndex={-1}>
             Classes{courses.data ? ` (${all.length})` : ''}
           </h2>
