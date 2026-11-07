@@ -12,7 +12,6 @@ import { openTask, openEvent } from './live-projections.js';
 import {
   liveHistorySourceSchema,
   maxHistorySources,
-  maxHistoryTurns,
   turnDigest,
 } from './live-manifest.js';
 import type { LiveHistorySource } from './live-manifest.js';
@@ -28,7 +27,8 @@ import { trackedDeadlineHistoryEligible } from './tracked-deadline-context.js';
 // turn that is unbound or whose sources are no longer eligible; it is never
 // certified by replaying today's source list.
 
-const historyChars = 8000;
+const historyChars = 12000;
+const summaryChars = 3000;
 type Sensitivity = z.infer<typeof sensitivitySchema>;
 
 const sameLabels = (a: Sensitivity[], b: Sensitivity[]) =>
@@ -103,6 +103,22 @@ export async function historySourcesEligible(
         });
     }
   }
+  const reminders = ids('reminder');
+  if (reminders.length)
+    for (const row of await tx.query(
+      'SELECT id FROM reminders WHERE owner_id=$1 AND id=ANY($2::uuid[])',
+      [owner, reminders],
+    ))
+      current.set(`reminder:${row.id}`, { labels: ['unlabeled'] });
+  const courses = ids('course');
+  if (courses.length)
+    for (const row of await tx.query(
+      'SELECT id,sensitivity FROM courses WHERE owner_id=$1 AND id=ANY($2::uuid[]) AND deleted_at IS NULL',
+      [owner, courses],
+    ))
+      current.set(`course:${row.id}`, {
+        labels: [sensitivitySchema.parse(row.sensitivity)],
+      });
   const academic = ids('academic-work');
   if (academic.length)
     for (const row of await tx.query(
@@ -188,6 +204,8 @@ export type BoundHistory = {
   sources: LiveHistorySource[];
   /** Earlier answered turns not sent. */
   withheld: number;
+  /** Deterministic summary of older bound turns omitted by the budget. */
+  summary: string | null;
 };
 
 /** The resendable history of a conversation, newest turns first in, oldest first out. */
@@ -200,25 +218,33 @@ export async function readBoundHistory(
   const rows = await tx.query(
     `SELECT id,ask,reply,inference_history,inference_digest,inference_sources,COUNT(*) OVER() AS "answeredCount" FROM ai_conversation_turns
      WHERE owner_id=$1 AND conversation_id=$2 AND ask IS NOT NULL AND reply IS NOT NULL ORDER BY position DESC LIMIT $3`,
-    [owner, conversationId, maxHistoryTurns],
+    [owner, conversationId, 40],
   );
   const result: BoundHistory = {
     history: [],
     turns: [],
     sources: [],
     withheld: Number(rows[0]?.answeredCount ?? 0),
+    summary: null,
   };
   const union = new Map<string, LiveHistorySource>();
+  const omitted: { ask: string; reply: string }[] = [];
   let size = 0;
+  let stopped = false;
   for (const row of rows) {
     if (
       row.inference_history !== 'bound' ||
       row.inference_digest !==
         turnDigest(owner, String(row.id), String(row.ask), String(row.reply))
-    )
+    ) {
+      stopped = true;
       break;
+    }
     size += String(row.ask).length + String(row.reply).length;
-    if (size > historyChars) break;
+    if (size > historyChars) {
+      omitted.push({ ask: String(row.ask), reply: String(row.reply) });
+      continue;
+    }
     let parsed;
     try {
       parsed = z
@@ -230,20 +256,33 @@ export async function readBoundHistory(
             : row.inference_sources,
         );
     } catch {
+      stopped = true;
       break;
     }
-    if (!parsed.success) break;
+    if (!parsed.success) {
+      stopped = true;
+      break;
+    }
     const refs = parsed.data;
     if (
       refs.some((ref) => ref.kind === 'mail-message') &&
       !refs.some((ref) => ref.kind === 'mail-broker')
-    )
+    ) {
+      stopped = true;
       break;
+    }
     const merged = new Map(union);
     for (const ref of refs) merged.set(`${ref.kind}:${ref.id}`, ref);
-    if (merged.size > maxHistorySources) break;
-    if (!(await historySourcesEligible(tx, owner, [...merged.values()], rules)))
+    if (merged.size > maxHistorySources) {
+      omitted.push({ ask: String(row.ask), reply: String(row.reply) });
+      continue;
+    }
+    if (
+      !(await historySourcesEligible(tx, owner, [...merged.values()], rules))
+    ) {
+      stopped = true;
       break;
+    }
     union.clear();
     for (const [key, ref] of merged) union.set(key, ref);
     result.history.unshift({ ask: String(row.ask), reply: String(row.reply) });
@@ -254,5 +293,15 @@ export async function readBoundHistory(
   }
   result.sources = [...union.values()];
   result.withheld -= result.turns.length;
+  const summary = omitted
+    .slice(0, 8)
+    .reverse()
+    .map(
+      (turn) =>
+        `Owner: ${turn.ask.slice(0, 500)}\nAssistant: ${turn.reply.slice(0, 500)}`,
+    )
+    .join('\n')
+    .slice(0, summaryChars);
+  result.summary = stopped && !summary ? null : summary || null;
   return result;
 }

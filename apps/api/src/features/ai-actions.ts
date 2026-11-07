@@ -34,7 +34,9 @@ export function previewAIAction(
     ? 'tasks'
     : action.kind.startsWith('calendar.')
       ? 'calendar'
-      : 'email';
+      : action.kind.startsWith('reminder.')
+        ? 'reminders'
+        : 'email';
   const policyDecision = settings.policy[group];
   const emailApprovalRequired =
     action.kind === 'email.send' ||

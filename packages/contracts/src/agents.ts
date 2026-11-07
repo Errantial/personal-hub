@@ -124,6 +124,18 @@ export const agentRunSchema = z.object({
   // Authoritative permission to offer a new Run now after proven zero-cost
   // failure, not permission to replay an uncertain provider exchange.
   canRetry: z.boolean(),
+  /** Redacted source kinds used to build this run's context. */
+  contextSources: z
+    .array(
+      z.strictObject({
+        kind: z.string(),
+        projection: z.string(),
+        ref: z.string(),
+        truncated: z.boolean().default(false),
+      }),
+    )
+    .max(350)
+    .default([]),
 });
 export type AgentRun = z.infer<typeof agentRunSchema>;
 export const agentSpendingSchema = z.object({

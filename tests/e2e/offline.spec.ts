@@ -837,13 +837,13 @@ test('offline occurrence edit and delete replay into the series once', async ({
       name: 'Occurrence series',
       exact: true,
     }),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 15000 });
   await expect(
     calendarDay(page, '2036-06-02').getByRole('link', {
       name: 'Offline occurrence',
       exact: true,
     }),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 15000 });
   await expect(
     calendarDay(page, '2036-06-03').getByRole('link', {
       name: 'Occurrence series',

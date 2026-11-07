@@ -18,6 +18,7 @@ import {
 } from './ai-planner-origin.js';
 import { retainDeadlinePlannerSource } from './deadline-planner-origin.js';
 import { plannedWrite } from './planner-write.js';
+import { recordCapabilityAudit } from './capability-audit.js';
 
 const sequences = new WeakMap<QueryExecutor, number>();
 const wrapped = new WeakMap<QueryExecutor, Database>();
@@ -60,6 +61,7 @@ export async function applySavedProposal(
   proposal: AssistantProposal,
   item: AssistantItem,
   verified?: VerifiedTurnOrigin,
+  agentId?: string,
 ) {
   return transactionDatabase(tx).transaction(async (inner) => {
     await lockSchedule(inner, owner);
@@ -100,14 +102,18 @@ export async function applySavedProposal(
       owner,
       applyRequest(proposal, item.applyId),
     );
-    await retainPlannerOrigin(
-      inner,
-      owner,
-      proposal.kind.startsWith('task.') ? 'task' : 'event',
-      applied.id,
-      turnId,
-      origin.capture,
-    );
+    await recordCapabilityAudit(inner, owner, turnId, proposal, 'applied', {
+      agentId,
+    });
+    if (proposal.kind.startsWith('task.') || proposal.kind.startsWith('event.'))
+      await retainPlannerOrigin(
+        inner,
+        owner,
+        proposal.kind.startsWith('task.') ? 'task' : 'event',
+        applied.id,
+        turnId,
+        origin.capture,
+      );
     if (proposal.kind === 'task.create' || proposal.kind === 'event.create')
       await retainDeadlinePlannerSource(
         inner,
@@ -218,6 +224,9 @@ export async function changeSavedTurn(
           }
         } catch (error) {
           if (!(error instanceof ApiError)) throw error;
+          await recordCapabilityAudit(tx, owner, id, proposal, 'failed', {
+            reason: error.message.slice(0, 300),
+          });
           items[index] = {
             ...item,
             state: 'failed',

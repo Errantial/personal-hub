@@ -193,7 +193,12 @@ async function setPolicy(tasks: string, calendar: string) {
   const saved = await h.call('PUT', '/api/v1/ai/actions', {
     operationId: randomUUID(),
     expectedVersion: current.version,
-    policy: { tasks, calendar, email: 'approval-required' },
+    policy: {
+      tasks,
+      calendar,
+      reminders: 'approval-required',
+      email: 'approval-required',
+    },
   });
   expect(saved.statusCode).toBe(200);
 }
@@ -277,10 +282,17 @@ it('projects only bounded concrete network deadlines and leaves generic planner 
   );
 
   const generic = await livePlannerContext(h.database, h.owner, { limit: 150 });
-  expect(Object.keys(generic).sort()).toEqual(['events', 'tasks', 'withheld']);
+  expect(Object.keys(generic).sort()).toEqual([
+    'courses',
+    'events',
+    'reminders',
+    'tasks',
+    'trimmed',
+    'withheld',
+  ]);
 });
 
-it('sends tracked-deadline-v1 only to deadline-watch and never exposes Canvas or internal IDs', async () => {
+it('sends tracked-deadline-v1 to every agent template and never exposes Canvas or internal IDs', async () => {
   h = await startHarness();
   const deadline = await seedDeadline({ title: 'Network deadline' });
   for (const template of ['daily-plan', 'custom', 'deadline-watch'] as const) {
@@ -290,14 +302,12 @@ it('sends tracked-deadline-v1 only to deadline-watch and never exposes Canvas or
     expect(h.state.sent).toHaveLength(before + 1);
     const body = h.state.sent.at(-1)!;
     const payload = sentPayload(body);
-    if (template === 'deadline-watch') {
-      expect(payload.deadlines).toEqual([
-        expect.objectContaining({ ref: 'd1', title: 'Network deadline' }),
-      ]);
-      expect(JSON.stringify(body)).not.toContain(deadline.sourceUrl);
-      expect(JSON.stringify(body)).not.toContain(deadline.sourceId);
-      expect(JSON.stringify(body)).not.toContain(deadline.id);
-    } else expect(payload).not.toHaveProperty('deadlines');
+    expect(payload.deadlines).toEqual([
+      expect.objectContaining({ ref: 'd1', title: 'Network deadline' }),
+    ]);
+    expect(JSON.stringify(body)).not.toContain(deadline.sourceUrl);
+    expect(JSON.stringify(body)).not.toContain(deadline.sourceId);
+    expect(JSON.stringify(body)).not.toContain(deadline.id);
   }
 });
 

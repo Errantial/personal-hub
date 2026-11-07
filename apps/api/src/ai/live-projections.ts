@@ -8,6 +8,8 @@ import type {
   AssistantAcademicSent,
   AssistantMemorySent,
   CalendarRecord,
+  Course,
+  Reminder,
   Task,
 } from '@hub/contracts';
 import { z } from 'zod';
@@ -49,7 +51,13 @@ export const openEvent = (event: CalendarRecord, aiOrigin = 'owner-entered') =>
 export type PlannerContext = {
   tasks: Task[];
   events: CalendarRecord[];
+  /** Task reminders the model may update or cancel. */
+  reminders?: Reminder[];
+  /** Classes (names only) for context. */
+  courses?: Course[];
   withheld: number;
+  /** Items dropped by the context budget. */
+  trimmed?: number;
 };
 
 /**
@@ -100,8 +108,11 @@ export async function livePlannerContext(
   return {
     tasks: openTasks.map((t) => t.task),
     events: openEvents.map((e) => e.event),
+    reminders: [],
+    courses: [],
     withheld:
       tasks.length - openTasks.length + events.length - openEvents.length,
+    trimmed: 0,
   };
 }
 
@@ -139,11 +150,29 @@ export const projectEvent = (
       }),
 });
 
+export const projectReminder = (
+  reminder: Reminder,
+  ref: string,
+  timeZone: string,
+) => ({
+  ref,
+  title: reminder.title,
+  scheduledAt: local(reminder.scheduledAt, timeZone),
+  status: reminder.status,
+  targetKind: reminder.targetKind,
+});
+
+export const projectCourse = (course: Course, ref: string) => ({
+  ref,
+  name: course.name,
+  sensitivity: course.sensitivity,
+});
+
 /** Manifest entries for the planner context, refs t1… and e1… as sent. */
 export function plannerSources(
   owner: string,
   requestId: string,
-  context: Pick<PlannerContext, 'tasks' | 'events'>,
+  context: Pick<PlannerContext, 'tasks' | 'events' | 'reminders' | 'courses'>,
   timeZone: string,
 ): LiveSource[] {
   return [
@@ -180,6 +209,42 @@ export function plannerSources(
           'planner-event-v1',
           event.id,
           projectEvent(event, ref, timeZone),
+        ),
+      };
+    }),
+    ...(context.reminders ?? []).map((reminder, index): LiveSource => {
+      const ref = `r${index + 1}`;
+      return {
+        projection: 'planner-reminder-v1',
+        kind: 'reminder',
+        id: reminder.id,
+        version: reminder.version,
+        ref,
+        labels: ['unlabeled'],
+        digest: sourceDigest(
+          owner,
+          requestId,
+          'planner-reminder-v1',
+          reminder.id,
+          projectReminder(reminder, ref, timeZone),
+        ),
+      };
+    }),
+    ...(context.courses ?? []).map((course, index): LiveSource => {
+      const ref = `c${index + 1}`;
+      return {
+        projection: 'planner-course-v1',
+        kind: 'course',
+        id: course.id,
+        version: course.version,
+        ref,
+        labels: [course.sensitivity],
+        digest: sourceDigest(
+          owner,
+          requestId,
+          'planner-course-v1',
+          course.id,
+          projectCourse(course, ref),
         ),
       };
     }),

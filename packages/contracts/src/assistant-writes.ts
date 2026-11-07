@@ -33,7 +33,7 @@ export type PlannedRequest = {
   path: string;
   body: Record<string, unknown>;
   /** Which record the response holds. */
-  returns: 'task' | 'event';
+  returns: 'task' | 'event' | 'reminder';
 };
 
 /**
@@ -97,6 +97,43 @@ export function applyRequest(
         },
         returns: 'event',
       };
+    case 'reminder.create':
+      return {
+        method: 'POST',
+        path: '/api/v1/reminders',
+        body: {
+          title: proposal.reminder.title,
+          scheduledAt: proposal.reminder.scheduledAt,
+          targetKind: 'task',
+          targetId: proposal.target.id,
+          operationId,
+          clientId: operationId,
+        },
+        returns: 'reminder',
+      };
+    case 'reminder.update':
+      return {
+        method: 'PUT',
+        path: `/api/v1/reminders/${proposal.target.id}`,
+        body: {
+          title: proposal.changes.title ?? proposal.target.title,
+          scheduledAt:
+            proposal.changes.scheduledAt ?? proposal.target.scheduledAt,
+          operationId,
+          expectedVersion: proposal.target.version,
+        },
+        returns: 'reminder',
+      };
+    case 'reminder.cancel':
+      return {
+        method: 'POST',
+        path: `/api/v1/reminders/${proposal.target.id}/control`,
+        body: {
+          operationId,
+          expectedVersion: proposal.target.version,
+        },
+        returns: 'reminder',
+      };
   }
 }
 
@@ -142,6 +179,44 @@ export function undoRequest(
           expectedVersion: applied.version,
         },
         returns: 'event',
+      };
+    case 'reminder.create':
+      return {
+        method: 'POST',
+        path: `/api/v1/reminders/${applied.id}/control`,
+        body: {
+          action: 'cancel',
+          operationId,
+          expectedVersion: applied.version,
+        },
+        returns: 'reminder',
+      };
+    case 'reminder.update':
+      return {
+        method: 'PUT',
+        path: `/api/v1/reminders/${applied.id}`,
+        body: {
+          title: proposal.target.title,
+          scheduledAt: proposal.target.scheduledAt,
+          operationId,
+          expectedVersion: applied.version,
+        },
+        returns: 'reminder',
+      };
+    case 'reminder.cancel':
+      return {
+        method: 'POST',
+        path: '/api/v1/reminders',
+        body: {
+          title: proposal.target.title,
+          scheduledAt: proposal.target.scheduledAt,
+          targetKind: proposal.target.targetKind,
+          targetId: proposal.target.targetId,
+          occurrenceDate: proposal.target.occurrenceDate,
+          operationId,
+          clientId: operationId,
+        },
+        returns: 'reminder',
       };
   }
 }

@@ -28,6 +28,8 @@ export const liveProjectionSchema = z.enum([
   'mail-broker-v1',
   'memory-item-v1',
   'tracked-deadline-v1',
+  'planner-reminder-v1',
+  'planner-course-v1',
 ]);
 export type LiveProjection = z.infer<typeof liveProjectionSchema>;
 const kind = z.enum([
@@ -38,6 +40,8 @@ const kind = z.enum([
   'mail-broker',
   'memory',
   'tracked-deadline',
+  'reminder',
+  'course',
 ]);
 const academicCourse = z.strictObject({ id: uuid, version: positive });
 const memorySettings = z.strictObject({ version: positive });

@@ -7,7 +7,6 @@ import {
 } from '../src/ai/live-history.js';
 import {
   maxHistorySources,
-  maxHistoryTurns,
   historyRefs,
   turnDigest,
 } from '../src/ai/live-manifest.js';
@@ -46,7 +45,7 @@ describe('bound history', () => {
     expect(query.mock.calls[0]).toEqual(
       expect.arrayContaining([
         expect.stringContaining('LIMIT $3'),
-        [owner, conversation, maxHistoryTurns],
+        [owner, conversation, 40],
       ]),
     );
     row.reply = 'Changed after binding';

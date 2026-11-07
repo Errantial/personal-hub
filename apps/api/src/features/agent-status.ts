@@ -5,6 +5,7 @@ import type { QueryExecutor } from '../db/database.js';
 import { stamp } from './common.js';
 import { attemptOperation } from './agent-operation.js';
 import { roundOperation } from './assistant.js';
+import { liveManifestSchema } from '../ai/live-manifest.js';
 
 export const agentRunColumns = `id,version,status,trigger,outcome,error_code AS "errorCode",cancel_reason AS "cancelReason",turn_id AS "turnId",attempts,
   ${stamp('created_at', 'createdAt')},${stamp('started_at', 'startedAt')},${stamp('finished_at', 'finishedAt')},
@@ -65,6 +66,28 @@ export async function describeAgentRun(
     preAdmissionBlockers.has(String(row.errorCode))
   )
     state = 'blocked';
+  let contextSources: {
+    kind: string;
+    projection: string;
+    ref: string;
+    truncated: boolean;
+  }[] = [];
+  if (row.turnId) {
+    const [exchange] = await tx.query(
+      'SELECT manifest FROM ai_live_exchanges WHERE owner_id=$1 AND request_id=$2',
+      [owner, row.turnId],
+    );
+    if (exchange) {
+      const manifest = liveManifestSchema.safeParse(exchange.manifest);
+      if (manifest.success)
+        contextSources = manifest.data.sources.map((source) => ({
+          kind: source.kind,
+          projection: source.projection,
+          ref: source.ref,
+          truncated: source.truncated ?? false,
+        }));
+    }
+  }
   return agentRunSchema.parse({
     ...row,
     state,
@@ -86,6 +109,7 @@ export async function describeAgentRun(
       Number(row.attempts) <= 2 &&
       usage!.confirmedZero === true &&
       usage!.hasEffects === false,
+    contextSources,
   });
 }
 

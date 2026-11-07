@@ -3,6 +3,7 @@ import type { Database } from '../db/database.js';
 import { saveTask } from '../planner/routes.js';
 import { saveAcademicPlanning } from './academic-planning.js';
 import { saveEvent } from './calendar.js';
+import { cancelReminderProposal, saveReminderProposal } from './reminders.js';
 
 const plannerPath = /^\/api\/v1\/(tasks|calendar)(?:\/([0-9a-f-]{36}))?$/i;
 
@@ -30,6 +31,33 @@ export async function plannedWrite(
     );
     const item = result.kind === 'task' ? result.task : result.event;
     return { id: item.id, version: item.version };
+  }
+  const control = /^\/api\/v1\/reminders\/([0-9a-f-]{36})\/control$/i.exec(
+    request.path,
+  );
+  if (control && request.method === 'POST') {
+    const { reminder } = await cancelReminderProposal(
+      database,
+      owner,
+      control[1]!,
+      request.body,
+    );
+    return { id: reminder.id, version: reminder.version };
+  }
+  if (
+    /^\/api\/v1\/reminders(?:\/[0-9a-f-]{36})?$/i.test(request.path) &&
+    (request.method === 'POST' || request.method === 'PUT')
+  ) {
+    const id =
+      request.method === 'PUT' ? request.path.split('/').at(-1)! : null;
+    const { reminder } = await saveReminderProposal(
+      database,
+      owner,
+      request.method,
+      id,
+      request.body,
+    );
+    return { id: reminder.id, version: reminder.version };
   }
   const match = plannerPath.exec(request.path);
   if (!match) throw new Error(`Unsupported planner path ${request.path}`);

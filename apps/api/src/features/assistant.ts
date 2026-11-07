@@ -44,14 +44,16 @@ import type { OpenRouterFetch } from '../ai/openrouter-live.js';
 import {
   academicContext,
   academicSources,
-  livePlannerContext,
+  projectCourse,
   projectEvent,
+  projectReminder,
   projectTask,
   plannerSources,
   mailSources,
   memoryContext,
   memorySources,
 } from '../ai/live-projections.js';
+import { assistantContext } from '../ai/assistant-context.js';
 import type {
   AcademicContextItem,
   AcademicProjected,
@@ -119,7 +121,8 @@ type Context = PlannerContext;
 
 const instructions = `You are the planning assistant in the owner's personal hub. Turn the owner's request into changes to their tasks and calendar events.
 Rules:
-- Allowed actions: task.create, task.update, event.create, event.update. You cannot delete anything, send email or invite people.
+- Allowed actions: task.create, task.update, event.create, event.update, reminder.create, reminder.update, reminder.cancel. You cannot delete tasks/events, send email or invite people.
+- reminder.create takes a t ref in ref and a title/start (local wall time). reminder.update and reminder.cancel take an r ref in ref. A cancel is destructive and will always be reviewed by the owner.
 - To change an existing item, use its ref from the context. Never invent refs.
 - Dates are YYYY-MM-DD. Times are local wall-clock YYYY-MM-DDTHH:MM in the owner's time zone. For all-day events set allDay true and give start and end as dates; end is the last day, inclusive.
 - Set every field you are not using to null (clearDueDate to false).
@@ -178,6 +181,9 @@ const outputSchema = {
               'task.update',
               'event.create',
               'event.update',
+              'reminder.create',
+              'reminder.update',
+              'reminder.cancel',
             ],
           },
           ref: nullable('string'),
@@ -201,7 +207,15 @@ const outputSchema = {
   },
 };
 const actionSchema = z.object({
-  type: z.enum(['task.create', 'task.update', 'event.create', 'event.update']),
+  type: z.enum([
+    'task.create',
+    'task.update',
+    'event.create',
+    'event.update',
+    'reminder.create',
+    'reminder.update',
+    'reminder.cancel',
+  ]),
   ref: z.string().nullable(),
   title: z.string().nullable(),
   dueDate: z.string().nullable(),
@@ -272,8 +286,10 @@ export function buildAssistantRequest(
   },
   /** Selected memory items, allowlisted fields only. */
   memory: MemoryProjected[] = [],
-  /** Automatic tracked deadlines, supplied only to the deadline-watch agent. */
+  /** Current tracked deadlines, subject to the owner's labels. */
   deadlines: TrackedDeadlineProjected[] = [],
+  /** Deterministic summary of older bound turns omitted by the budget. */
+  historySummary: string | null = null,
 ) {
   const current = now.toZonedDateTimeISO(timeZone);
   const payload = {
@@ -285,6 +301,26 @@ export function buildAssistantRequest(
     events: context.events.map((event, index) =>
       projectEvent(event, `e${index + 1}`, timeZone),
     ),
+    ...((context.reminders ?? []).length
+      ? {
+          reminders: (context.reminders ?? []).map((reminder, index) => ({
+            ...projectReminder(reminder, `r${index + 1}`, timeZone),
+            taskRef:
+              context.tasks.find((task) => task.id === reminder.targetId) ===
+              undefined
+                ? null
+                : `t${context.tasks.findIndex((task) => task.id === reminder.targetId) + 1}`,
+          })),
+        }
+      : {}),
+    ...((context.courses ?? []).length
+      ? {
+          courses: (context.courses ?? []).map((course, index) =>
+            projectCourse(course, `c${index + 1}`),
+          ),
+        }
+      : {}),
+    ...(historySummary ? { historySummary } : {}),
     academic,
     ...(memory.length ? { memory } : {}),
     ...(deadlines.length ? { deadlines } : {}),
@@ -423,6 +459,42 @@ export function toProposal(
       };
       if (!Object.keys(changes).length) return null;
       proposal = { kind: action.type, target, changes };
+      break;
+    }
+    case 'reminder.create': {
+      const target = lookup('t', context.tasks);
+      if (!target || !action.start) return null;
+      const scheduledAt = toInstant(action.start, timeZone);
+      if (!scheduledAt) return null;
+      proposal = {
+        kind: action.type,
+        target,
+        reminder: {
+          title: title ?? target.title,
+          scheduledAt,
+        },
+      };
+      break;
+    }
+    case 'reminder.update': {
+      const target = lookup('r', context.reminders ?? []);
+      if (!target) return null;
+      const changes: Record<string, string> = {};
+      if (title && title !== target.title) changes.title = title;
+      if (action.start) {
+        const scheduledAt = toInstant(action.start, timeZone);
+        if (!scheduledAt) return null;
+        if (scheduledAt !== target.scheduledAt)
+          changes.scheduledAt = scheduledAt;
+      }
+      if (!Object.keys(changes).length) return null;
+      proposal = { kind: action.type, target, changes };
+      break;
+    }
+    case 'reminder.cancel': {
+      const target = lookup('r', context.reminders ?? []);
+      if (!target) return null;
+      proposal = { kind: action.type, target };
       break;
     }
     case 'event.create': {
@@ -742,7 +814,12 @@ export async function answerTurn(
       agentTemplate ??= agent.template as AgentTemplate;
       agentVersion ??= Number(agent.version);
     }
-    const context = await livePlannerContext(tx, owner, { limit: 150 });
+    const context = await assistantContext(
+      tx,
+      owner,
+      input.timeZone,
+      liveAllowedLabels(settings),
+    );
     const academic = await academicContext(
       tx,
       owner,
@@ -755,15 +832,12 @@ export async function answerTurn(
       input.memory ?? [],
       liveAllowedLabels(settings),
     );
-    const deadlines =
-      input.trigger === 'agent' && agentTemplate === 'deadline-watch'
-        ? await trackedDeadlineContext(
-            tx,
-            owner,
-            liveAllowedLabels(settings),
-            input.timeZone,
-          )
-        : { items: [], withheld: 0 };
+    const deadlines = await trackedDeadlineContext(
+      tx,
+      owner,
+      liveAllowedLabels(settings),
+      input.timeZone,
+    );
     const history = await readBoundHistory(tx, owner, conversationId, {
       allowed: liveAllowedLabels(settings),
       useMail: input.useMail,
@@ -782,6 +856,7 @@ export async function answerTurn(
       undefined,
       memory.items.map((item) => item.projected),
       deadlines.items.map((item) => item.projected),
+      history.summary,
     );
     const manifest: LiveManifest = {
       formatVersion: 1,
@@ -901,6 +976,7 @@ export async function answerTurn(
       },
       prepared.memory.items.map((item) => item.projected),
       prepared.deadlines.items.map((item) => item.projected),
+      prepared.history.summary,
     );
     const sealed = await database.transaction(async (tx) => {
       await tx.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
