@@ -166,7 +166,8 @@ describe('bound history', () => {
     expect(result.sources).toHaveLength(600);
     expect(result.turns.map((turn) => turn.id)).toEqual([recent.id]);
     expect(result.withheld).toBe(1);
-    expect(query).toHaveBeenCalledTimes(2);
+    // One read plus source-union checks for the kept turn and the summary candidate.
+    expect(query).toHaveBeenCalledTimes(3);
   });
 
   it('keeps every inherited label when direct and history sources overlap', () => {

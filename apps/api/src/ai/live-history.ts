@@ -228,7 +228,7 @@ export async function readBoundHistory(
     summary: null,
   };
   const union = new Map<string, LiveHistorySource>();
-  const omitted: { ask: string; reply: string }[] = [];
+  const omitted: { ask: string; reply: string; sources: unknown }[] = [];
   let size = 0;
   let stopped = false;
   for (const row of rows) {
@@ -242,7 +242,11 @@ export async function readBoundHistory(
     }
     size += String(row.ask).length + String(row.reply).length;
     if (size > historyChars) {
-      omitted.push({ ask: String(row.ask), reply: String(row.reply) });
+      omitted.push({
+        ask: String(row.ask),
+        reply: String(row.reply),
+        sources: row.inference_sources,
+      });
       continue;
     }
     let parsed;
@@ -274,7 +278,11 @@ export async function readBoundHistory(
     const merged = new Map(union);
     for (const ref of refs) merged.set(`${ref.kind}:${ref.id}`, ref);
     if (merged.size > maxHistorySources) {
-      omitted.push({ ask: String(row.ask), reply: String(row.reply) });
+      omitted.push({
+        ask: String(row.ask),
+        reply: String(row.reply),
+        sources: row.inference_sources,
+      });
       continue;
     }
     if (
@@ -293,7 +301,21 @@ export async function readBoundHistory(
   }
   result.sources = [...union.values()];
   result.withheld -= result.turns.length;
-  const summary = omitted
+  const safeOmitted: typeof omitted = [];
+  for (const turn of omitted) {
+    let refs;
+    try {
+      refs = z
+        .array(liveHistorySourceSchema)
+        .max(maxHistorySources)
+        .parse(turn.sources);
+    } catch {
+      break;
+    }
+    if (!(await historySourcesEligible(tx, owner, refs, rules))) break;
+    safeOmitted.push(turn);
+  }
+  const summary = safeOmitted
     .slice(0, 8)
     .reverse()
     .map(
