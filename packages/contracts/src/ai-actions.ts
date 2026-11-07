@@ -32,7 +32,7 @@ export const aiActionWriteSchema = z.strictObject({
   operationId: z.string().uuid(),
   expectedVersion: z.number().int().positive(),
   policy: aiActionPolicySchema,
-  autoApprove: z.boolean(),
+  autoApprove: z.boolean().default(false),
 });
 // An authority preview describes a proposed action, not executable arguments or
 // approved source content. Capability is declared by the server, never the client.
