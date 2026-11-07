@@ -285,9 +285,23 @@ export async function undoCapability(
         expectedVersion: after.version,
       });
     } else if (row.tool === 'study.preferences.update') {
+      const current = await readStudyPreferences(tx, owner);
+      if (current.version !== after.version)
+        throw new ApiError(
+          409,
+          'VERSION_CONFLICT',
+          'Study preferences changed again; undo would overwrite them.',
+        );
+      const restored = studyPreferencesInputSchema.parse({
+        timeZone: before.timeZone,
+        sessionMinutes: before.sessionMinutes,
+        breakMinutes: before.breakMinutes,
+        dailyMaximumMinutes: before.dailyMaximumMinutes,
+        windows: before.windows,
+      });
       await tx.query(
         'UPDATE study_preferences SET settings=$2::jsonb,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1',
-        [owner, JSON.stringify(before)],
+        [owner, JSON.stringify(restored)],
       );
     } else {
       throw new ApiError(
