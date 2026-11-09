@@ -170,7 +170,11 @@ export function undoRequest(
       return {
         method: 'DELETE',
         path: `/api/v1/tasks/${applied.id}`,
-        body: { operationId, expectedVersion: applied.version },
+        body: {
+          operationId,
+          expectedVersion: applied.version,
+          ...(proposal.task.recurrence ? { scope: 'series' } : {}),
+        },
         returns: 'task',
       };
     case 'event.create':
@@ -186,6 +190,7 @@ export function undoRequest(
         path: `/api/v1/tasks/${applied.id}`,
         body: {
           ...taskFields(proposal.target),
+          ...(proposal.scope ? { scope: proposal.scope } : {}),
           operationId,
           expectedVersion: applied.version,
         },

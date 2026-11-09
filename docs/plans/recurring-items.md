@@ -54,3 +54,12 @@ Implemented on `feat/recurring-items` as a separate PR from #75:
 - Agent RRULE text support for task, reminder and event create/update; Tier 1 edits, Tier 2 series/future deletion, audit snapshots and auto-approve gating.
 
 Tests: `apps/api/tests/recurrence.test.ts` (DST, month-end, leap day, nth/last weekday, parsing, summaries) and `apps/api/tests/recurring-items.test.ts` (task completion idempotency, this/future edit and delete, reminder delivery/dismiss/cancel, event offsets, task offsets). Existing calendar, reminder, task and assistant suites pass.
+
+## Review fixes (2026-11-09)
+
+- Fixed monthly window indexing for intervals above one, with mid-series interval 2 and 3 tests.
+- Offset reminders revive cancelled rows, resync after task/event restore and capability undo, and skip already-past automatic reminders.
+- Task series/future deletes snapshot every affected occurrence plus the series state; capability Undo restores all rows, series bounds and automatic reminders. Restoring one series occurrence from Recently deleted restores the same deletion batch.
+- Auto-generated next tasks are marked; reopening a completed occurrence removes an untouched generated occurrence, and undoing a recurring `task.create` deletes the whole series.
+- Ending or shortening a recurrence through `task.update`, `event.update` or `reminder.update` is Tier 2: it prompts by default and only auto-applies when auto-approve is on.
+- The recurring event reminder sweep skips cancelled/moved exceptions, does not bump unchanged versions, and isolates one failing event.

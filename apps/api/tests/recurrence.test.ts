@@ -83,6 +83,29 @@ describe('RRULE-style recurrence', () => {
     ]);
   });
 
+  it('keeps monthly intervals aligned when the window starts mid-series', () => {
+    const everyTwo = rule({
+      frequency: 'monthly',
+      interval: 2,
+      count: null,
+      until: null,
+    });
+    expect(range(everyTwo, '2026-01-15', '2026-04-01', '2026-09-30')).toEqual([
+      '2026-05-15',
+      '2026-07-15',
+      '2026-09-15',
+    ]);
+    const everyThree = rule({
+      frequency: 'monthly',
+      interval: 3,
+      count: null,
+      until: null,
+    });
+    expect(range(everyThree, '2026-05-01', '2026-08-15', '2027-03-01')).toEqual(
+      ['2026-11-01', '2027-02-01'],
+    );
+  });
+
   it('supports monthly nth-weekday and last-weekday patterns', () => {
     const secondTuesday = rule({
       frequency: 'monthly',
@@ -150,6 +173,15 @@ describe('RRULE-style recurrence', () => {
     );
     expect(() => parseRRule('FREQ=HOURLY')).toThrow();
     expect(() => parseRRule('FREQ=MONTHLY;BYDAY=MO,WE')).toThrow();
+    expect(() =>
+      recurrenceSchema.parse({
+        frequency: 'weekly',
+        interval: 1,
+        count: null,
+        until: null,
+        byDay: [],
+      }),
+    ).toThrow();
   });
 
   it('summarizes rules in plain language', () => {

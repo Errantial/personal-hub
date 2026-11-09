@@ -126,10 +126,9 @@ export function recurrenceDates(
       index = Math.max(
         0,
         Math.floor(
-          (lower.year - anchor.year) * 12 + lower.month - anchor.month,
-        ) /
-          rule.interval -
-          1,
+          ((lower.year - anchor.year) * 12 + lower.month - anchor.month) /
+            rule.interval,
+        ) - 1,
       );
     for (let steps = 0; steps < 200000; steps++, index++) {
       const month = monthStart.add({ months: index * rule.interval });

@@ -376,17 +376,18 @@ export function registerCalendar(
       user.id,
       input.operationId,
       { kind: 'calendar.restore', id, input },
-      async (tx) =>
-        calendarResponseSchema.parse({
-          event: await restorePlannerItem(
-            tx,
-            'events',
-            eventColumns,
-            user.id,
-            id,
-            input.expectedVersion,
-          ),
-        }),
+      async (tx) => {
+        const event = await restorePlannerItem(
+          tx,
+          'events',
+          eventColumns,
+          user.id,
+          id,
+          input.expectedVersion,
+        );
+        await syncEventReminderOffsets(tx, user.id, id);
+        return calendarResponseSchema.parse({ event });
+      },
     );
   });
   app.get('/api/v1/calendar', async (request) => {

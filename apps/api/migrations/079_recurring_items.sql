@@ -21,7 +21,8 @@ ALTER TABLE tasks
   ADD COLUMN recurrence JSONB,
   ADD COLUMN series_id UUID,
   ADD COLUMN occurrence_key DATE,
-  ADD COLUMN reminder_offsets JSONB NOT NULL DEFAULT '[]'::jsonb;
+  ADD COLUMN reminder_offsets JSONB NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN auto_generated BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE tasks ADD CONSTRAINT tasks_recurrence_series_owner
   FOREIGN KEY (series_id, owner_id) REFERENCES recurrence_series (id, owner_id);
 CREATE UNIQUE INDEX tasks_series_occurrence

@@ -556,7 +556,10 @@ export function toProposal(
         kind: action.type,
         target,
         changes,
-        ...(action.scope === 'future' ? { scope: 'future' } : {}),
+        ...(action.scope === 'future' ||
+        (recurrence.provided && target.seriesId)
+          ? { scope: 'future' as const }
+          : {}),
       };
       break;
     }

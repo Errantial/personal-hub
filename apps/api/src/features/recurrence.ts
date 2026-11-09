@@ -177,9 +177,10 @@ export async function generateNextTaskOccurrence(
     `INSERT INTO tasks(id,owner_id,title,notes,due_date,due_at,due_time_zone,
        priority,completed,sensitivity,recurrence,series_id,occurrence_key,
        reminder_offsets,canvas_source_id,canvas_source_snapshot,
-       canvas_assignment_id,canvas_assignment_snapshot,ai_origin,ai_labels)
+       canvas_assignment_id,canvas_assignment_snapshot,ai_origin,ai_labels,
+       auto_generated)
      VALUES($1,$2,$3,$4,$5,$6,$7,$8,false,$9,$10::jsonb,$11,$12,$13::jsonb,
-       $14,$15::jsonb,$16,$17::jsonb,$18,$19::text[])
+       $14,$15::jsonb,$16,$17::jsonb,$18,$19::text[],true)
      ON CONFLICT (owner_id,series_id,occurrence_key)
        WHERE series_id IS NOT NULL DO NOTHING
      RETURNING id`,
@@ -342,16 +343,39 @@ export async function syncTaskReminderOffsets(
     const scheduledAt = due
       .subtract({ minutes: offset })
       .toString({ smallestUnit: 'millisecond' });
+    if (Date.parse(scheduledAt) <= Date.now()) {
+      await tx.query(
+        `UPDATE reminders SET status='cancelled',version=version+1,
+           updated_at=CURRENT_TIMESTAMP
+         WHERE owner_id=$1 AND target_kind='task' AND target_id=$2
+           AND occurrence_date=$3 AND offset_minutes=$6
+           AND status IN ('queued','running','paused')`,
+        [owner, taskId, dueDate, task.title, scheduledAt, offset],
+      );
+      continue;
+    }
     const updated = await tx.query(
       `UPDATE reminders SET title=$4,scheduled_at=$5,version=version+1,
          updated_at=CURRENT_TIMESTAMP
        WHERE owner_id=$1 AND target_kind='task' AND target_id=$2
          AND occurrence_date=$3 AND offset_minutes=$6
-         AND status IN ('queued','running','paused')
+         AND status IN ('queued','running','paused','failed')
+         AND (title IS DISTINCT FROM $4 OR scheduled_at IS DISTINCT FROM $5)
        RETURNING id`,
       [owner, taskId, dueDate, task.title, scheduledAt, offset],
     );
     if (updated.length) continue;
+    const revived = await tx.query(
+      `UPDATE reminders SET status='queued',title=$4,scheduled_at=$5,
+         attempts=0,last_error=NULL,lease_token=NULL,lease_until=NULL,
+         next_attempt_at=CURRENT_TIMESTAMP,version=version+1,
+         updated_at=CURRENT_TIMESTAMP
+       WHERE owner_id=$1 AND target_kind='task' AND target_id=$2
+         AND occurrence_date=$3 AND offset_minutes=$6 AND status='cancelled'
+       RETURNING id`,
+      [owner, taskId, dueDate, task.title, scheduledAt, offset],
+    );
+    if (revived.length) continue;
     await tx.query(
       `INSERT INTO reminders(id,owner_id,title,scheduled_at,target_kind,
          target_id,occurrence_date,offset_minutes)
@@ -411,7 +435,22 @@ export async function syncEventReminderOffsets(
     .toZonedDateTimeISO(zone)
     .toPlainDate();
   const until = from.add({ days: 45 });
-  const dates = rule ? recurrenceDates(rule, start, from, until) : [start];
+  const exceptions = new Map(
+    (
+      await tx.query<{
+        original_date: string | Date;
+        cancelled: boolean;
+        replacement: Record<string, unknown> | null;
+      }>(
+        `SELECT original_date,cancelled,replacement FROM event_exceptions
+         WHERE event_id=$1`,
+        [eventId],
+      )
+    ).map((row) => [day(row.original_date), row]),
+  );
+  const dates = (
+    rule ? recurrenceDates(rule, start, from, until) : [start]
+  ).filter((date) => !exceptions.get(date.toString())?.cancelled);
   await tx.query(
     `UPDATE reminders SET status='cancelled',version=version+1,
        updated_at=CURRENT_TIMESTAMP
@@ -423,25 +462,47 @@ export async function syncEventReminderOffsets(
   );
   for (const date of dates) {
     const occurrenceDate = date.toString();
-    const startsAt = eventOccurrenceStart(
-      instantOf(event.starts_at),
-      zone,
-      date,
-    );
+    const replacement = exceptions.get(occurrenceDate)?.replacement;
+    const startsAt = replacement?.startsAt
+      ? Temporal.Instant.from(String(replacement.startsAt))
+      : eventOccurrenceStart(instantOf(event.starts_at), zone, date);
     for (const offset of selected) {
       const scheduledAt = startsAt
         .subtract({ minutes: offset })
         .toString({ smallestUnit: 'millisecond' });
+      if (Date.parse(scheduledAt) <= Date.now()) {
+        await tx.query(
+          `UPDATE reminders SET status='cancelled',version=version+1,
+             updated_at=CURRENT_TIMESTAMP
+           WHERE owner_id=$1 AND target_kind='event' AND target_id=$2
+             AND occurrence_date=$3 AND offset_minutes=$6
+             AND status IN ('queued','running','paused')`,
+          [owner, eventId, occurrenceDate, event.title, scheduledAt, offset],
+        );
+        continue;
+      }
       const updated = await tx.query(
         `UPDATE reminders SET title=$4,scheduled_at=$5,version=version+1,
            updated_at=CURRENT_TIMESTAMP
          WHERE owner_id=$1 AND target_kind='event' AND target_id=$2
            AND occurrence_date=$3 AND offset_minutes=$6
-           AND status IN ('queued','running','paused')
+           AND status IN ('queued','running','paused','failed')
+           AND (title IS DISTINCT FROM $4 OR scheduled_at IS DISTINCT FROM $5)
          RETURNING id`,
         [owner, eventId, occurrenceDate, event.title, scheduledAt, offset],
       );
       if (updated.length) continue;
+      const revived = await tx.query(
+        `UPDATE reminders SET status='queued',title=$4,scheduled_at=$5,
+           attempts=0,last_error=NULL,lease_token=NULL,lease_until=NULL,
+           next_attempt_at=CURRENT_TIMESTAMP,version=version+1,
+           updated_at=CURRENT_TIMESTAMP
+         WHERE owner_id=$1 AND target_kind='event' AND target_id=$2
+           AND occurrence_date=$3 AND offset_minutes=$6 AND status='cancelled'
+         RETURNING id`,
+        [owner, eventId, occurrenceDate, event.title, scheduledAt, offset],
+      );
+      if (revived.length) continue;
       await tx.query(
         `INSERT INTO reminders(id,owner_id,title,scheduled_at,target_kind,
            target_id,occurrence_date,offset_minutes)
@@ -479,8 +540,13 @@ export async function syncRecurringEventReminders(
   const from = Temporal.Instant.from(now.toISOString())
     .toZonedDateTimeISO('UTC')
     .toPlainDate();
-  for (const event of events)
-    await database.transaction((tx) =>
-      syncEventReminderOffsets(tx, event.owner_id, event.id, from),
-    );
+  for (const event of events) {
+    try {
+      await database.transaction((tx) =>
+        syncEventReminderOffsets(tx, event.owner_id, event.id, from),
+      );
+    } catch {
+      // One malformed or deleted event must not stop the rest of the sweep.
+    }
+  }
 }

@@ -51,7 +51,7 @@ export const recurrenceSchema = z
     count: z.number().int().min(1).max(1000).nullable().default(null),
     until: dateOnly.nullable().default(null),
     /** Weekly chosen weekdays, and monthly pattern weekday(s). */
-    byDay: z.array(recurrenceWeekdaySchema).max(7).nullable().optional(),
+    byDay: z.array(recurrenceWeekdaySchema).min(1).max(7).nullable().optional(),
     /** Monthly by calendar date (default) or by weekday pattern. */
     monthlyMode: z.enum(['date', 'weekday']).nullable().optional(),
     /** Monthly date when it differs from the series anchor day. */

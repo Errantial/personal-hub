@@ -36,6 +36,7 @@ import {
   generateNextTaskOccurrence,
   stopRecurrenceSeriesFrom,
   syncTaskReminderOffsets,
+  syncEventReminderOffsets,
   updateRecurrenceSeries,
 } from '../features/recurrence.js';
 import {
@@ -197,6 +198,7 @@ export async function saveTask(
         let occurrenceKey = current.occurrence_key
           ? isoDay(current.occurrence_key)
           : null;
+        const previousKey = occurrenceKey;
         const scope = input.scope ?? 'this';
         const currentRule = current.recurrence
           ? recurrenceSchema.parse(current.recurrence)
@@ -300,7 +302,7 @@ export async function saveTask(
           `UPDATE tasks SET title=$3,notes=$4,due_date=$5,due_at=$6,
              due_time_zone=$7,priority=$8,completed=$9,sensitivity=$10,
              recurrence=$11::jsonb,series_id=$12,occurrence_key=$13,
-             reminder_offsets=$14::jsonb,version=version+1,
+             reminder_offsets=$14::jsonb,auto_generated=false,version=version+1,
              updated_at=CURRENT_TIMESTAMP
            WHERE owner_id=$1 AND id=$2 AND version=$15 AND deleted_at IS NULL
            RETURNING ${taskColumns}`,
@@ -330,6 +332,25 @@ export async function saveTask(
           ],
         );
         if (!task) return missingOrConflict(transaction, 'tasks', owner, id);
+        if (
+          !input.completed &&
+          Boolean(current.completed) &&
+          seriesId &&
+          previousKey
+        ) {
+          const generated = await transaction.query<{ id: string }>(
+            `DELETE FROM tasks
+             WHERE owner_id=$1 AND series_id=$2 AND occurrence_key > $3
+               AND auto_generated=true
+             RETURNING id`,
+            [owner, seriesId, previousKey],
+          );
+          for (const row of generated)
+            await transaction.query(
+              'DELETE FROM reminders WHERE owner_id=$1 AND target_kind=$2 AND target_id=$3',
+              [owner, 'task', row.id],
+            );
+        }
         if (input.completed && seriesId) {
           await syncTaskReminderOffsets(transaction, owner, id);
           await generateNextTaskOccurrence(transaction, owner, id);
@@ -444,6 +465,17 @@ export function registerPlanner(
         input.operationId,
         { kind: `${table === 'tasks' ? 'task' : 'event'}.restore`, id, input },
         async (tx) => {
+          const [deleted] = await tx.query<{
+            deleted_at: Date | string;
+            series_id: string | null;
+          }>(
+            table === 'tasks'
+              ? `SELECT deleted_at,series_id FROM tasks
+                 WHERE owner_id=$1 AND id=$2 AND deleted_at IS NOT NULL`
+              : `SELECT deleted_at,NULL::uuid AS series_id FROM events
+                 WHERE owner_id=$1 AND id=$2 AND deleted_at IS NOT NULL`,
+            [user.id, id],
+          );
           const row = await restorePlannerItem(
             tx,
             table,
@@ -452,6 +484,54 @@ export function registerPlanner(
             id,
             input.expectedVersion,
           );
+          if (table === 'events') {
+            await syncEventReminderOffsets(tx, user.id, id);
+          } else {
+            const seriesId = deleted?.series_id
+              ? String(deleted.series_id)
+              : null;
+            if (seriesId) {
+              const [series] = await tx.query<{ deleted_at: unknown }>(
+                'SELECT deleted_at FROM recurrence_series WHERE owner_id=$1 AND id=$2',
+                [user.id, seriesId],
+              );
+              if (series?.deleted_at) {
+                await tx.query(
+                  `UPDATE recurrence_series SET deleted_at=NULL,
+                     cancelled_from=NULL,version=version+1,
+                     updated_at=CURRENT_TIMESTAMP
+                   WHERE owner_id=$1 AND id=$2`,
+                  [user.id, seriesId],
+                );
+                const restorable = await tx.query<{
+                  id: string;
+                  version: number;
+                }>(
+                  `SELECT id,version FROM tasks
+                   WHERE owner_id=$1 AND series_id=$2 AND deleted_at=$3`,
+                  [user.id, seriesId, deleted!.deleted_at],
+                );
+                for (const item of restorable)
+                  await restorePlannerItem(
+                    tx,
+                    'tasks',
+                    taskColumns,
+                    user.id,
+                    item.id,
+                    item.version,
+                  );
+              }
+              const active = await tx.query<{ id: string }>(
+                `SELECT id FROM tasks WHERE owner_id=$1 AND series_id=$2
+                   AND deleted_at IS NULL`,
+                [user.id, seriesId],
+              );
+              for (const item of active)
+                await syncTaskReminderOffsets(tx, user.id, item.id);
+            } else {
+              await syncTaskReminderOffsets(tx, user.id, id);
+            }
+          }
           return table === 'tasks'
             ? taskResponseSchema.parse({ task: row })
             : eventResponseSchema.parse({ event: row });

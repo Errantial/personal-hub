@@ -84,6 +84,51 @@ it('applies updates over the version the model saw and keeps other fields', () =
   );
 });
 
+it('undoes a recurring create as a series and keeps future-update scope', () => {
+  const recurring = assistantProposalSchema.parse({
+    kind: 'task.create',
+    task: {
+      title: 'Recurring',
+      notes: '',
+      dueDate: '2036-04-02',
+      priority: 'normal',
+      recurrence: {
+        frequency: 'daily',
+        interval: 1,
+        count: 3,
+        until: null,
+        timeZone: 'America/Denver',
+      },
+    },
+  });
+  expect(undoRequest(recurring, { id: task.id, version: 1 }, 'undo')).toEqual({
+    method: 'DELETE',
+    path: `/api/v1/tasks/${task.id}`,
+    returns: 'task',
+    body: { operationId: 'undo', expectedVersion: 1, scope: 'series' },
+  });
+  const update = assistantProposalSchema.parse({
+    kind: 'task.update',
+    target: taskSchema.parse({
+      ...task,
+      recurrence: {
+        frequency: 'daily',
+        interval: 1,
+        count: 3,
+        until: null,
+        timeZone: 'America/Denver',
+      },
+      seriesId: task.id,
+      occurrenceKey: '2036-03-10',
+    }),
+    changes: { title: 'Renamed' },
+    scope: 'future',
+  });
+  expect(
+    undoRequest(update, { id: task.id, version: 4 }, 'undo').body,
+  ).toMatchObject({ scope: 'future' });
+});
+
 it('moves an event without dropping its notes, and deletes created items on undo', () => {
   const moved = assistantProposalSchema.parse({
     kind: 'event.update',

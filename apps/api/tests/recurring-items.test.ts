@@ -251,6 +251,18 @@ it('shifts materialized future tasks when this-and-future dates move', async () 
     (task) => task.seriesId === first.seriesId && task.dueDate === '2027-08-03',
   )!;
   expect(third).toBeTruthy();
+  // A manually edited future occurrence is no longer an untouched generated
+  // row, so reopening the current occurrence must keep it for the shift test.
+  const editedFuture = await put(`tasks/${third.id}`, {
+    title: 'Shifted future',
+    notes: third.notes,
+    dueDate: third.dueDate,
+    priority: third.priority,
+    completed: false,
+    sensitivity: third.sensitivity,
+    expectedVersion: third.version,
+  });
+  expect(editedFuture.statusCode).toBe(200);
   const reopened = await put(`tasks/${second.id}`, {
     title: second.title,
     notes: second.notes,
@@ -362,6 +374,172 @@ it('splits an event occurrence into this and all future', async () => {
     '2027-09-01',
     '2027-09-02',
   ]);
+});
+
+it('removes an untouched generated occurrence when a repeat is reopened', async () => {
+  const created = await post('tasks', {
+    title: 'Reopen repeat',
+    notes: '',
+    dueDate: '2027-10-01',
+    priority: 'normal',
+    completed: false,
+    sensitivity: 'unlabeled',
+    recurrence: {
+      frequency: 'daily',
+      interval: 1,
+      count: 3,
+      until: null,
+      timeZone: 'America/Denver',
+    },
+  });
+  const first = taskResponseSchema.parse(created.json()).task;
+  const done = await put(`tasks/${first.id}`, {
+    title: first.title,
+    notes: first.notes,
+    dueDate: first.dueDate,
+    priority: first.priority,
+    completed: true,
+    sensitivity: first.sensitivity,
+    expectedVersion: first.version,
+  });
+  expect(done.statusCode).toBe(200);
+  expect(
+    (await tasks()).find(
+      (task) =>
+        task.seriesId === first.seriesId && task.dueDate === '2027-10-02',
+    ),
+  ).toBeTruthy();
+  const reopened = await put(`tasks/${first.id}`, {
+    title: first.title,
+    notes: first.notes,
+    dueDate: first.dueDate,
+    priority: first.priority,
+    completed: false,
+    sensitivity: first.sensitivity,
+    expectedVersion: taskResponseSchema.parse(done.json()).task.version,
+  });
+  expect(reopened.statusCode).toBe(200);
+  expect(
+    (await tasks()).filter((task) => task.seriesId === first.seriesId),
+  ).toHaveLength(1);
+});
+
+it('revives cancelled offset reminders when a task returns to active', async () => {
+  const task = await makeTask('Revive offsets', '2027-11-01');
+  const savedResponse = await put(`tasks/${task.id}`, {
+    title: task.title,
+    notes: task.notes,
+    dueDate: task.dueDate,
+    dueAt: '2027-11-01T09:00:00-07:00',
+    dueTimeZone: 'America/Denver',
+    reminderOffsets: [60],
+    priority: task.priority,
+    completed: false,
+    sensitivity: task.sensitivity,
+    expectedVersion: task.version,
+  });
+  const saved = taskResponseSchema.parse(savedResponse.json()).task;
+  const offsetRows = async () =>
+    (await get('reminders'))
+      .json()
+      .reminders.filter(
+        (row: { targetId: string | null; offsetMinutes: number | null }) =>
+          row.targetId === saved.id && row.offsetMinutes === 60,
+      ) as { id: string; status: string }[];
+  expect((await offsetRows())[0]!.status).toBe('queued');
+
+  const completed = await put(`tasks/${saved.id}`, {
+    title: saved.title,
+    notes: saved.notes,
+    dueDate: saved.dueDate,
+    dueAt: saved.dueAt,
+    dueTimeZone: saved.dueTimeZone,
+    priority: saved.priority,
+    completed: true,
+    sensitivity: saved.sensitivity,
+    expectedVersion: saved.version,
+  });
+  expect((await offsetRows())[0]!.status).toBe('cancelled');
+  const reopened = await put(`tasks/${saved.id}`, {
+    title: saved.title,
+    notes: saved.notes,
+    dueDate: saved.dueDate,
+    dueAt: saved.dueAt,
+    dueTimeZone: saved.dueTimeZone,
+    priority: saved.priority,
+    completed: false,
+    sensitivity: saved.sensitivity,
+    expectedVersion: taskResponseSchema.parse(completed.json()).task.version,
+  });
+  expect((await offsetRows())[0]!.status).toBe('queued');
+
+  const removed = await del(`tasks/${saved.id}`, {
+    expectedVersion: taskResponseSchema.parse(reopened.json()).task.version,
+  });
+  expect(removed.statusCode).toBe(200);
+  expect((await offsetRows())[0]!.status).toBe('cancelled');
+  const restored = await post(`tasks/${saved.id}/restore`, {
+    expectedVersion: taskResponseSchema.parse(removed.json()).task.version,
+  });
+  expect(restored.statusCode).toBe(200);
+  expect((await offsetRows())[0]!.status).toBe('queued');
+});
+
+it('restores a deleted series from one Recently deleted occurrence', async () => {
+  const created = await post('tasks', {
+    title: 'Restore series',
+    notes: '',
+    dueDate: '2027-12-20',
+    priority: 'normal',
+    completed: false,
+    sensitivity: 'unlabeled',
+    recurrence: {
+      frequency: 'daily',
+      interval: 1,
+      count: 3,
+      until: null,
+      timeZone: 'America/Denver',
+    },
+  });
+  const first = taskResponseSchema.parse(created.json()).task;
+  await put(`tasks/${first.id}`, {
+    title: first.title,
+    notes: first.notes,
+    dueDate: first.dueDate,
+    priority: first.priority,
+    completed: true,
+    sensitivity: first.sensitivity,
+    expectedVersion: first.version,
+  });
+  const second = (await tasks()).find(
+    (task) => task.seriesId === first.seriesId && task.dueDate === '2027-12-21',
+  )!;
+  const deleted = await del(`tasks/${second.id}`, {
+    expectedVersion: second.version,
+    scope: 'series',
+  });
+  expect(deleted.statusCode).toBe(200);
+  expect(
+    (await tasks()).filter((task) => task.seriesId === first.seriesId),
+  ).toHaveLength(0);
+  const restored = await post(`tasks/${second.id}/restore`, {
+    expectedVersion: taskResponseSchema.parse(deleted.json()).task.version,
+  });
+  expect(restored.statusCode).toBe(200);
+  expect(
+    (await tasks()).filter((task) => task.seriesId === first.seriesId),
+  ).toHaveLength(2);
+  const [series] = await db.query(
+    `SELECT deleted_at AS "deletedAt",cancelled_from AS "cancelledFrom"
+     FROM recurrence_series WHERE id=$1`,
+    [first.seriesId],
+  );
+  expect(series).toMatchObject({ deletedAt: null, cancelledFrom: null });
+  // The completed first occurrence stays completed; the open occurrence returns.
+  expect(taskResponseSchema.parse(restored.json()).task.completed).toBe(false);
+  expect((await tasks()).find((task) => task.id === first.id)?.completed).toBe(
+    true,
+  );
 });
 
 it('delivers a repeating reminder, schedules the next, and cancels the series', async () => {
@@ -531,6 +709,27 @@ it('creates one reminder per event occurrence offset', async () => {
   expect(
     generated.find((row) => row.occurrenceDate === '2026-11-10')!.scheduledAt,
   ).toBe('2026-11-11T01:00:00.000Z');
+
+  const event = created.json().event as { id: string; version: number };
+  const deleted = await del(`calendar/${event.id}`, {
+    expectedVersion: event.version,
+  });
+  expect(deleted.statusCode).toBe(200);
+  const statuses = async () =>
+    (await get('reminders'))
+      .json()
+      .reminders.filter(
+        (row: { targetId: string | null; offsetMinutes: number | null }) =>
+          row.targetId === event.id && row.offsetMinutes === 60,
+      )
+      .map((row: { status: string }) => row.status);
+  expect(await statuses()).toEqual(['cancelled', 'cancelled']);
+  const restored = await post(`calendar/${event.id}/restore`, {
+    expectedVersion: (deleted.json() as { event: { version: number } }).event
+      .version,
+  });
+  expect(restored.statusCode).toBe(200);
+  expect(await statuses()).toEqual(['queued', 'queued']);
 });
 
 it('keeps offsets on a task and refreshes them when the due time changes', async () => {
