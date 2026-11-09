@@ -37,7 +37,12 @@ export async function plannedWrite(
     );
   }
   if (request.path === '/internal/ai/capability/undo') {
-    await undoCapability(database, owner, String(request.body.auditId));
+    await undoCapability(
+      database,
+      owner,
+      String(request.body.auditId),
+      String(request.body.operationId),
+    );
     return { id: String(request.body.auditId), version: 1 };
   }
   const academic =

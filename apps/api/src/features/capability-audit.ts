@@ -13,9 +13,26 @@ const capability = (proposal: AssistantProposal) =>
         ? 'calendar'
         : 'reminder';
 
+const actionByCapability: Record<string, string> = {
+  'task.delete': 'delete',
+  'task.restore': 'restore',
+  'event.delete': 'delete',
+  'event.restore': 'restore',
+  'study.preferences.update': 'update',
+  'settings.auto_approve': 'update',
+  'mail.archive': 'update',
+  'mail.label': 'update',
+  'mail.read': 'update',
+  'mail.send': 'send',
+};
 const action = (proposal: AssistantProposal) =>
   proposal.kind === 'capability'
-    ? proposal.capability.split('.').at(-1)!.slice(0, 20)
+    ? (actionByCapability[proposal.capability] ??
+      (proposal.capability.endsWith('.delete')
+        ? 'delete'
+        : proposal.capability.endsWith('.cancel')
+          ? 'cancel'
+          : 'update'))
     : proposal.kind.endsWith('.create')
       ? 'create'
       : proposal.kind.endsWith('.update')

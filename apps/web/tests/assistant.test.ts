@@ -53,8 +53,12 @@ it('applies updates over the version the model saw and keeps other fields', () =
       title: 'Lab report',
       notes: 'Section 2',
       dueDate: '2036-03-12',
+      dueAt: null,
+      dueTimeZone: null,
       priority: 'normal',
       completed: true,
+      recurrence: null,
+      reminderOffsets: [],
       operationId: 'op',
       expectedVersion: 3,
     },
@@ -66,14 +70,63 @@ it('applies updates over the version the model saw and keeps other fields', () =
     title: 'Lab report',
     notes: 'Section 2',
     dueDate: '2036-03-10',
+    dueAt: null,
+    dueTimeZone: null,
     priority: 'normal',
     completed: false,
+    recurrence: null,
+    reminderOffsets: [],
     operationId: 'undo',
     expectedVersion: 4,
   });
   expect(describeProposal(proposal, 'America/Denver')).toBe(
     'Change task “Lab report”: due Mon, Mar 10, 2036 → Wed, Mar 12, 2036, mark done',
   );
+});
+
+it('undoes a recurring create as a series and keeps future-update scope', () => {
+  const recurring = assistantProposalSchema.parse({
+    kind: 'task.create',
+    task: {
+      title: 'Recurring',
+      notes: '',
+      dueDate: '2036-04-02',
+      priority: 'normal',
+      recurrence: {
+        frequency: 'daily',
+        interval: 1,
+        count: 3,
+        until: null,
+        timeZone: 'America/Denver',
+      },
+    },
+  });
+  expect(undoRequest(recurring, { id: task.id, version: 1 }, 'undo')).toEqual({
+    method: 'DELETE',
+    path: `/api/v1/tasks/${task.id}`,
+    returns: 'task',
+    body: { operationId: 'undo', expectedVersion: 1, scope: 'series' },
+  });
+  const update = assistantProposalSchema.parse({
+    kind: 'task.update',
+    target: taskSchema.parse({
+      ...task,
+      recurrence: {
+        frequency: 'daily',
+        interval: 1,
+        count: 3,
+        until: null,
+        timeZone: 'America/Denver',
+      },
+      seriesId: task.id,
+      occurrenceKey: '2036-03-10',
+    }),
+    changes: { title: 'Renamed' },
+    scope: 'future',
+  });
+  expect(
+    undoRequest(update, { id: task.id, version: 4 }, 'undo').body,
+  ).toMatchObject({ scope: 'future' });
 });
 
 it('moves an event without dropping its notes, and deletes created items on undo', () => {

@@ -13,6 +13,7 @@ import {
   deleteItemSchema,
   restoreItemSchema,
   recurrenceSchema,
+  recurrenceDates,
 } from '@hub/contracts';
 import type {
   CalendarRecord,
@@ -24,6 +25,8 @@ import type { Database, QueryExecutor } from '../db/database.js';
 import type { authService } from '../auth/routes.js';
 import { mutateSchedule as mutate } from '../planner/mutations.js';
 import { ApiError } from '../errors.js';
+import { syncEventReminderOffsets } from './recurrence.js';
+import { transactionDatabase } from '../planner/nested-database.js';
 import { restorePlannerItem } from '../planner/restore.js';
 import { captureCanvasSource } from '../connections/canvas-provenance.js';
 import {
@@ -175,6 +178,13 @@ export async function saveEvent(
           `UPDATE events SET deleted_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP,version=version+1 WHERE owner_id=$1 AND id=$2 RETURNING ${eventColumns}`,
           [owner, id],
         );
+        await tx.query(
+          `UPDATE reminders SET status='cancelled',cancel_reason='sync',version=version+1,
+             updated_at=CURRENT_TIMESTAMP
+           WHERE owner_id=$1 AND target_kind='event' AND target_id=$2
+             AND status IN ('queued','running','paused')`,
+          [owner, id],
+        );
         return calendarResponseSchema.parse({ event: row });
       },
     );
@@ -276,11 +286,16 @@ export async function saveEvent(
         values.courseId,
         values.topicId,
         values.studyStatus,
+        JSON.stringify(
+          values.reminderOffsets ??
+            (method === 'PUT' ? old?.reminder_offsets : null) ??
+            [],
+        ),
       ];
       const [row] =
         method === 'POST'
           ? await tx.query(
-              `INSERT INTO events (id,owner_id,title,notes,starts_at,ends_at,time_zone,sensitivity,all_day,start_date,end_date,recurrence,course_id,topic_id,study_status,canvas_source_id,canvas_source_snapshot,canvas_assignment_id,canvas_assignment_snapshot,academic_labels) VALUES (${params.map((_, i) => `$${i + 1}`).join(',')},$16,$17::jsonb,$18,$19::jsonb,$20::text[]) ON CONFLICT (id) DO NOTHING RETURNING ${eventColumns}`,
+              `INSERT INTO events (id,owner_id,title,notes,starts_at,ends_at,time_zone,sensitivity,all_day,start_date,end_date,recurrence,course_id,topic_id,study_status,reminder_offsets,canvas_source_id,canvas_source_snapshot,canvas_assignment_id,canvas_assignment_snapshot,academic_labels) VALUES (${params.map((_, i) => `$${i + 1}`).join(',')},$17,$18::jsonb,$19,$20::jsonb,$21::text[]) ON CONFLICT (id) DO NOTHING RETURNING ${eventColumns}`,
               [
                 ...params,
                 source?.inputKind !== 'assignment-api'
@@ -297,7 +312,7 @@ export async function saveEvent(
               ],
             )
           : await tx.query(
-              `UPDATE events SET title=$3,notes=$4,starts_at=$5,ends_at=$6,time_zone=$7,sensitivity=$8,all_day=$9,start_date=$10,end_date=$11,recurrence=$12,course_id=$13,topic_id=$14,study_status=$15,academic_labels=$16::text[],version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${eventColumns}`,
+              `UPDATE events SET title=$3,notes=$4,starts_at=$5,ends_at=$6,time_zone=$7,sensitivity=$8,all_day=$9,start_date=$10,end_date=$11,recurrence=$12,course_id=$13,topic_id=$14,study_status=$15,reminder_offsets=$16::jsonb,academic_labels=$17::text[],version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${eventColumns}`,
               [...params, capturedLabels],
             );
       if (!row)
@@ -323,10 +338,11 @@ export async function saveEvent(
       ) {
         await tx.query('DELETE FROM event_exceptions WHERE event_id=$1', [id]);
         await tx.query(
-          "UPDATE reminders SET status='cancelled',version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND target_id=$2 AND target_kind='event' AND occurrence_date IS NOT NULL AND status IN ('queued','running','paused')",
+          "UPDATE reminders SET status='cancelled',cancel_reason='sync',version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND target_id=$2 AND target_kind='event' AND occurrence_date IS NOT NULL AND status IN ('queued','running','paused')",
           [owner, id],
         );
       }
+      await syncEventReminderOffsets(tx, owner, id);
       return calendarResponseSchema.parse({ event: row });
     },
   );
@@ -360,17 +376,18 @@ export function registerCalendar(
       user.id,
       input.operationId,
       { kind: 'calendar.restore', id, input },
-      async (tx) =>
-        calendarResponseSchema.parse({
-          event: await restorePlannerItem(
-            tx,
-            'events',
-            eventColumns,
-            user.id,
-            id,
-            input.expectedVersion,
-          ),
-        }),
+      async (tx) => {
+        const event = await restorePlannerItem(
+          tx,
+          'events',
+          eventColumns,
+          user.id,
+          id,
+          input.expectedVersion,
+        );
+        await syncEventReminderOffsets(tx, user.id, id);
+        return calendarResponseSchema.parse({ event });
+      },
     );
   });
   app.get('/api/v1/calendar', async (request) => {
@@ -471,6 +488,213 @@ export function registerCalendar(
                 'NOT_FOUND',
                 'This occurrence does not exist.',
               );
+            const scope = 'scope' in input ? (input.scope ?? 'this') : 'this';
+            const anchor = event.startDate
+              ? event.startDate
+              : Temporal.Instant.from(event.startsAt)
+                  .toZonedDateTimeISO(event.timeZone)
+                  .toPlainDate()
+                  .toString();
+            if (scope === 'future' && date === anchor) {
+              if (method === 'DELETE') {
+                await tx.query(
+                  `UPDATE events SET deleted_at=CURRENT_TIMESTAMP,
+                     updated_at=CURRENT_TIMESTAMP,version=version+1
+                   WHERE owner_id=$1 AND id=$2`,
+                  [user.id, id],
+                );
+                await tx.query(
+                  `UPDATE reminders SET status='cancelled',cancel_reason='sync',version=version+1,
+                     updated_at=CURRENT_TIMESTAMP
+                   WHERE owner_id=$1 AND target_kind='event' AND target_id=$2
+                     AND status IN ('queued','running','paused')`,
+                  [user.id, id],
+                );
+                return calendarResponseSchema.parse({
+                  event: await readEvent(tx, user.id, id),
+                });
+              }
+              return saveEvent(transactionDatabase(tx), user.id, 'PUT', id, {
+                ...input,
+                expectedVersion: input.expectedVersion,
+                operationId: randomUUID(),
+              });
+            }
+            if (scope === 'future' && date !== anchor) {
+              if (method === 'DELETE') {
+                const until = Temporal.PlainDate.from(date)
+                  .subtract({ days: 1 })
+                  .toString();
+                await tx.query(
+                  `UPDATE events SET recurrence=$3::jsonb,version=version+1,
+                     updated_at=CURRENT_TIMESTAMP
+                   WHERE owner_id=$1 AND id=$2`,
+                  [
+                    user.id,
+                    id,
+                    JSON.stringify({ ...event.recurrence, until, count: null }),
+                  ],
+                );
+                await tx.query(
+                  'DELETE FROM event_exceptions WHERE event_id=$1 AND original_date >= $2',
+                  [id, date],
+                );
+                await tx.query(
+                  `UPDATE reminders SET status='cancelled',cancel_reason='sync',version=version+1,
+                     updated_at=CURRENT_TIMESTAMP
+                   WHERE owner_id=$1 AND target_kind='event' AND target_id=$2
+                     AND occurrence_date >= $3
+                     AND status IN ('queued','running','paused')`,
+                  [user.id, id, date],
+                );
+                return calendarResponseSchema.parse({
+                  event: await readEvent(tx, user.id, id),
+                });
+              }
+              const [raw] = await tx.query<Record<string, unknown>>(
+                'SELECT * FROM events WHERE owner_id=$1 AND id=$2 FOR UPDATE',
+                [user.id, id],
+              );
+              if (!raw) throw new ApiError(404, 'NOT_FOUND', 'Event missing.');
+              if (!('title' in input))
+                throw new ApiError(
+                  400,
+                  'INVALID_INPUT',
+                  'Choose the event fields to save.',
+                );
+              const values = normalizeEvent(input as CalendarInput);
+              const futureId = randomUUID();
+              const until = Temporal.PlainDate.from(date)
+                .subtract({ days: 1 })
+                .toString();
+              const anchorDate = Temporal.PlainDate.from(
+                event.startDate ??
+                  Temporal.Instant.from(event.startsAt)
+                    .toZonedDateTimeISO(event.timeZone)
+                    .toPlainDate()
+                    .toString(),
+              );
+              const before = recurrenceDates(
+                event.recurrence,
+                anchorDate,
+                anchorDate,
+                Temporal.PlainDate.from(date).subtract({ days: 1 }),
+              ).length;
+              const remaining = event.recurrence.count
+                ? Math.max(1, event.recurrence.count - before)
+                : null;
+              const futureRecurrence = values.recurrence
+                ? {
+                    ...values.recurrence,
+                    count:
+                      values.recurrence.count !== null && remaining !== null
+                        ? Math.min(values.recurrence.count, remaining)
+                        : values.recurrence.count,
+                  }
+                : null;
+              const labels = inherited!.complete
+                ? mergeAcademicLabels(event.academicLabels, [
+                    ...inherited!.labels,
+                    ...[input.sensitivity].filter(
+                      (label) => label !== 'unlabeled',
+                    ),
+                  ])
+                : event.academicLabels;
+              await tx.query(
+                `INSERT INTO events(id,owner_id,title,notes,starts_at,ends_at,
+                   time_zone,sensitivity,all_day,start_date,end_date,recurrence,
+                   course_id,topic_id,study_status,reminder_offsets,
+                   canvas_source_id,canvas_source_snapshot,canvas_assignment_id,
+                   canvas_assignment_snapshot,academic_labels,ai_origin,ai_labels)
+                 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,
+                   $15,$16::jsonb,$17,$18::jsonb,$19,$20::jsonb,$21::text[],
+                   $22,$23::text[])`,
+                [
+                  futureId,
+                  user.id,
+                  values.title,
+                  values.notes,
+                  values.startsAt,
+                  values.endsAt,
+                  values.timeZone,
+                  strongest(
+                    event.sensitivity,
+                    input.sensitivity,
+                    ...inherited!.labels,
+                  ),
+                  values.allDay,
+                  values.startDate,
+                  values.endDate,
+                  futureRecurrence ? JSON.stringify(futureRecurrence) : null,
+                  values.courseId,
+                  values.topicId,
+                  values.studyStatus,
+                  JSON.stringify(values.reminderOffsets ?? []),
+                  raw.canvas_source_id,
+                  raw.canvas_source_snapshot
+                    ? JSON.stringify(raw.canvas_source_snapshot)
+                    : null,
+                  raw.canvas_assignment_id,
+                  raw.canvas_assignment_snapshot
+                    ? JSON.stringify(raw.canvas_assignment_snapshot)
+                    : null,
+                  labels,
+                  raw.ai_origin,
+                  raw.ai_labels,
+                ],
+              );
+              await tx.query(
+                `UPDATE events SET recurrence=$3::jsonb,version=version+1,
+                   updated_at=CURRENT_TIMESTAMP
+                 WHERE owner_id=$1 AND id=$2`,
+                [
+                  user.id,
+                  id,
+                  JSON.stringify({ ...event.recurrence, until, count: null }),
+                ],
+              );
+              await tx.query(
+                'UPDATE event_exceptions SET event_id=$3 WHERE event_id=$1 AND original_date >= $2',
+                [id, date, futureId],
+              );
+              await tx.query(
+                `UPDATE reminders SET status='cancelled',cancel_reason='sync',version=version+1,
+                   updated_at=CURRENT_TIMESTAMP
+                 WHERE owner_id=$1 AND target_kind='event' AND target_id=$2
+                   AND occurrence_date >= $3
+                   AND status IN ('queued','running','paused')`,
+                [user.id, id, date],
+              );
+              await syncEventReminderOffsets(tx, user.id, futureId);
+              return calendarResponseSchema.parse({
+                event: await readEvent(tx, user.id, futureId),
+              });
+            }
+            if (scope === 'series') {
+              if (method === 'DELETE') {
+                await tx.query(
+                  `UPDATE events SET deleted_at=CURRENT_TIMESTAMP,
+                     updated_at=CURRENT_TIMESTAMP,version=version+1
+                   WHERE owner_id=$1 AND id=$2`,
+                  [user.id, id],
+                );
+                await tx.query(
+                  `UPDATE reminders SET status='cancelled',cancel_reason='sync',version=version+1,
+                     updated_at=CURRENT_TIMESTAMP
+                   WHERE owner_id=$1 AND target_kind='event' AND target_id=$2
+                     AND status IN ('queued','running','paused')`,
+                  [user.id, id],
+                );
+                return calendarResponseSchema.parse({
+                  event: await readEvent(tx, user.id, id),
+                });
+              }
+              return saveEvent(transactionDatabase(tx), user.id, 'PUT', id, {
+                ...input,
+                expectedVersion: input.expectedVersion,
+                operationId: randomUUID(),
+              });
+            }
             let replacement: CalendarInput | null = null;
             let capturedLabels = event.academicLabels;
             if ('title' in input) {
@@ -514,7 +738,7 @@ export function registerCalendar(
               ],
             );
             await tx.query(
-              "UPDATE reminders SET status='cancelled',version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND target_id=$2 AND target_kind='event' AND occurrence_date=$3 AND status IN ('queued','running','paused')",
+              "UPDATE reminders SET status='cancelled',cancel_reason='sync',version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND target_id=$2 AND target_kind='event' AND occurrence_date=$3 AND status IN ('queued','running','paused')",
               [user.id, id, date],
             );
             await tx.query(

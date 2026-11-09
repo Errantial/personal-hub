@@ -33,7 +33,7 @@ export async function restorePlannerItem(
     `UPDATE ${table} SET deleted_at=NULL,updated_at=CURRENT_TIMESTAMP,version=version+1 WHERE owner_id=$1 AND id=$2 RETURNING ${columns}`,
     [owner, id],
   );
-  // Restore only the planner record. Reminder jobs, notifications and occurrence
-  // exceptions retain their current states; cancelled jobs are never requeued.
+  // Restore only the planner record. Callers resync automatic offset
+  // reminders; occurrence exceptions and notification history stay intact.
   return row;
 }

@@ -1,7 +1,13 @@
 import { z } from 'zod';
 import { taskSchema } from './core.js';
 import { reminderSchema } from './features.js';
-import { calendarRecordSchema, dateOnly, instant, zone } from './features.js';
+import {
+  calendarRecordSchema,
+  dateOnly,
+  instant,
+  recurrenceSchema,
+  zone,
+} from './features.js';
 import { runOutcomeSchema } from './responsibilities.js';
 import { mailBrokerReceiptSchema } from './mail-broker.js';
 import { studyRangeSchema } from './study.js';
@@ -159,6 +165,10 @@ export const assistantRequestInputSchema = z.strictObject({
 });
 
 const title = z.string().trim().min(1).max(200);
+const proposalOffsets = z
+  .array(z.number().int().min(0).max(10080))
+  .max(5)
+  .optional();
 const priority = z.enum(['low', 'normal', 'high']);
 export const assistantDeadlineSourceSchema = z.strictObject({
   id: z.string().uuid(),
@@ -186,6 +196,8 @@ export const assistantProposalSchema = z.discriminatedUnion('kind', [
       notes: z.string().max(2000),
       dueDate: dateOnly.nullable(),
       priority,
+      recurrence: recurrenceSchema.nullable().optional(),
+      reminderOffsets: proposalOffsets,
     }),
   }),
   z.object({
@@ -197,7 +209,10 @@ export const assistantProposalSchema = z.discriminatedUnion('kind', [
       dueDate: dateOnly.nullable().optional(),
       priority: priority.optional(),
       completed: z.boolean().optional(),
+      recurrence: recurrenceSchema.nullable().optional(),
+      reminderOffsets: proposalOffsets,
     }),
+    scope: z.enum(['this', 'future']).optional(),
   }),
   z.object({
     kind: z.literal('event.create'),
@@ -211,6 +226,8 @@ export const assistantProposalSchema = z.discriminatedUnion('kind', [
       allDay: z.boolean(),
       startDate: dateOnly.nullable(),
       endDate: dateOnly.nullable(),
+      recurrence: recurrenceSchema.nullable().optional(),
+      reminderOffsets: proposalOffsets,
     }),
   }),
   z.object({
@@ -220,7 +237,10 @@ export const assistantProposalSchema = z.discriminatedUnion('kind', [
       title: title.optional(),
       startsAt: instant.optional(),
       endsAt: instant.optional(),
+      recurrence: recurrenceSchema.nullable().optional(),
+      reminderOffsets: proposalOffsets,
     }),
+    scope: z.enum(['this', 'future']).optional(),
   }),
   z.object({
     kind: z.literal('reminder.create'),
@@ -229,6 +249,7 @@ export const assistantProposalSchema = z.discriminatedUnion('kind', [
     reminder: z.object({
       title,
       scheduledAt: instant,
+      recurrence: recurrenceSchema.nullable().optional(),
     }),
   }),
   z.object({
@@ -237,11 +258,13 @@ export const assistantProposalSchema = z.discriminatedUnion('kind', [
     changes: z.object({
       title: title.optional(),
       scheduledAt: instant.optional(),
+      recurrence: recurrenceSchema.nullable().optional(),
     }),
   }),
   z.object({
     kind: z.literal('reminder.cancel'),
     target: reminderSchema,
+    scope: z.enum(['this', 'future', 'series']).optional(),
   }),
   z.object({
     kind: z.literal('capability'),

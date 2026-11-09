@@ -25,6 +25,7 @@ import { DeviceAlarms } from './DeviceAlarms';
 import { EmailDrafts } from './EmailDrafts';
 import { MailView } from './MailView';
 import { Help } from './Help';
+import { Icon } from './Icon';
 import { Link } from './Link';
 import { ReadState } from './ReadState';
 import { ReminderEditor } from './ReminderEditor';
@@ -174,20 +175,32 @@ export function InboxView({
   }
 
   async function change(item: Reminder, action: string) {
-    if (action === 'cancel') {
+    if (action === 'cancel' || action === 'cancel-series') {
+      const series = action === 'cancel-series';
       const confirmed = await confirm({
-        title: `Cancel reminder “${item.title}”?`,
-        message:
-          'It will not be delivered. A cancelled reminder cannot be resumed.',
-        confirmLabel: 'Cancel reminder',
+        title: series
+          ? `Cancel the repeating reminder “${item.title}”?`
+          : `Cancel reminder “${item.title}”?`,
+        message: series
+          ? 'Future occurrences stop. Delivered history stays in the inbox.'
+          : 'It will not be delivered. A cancelled reminder cannot be resumed.',
+        confirmLabel: series ? 'Cancel series' : 'Cancel reminder',
       });
       if (!confirmed) return;
     }
     const changed = await control.run(
       reminderResponseSchema,
       'POST',
-      `/api/v1/reminders/${item.id}/control`,
-      { action, expectedVersion: item.version },
+      action === 'dismiss'
+        ? `/api/v1/reminders/${item.id}/dismiss`
+        : `/api/v1/reminders/${item.id}/control`,
+      action === 'dismiss'
+        ? { expectedVersion: item.version }
+        : {
+            action: action === 'cancel-series' ? 'cancel' : action,
+            ...(action === 'cancel-series' ? { scope: 'series' } : {}),
+            expectedVersion: item.version,
+          },
       'Could not change the reminder.',
     );
     if (changed) await reminders.reload();
@@ -456,6 +469,12 @@ function ReminderRow({
           <StatusChip tone={item.status === 'failed' ? 'danger' : 'neutral'}>
             {statusText[item.status]}
           </StatusChip>
+          {item.recurrence && (
+            <span className="repeat-mark">
+              <Icon name="repeat" />
+              <span className="visually-hidden">Repeating</span>
+            </span>
+          )}
           {item.targetKind && <span>{targetText[item.targetKind]}</span>}
           {item.snoozedFromId && <span>Snoozed</span>}
           {item.attempts > 0 && <span>Attempts: {item.attempts}</span>}
@@ -478,8 +497,18 @@ function ReminderRow({
             button('pause', 'Pause')}
           {item.status === 'paused' && button('resume', 'Resume')}
           {item.status === 'failed' && button('retry', 'Retry')}
-          {['queued', 'running', 'paused', 'failed'].includes(item.status) &&
-            button('cancel', 'Cancel', `Cancel reminder ${item.title}`)}
+          {item.status === 'delivered' && button('dismiss', 'Dismiss')}
+          {['queued', 'running', 'paused', 'failed'].includes(item.status) && (
+            <>
+              {button('cancel', 'Cancel', `Cancel reminder ${item.title}`)}
+              {item.seriesId &&
+                button(
+                  'cancel-series',
+                  'Cancel series',
+                  `Cancel repeating reminder ${item.title}`,
+                )}
+            </>
+          )}
         </div>
       )}
     </li>

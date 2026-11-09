@@ -81,10 +81,38 @@ export function agentPrompt(
  * `not_allowed`). A conflict fails that item only. Email is never sent:
  * Assistant proposals cannot contain email.
  */
+function shortensRecurrence(proposal: AssistantProposal) {
+  if (!('changes' in proposal) || !('recurrence' in proposal.changes))
+    return false;
+  const before = proposal.target.recurrence;
+  const after = proposal.changes.recurrence;
+  if (!before) return false;
+  if (after === null) return true;
+  if (after === undefined) return false;
+  if (
+    before.count !== null &&
+    after.count !== null &&
+    after.count < before.count
+  )
+    return true;
+  if (
+    before.until !== null &&
+    after.until !== null &&
+    after.until < before.until
+  )
+    return true;
+  // Switching a counted series to a date (or vice versa) can shorten it;
+  // review it rather than guessing from the other bound.
+  if (before.count !== null && after.until !== null) return true;
+  if (before.until !== null && after.count !== null) return true;
+  return false;
+}
+
 /** Approval tier; Level 3 is never auto-applied. */
 export function proposalTier(proposal: AssistantProposal) {
   if (proposal.kind === 'capability') return proposal.tier;
   if (proposal.kind === 'reminder.cancel') return 2;
+  if (shortensRecurrence(proposal)) return 2;
   return 1;
 }
 
@@ -103,9 +131,9 @@ export function proposalPolicyMode(
     if (proposal.tier >= 2) return 'approval-required';
     return policy.capabilities;
   }
+  if (proposalTier(proposal) >= 2) return 'approval-required';
   if (proposal.kind.startsWith('task.')) return policy.tasks;
   if (proposal.kind.startsWith('event.')) return policy.calendar;
-  if (proposal.kind === 'reminder.cancel') return 'approval-required';
   return policy.reminders;
 }
 

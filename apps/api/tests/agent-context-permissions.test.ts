@@ -4,6 +4,7 @@ import {
   applyRequest,
   assistantProposalSchema,
   reminderResponseSchema,
+  taskResponseSchema,
 } from '@hub/contracts';
 import { startHarness } from './helpers/openrouter.js';
 import { assistantContext } from '../src/ai/assistant-context.js';
@@ -16,6 +17,7 @@ import { runReminderBatch } from '../src/features/reminders.js';
 import {
   applyByPolicy,
   proposalPolicyMode,
+  proposalTier,
 } from '../src/features/agent-run.js';
 import { recordCapabilityAudit } from '../src/features/capability-audit.js';
 import {
@@ -124,6 +126,49 @@ describe('agent context and reminder permissions', () => {
       kind: 'reminder.create',
       target: { id: task.id },
       reminder: { title: 'Agent reminder' },
+    });
+
+    const recurring = toProposal(
+      {
+        type: 'reminder.create',
+        ref: `t${taskIndex + 1}`,
+        title: 'Weekly planning reminder',
+        start: '2030-01-06T19:00',
+        dueDate: null,
+        clearDueDate: false,
+        priority: null,
+        completed: null,
+        end: null,
+        allDay: null,
+        notes: null,
+        recurrence: 'FREQ=WEEKLY;BYDAY=SU;COUNT=4',
+        reminderOffsets: null,
+        scope: null,
+      },
+      context,
+      'America/Denver',
+    );
+    expect(assistantProposalSchema.parse(recurring)).toMatchObject({
+      kind: 'reminder.create',
+      reminder: {
+        recurrence: {
+          frequency: 'weekly',
+          byDay: ['SU'],
+          count: 4,
+          timeZone: 'America/Denver',
+        },
+      },
+    });
+    const seriesDelete = modelCapabilityProposal(
+      'task.delete',
+      JSON.stringify({ ref: `t${taskIndex + 1}`, scope: 'series' }),
+      context,
+    );
+    expect(seriesDelete).toMatchObject({
+      kind: 'capability',
+      capability: 'task.delete',
+      tier: 2,
+      arguments: { scope: 'series' },
     });
 
     const existing = context.reminders![reminderIndex!]!;
@@ -343,12 +388,22 @@ describe('agent context and reminder permissions', () => {
     const afterSnapshot = audit!.after as { deletedAt: string | null };
     expect(beforeSnapshot.id).toBe(task.id);
     expect(afterSnapshot.deletedAt).not.toBeNull();
-    await undoCapability(h.database, h.owner, deleted.id);
+    await undoCapability(h.database, h.owner, deleted.id, randomUUID());
     const [restored] = await h.database.query(
       'SELECT deleted_at AS "deletedAt" FROM tasks WHERE id=$1',
       [task.id],
     );
     expect(restored!.deletedAt).toBeNull();
+    const [undoAudit] = await h.database.query(
+      'SELECT action,decision,tool,operation_id AS "operationId" FROM ai_capability_audit WHERE owner_id=$1 AND tool=\'undo\' ORDER BY created_at DESC LIMIT 1',
+      [h.owner],
+    );
+    expect(undoAudit).toMatchObject({
+      action: 'restore',
+      decision: 'applied',
+      tool: 'undo',
+    });
+    expect(undoAudit!.operationId).not.toBeNull();
 
     const before = await readStudyPreferences(h.database, h.owner);
     const changed = await executeCapability(
@@ -531,6 +586,291 @@ describe('agent context and reminder permissions', () => {
         [h.owner],
       ),
     ).toHaveLength(0);
+    await h.app.close();
+  });
+
+  it('undoes a whole recurring task series with its occurrences and reminders', async () => {
+    const h = await startHarness();
+    const turnId = await seedTurn(h);
+    const created = await h.call('POST', '/api/v1/tasks', {
+      title: 'Series undo',
+      notes: '',
+      dueDate: '2027-12-01',
+      priority: 'normal',
+      completed: false,
+      sensitivity: 'unlabeled',
+      reminderOffsets: [60],
+      recurrence: {
+        frequency: 'daily',
+        interval: 1,
+        count: 3,
+        until: null,
+        timeZone: 'America/Denver',
+      },
+      operationId: randomUUID(),
+    });
+    expect(created.statusCode).toBe(200);
+    const first = taskResponseSchema.parse(created.json()).task;
+    const done = await h.call('PUT', `/api/v1/tasks/${first.id}`, {
+      title: first.title,
+      notes: first.notes,
+      dueDate: first.dueDate,
+      priority: first.priority,
+      completed: true,
+      sensitivity: first.sensitivity,
+      expectedVersion: first.version,
+      operationId: randomUUID(),
+    });
+    expect(done.statusCode).toBe(200);
+    const second = (await h.call('GET', '/api/v1/tasks'))
+      .json()
+      .tasks.find(
+        (task: { seriesId: string | null; dueDate: string | null }) =>
+          task.seriesId === first.seriesId && task.dueDate === '2027-12-02',
+      );
+    expect(second).toMatchObject({ id: expect.any(String) });
+    const deleted = await executeCapability(
+      h.database,
+      h.owner,
+      turnId,
+      'task.delete',
+      { id: second.id, expectedVersion: second.version, scope: 'series' },
+      randomUUID(),
+    );
+    const [audit] = await h.database.query(
+      'SELECT before,after FROM ai_capability_audit WHERE id=$1',
+      [deleted.id],
+    );
+    expect(
+      (audit!.before as { occurrences: unknown[] }).occurrences,
+    ).toHaveLength(2);
+    const [seriesDeleted] = await h.database.query(
+      `SELECT deleted_at AS "deletedAt" FROM recurrence_series
+       WHERE owner_id=$1 AND id=$2`,
+      [h.owner, first.seriesId],
+    );
+    expect(seriesDeleted!.deletedAt).not.toBeNull();
+    await undoCapability(h.database, h.owner, deleted.id, randomUUID());
+    const active = (await h.call('GET', '/api/v1/tasks'))
+      .json()
+      .tasks.filter(
+        (task: { seriesId: string | null }) => task.seriesId === first.seriesId,
+      );
+    expect(active).toHaveLength(2);
+    const [seriesRestored] = await h.database.query(
+      `SELECT deleted_at AS "deletedAt",cancelled_from AS "cancelledFrom"
+       FROM recurrence_series WHERE owner_id=$1 AND id=$2`,
+      [h.owner, first.seriesId],
+    );
+    expect(seriesRestored).toMatchObject({
+      deletedAt: null,
+      cancelledFrom: null,
+    });
+    const openTaskIds = active
+      .filter((task: { completed: boolean }) => !task.completed)
+      .map((task: { id: string }) => task.id);
+    const reminders = await h.database.query(
+      `SELECT status FROM reminders WHERE owner_id=$1 AND target_id=ANY($2::uuid[])`,
+      [h.owner, openTaskIds],
+    );
+    expect(reminders.length).toBeGreaterThan(0);
+    expect(reminders.every((row) => row.status === 'queued')).toBe(true);
+
+    const openSecond = active.find(
+      (task: { id: string }) => task.id === second.id,
+    );
+    const futureDelete = await executeCapability(
+      h.database,
+      h.owner,
+      turnId,
+      'task.delete',
+      {
+        id: second.id,
+        expectedVersion: openSecond.version,
+        scope: 'future',
+      },
+      randomUUID(),
+    );
+    await undoCapability(h.database, h.owner, futureDelete.id, randomUUID());
+    expect(
+      (await h.call('GET', '/api/v1/tasks'))
+        .json()
+        .tasks.filter(
+          (task: { seriesId: string | null }) =>
+            task.seriesId === first.seriesId,
+        ),
+    ).toHaveLength(2);
+    const [futureSeries] = await h.database.query(
+      `SELECT cancelled_from AS "cancelledFrom" FROM recurrence_series
+       WHERE owner_id=$1 AND id=$2`,
+      [h.owner, first.seriesId],
+    );
+    expect(futureSeries!.cancelledFrom).toBeNull();
+    await h.app.close();
+  });
+
+  it('requires approval before an update ends a recurring series', async () => {
+    const h = await startHarness();
+    const created = await h.call('POST', '/api/v1/tasks', {
+      title: 'Shorten series',
+      notes: '',
+      dueDate: '2027-12-10',
+      priority: 'normal',
+      completed: false,
+      sensitivity: 'unlabeled',
+      recurrence: {
+        frequency: 'daily',
+        interval: 1,
+        count: 4,
+        until: null,
+        timeZone: 'America/Denver',
+      },
+      operationId: randomUUID(),
+    });
+    const task = taskResponseSchema.parse(created.json()).task;
+    const proposal = assistantProposalSchema.parse({
+      kind: 'task.update',
+      target: task,
+      changes: { recurrence: null },
+      scope: 'future',
+    });
+    expect(proposalTier(proposal)).toBe(2);
+    expect(
+      proposalPolicyMode(proposal, {
+        tasks: 'automatic',
+        calendar: 'automatic',
+        reminders: 'automatic',
+        capabilities: 'automatic',
+      }),
+    ).toBe('approval-required');
+    const turnId = await seedTurn(h);
+    const item = {
+      state: 'proposed',
+      applied: null,
+      error: null,
+      applyId: randomUUID(),
+      undoId: randomUUID(),
+    };
+    await h.database.query(
+      'UPDATE ai_conversation_turns SET proposals=$2::jsonb,items=$3::jsonb WHERE owner_id=$1 AND id=$4',
+      [h.owner, JSON.stringify([proposal]), JSON.stringify([item]), turnId],
+    );
+    await h.database.query(
+      `INSERT INTO ai_turn_origins(owner_id,turn_id,request_id,capture,proposal_digests)
+       VALUES($1,$2,$2,$3::jsonb,$4::jsonb)`,
+      [
+        h.owner,
+        turnId,
+        JSON.stringify({
+          requestId: turnId,
+          labels: ['unlabeled'],
+          sources: [],
+          useMail: false,
+          destination: {
+            model: 'synthetic/model',
+            upstream: 'google-vertex',
+            revision: 'a'.repeat(64),
+            version: 1,
+          },
+        }),
+        JSON.stringify({
+          [item.applyId]: proposalDigest(
+            h.owner,
+            turnId,
+            item.applyId,
+            proposal,
+          ),
+        }),
+      ],
+    );
+    await h.database.query(
+      `INSERT INTO ai_action_policies(owner_id,policy,auto_approve)
+       VALUES($1,$2::jsonb,false)
+       ON CONFLICT(owner_id) DO UPDATE SET policy=EXCLUDED.policy,auto_approve=false`,
+      [
+        h.owner,
+        JSON.stringify({
+          tasks: 'automatic',
+          calendar: 'automatic',
+          reminders: 'automatic',
+          capabilities: 'automatic',
+          email: 'approval-required',
+        }),
+      ],
+    );
+    await applyByPolicy(
+      h.database,
+      h.owner,
+      (await readTurn(h.database, h.owner, turnId))!,
+    );
+    expect((await readTurn(h.database, h.owner, turnId))!.items[0]!.state).toBe(
+      'proposed',
+    );
+    await h.database.query(
+      'UPDATE ai_action_policies SET auto_approve=true WHERE owner_id=$1',
+      [h.owner],
+    );
+    await applyByPolicy(
+      h.database,
+      h.owner,
+      (await readTurn(h.database, h.owner, turnId))!,
+    );
+    expect((await readTurn(h.database, h.owner, turnId))!.items[0]!.state).toBe(
+      'applied',
+    );
+    const remaining = (await h.call('GET', '/api/v1/tasks'))
+      .json()
+      .tasks.find((row: { id: string }) => row.id === task.id);
+    expect(remaining).toMatchObject({ recurrence: null, seriesId: null });
+    await h.app.close();
+  });
+
+  it('keeps tier 3 proposals waiting with auto-approve on', async () => {
+    const h = await startHarness();
+    const turnId = await seedTurn(h);
+    const proposal = assistantProposalSchema.parse({
+      kind: 'capability',
+      capability: 'mail.send',
+      arguments: {},
+      summary: 'Send mail',
+      tier: 3,
+    });
+    await h.database.query(
+      'UPDATE ai_conversation_turns SET proposals=$2::jsonb,items=$3::jsonb WHERE owner_id=$1 AND id=$4',
+      [
+        h.owner,
+        JSON.stringify([proposal]),
+        JSON.stringify([
+          {
+            state: 'proposed',
+            applied: null,
+            error: null,
+            applyId: randomUUID(),
+            undoId: randomUUID(),
+          },
+        ]),
+        turnId,
+      ],
+    );
+    await h.database.query(
+      `INSERT INTO ai_action_policies(owner_id,policy,auto_approve)
+       VALUES($1,$2::jsonb,true)
+       ON CONFLICT(owner_id) DO UPDATE SET auto_approve=true`,
+      [
+        h.owner,
+        JSON.stringify({
+          tasks: 'approval-required',
+          calendar: 'approval-required',
+          reminders: 'approval-required',
+          capabilities: 'approval-required',
+          email: 'approval-required',
+        }),
+      ],
+    );
+    const saved = await readTurn(h.database, h.owner, turnId);
+    await applyByPolicy(h.database, h.owner, saved!);
+    const after = await readTurn(h.database, h.owner, turnId);
+    expect(after!.items[0]!.state).toBe('proposed');
     await h.app.close();
   });
 

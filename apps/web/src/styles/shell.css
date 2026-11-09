@@ -114,6 +114,14 @@ main:focus {
 .icon {
   flex-shrink: 0;
 }
+.repeat-mark {
+  display: inline-flex;
+  align-items: center;
+}
+.repeat-mark .icon {
+  width: 16px;
+  height: 16px;
+}
 
 /* Header */
 .header {

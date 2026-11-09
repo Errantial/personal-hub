@@ -242,7 +242,17 @@ it('validates the title, end, timezone and repeat fields', () => {
   expect(
     toInput({ ...base, frequency: 'weekly', interval: '2', count: '3' })
       .recurrence,
-  ).toEqual({ frequency: 'weekly', interval: 2, count: 3, until: null });
+  ).toEqual({
+    frequency: 'weekly',
+    interval: 2,
+    count: 3,
+    until: null,
+    byDay: null,
+    monthlyMode: null,
+    byMonthDay: null,
+    bySetPos: null,
+    timeZone: 'America/New_York',
+  });
 });
 
 it('study fields only apply with a class', () => {

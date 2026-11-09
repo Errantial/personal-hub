@@ -173,7 +173,10 @@ export function AIActionSettings() {
           >
             Allow all Tier 1 automatically
           </button>
-          <p>Email: always asks first · deletes and restores always ask</p>
+          <p>
+            Email always asks first. Deletes and restores follow the Tier 1/2
+            setting above; Tier 3 actions always ask.
+          </p>
           <CapabilityAudit online={online} />
           <button type="submit" disabled={busy || !online}>
             {busy ? 'Saving…' : 'Save action settings'}

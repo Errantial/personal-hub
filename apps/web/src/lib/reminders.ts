@@ -61,11 +61,13 @@ export function snoozeChoices(now: Date) {
     const pad = (value: number) => String(value).padStart(2, '0');
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
   };
+  const inTen = new Date(now.getTime() + 10 * 60 * 1000);
   const inHour = new Date(now.getTime() + 60 * 60 * 1000);
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
   tomorrow.setHours(9, 0, 0, 0);
   return [
+    { label: 'In 10 minutes', value: wall(inTen) },
     { label: 'In 1 hour', value: wall(inHour) },
     { label: 'Tomorrow 09:00', value: wall(tomorrow) },
   ];

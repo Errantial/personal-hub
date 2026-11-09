@@ -181,7 +181,7 @@ test('calendar shows agenda, week and day windows and edits an all-day recurring
     monday.getByText('Recurring all-day browser event', { exact: true }),
   ).toBeVisible();
   await expect(monday.getByText('All day', { exact: true })).toBeVisible();
-  await expect(monday.getByText('Repeats daily')).toBeVisible();
+  await expect(monday.getByText(/Daily, 3 occurrences/)).toBeVisible();
   await monday
     .getByRole('link', { name: 'Recurring all-day browser event', exact: true })
     .click();

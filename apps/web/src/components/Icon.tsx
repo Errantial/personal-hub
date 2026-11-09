@@ -10,6 +10,8 @@ const paths = {
   inbox: 'M3 13l3-8h12l3 8v6H3zM3 13h5l1 3h6l1-3h5',
   settings: 'M4 7h9M17 7h3M15 4v6M4 17h3M11 17h9M9 14v6',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
+  repeat:
+    'M4 9a5 5 0 0 1 5-5h9M18 2l3 2-3 2M20 15a5 5 0 0 1-5 5H6M6 22l-3-2 3-2',
   eink: 'M6 3h12v18H6zM9 7h6M9 11h6M9 15h3',
 } as const;
 

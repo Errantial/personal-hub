@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { taskResponseSchema } from '@hub/contracts';
+import type { RecurrenceRule } from '@hub/contracts';
 import { useMutation } from '../lib/hooks';
 import { offlineStatus } from '../lib/offline';
+import { deviceTimeZone } from '../lib/time-zone';
 import { emptyTaskDue, taskDuePayload } from '../lib/task-deadline';
+import { RecurrenceFields } from './RecurrenceFields';
+import { ReminderOffsetsFields } from './ReminderOffsetsFields';
 import { TaskDueFields } from './TaskDueFields';
 import './QuickCapture.css';
 
@@ -13,6 +17,8 @@ export function QuickCapture({ onSaved }: { onSaved: () => Promise<unknown> }) {
   const [expanded, setExpanded] = useState(false);
   const [message, setMessage] = useState('');
   const [deadline, setDeadline] = useState(emptyTaskDue);
+  const [recurrence, setRecurrence] = useState<RecurrenceRule | null>(null);
+  const [reminderOffsets, setReminderOffsets] = useState<number[]>([]);
   const title = useRef<HTMLInputElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const save = useMutation();
@@ -32,6 +38,10 @@ export function QuickCapture({ onSaved }: { onSaved: () => Promise<unknown> }) {
       );
       return;
     }
+    if (recurrence && !deadline.dueDate) {
+      save.setError('A repeating task needs a due date.');
+      return;
+    }
     const result = await save.run(taskResponseSchema, 'POST', '/api/v1/tasks', {
       title: String(form.get('title')),
       ...due,
@@ -39,10 +49,14 @@ export function QuickCapture({ onSaved }: { onSaved: () => Promise<unknown> }) {
       priority: 'normal',
       completed: false,
       sensitivity: 'unlabeled',
+      recurrence,
+      reminderOffsets,
     });
     if (!result) return;
     element.reset();
     setDeadline(emptyTaskDue());
+    setRecurrence(null);
+    setReminderOffsets([]);
     const state = await offlineStatus().catch(() => null);
     setMessage(
       state?.queued.includes(result.task.id)
@@ -91,6 +105,18 @@ export function QuickCapture({ onSaved }: { onSaved: () => Promise<unknown> }) {
               save.setError('');
             }}
             disabled={save.pending}
+          />
+          <RecurrenceFields
+            value={recurrence}
+            anchor={deadline.dueDate}
+            timeZone={deadline.dueTimeZone || deviceTimeZone()}
+            disabled={save.pending}
+            onChange={setRecurrence}
+          />
+          <ReminderOffsetsFields
+            value={reminderOffsets}
+            disabled={save.pending}
+            onChange={setReminderOffsets}
           />
           {save.error && (
             <p role="alert" className="form-error">
