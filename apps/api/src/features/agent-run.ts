@@ -81,11 +81,28 @@ export function agentPrompt(
  * `not_allowed`). A conflict fails that item only. Email is never sent:
  * Assistant proposals cannot contain email.
  */
+/** Approval tier; Level 3 is never auto-applied. */
+export function proposalTier(proposal: AssistantProposal) {
+  if (proposal.kind === 'capability') return proposal.tier;
+  if (proposal.kind === 'reminder.cancel') return 2;
+  return 1;
+}
+
 /** Owner policy for one proposal; destructive reminder cancels never auto-apply. */
 export function proposalPolicyMode(
   proposal: AssistantProposal,
-  policy: { tasks: string; calendar: string; reminders: string },
+  policy: {
+    tasks: string;
+    calendar: string;
+    reminders: string;
+    capabilities: string;
+  },
 ) {
+  if (proposal.kind === 'capability') {
+    if (proposal.tier >= 3) return 'approval-required';
+    if (proposal.tier >= 2) return 'approval-required';
+    return policy.capabilities;
+  }
   if (proposal.kind.startsWith('task.')) return policy.tasks;
   if (proposal.kind.startsWith('event.')) return policy.calendar;
   if (proposal.kind === 'reminder.cancel') return 'approval-required';
@@ -157,7 +174,7 @@ async function applyInTransaction(
     'SELECT owner_id FROM ai_action_policies WHERE owner_id=$1 FOR SHARE',
     [owner],
   );
-  const { policy } = await readAIActionPolicy(database, owner);
+  const { policy, autoApprove } = await readAIActionPolicy(database, owner);
   const counts: RunCounts = {
     applied: 0,
     proposed: 0,
@@ -191,17 +208,19 @@ async function applyInTransaction(
           database,
           owner,
           applyRequest(proposal, item.applyId),
+          { turnId: turn.id, agentId: agentId ?? undefined },
         );
-        await recordCapabilityAudit(
-          database,
-          owner,
-          turn.id,
-          proposal,
-          'applied',
-          {
-            agentId,
-          },
-        );
+        if (proposal.kind !== 'capability')
+          await recordCapabilityAudit(
+            database,
+            owner,
+            turn.id,
+            proposal,
+            'applied',
+            {
+              agentId,
+            },
+          );
         counts.applied++;
         items.push({ ...item, state: 'applied', applied, error: null });
       } catch (error) {
@@ -230,7 +249,12 @@ async function applyInTransaction(
       continue;
     }
     const requestedMode = proposalPolicyMode(proposal, policy);
-    if (requestedMode === 'blocked') {
+    const autoApproved =
+      autoApprove === true &&
+      proposalTier(proposal) <= 2 &&
+      requestedMode === 'approval-required';
+    const mode = autoApproved ? 'automatic' : requestedMode;
+    if (mode === 'blocked') {
       await recordCapabilityAudit(
         database,
         owner,
@@ -243,7 +267,7 @@ async function applyInTransaction(
       continue;
     }
     proposals.push(proposal);
-    if (requestedMode === 'approval-required') {
+    if (mode === 'approval-required') {
       await recordCapabilityAudit(
         database,
         owner,
@@ -266,6 +290,7 @@ async function applyInTransaction(
         item,
         verified,
         agentId,
+        autoApproved,
       );
       counts.applied++;
       items.push({ ...item, state: 'applied', applied, error: null });

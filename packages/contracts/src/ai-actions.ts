@@ -10,6 +10,8 @@ export const aiActionPolicySchema = z.strictObject({
   calendar: aiActionModeSchema,
   /** Reminder create/update/cancel. Cancel still always asks first. */
   reminders: aiActionModeSchema.default('approval-required'),
+  /** Tier-1 general capabilities such as preference updates. */
+  capabilities: aiActionModeSchema.default('approval-required'),
   email: z.literal('approval-required'),
 });
 /** For owners who never saved action settings (D57: tasks ask first). */
@@ -17,16 +19,20 @@ export const defaultAIActionPolicy = aiActionPolicySchema.parse({
   tasks: 'approval-required',
   calendar: 'automatic',
   reminders: 'approval-required',
+  capabilities: 'approval-required',
   email: 'approval-required',
 });
 export const aiActionSettingsSchema = z.object({
   version: z.number().int().positive(),
   policy: aiActionPolicySchema,
+  /** Owner-only switch: auto-apply Tier 1/2 proposals; never Tier 3. */
+  autoApprove: z.boolean().default(false),
 });
 export const aiActionWriteSchema = z.strictObject({
   operationId: z.string().uuid(),
   expectedVersion: z.number().int().positive(),
   policy: aiActionPolicySchema,
+  autoApprove: z.boolean().default(false),
 });
 // An authority preview describes a proposed action, not executable arguments or
 // approved source content. Capability is declared by the server, never the client.

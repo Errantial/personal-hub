@@ -4,6 +4,7 @@ import { saveTask } from '../planner/routes.js';
 import { saveAcademicPlanning } from './academic-planning.js';
 import { saveEvent } from './calendar.js';
 import { cancelReminderProposal, saveReminderProposal } from './reminders.js';
+import { executeCapability, undoCapability } from '../ai/capabilities.js';
 
 const plannerPath = /^\/api\/v1\/(tasks|calendar)(?:\/([0-9a-f-]{36}))?$/i;
 
@@ -16,7 +17,29 @@ export async function plannedWrite(
   database: Database,
   owner: string,
   request: PlannedRequest,
+  audit?: {
+    turnId: string;
+    agentId?: string | undefined;
+    autoApproved?: boolean;
+  },
 ): Promise<{ id: string; version: number }> {
+  if (request.path === '/internal/ai/capability') {
+    if (!audit) throw new Error('Capability execution needs a turn.');
+    return executeCapability(
+      database,
+      owner,
+      audit.turnId,
+      String(request.body.capability),
+      request.body.arguments,
+      String(request.body.operationId),
+      audit.agentId,
+      audit.autoApproved ?? false,
+    );
+  }
+  if (request.path === '/internal/ai/capability/undo') {
+    await undoCapability(database, owner, String(request.body.auditId));
+    return { id: String(request.body.auditId), version: 1 };
+  }
   const academic =
     /^\/api\/v1\/academic-work\/([0-9a-f-]{36})\/planner-work$/i.exec(
       request.path,

@@ -80,3 +80,35 @@ test('conflicting action settings preserve choices until reload', async ({
       .getByRole('radio', { name: 'Ask first' }),
   ).toBeChecked();
 });
+
+test('auto-approve toggle warns, saves and can be turned off', async ({
+  page,
+}) => {
+  await page.goto('/settings/ai');
+  const panel = page.getByRole('region', { name: 'AI actions', exact: true });
+  const toggle = panel.getByRole('checkbox', {
+    name: 'Auto-approve agent changes',
+  });
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+  await expect(panel.getByRole('alert')).toContainText(
+    'Tier 1 and Tier 2 agent changes apply without a prompt',
+  );
+  const saved = page.waitForRequest(
+    (request) =>
+      request.url().endsWith('/api/v1/ai/actions') &&
+      request.method() === 'PUT',
+  );
+  await panel.getByRole('button', { name: 'Save action settings' }).click();
+  expect((await saved).postDataJSON()).toMatchObject({ autoApprove: true });
+  await expect(panel.getByRole('status')).toHaveText('Action settings saved.');
+  await page.reload();
+  const reloaded = panel.getByRole('checkbox', {
+    name: 'Auto-approve agent changes',
+  });
+  await expect(reloaded).toBeChecked();
+  await reloaded.uncheck();
+  await panel.getByRole('button', { name: 'Save action settings' }).click();
+  await expect(panel.getByRole('status')).toHaveText('Action settings saved.');
+  await expect(reloaded).not.toBeChecked();
+});

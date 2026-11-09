@@ -33,7 +33,7 @@ export type PlannedRequest = {
   path: string;
   body: Record<string, unknown>;
   /** Which record the response holds. */
-  returns: 'task' | 'event' | 'reminder';
+  returns: 'task' | 'event' | 'reminder' | 'capability';
 };
 
 /**
@@ -134,6 +134,17 @@ export function applyRequest(
         },
         returns: 'reminder',
       };
+    case 'capability':
+      return {
+        method: 'POST',
+        path: '/internal/ai/capability',
+        body: {
+          capability: proposal.capability,
+          arguments: proposal.arguments,
+          operationId,
+        },
+        returns: 'capability',
+      };
   }
 }
 
@@ -217,6 +228,13 @@ export function undoRequest(
           clientId: operationId,
         },
         returns: 'reminder',
+      };
+    case 'capability':
+      return {
+        method: 'POST',
+        path: '/internal/ai/capability/undo',
+        body: { auditId: applied.id, operationId },
+        returns: 'capability',
       };
   }
 }
