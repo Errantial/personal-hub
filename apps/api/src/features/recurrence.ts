@@ -442,9 +442,10 @@ export async function syncEventReminderOffsets(
        updated_at=CURRENT_TIMESTAMP
      WHERE owner_id=$1 AND target_kind='event' AND target_id=$2
        AND offset_minutes IS NOT NULL
+       AND occurrence_date >= $4::date
        AND occurrence_date <> ALL($3::date[])
        AND status IN ('queued','running','paused')`,
-    [owner, eventId, dates.map((date) => date.toString())],
+    [owner, eventId, dates.map((date) => date.toString()), from.toString()],
   );
   for (const date of dates) {
     const occurrenceDate = date.toString();

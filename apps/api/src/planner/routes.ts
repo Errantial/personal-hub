@@ -231,7 +231,7 @@ export async function saveTask(
               [owner, seriesId, occurrenceKey],
             );
             await transaction.query(
-              `UPDATE reminders SET status='cancelled',cancel_reason=NULL,
+              `UPDATE reminders SET status='cancelled',cancel_reason='sync',
                  version=version+1,updated_at=CURRENT_TIMESTAMP
                WHERE owner_id=$1 AND target_kind='task' AND target_id IN
                  (SELECT id FROM tasks WHERE owner_id=$1 AND series_id=$2)

@@ -651,6 +651,93 @@ it('keeps a later generated occurrence when its parent was completed', async () 
   expect(secondDone.completed).toBe(true);
 });
 
+it('keeps offset reminders when a series stops repeating', async () => {
+  const created = await post('tasks', {
+    title: 'Stop repeating offsets',
+    notes: '',
+    dueDate: '2029-01-01',
+    dueAt: '2029-01-01T09:00:00-07:00',
+    dueTimeZone: 'America/Denver',
+    reminderOffsets: [60],
+    priority: 'normal',
+    completed: false,
+    sensitivity: 'unlabeled',
+    recurrence: {
+      frequency: 'daily',
+      interval: 1,
+      count: 4,
+      until: null,
+      timeZone: 'America/Denver',
+    },
+  });
+  const first = taskResponseSchema.parse(created.json()).task;
+  const firstDone = await put(`tasks/${first.id}`, {
+    title: first.title,
+    notes: first.notes,
+    dueDate: first.dueDate,
+    priority: first.priority,
+    completed: true,
+    sensitivity: first.sensitivity,
+    expectedVersion: first.version,
+  });
+  const second = (await tasks()).find(
+    (task) => task.seriesId === first.seriesId && task.dueDate === '2029-01-02',
+  )!;
+  await put(`tasks/${second.id}`, {
+    title: 'Future edited',
+    notes: second.notes,
+    dueDate: second.dueDate,
+    dueAt: second.dueAt,
+    dueTimeZone: second.dueTimeZone,
+    priority: second.priority,
+    completed: false,
+    sensitivity: second.sensitivity,
+    expectedVersion: second.version,
+  });
+  const reopened = await put(`tasks/${first.id}`, {
+    title: first.title,
+    notes: first.notes,
+    dueDate: first.dueDate,
+    dueAt: first.dueAt,
+    dueTimeZone: first.dueTimeZone,
+    priority: first.priority,
+    completed: false,
+    sensitivity: first.sensitivity,
+    expectedVersion: taskResponseSchema.parse(firstDone.json()).task.version,
+  });
+  expect(reopened.statusCode).toBe(200);
+  const stopped = await put(`tasks/${first.id}`, {
+    title: first.title,
+    notes: first.notes,
+    dueDate: first.dueDate,
+    dueAt: first.dueAt,
+    dueTimeZone: first.dueTimeZone,
+    priority: first.priority,
+    completed: false,
+    sensitivity: first.sensitivity,
+    recurrence: null,
+    scope: 'future',
+    expectedVersion: taskResponseSchema.parse(reopened.json()).task.version,
+  });
+  expect(stopped.statusCode).toBe(200);
+  const reminderFor = async (targetId: string) =>
+    (await get('reminders'))
+      .json()
+      .reminders.find(
+        (row: { targetId: string | null; offsetMinutes: number | null }) =>
+          row.targetId === targetId && row.offsetMinutes === 60,
+      ) as { status: string } | undefined;
+  expect((await reminderFor(first.id))?.status).toBe('queued');
+  const deletedSecond = taskResponseSchema.parse(
+    (await get(`tasks/${second.id}`)).json(),
+  ).task;
+  const restored = await post(`tasks/${second.id}/restore`, {
+    expectedVersion: deletedSecond.version,
+  });
+  expect(restored.statusCode).toBe(200);
+  expect((await reminderFor(second.id))?.status).toBe('queued');
+});
+
 it('delivers a repeating reminder, schedules the next, and cancels the series', async () => {
   const target = await makeTask('Water plants', '2027-05-01');
   const created = await post('reminders', {
