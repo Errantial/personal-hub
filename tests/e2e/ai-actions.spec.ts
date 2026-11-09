@@ -45,7 +45,7 @@ test('saves action settings and preserves the fixed email policy', async ({
   await expect(
     reminders.getByRole('radio', { name: 'Automatic' }),
   ).toBeChecked();
-  await expect(panel.getByText('Email: always asks first')).toBeVisible();
+  await expect(panel.getByText('Email always asks first')).toBeVisible();
   // Restore the synthetic owner's default for later suites.
   await tasks.getByRole('radio', { name: 'Ask first' }).check();
   await reminders.getByRole('radio', { name: 'Ask first' }).check();

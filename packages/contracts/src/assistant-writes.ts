@@ -9,8 +9,12 @@ export const taskFields = (task: Task) => ({
   title: task.title,
   notes: task.notes,
   dueDate: task.dueDate,
+  dueAt: task.dueAt,
+  dueTimeZone: task.dueTimeZone,
   priority: task.priority,
   completed: task.completed,
+  recurrence: task.recurrence,
+  reminderOffsets: task.reminderOffsets,
 });
 export const eventFields = (event: CalendarRecord) => ({
   title: event.title,
@@ -23,6 +27,7 @@ export const eventFields = (event: CalendarRecord) => ({
   startDate: event.startDate,
   endDate: event.endDate,
   recurrence: event.recurrence,
+  reminderOffsets: event.reminderOffsets ?? [],
   courseId: event.courseId,
   topicId: event.topicId,
   studyStatus: event.studyStatus,
@@ -73,6 +78,7 @@ export function applyRequest(
         body: {
           ...taskFields(proposal.target),
           ...proposal.changes,
+          ...(proposal.scope ? { scope: proposal.scope } : {}),
           operationId,
           expectedVersion: proposal.target.version,
         },
@@ -106,6 +112,7 @@ export function applyRequest(
           scheduledAt: proposal.reminder.scheduledAt,
           targetKind: 'task',
           targetId: proposal.target.id,
+          recurrence: proposal.reminder.recurrence ?? null,
           operationId,
           clientId: operationId,
         },
@@ -119,6 +126,9 @@ export function applyRequest(
           title: proposal.changes.title ?? proposal.target.title,
           scheduledAt:
             proposal.changes.scheduledAt ?? proposal.target.scheduledAt,
+          ...('recurrence' in proposal.changes
+            ? { recurrence: proposal.changes.recurrence }
+            : {}),
           operationId,
           expectedVersion: proposal.target.version,
         },
@@ -131,6 +141,7 @@ export function applyRequest(
         body: {
           operationId,
           expectedVersion: proposal.target.version,
+          scope: proposal.scope ?? 'this',
         },
         returns: 'reminder',
       };
@@ -209,6 +220,7 @@ export function undoRequest(
         body: {
           title: proposal.target.title,
           scheduledAt: proposal.target.scheduledAt,
+          recurrence: proposal.target.recurrence,
           operationId,
           expectedVersion: applied.version,
         },
@@ -224,6 +236,7 @@ export function undoRequest(
           targetKind: proposal.target.targetKind,
           targetId: proposal.target.targetId,
           occurrenceDate: proposal.target.occurrenceDate,
+          recurrence: proposal.target.recurrence,
           operationId,
           clientId: operationId,
         },

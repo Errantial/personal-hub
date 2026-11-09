@@ -27,6 +27,10 @@ const task = (title: string, extra: Partial<Task> = {}): Task => ({
   canvasSource: null,
   academicSource: null,
   mailSource: null,
+  recurrence: null,
+  reminderOffsets: [],
+  seriesId: null,
+  occurrenceKey: null,
   ...extra,
 });
 

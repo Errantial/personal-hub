@@ -29,6 +29,11 @@ const idVersion = z.strictObject({
   id: z.string().uuid(),
   expectedVersion: z.number().int().positive(),
 });
+const deleteScope = z.strictObject({
+  id: z.string().uuid(),
+  expectedVersion: z.number().int().positive(),
+  scope: z.enum(['this', 'future', 'series']).optional(),
+});
 const preferences = z.strictObject({
   timeZone: studyPreferencesInputSchema.shape.timeZone.optional(),
   sessionMinutes: studyPreferencesInputSchema.shape.sessionMinutes.optional(),
@@ -41,8 +46,13 @@ const preferences = z.strictObject({
 export const capabilityDefinitions: Record<string, Definition> = {
   'task.delete': {
     tier: 2,
-    schema: idVersion,
-    summary: () => 'Delete task (approval required)',
+    schema: deleteScope,
+    summary: (args) =>
+      args.scope === 'series'
+        ? 'Delete repeating task series (approval required)'
+        : args.scope === 'future'
+          ? 'Delete this and future task occurrences (approval required)'
+          : 'Delete task (approval required)',
   },
   'task.restore': {
     tier: 2,
@@ -51,8 +61,8 @@ export const capabilityDefinitions: Record<string, Definition> = {
   },
   'event.delete': {
     tier: 2,
-    schema: idVersion,
-    summary: () => 'Delete calendar event (approval required)',
+    schema: deleteScope,
+    summary: () => 'Delete calendar event series (approval required)',
   },
   'event.restore': {
     tier: 2,
@@ -87,7 +97,15 @@ export function modelCapabilityProposal(
     const list = match[1] === 't' ? context.tasks : context.events;
     const target = list[Number(match[2]) - 1];
     if (!target) return null;
-    arguments_ = { id: target.id, expectedVersion: target.version };
+    arguments_ = {
+      id: target.id,
+      expectedVersion: target.version,
+      ...(arguments_.scope === 'this' ||
+      arguments_.scope === 'future' ||
+      arguments_.scope === 'series'
+        ? { scope: arguments_.scope }
+        : {}),
+    };
   }
   const parsed = definition.schema.safeParse(arguments_);
   if (!parsed.success) return null;
@@ -130,6 +148,12 @@ export async function executeCapability(
   if (!definition)
     throw new ApiError(400, 'CAPABILITY_UNKNOWN', 'Unknown agent capability.');
   const args = definition.schema.parse(raw) as Record<string, unknown>;
+  if (capability === 'event.delete' && args.scope && args.scope !== 'series')
+    throw new ApiError(
+      400,
+      'CAPABILITY_SCOPE',
+      'Event occurrence deletion is not available to this capability.',
+    );
   const summary = definition.summary(args);
   const [existing] = await database.query(
     'SELECT id FROM ai_capability_audit WHERE owner_id=$1 AND operation_id=$2 AND tool=$3 LIMIT 1',
@@ -151,6 +175,7 @@ export async function executeCapability(
         await saveTask(transactionDatabase(tx), owner, 'DELETE', id, {
           operationId,
           expectedVersion: args.expectedVersion,
+          ...(args.scope ? { scope: args.scope } : {}),
         });
       else
         await restorePlannerItem(
@@ -243,6 +268,7 @@ export async function undoCapability(
   database: Database,
   owner: string,
   auditId: string,
+  operationId: string = randomUUID(),
 ) {
   return database.transaction(async (tx) => {
     const [row] = await tx.query(
@@ -262,7 +288,6 @@ export async function undoCapability(
       typeof row.before === 'string' ? JSON.parse(row.before) : row.before;
     const after =
       typeof row.after === 'string' ? JSON.parse(row.after) : row.after;
-    const operationId = randomUUID();
     if (row.tool === 'task.delete') {
       await restorePlannerItem(
         tx,
@@ -320,6 +345,28 @@ export async function undoCapability(
     await tx.query(
       'UPDATE ai_capability_audit SET undone_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2',
       [owner, auditId],
+    );
+    await tx.query(
+      `INSERT INTO ai_capability_audit
+        (id,owner_id,capability,action,target_kind,target_id,decision,reason,
+         operation_id,before,after,undoable,tool,auto_approved)
+       VALUES($1,$2,$3,'restore',$4,$5,'applied',$6,$7,$8::jsonb,$9::jsonb,
+         false,'undo',false)`,
+      [
+        randomUUID(),
+        owner,
+        row.capability,
+        row.tool === 'task.delete' || row.tool === 'task.restore'
+          ? 'task'
+          : row.tool === 'event.delete' || row.tool === 'event.restore'
+            ? 'event'
+            : null,
+        after?.id ?? null,
+        `Undid ${row.tool ?? 'capability action'}.`,
+        operationId,
+        JSON.stringify(after),
+        JSON.stringify(before),
+      ],
     );
     return { undone: true };
   });

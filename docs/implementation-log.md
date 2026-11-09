@@ -712,3 +712,19 @@ Validation: focused capability tests cover task delete/restore with snapshots an
 ## 2026-11-07 - Owner auto-approve switch
 
 Settings > AI > Actions now has an owner-only **Auto-approve agent changes** switch (default off), stored on `ai_action_policies.auto_approve`. When on, direct owner asks and scheduled agents auto-apply Tier 1/2 proposals; Tier 3 remains approval-only, blocked policies still block, and the agent has no capability that can read or change the switch. Auto-applied audit rows carry `auto_approved=true`, remain undoable, and task/event deletes stay soft deletes in Recently deleted. Setting changes are audited with before/after policy state. Migration 078 adds the column and audit flag additively. Tests cover the off/on behavior, tier enforcement, agent rejection of the settings capability, the UI warning/save/reload path and audit-marked auto application.
+
+## 2026-11-09 - Agent capabilities release 92fe894
+
+Merged PR #75 at `92fe8949c8bf91482ed5c8fbf37213598a3c271f` and deployed release `/srv/personal-hub/releases/92fe894`. Pre-activation backups: `/mnt/data/backups/personal-hub/hub-pre-capabilities-20261109T021357Z.dump` and `/mnt/data/backups/personal-hub/release-f99fdf7-pre-capabilities-20261109T021357Z.tar.gz`. Migration 078 applied additively (78 applied); prior checksums unchanged. Readiness, public site, served index hash, `NRestarts=0` and logs passed.
+
+Smoke test: temporary owner session; auto-approve ON (policy version 6); one agent turn deleted a synthetic task and event through `task.delete`/`event.delete` without prompts; audit rows had `auto_approved=true`/`undoable=true`; both were restored through capability Undo; synthetic records were removed; session revoked; auto-approve OFF (policy version 7). No mail/provider/Canvas/account action was performed. Rollback target remains `f99fdf7`; because the old code rejects the additive `capabilities` policy key, remove it from policy JSON before switching back.
+
+PR #75 review follow-ups were carried into the recurring-items release: undo writes its own audit row with the undo operation ID, audit action names are mapped explicitly, a Tier 3 auto-approve prompt test was added, the Settings copy was corrected, and the capability matrix was corrected.
+
+## 2026-11-09 - Recurring reminders, tasks and events
+
+Added the shared RRULE-style recurrence rule and expansion service, custom RRULE parsing/summaries, and DST/month-end/leap-day tests. Migration 079 additively adds `recurrence_series`, task/reminder series and occurrence identity, recurrence JSON, task/event reminder offsets and reminder `offset_minutes`; existing records stay non-repeating. Completing or skipping a recurring task and delivering/dismissing a recurring reminder create exactly one next occurrence under a unique series/occurrence key. This-vs-future edits, skips and deletes are supported for tasks, reminders and event occurrences; series deletion remains soft deletion.
+
+The web UI bundles the same recurrence picker for web and the Capacitor/Android shell, with a plain-language summary, repeat icons, multiple reminder offsets, an extra snooze preset, and this-vs-future event controls. Agent actions accept RRULE text for recurring creates/updates (Tier 1) and Tier 2 series/future deletes, honor auto-approve and record rules in before/after audit snapshots.
+
+Validation: 990 unit/API tests passed with 4 skipped; 190/190 isolated browser tests passed; 81/81 PostgreSQL concurrency/migration tests passed; migration 079 applied to a fresh production database copy; lint, typecheck, formatting and production build passed. Production deployment remains a separate reviewed release.

@@ -34,12 +34,79 @@ export const instant = z
   .refine((value) => !value.startsWith('0000'))
   .transform((value) => new Date(value).toISOString());
 const sensitivity = z.enum(['unlabeled', 'personal', 'restricted']);
-export const recurrenceSchema = z.strictObject({
-  frequency: z.enum(['daily', 'weekly', 'monthly']),
-  interval: z.number().int().min(1).max(52),
-  count: z.number().int().min(1).max(1000).nullable(),
-  until: dateOnly.nullable(),
-});
+export const recurrenceWeekdaySchema = z.enum([
+  'MO',
+  'TU',
+  'WE',
+  'TH',
+  'FR',
+  'SA',
+  'SU',
+]);
+/** RRULE-style recurrence shared by calendar, tasks and reminders. */
+export const recurrenceSchema = z
+  .strictObject({
+    frequency: z.enum(['daily', 'weekly', 'monthly', 'yearly']),
+    interval: z.number().int().min(1).max(99),
+    count: z.number().int().min(1).max(1000).nullable().default(null),
+    until: dateOnly.nullable().default(null),
+    /** Weekly chosen weekdays, and monthly pattern weekday(s). */
+    byDay: z.array(recurrenceWeekdaySchema).max(7).nullable().optional(),
+    /** Monthly by calendar date (default) or by weekday pattern. */
+    monthlyMode: z.enum(['date', 'weekday']).nullable().optional(),
+    /** Monthly date when it differs from the series anchor day. */
+    byMonthDay: z.number().int().min(1).max(31).nullable().optional(),
+    /** Monthly pattern position: 1-5, or -1 for the last weekday. */
+    bySetPos: z.number().int().min(-5).max(5).nullable().optional(),
+    /** Explicit IANA zone for date math; defaults to America/Denver. */
+    timeZone: zone.optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.byDay && new Set(value.byDay).size !== value.byDay.length)
+      context.addIssue({
+        code: 'custom',
+        message: 'Choose each weekday once.',
+        path: ['byDay'],
+      });
+    if (value.monthlyMode === 'weekday') {
+      if (!value.byDay || value.byDay.length !== 1)
+        context.addIssue({
+          code: 'custom',
+          message: 'Choose one weekday for a monthly pattern.',
+          path: ['byDay'],
+        });
+      if (value.bySetPos == null || value.bySetPos === 0)
+        context.addIssue({
+          code: 'custom',
+          message: 'Choose the first through fifth or last weekday.',
+          path: ['bySetPos'],
+        });
+    }
+    if (value.monthlyMode !== 'weekday' && value.bySetPos != null)
+      context.addIssue({
+        code: 'custom',
+        message: 'A weekday position needs a monthly pattern.',
+        path: ['bySetPos'],
+      });
+    if (
+      value.frequency !== 'weekly' &&
+      value.frequency !== 'monthly' &&
+      value.byDay != null
+    )
+      context.addIssue({
+        code: 'custom',
+        message: 'Chosen weekdays apply to weekly or monthly repeats.',
+        path: ['byDay'],
+      });
+  });
+/** Minutes before a task/event due time or start for each reminder. */
+export const reminderOffsetsSchema = z
+  .array(z.number().int().min(0).max(10080))
+  .max(5)
+  .refine(
+    (values) => new Set(values).size === values.length,
+    'Choose each reminder time once.',
+  );
 export const calendarFields = {
   title: z.string().trim().min(1).max(200),
   notes: z.string().max(10000).default(''),
@@ -54,6 +121,7 @@ export const calendarFields = {
   courseId: z.string().uuid().nullable().default(null),
   topicId: z.string().uuid().nullable().default(null),
   studyStatus: z.enum(['planned', 'completed', 'cancelled']).default('planned'),
+  reminderOffsets: reminderOffsetsSchema.optional(),
 };
 export const calendarInputSchema = z
   .strictObject(calendarFields)
@@ -108,6 +176,8 @@ export const calendarWriteSchema = calendarInputSchema.safeExtend({
   clientId: z.string().uuid().optional(),
   operationId: z.string().uuid(),
   expectedVersion: z.number().int().positive().optional(),
+  /** Occurrence edits: one instance or this and all future instances. */
+  scope: z.enum(['this', 'future']).optional(),
 });
 export const calendarRecordSchema = z.object({
   ...calendarFields,
@@ -215,10 +285,14 @@ export const reminderFields = {
     .default(null),
   targetId: z.string().uuid().nullable().default(null),
   occurrenceDate: dateOnly.nullable().default(null),
+  recurrence: recurrenceSchema.nullable().default(null),
 };
 export const reminderWriteSchema = z
   .strictObject({
     ...reminderFields,
+    recurrence: recurrenceSchema.nullable().optional(),
+    /** Apply this change to one reminder or the whole repeating series. */
+    scope: z.enum(['this', 'series']).optional(),
     clientId: z.string().uuid().optional(),
     operationId: z.string().uuid(),
     expectedVersion: z.number().int().positive().optional(),
@@ -230,6 +304,10 @@ export const reminderWriteSchema = z
   );
 export const reminderSchema = z.object({
   ...reminderFields,
+  /** Set on every materialized occurrence of a repeating reminder. */
+  seriesId: z.string().uuid().nullable().default(null),
+  occurrenceKey: dateOnly.nullable().default(null),
+  offsetMinutes: z.number().int().min(0).max(10080).nullable().default(null),
   snoozedFromId: z.string().uuid().nullable().default(null),
   id: z.string().uuid(),
   version: z.number().int().positive(),

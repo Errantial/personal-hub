@@ -9,6 +9,7 @@ import {
   coursesSchema,
   occurrencesResponseSchema,
   plannerSensitivity,
+  recurrenceSummary,
   tasksResponseSchema,
   trackedDeadlineListSchema,
   topicsSchema,
@@ -20,6 +21,7 @@ import type {
   TrackedDeadline,
 } from '@hub/contracts';
 import { getJson, getSnapshot } from '../lib/api';
+import { deviceTimeZone } from '../lib/time-zone';
 import { dayOccurrences, timeLabel, viewRange } from '../lib/calendar';
 import type { StudyDraft } from '../lib/calendar';
 import { rawCanvasWithoutTracked } from '../lib/calendar-grid';
@@ -28,6 +30,7 @@ import { useMutation, useResource, useToday } from '../lib/hooks';
 import type { CalendarView as View, Route } from '../lib/router';
 import { maxSelection } from '../lib/selection';
 import { CalendarBatchBar } from './CalendarBatch';
+import { Icon } from './Icon';
 import { CalendarEditor } from './CalendarEditor';
 import { CalendarShell, useSourceVisibility } from './CalendarShell';
 import { CanvasEntry } from './CanvasEntry';
@@ -103,9 +106,7 @@ export function CalendarView({
   studyDraft: StudyDraft | null;
   onStudyUsed: () => void;
 }) {
-  const [viewingZone, setViewingZone] = useState(
-    Intl.DateTimeFormat().resolvedOptions().timeZone,
-  );
+  const [viewingZone, setViewingZone] = useState(deviceTimeZone);
   const today = useToday(viewingZone);
   const narrow = useNarrow();
   const view: View = route.view ?? (narrow ? 'day' : 'week');
@@ -159,7 +160,7 @@ export function CalendarView({
 
   const [notice, setNotice] = useState<Notice | null>(null);
   const [deletedKey, setDeletedKey] = useState(0);
-  const [dialog, choose] = useChoice<'occurrence' | 'series'>();
+  const [dialog, choose] = useChoice<'occurrence' | 'future' | 'series'>();
   const remove = useMutation();
   const restore = useMutation();
   const [selecting, setSelecting] = useState(false);
@@ -201,33 +202,41 @@ export function CalendarView({
     occurrenceDate: string | null,
   ) {
     setNotice(null);
-    let scope: 'occurrence' | 'series' = 'series';
+    let scope: 'occurrence' | 'future' | 'series' = 'series';
     if (occurrenceDate) {
       const choice = await choose({
         title: `Delete “${series.title}”?`,
         message:
-          'Deleting only this occurrence cannot be undone. A deleted series can be restored from Recently deleted.',
+          'Deleting one occurrence or future occurrences cannot be undone. A deleted series can be restored from Recently deleted.',
         choices: [
           { value: 'occurrence', label: 'This occurrence', danger: true },
+          { value: 'future', label: 'This and all future', danger: true },
           { value: 'series', label: 'Entire series', danger: true },
         ],
       });
       if (!choice) return;
-      scope = choice;
+      scope = choice as typeof scope;
     }
     const result = await remove.run(
       calendarResponseSchema,
       'DELETE',
-      scope === 'occurrence'
-        ? `/api/v1/calendar/${series.id}/occurrences/${occurrenceDate}`
-        : `/api/v1/calendar/${series.id}`,
-      { expectedVersion: series.version },
+      scope === 'series'
+        ? `/api/v1/calendar/${series.id}`
+        : `/api/v1/calendar/${series.id}/occurrences/${occurrenceDate}`,
+      (scope as string) === 'future'
+        ? { expectedVersion: series.version, scope: 'future' }
+        : { expectedVersion: series.version },
       'Could not delete. The event is unchanged.',
     );
     if (!result) return;
     setNotice(
-      scope === 'occurrence'
-        ? { text: `Deleted ${occurrenceDate} of “${series.title}”.` }
+      scope !== 'series'
+        ? {
+            text:
+              (scope as string) === 'future'
+                ? `Deleted ${occurrenceDate} and all future occurrences of “${series.title}”.`
+                : `Deleted ${occurrenceDate} of “${series.title}”.`,
+          }
         : {
             text: `Deleted “${series.title}”.`,
             undo: { event: result.event },
@@ -718,7 +727,17 @@ function EventRow({
           </StatusChip>
         )}
         {item.recurrence && (
-          <StatusChip>Repeats {item.recurrence.frequency}</StatusChip>
+          <StatusChip>
+            <Icon name="repeat" />{' '}
+            {recurrenceSummary(
+              item.recurrence,
+              item.startDate ??
+                Temporal.Instant.from(item.startsAt)
+                  .toZonedDateTimeISO(item.timeZone)
+                  .toPlainDate()
+                  .toString(),
+            )}
+          </StatusChip>
         )}
         {item.overridden && <StatusChip>Edited occurrence</StatusChip>}
         {label !== 'unlabeled' && (

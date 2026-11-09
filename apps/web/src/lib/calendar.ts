@@ -1,6 +1,8 @@
 import {
   Temporal,
   instantToWall,
+  parseRRule,
+  toRRule,
   wallTimeToInstant,
   zone as zoneSchema,
 } from '@hub/contracts';
@@ -108,9 +110,15 @@ export function timeLabel(item: Occurrence, timeZone: string) {
 }
 
 /* ---------- Editor draft ---------- */
+const weekdays = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'] as const;
+type Weekday = (typeof weekdays)[number];
+function weekdayOf(date: string) {
+  return weekdays[Temporal.PlainDate.from(date).dayOfWeek - 1]!;
+}
 
 export type Offset = 'earlier' | 'later' | '';
-export type Frequency = 'none' | 'daily' | 'weekly' | 'monthly';
+export type Frequency =
+  'none' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom';
 
 /** Every editor field as text, so typing never fails to parse. */
 export type CalendarDraft = {
@@ -129,6 +137,12 @@ export type CalendarDraft = {
   interval: string;
   count: string;
   until: string;
+  weekdays: Weekday[];
+  monthlyMode: 'date' | 'weekday';
+  monthDay: string;
+  setPos: string;
+  custom: string;
+  reminderOffsets: number[];
   courseId: string;
   topicId: string;
   studyStatus: CalendarInput['studyStatus'];
@@ -198,6 +212,12 @@ export function toDraft(
       interval: '1',
       count: '',
       until: '',
+      weekdays: [weekdayOf(day)],
+      monthlyMode: 'date',
+      monthDay: String(Temporal.PlainDate.from(day).day),
+      setPos: '1',
+      custom: '',
+      reminderOffsets: [],
       courseId: defaults.study?.courseId ?? '',
       topicId: defaults.study?.topicId ?? '',
       studyStatus: 'planned',
@@ -222,6 +242,14 @@ export function toDraft(
     interval: String(event.recurrence?.interval ?? 1),
     count: event.recurrence?.count ? String(event.recurrence.count) : '',
     until: event.recurrence?.until ?? '',
+    weekdays: event.recurrence?.byDay ?? [weekdayOf(startDate)],
+    monthlyMode: event.recurrence?.monthlyMode ?? 'date',
+    monthDay: String(
+      event.recurrence?.byMonthDay ?? Temporal.PlainDate.from(startDate).day,
+    ),
+    setPos: String(event.recurrence?.bySetPos ?? 1),
+    custom: event.recurrence ? toRRule(event.recurrence) : '',
+    reminderOffsets: event.reminderOffsets ?? [],
     courseId: event.courseId ?? '',
     topicId: event.topicId ?? '',
     studyStatus: event.studyStatus,
@@ -270,7 +298,9 @@ export type DraftField =
   | 'endsAt'
   | 'interval'
   | 'count'
-  | 'until';
+  | 'until'
+  | 'custom'
+  | 'monthDay';
 export class DraftError extends Error {
   constructor(
     readonly field: DraftField,
@@ -329,16 +359,58 @@ export function toInput(draft: CalendarDraft): CalendarInput {
   }
   let recurrence: CalendarInput['recurrence'] = null;
   if (draft.frequency !== 'none') {
-    if (!wholeNumber(draft.interval, 1, 52))
-      throw new DraftError('interval', 'Use a whole number from 1 to 52.');
-    if (draft.count && !wholeNumber(draft.count, 1, 1000))
-      throw new DraftError('count', 'Use a whole number from 1 to 1000.');
-    recurrence = {
-      frequency: draft.frequency,
-      interval: Number(draft.interval),
-      count: draft.count ? Number(draft.count) : null,
-      until: draft.until || null,
-    };
+    if (draft.frequency === 'custom') {
+      try {
+        recurrence = parseRRule(draft.custom, draft.timeZone);
+      } catch {
+        throw new DraftError('custom', 'Enter a valid RRULE.');
+      }
+    } else {
+      if (!wholeNumber(draft.interval, 1, 99))
+        throw new DraftError('interval', 'Use a whole number from 1 to 99.');
+      if (draft.count && !wholeNumber(draft.count, 1, 1000))
+        throw new DraftError('count', 'Use a whole number from 1 to 1000.');
+      const monthly = draft.frequency === 'monthly';
+      const anchorWeekday = weekdayOf(draft.startDate);
+      const selectedWeekdays = draft.weekdays.length
+        ? draft.weekdays
+        : [anchorWeekday];
+      const byDay =
+        draft.frequency === 'weekly'
+          ? selectedWeekdays.length === 1 &&
+            selectedWeekdays[0] === anchorWeekday
+            ? null
+            : selectedWeekdays
+          : monthly && draft.monthlyMode === 'weekday'
+            ? [draft.weekdays[0] ?? anchorWeekday]
+            : null;
+      const selectedMonthDay = Number(draft.monthDay);
+      const byMonthDay =
+        monthly &&
+        draft.monthlyMode === 'date' &&
+        selectedMonthDay !== Temporal.PlainDate.from(draft.startDate).day
+          ? selectedMonthDay
+          : null;
+      if (
+        byMonthDay !== null &&
+        (!wholeNumber(draft.monthDay, 1, 31) || byMonthDay < 1)
+      )
+        throw new DraftError('monthDay', 'Use a day from 1 to 31.');
+      recurrence = {
+        frequency: draft.frequency,
+        interval: Number(draft.interval),
+        count: draft.count ? Number(draft.count) : null,
+        until: draft.until || null,
+        byDay,
+        monthlyMode: monthly ? draft.monthlyMode : null,
+        byMonthDay,
+        bySetPos:
+          monthly && draft.monthlyMode === 'weekday'
+            ? Number(draft.setPos)
+            : null,
+        timeZone: draft.timeZone,
+      };
+    }
   }
   return {
     title: draft.title,
@@ -351,6 +423,7 @@ export function toInput(draft: CalendarDraft): CalendarInput {
     startDate,
     endDate,
     recurrence,
+    reminderOffsets: draft.reminderOffsets,
     courseId: draft.courseId || null,
     topicId: draft.courseId && draft.topicId ? draft.topicId : null,
     studyStatus: draft.courseId ? draft.studyStatus : 'planned',
@@ -382,7 +455,12 @@ export function resetsSeries(series: CalendarRecord, next: CalendarInput) {
       (before.frequency !== after.frequency ||
         before.interval !== after.interval ||
         before.count !== after.count ||
-        before.until !== after.until))
+        before.until !== after.until ||
+        JSON.stringify(before.byDay ?? null) !==
+          JSON.stringify(after.byDay ?? null) ||
+        (before.monthlyMode ?? 'date') !== (after.monthlyMode ?? 'date') ||
+        (before.byMonthDay ?? null) !== (after.byMonthDay ?? null) ||
+        (before.bySetPos ?? null) !== (after.bySetPos ?? null)))
   );
 }
 

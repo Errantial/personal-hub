@@ -52,6 +52,7 @@ it('describes worker health with the failure state kept visible', () => {
 it('offers snooze times in local wall-clock form', () => {
   const choices = snoozeChoices(new Date(2027, 2, 8, 14, 30));
   expect(choices).toEqual([
+    { label: 'In 10 minutes', value: '2027-03-08T14:40' },
     { label: 'In 1 hour', value: '2027-03-08T15:30' },
     { label: 'Tomorrow 09:00', value: '2027-03-09T09:00' },
   ]);

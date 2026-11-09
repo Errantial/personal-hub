@@ -41,3 +41,16 @@ Migration 079 adds additive columns/tables:
 - Completion idempotency, duplicate worker runs, this-vs-future edits/skips/deletes, notification per occurrence, agent recurring create/edit/delete, auto-approve and Tier 2 approval.
 - Additive migration check against a fresh production copy; default off/absent recurrence preserves existing behavior.
 - Release follows the review gate: self-review, NEEDS REVIEW, explicit approval for exact SHA, then staged deploy and smoke test.
+
+## Implementation receipt (2026-11-09)
+
+Implemented on `feat/recurring-items` as a separate PR from #75:
+
+- Shared RRULE-style rule in `packages/contracts` with `byDay`, `byMonthDay`, `monthlyMode`, `bySetPos`, `count`, `until` and an explicit `timeZone`; custom RRULE parsing/rendering and plain-language summaries.
+- Migration 079: `recurrence_series`, nullable task/reminder series and occurrence columns, nullable recurrence JSON, task/event `reminder_offsets`, reminder `offset_minutes`, additive indexes and constraints.
+- Idempotent next-occurrence generation for completed/skipped tasks and delivered/dismissed reminders, with this/future/series edits and soft-deleted series.
+- Per-occurrence event reminders from offsets, task reminder offsets rebuilt on due-time changes, and a throttled worker sweep for recurring event reminders.
+- Web/Android-bundled recurrence picker with summary, repeat icons in task/reminder/calendar lists, multiple offset controls, extra snooze preset, and this-vs-future event edit/delete.
+- Agent RRULE text support for task, reminder and event create/update; Tier 1 edits, Tier 2 series/future deletion, audit snapshots and auto-approve gating.
+
+Tests: `apps/api/tests/recurrence.test.ts` (DST, month-end, leap day, nth/last weekday, parsing, summaries) and `apps/api/tests/recurring-items.test.ts` (task completion idempotency, this/future edit and delete, reminder delivery/dismiss/cancel, event offsets, task offsets). Existing calendar, reminder, task and assistant suites pass.

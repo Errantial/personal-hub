@@ -5,7 +5,7 @@ import {
   tasksResponseSchema,
   trackedDeadlineListSchema,
 } from '@hub/contracts';
-import type { Task } from '@hub/contracts';
+import type { RecurrenceRule, Task } from '@hub/contracts';
 import { getJson, getSnapshot } from '../lib/api';
 import {
   useMutation,
@@ -19,9 +19,13 @@ import { taskFilterLabels, taskFilters } from '../lib/router';
 import type { Route, TaskFilter } from '../lib/router';
 import { countByFilter, groupTasks, matchesFilter } from '../lib/tasks';
 import { maxSelection } from '../lib/selection';
-import { useConfirm } from './ConfirmDialog';
+import { deviceTimeZone } from '../lib/time-zone';
+import { useChoice, useConfirm } from './ConfirmDialog';
 import { DeletedItems } from './DeletedItems';
 import { Help } from './Help';
+import { Icon } from './Icon';
+import { RecurrenceFields } from './RecurrenceFields';
+import { ReminderOffsetsFields } from './ReminderOffsetsFields';
 import { Link } from './Link';
 import { AcademicSource, PlannerSource } from './PlannerSource';
 import { QuickCapture } from './QuickCapture';
@@ -63,7 +67,7 @@ export function TasksView({
   navigate: (route: Route) => void;
 }) {
   const filter = route.filter ?? 'open';
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const timeZone = deviceTimeZone();
   const today = useToday(timeZone);
   const tasks = useResource(
     (signal) => getSnapshot('/api/v1/tasks', tasksResponseSchema, signal),
@@ -82,6 +86,7 @@ export function TasksView({
   const [notice, setNotice] = useState<Notice | null>(null);
   const [deletedKey, setDeletedKey] = useState(0);
   const [dialog, confirm] = useConfirm();
+  const [choiceDialog, choose] = useChoice<'this' | 'future' | 'series'>();
   const remove = useMutation();
   const restore = useMutation();
   const heading = useRef<HTMLHeadingElement>(null);
@@ -146,6 +151,20 @@ export function TasksView({
 
   async function deleteTask(task: Task) {
     setNotice(null);
+    let scope: 'this' | 'future' | 'series' | null = null;
+    if (task.recurrence) {
+      scope = await choose({
+        title: `Delete “${task.title}”?`,
+        message:
+          'Deleting one occurrence or future occurrences cannot be undone. A deleted series can be restored from Recently deleted.',
+        choices: [
+          { value: 'this', label: 'This task', danger: true },
+          { value: 'future', label: 'This and all future', danger: true },
+          { value: 'series', label: 'Entire series', danger: true },
+        ],
+      });
+      if (!scope) return;
+    }
     if (!navigator.onLine) {
       const confirmed = await confirm({
         title: `Delete task “${task.title}”?`,
@@ -159,7 +178,7 @@ export function TasksView({
       taskResponseSchema,
       'DELETE',
       `/api/v1/tasks/${task.id}`,
-      { expectedVersion: task.version },
+      { expectedVersion: task.version, ...(scope ? { scope } : {}) },
       'Could not delete. The task is unchanged.',
     );
     if (!result) return;
@@ -357,6 +376,7 @@ export function TasksView({
       </div>
       <DeletedItems kind="task" refreshKey={deletedKey} onRestored={reload} />
       {dialog}
+      {choiceDialog}
     </section>
   );
 }
@@ -453,6 +473,12 @@ function TaskRow({
           {task.priority === 'high' && (
             <StatusChip tone="attention">High priority</StatusChip>
           )}
+          {task.recurrence && (
+            <span className="repeat-mark">
+              <Icon name="repeat" />
+              <span className="visually-hidden">Repeating</span>
+            </span>
+          )}
           {task.sensitivity !== 'unlabeled' && (
             <StatusChip>
               {task.sensitivity === 'personal' ? 'Personal' : 'Restricted'}
@@ -484,6 +510,9 @@ type Draft = TaskDueDraft & {
   priority: Task['priority'];
   sensitivity: Task['sensitivity'];
   completed: boolean;
+  recurrence: RecurrenceRule | null;
+  reminderOffsets: number[];
+  scope: 'this' | 'future';
 };
 const toDraft = (task: Task): Draft => ({
   ...taskDueDraft(task),
@@ -492,8 +521,17 @@ const toDraft = (task: Task): Draft => ({
   priority: task.priority,
   sensitivity: task.sensitivity,
   completed: task.completed,
+  recurrence: task.recurrence ?? null,
+  reminderOffsets: task.reminderOffsets ?? [],
+  scope: 'future',
 });
-const fieldLabels: Record<Exclude<keyof Draft, 'dueOffset'>, string> = {
+const fieldLabels: Record<
+  Exclude<
+    keyof Draft,
+    'dueOffset' | 'recurrence' | 'reminderOffsets' | 'scope'
+  >,
+  string
+> = {
   title: 'Title',
   notes: 'Notes',
   dueDate: 'Due date',
@@ -503,7 +541,7 @@ const fieldLabels: Record<Exclude<keyof Draft, 'dueOffset'>, string> = {
   sensitivity: 'Content label',
   completed: 'Completed',
 };
-const display = (value: Draft[keyof Draft]) =>
+const display = (value: string | boolean | null | undefined) =>
   value === true ? 'Yes' : value === false ? 'No' : value || 'None';
 
 function TaskEditor({
@@ -569,9 +607,12 @@ function TaskEditor({
   const blocked = queuedConflict || deletedElsewhere || changedElsewhere;
   const current = toDraft(server ?? latest ?? ({} as Task));
   const differences = server
-    ? (Object.keys(fieldLabels) as Exclude<keyof Draft, 'dueOffset'>[]).filter(
-        (field) => current[field] !== draft[field],
-      )
+    ? (
+        Object.keys(fieldLabels) as Exclude<
+          keyof Draft,
+          'dueOffset' | 'recurrence' | 'reminderOffsets' | 'scope'
+        >[]
+      ).filter((field) => current[field] !== draft[field])
     : [];
   const update = <K extends keyof Draft>(field: K, value: Draft[K]) => {
     setDraft({ ...draft, [field]: value });
@@ -599,6 +640,10 @@ function TaskEditor({
       title.current?.focus();
       return;
     }
+    if (draft.recurrence && !draft.dueDate) {
+      save.setError('A repeating task needs a due date.');
+      return;
+    }
     let deadline;
     try {
       deadline = taskDuePayload(draft);
@@ -619,6 +664,9 @@ function TaskEditor({
         priority: draft.priority,
         sensitivity: draft.sensitivity,
         completed: draft.completed,
+        recurrence: draft.recurrence,
+        reminderOffsets: draft.reminderOffsets,
+        ...(latest?.seriesId ? { scope: draft.scope } : {}),
         expectedVersion: base,
       },
     );
@@ -676,7 +724,7 @@ function TaskEditor({
             {differences.map((field) => (
               <div key={field}>
                 <dt>{fieldLabels[field]}</dt>
-                <dd>Latest: {display(current[field])}</dd>
+                <dd>Latest: {display(current[field] as string | boolean)}</dd>
               </div>
             ))}
           </dl>
@@ -723,6 +771,39 @@ function TaskEditor({
             setMessage('');
             save.setError('');
           }}
+        />
+        <RecurrenceFields
+          value={draft.recurrence}
+          anchor={draft.dueDate}
+          timeZone={draft.dueTimeZone || deviceTimeZone()}
+          disabled={save.pending}
+          onChange={(recurrence) =>
+            setDraft({ ...draft, recurrence, scope: 'future' })
+          }
+        />
+        {latest?.seriesId && (
+          <label>
+            Apply changes to
+            <select
+              value={draft.scope}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  scope: event.target.value as Draft['scope'],
+                })
+              }
+            >
+              <option value="this">This occurrence</option>
+              <option value="future">This and all future occurrences</option>
+            </select>
+          </label>
+        )}
+        <ReminderOffsetsFields
+          value={draft.reminderOffsets}
+          disabled={save.pending}
+          onChange={(reminderOffsets) =>
+            setDraft({ ...draft, reminderOffsets })
+          }
         />
         <label>
           Priority

@@ -7,6 +7,7 @@ import {
   notificationsSchema,
   notificationResponseSchema,
   deleteItemSchema,
+  recurrenceSchema,
 } from '@hub/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { Database, QueryExecutor } from '../db/database.js';
@@ -17,8 +18,21 @@ import { active, stamp, version } from './common.js';
 import { readEvent, readExceptions, occurrenceExists } from './calendar.js';
 import { expandEvent, Temporal } from '@hub/contracts';
 import { ApiError } from '../errors.js';
+import {
+  createRecurrenceSeries,
+  deleteRecurrenceSeries,
+  generateNextReminderOccurrence,
+  stopRecurrenceSeriesFrom,
+  syncRecurringEventReminders,
+  updateRecurrenceSeries,
+} from './recurrence.js';
 
-export const reminderColumns = `id,title,snoozed_from_id AS "snoozedFromId",${stamp('scheduled_at', 'scheduledAt')},target_kind AS "targetKind",target_id AS "targetId",to_char(occurrence_date,'YYYY-MM-DD') AS "occurrenceDate",status,attempts,last_error AS "lastError",version,${stamp('created_at', 'createdAt')},${stamp('updated_at', 'updatedAt')}`;
+export const reminderColumns = `id,title,snoozed_from_id AS "snoozedFromId",${stamp('scheduled_at', 'scheduledAt')},target_kind AS "targetKind",target_id AS "targetId",to_char(occurrence_date,'YYYY-MM-DD') AS "occurrenceDate",recurrence,series_id AS "seriesId",to_char(occurrence_key,'YYYY-MM-DD') AS "occurrenceKey",offset_minutes AS "offsetMinutes",status,attempts,last_error AS "lastError",version,${stamp('created_at', 'createdAt')},${stamp('updated_at', 'updatedAt')}`;
+const isoDay = (value: unknown) =>
+  value instanceof Date
+    ? value.toISOString().slice(0, 10)
+    : String(value).slice(0, 10);
+let lastRecurringEventSync = 0;
 export const notificationColumns = `id,reminder_id AS "reminderId",run_id AS "runId",conversation_id AS "conversationId",title,${stamp('created_at', 'createdAt')},${stamp('read_at', 'readAt')}`;
 export async function targetAvailable(
   tx: QueryExecutor,
@@ -140,6 +154,7 @@ export async function runReminderBatch(
           "UPDATE reminders SET status='delivered',last_error=NULL,lease_token=NULL,lease_until=NULL,version=version+1,updated_at=$2 WHERE id=$1",
           [job.id, now],
         );
+        await generateNextReminderOccurrence(tx, job.owner_id, job.id);
       });
     } catch {
       await database.query(
@@ -158,6 +173,10 @@ export async function runReminderBatch(
     "INSERT INTO worker_state (name,last_tick,error_code) VALUES ('reminders',$1,NULL) ON CONFLICT (name) DO UPDATE SET last_tick=EXCLUDED.last_tick,error_code=NULL",
     [now],
   );
+  if (now.getTime() - lastRecurringEventSync > 60000) {
+    lastRecurringEventSync = now.getTime();
+    await syncRecurringEventReminders(database, now).catch(() => undefined);
+  }
   return processed;
 }
 export function startReminderWorker(database: Database) {
@@ -211,8 +230,25 @@ export async function saveReminderProposal(
       { kind: 'reminder.create', input },
       async (tx) => {
         await active(tx, 'tasks', owner, input.targetId!);
+        const recurrence = input.recurrence ?? null;
+        const zone = recurrence?.timeZone ?? 'America/Denver';
+        const occurrenceKey = recurrence
+          ? Temporal.Instant.from(input.scheduledAt)
+              .toZonedDateTimeISO(zone)
+              .toPlainDate()
+              .toString()
+          : null;
+        const seriesId = recurrence
+          ? await createRecurrenceSeries(
+              tx,
+              owner,
+              'reminder',
+              recurrence,
+              occurrenceKey!,
+            )
+          : null;
         const [row] = await tx.query(
-          `INSERT INTO reminders (id,owner_id,title,scheduled_at,target_kind,target_id,occurrence_date) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING RETURNING ${reminderColumns}`,
+          `INSERT INTO reminders (id,owner_id,title,scheduled_at,target_kind,target_id,occurrence_date,recurrence,series_id,occurrence_key) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10) ON CONFLICT (id) DO NOTHING RETURNING ${reminderColumns}`,
           [
             randomUUID(),
             owner,
@@ -221,6 +257,9 @@ export async function saveReminderProposal(
             input.targetKind,
             input.targetId,
             input.occurrenceDate,
+            recurrence ? JSON.stringify(recurrence) : null,
+            seriesId,
+            occurrenceKey,
           ],
         );
         if (!row)
@@ -248,9 +287,86 @@ export async function saveReminderProposal(
           'REMINDER_STATE',
           'This reminder cannot be rescheduled.',
         );
+      const recurrence =
+        input.recurrence !== undefined
+          ? input.recurrence
+          : current.recurrence
+            ? recurrenceSchema.parse(current.recurrence)
+            : null;
+      let seriesId = current.series_id ? String(current.series_id) : null;
+      let occurrenceKey = current.occurrence_key
+        ? isoDay(current.occurrence_key)
+        : null;
+      if (
+        seriesId &&
+        input.recurrence !== undefined &&
+        input.scope !== 'this'
+      ) {
+        if (!recurrence) {
+          await deleteRecurrenceSeries(
+            tx,
+            owner,
+            seriesId,
+            occurrenceKey ?? undefined,
+          );
+          await tx.query(
+            `UPDATE reminders SET status='cancelled',version=version+1,
+               updated_at=CURRENT_TIMESTAMP
+             WHERE owner_id=$1 AND series_id=$2 AND status IN ('queued','running','paused')`,
+            [owner, seriesId],
+          );
+          seriesId = null;
+          occurrenceKey = null;
+        } else {
+          const zone = recurrence.timeZone ?? 'America/Denver';
+          const anchor = Temporal.Instant.from(input.scheduledAt)
+            .toZonedDateTimeISO(zone)
+            .toPlainDate()
+            .toString();
+          await updateRecurrenceSeries(tx, owner, seriesId, recurrence, anchor);
+          if (input.scope === 'series') occurrenceKey = anchor;
+          await tx.query(
+            `UPDATE reminders SET title=$3,recurrence=$4::jsonb,
+               version=version+1,updated_at=CURRENT_TIMESTAMP
+             WHERE owner_id=$1 AND series_id=$2 AND occurrence_key > $5
+               AND status IN ('queued','paused','failed')`,
+            [
+              owner,
+              seriesId,
+              input.title,
+              JSON.stringify(recurrence),
+              occurrenceKey,
+            ],
+          );
+        }
+      } else if (!seriesId && recurrence) {
+        const zone = recurrence.timeZone ?? 'America/Denver';
+        occurrenceKey = Temporal.Instant.from(input.scheduledAt)
+          .toZonedDateTimeISO(zone)
+          .toPlainDate()
+          .toString();
+        seriesId = await createRecurrenceSeries(
+          tx,
+          owner,
+          'reminder',
+          recurrence,
+          occurrenceKey,
+        );
+      }
       const [row] = await tx.query(
-        `UPDATE reminders SET title=$3,scheduled_at=$4,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${reminderColumns}`,
-        [id, owner, input.title, input.scheduledAt],
+        `UPDATE reminders SET title=$3,scheduled_at=$4,recurrence=$5::jsonb,
+           series_id=$6,occurrence_key=$7,version=version+1,
+           updated_at=CURRENT_TIMESTAMP
+         WHERE id=$1 AND owner_id=$2 RETURNING ${reminderColumns}`,
+        [
+          id,
+          owner,
+          input.title,
+          input.scheduledAt,
+          recurrence ? JSON.stringify(recurrence) : null,
+          seriesId,
+          occurrenceKey,
+        ],
       );
       if (!row)
         throw new ApiError(
@@ -286,6 +402,29 @@ export async function cancelReminderProposal(
           'REMINDER_STATE',
           'This reminder cannot be cancelled.',
         );
+      if (input.scope && row.series_id && row.occurrence_key) {
+        const seriesId = String(row.series_id);
+        const key = isoDay(row.occurrence_key);
+        if (input.scope === 'series') {
+          await deleteRecurrenceSeries(tx, owner, seriesId, key);
+          await tx.query(
+            `UPDATE reminders SET status='cancelled',version=version+1,
+               updated_at=CURRENT_TIMESTAMP
+             WHERE owner_id=$1 AND series_id=$2
+               AND status IN ('queued','running','paused','failed')`,
+            [owner, seriesId],
+          );
+        } else if (input.scope === 'future') {
+          await stopRecurrenceSeriesFrom(tx, owner, seriesId, key);
+          await tx.query(
+            `UPDATE reminders SET status='cancelled',version=version+1,
+               updated_at=CURRENT_TIMESTAMP
+             WHERE owner_id=$1 AND series_id=$2 AND occurrence_key >= $3
+               AND status IN ('queued','running','paused','failed')`,
+            [owner, seriesId, key],
+          );
+        }
+      }
       const [saved] = await tx.query(
         `UPDATE reminders SET status='cancelled',attempts=0,last_error=NULL,lease_token=NULL,lease_until=NULL,next_attempt_at=CURRENT_TIMESTAMP,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${reminderColumns}`,
         [id, owner],
@@ -344,6 +483,7 @@ export function registerReminders(
           input.operationId,
           { method, id: method === 'PUT' ? id : null, input },
           async (tx) => {
+            let currentRow: Record<string, unknown> | null = null;
             if (method === 'POST' && input.clientId) {
               const [existing] = await tx.query(
                 'SELECT id FROM reminders WHERE owner_id=$1 AND id=$2',
@@ -357,10 +497,12 @@ export function registerReminders(
                 );
             }
             if (method === 'PUT') {
-              const current = await active(tx, 'reminders', user.id, id);
-              version(current, input.expectedVersion);
+              currentRow = await active(tx, 'reminders', user.id, id);
+              version(currentRow, input.expectedVersion);
               if (
-                !['queued', 'paused', 'failed'].includes(String(current.status))
+                !['queued', 'paused', 'failed'].includes(
+                  String(currentRow.status),
+                )
               )
                 throw new ApiError(
                   409,
@@ -413,6 +555,101 @@ export function registerReminders(
                   'Select an existing occurrence.',
                 );
             }
+            const recurrence =
+              input.recurrence !== undefined
+                ? input.recurrence
+                : currentRow?.recurrence
+                  ? recurrenceSchema.parse(currentRow.recurrence)
+                  : null;
+            let seriesId = currentRow?.series_id
+              ? String(currentRow.series_id)
+              : null;
+            let occurrenceKey = currentRow?.occurrence_key
+              ? isoDay(currentRow.occurrence_key)
+              : null;
+            if (
+              method === 'PUT' &&
+              currentRow &&
+              seriesId &&
+              input.recurrence !== undefined &&
+              input.scope !== 'series' &&
+              JSON.stringify(recurrence) !==
+                JSON.stringify(
+                  currentRow.recurrence
+                    ? recurrenceSchema.parse(currentRow.recurrence)
+                    : null,
+                )
+            )
+              throw new ApiError(
+                400,
+                'SCOPE_REQUIRED',
+                'Choose this and all future reminders to change a repeat.',
+              );
+            if (
+              method === 'PUT' &&
+              currentRow &&
+              seriesId &&
+              input.recurrence !== undefined &&
+              input.scope === 'series'
+            ) {
+              if (!recurrence) {
+                await deleteRecurrenceSeries(
+                  tx,
+                  user.id,
+                  seriesId,
+                  occurrenceKey ?? undefined,
+                );
+                await tx.query(
+                  `UPDATE reminders SET status='cancelled',version=version+1,
+                     updated_at=CURRENT_TIMESTAMP
+                   WHERE owner_id=$1 AND series_id=$2
+                     AND status IN ('queued','running','paused')`,
+                  [user.id, seriesId],
+                );
+                seriesId = null;
+                occurrenceKey = null;
+              } else {
+                const zone = recurrence.timeZone ?? 'America/Denver';
+                const anchor = Temporal.Instant.from(input.scheduledAt)
+                  .toZonedDateTimeISO(zone)
+                  .toPlainDate()
+                  .toString();
+                await updateRecurrenceSeries(
+                  tx,
+                  user.id,
+                  seriesId,
+                  recurrence,
+                  anchor,
+                );
+                await tx.query(
+                  `UPDATE reminders SET title=$3,recurrence=$4::jsonb,
+                     version=version+1,updated_at=CURRENT_TIMESTAMP
+                   WHERE owner_id=$1 AND series_id=$2 AND occurrence_key > $5
+                     AND status IN ('queued','paused','failed')`,
+                  [
+                    user.id,
+                    seriesId,
+                    input.title,
+                    JSON.stringify(recurrence),
+                    occurrenceKey,
+                  ],
+                );
+                if (input.scope === 'series') occurrenceKey = anchor;
+              }
+            } else if (method === 'POST' && recurrence) {
+              const zone = recurrence.timeZone ?? 'America/Denver';
+              occurrenceKey = Temporal.Instant.from(input.scheduledAt)
+                .toZonedDateTimeISO(zone)
+                .toPlainDate()
+                .toString();
+              seriesId = await createRecurrenceSeries(
+                tx,
+                user.id,
+                'reminder',
+                recurrence,
+                occurrenceKey,
+              );
+            }
             const values = [
               id,
               user.id,
@@ -421,15 +658,18 @@ export function registerReminders(
               input.targetKind,
               input.targetId,
               input.occurrenceDate,
+              recurrence ? JSON.stringify(recurrence) : null,
+              seriesId,
+              occurrenceKey,
             ];
             const [row] =
               method === 'POST'
                 ? await tx.query(
-                    `INSERT INTO reminders (id,owner_id,title,scheduled_at,target_kind,target_id,occurrence_date) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING RETURNING ${reminderColumns}`,
+                    `INSERT INTO reminders (id,owner_id,title,scheduled_at,target_kind,target_id,occurrence_date,recurrence,series_id,occurrence_key) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10) ON CONFLICT (id) DO NOTHING RETURNING ${reminderColumns}`,
                     values,
                   )
                 : await tx.query(
-                    `UPDATE reminders SET title=$3,scheduled_at=$4,target_kind=$5,target_id=$6,occurrence_date=$7,status='queued',attempts=0,last_error=NULL,next_attempt_at=CURRENT_TIMESTAMP,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${reminderColumns}`,
+                    `UPDATE reminders SET title=$3,scheduled_at=$4,target_kind=$5,target_id=$6,occurrence_date=$7,recurrence=$8::jsonb,series_id=$9,occurrence_key=$10,status='queued',attempts=0,last_error=NULL,next_attempt_at=CURRENT_TIMESTAMP,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${reminderColumns}`,
                     values,
                   );
             if (!row)
@@ -481,6 +721,34 @@ export function registerReminders(
             'TARGET_UNAVAILABLE',
             'The academic work is closed, deleted or its class is archived.',
           );
+        if (
+          input.action === 'cancel' &&
+          input.scope &&
+          row.series_id &&
+          row.occurrence_key
+        ) {
+          const seriesId = String(row.series_id);
+          const key = isoDay(row.occurrence_key);
+          if (input.scope === 'series') {
+            await deleteRecurrenceSeries(tx, user.id, seriesId, key);
+            await tx.query(
+              `UPDATE reminders SET status='cancelled',version=version+1,
+                 updated_at=CURRENT_TIMESTAMP
+               WHERE owner_id=$1 AND series_id=$2
+                 AND status IN ('queued','running','paused','failed')`,
+              [user.id, seriesId],
+            );
+          } else if (input.scope === 'future') {
+            await stopRecurrenceSeriesFrom(tx, user.id, seriesId, key);
+            await tx.query(
+              `UPDATE reminders SET status='cancelled',version=version+1,
+                 updated_at=CURRENT_TIMESTAMP
+               WHERE owner_id=$1 AND series_id=$2 AND occurrence_key >= $3
+                 AND status IN ('queued','running','paused','failed')`,
+              [user.id, seriesId, key],
+            );
+          }
+        }
         const status =
           input.action === 'pause'
             ? 'paused'
@@ -490,6 +758,43 @@ export function registerReminders(
         const [saved] = await tx.query(
           `UPDATE reminders SET status=$3,attempts=CASE WHEN $4 THEN 0 ELSE attempts END,last_error=NULL,lease_token=NULL,lease_until=NULL,next_attempt_at=CURRENT_TIMESTAMP,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${reminderColumns}`,
           [id, user.id, status, input.action === 'retry'],
+        );
+        return reminderResponseSchema.parse({ reminder: saved });
+      },
+    );
+  });
+  app.post('/api/v1/reminders/:id/dismiss', async (request) => {
+    const user = await auth.requireUser(request);
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const input = z
+      .strictObject({
+        operationId: z.string().uuid(),
+        expectedVersion: z.number().int().positive(),
+      })
+      .parse(request.body);
+    return mutate(
+      database,
+      user.id,
+      input.operationId,
+      { kind: 'reminder.dismiss', id, input },
+      async (tx) => {
+        const row = await active(tx, 'reminders', user.id, id);
+        version(row, input.expectedVersion);
+        if (row.status !== 'delivered')
+          throw new ApiError(
+            409,
+            'REMINDER_STATE',
+            'This reminder has not been delivered.',
+          );
+        await tx.query(
+          `UPDATE notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP)
+           WHERE owner_id=$1 AND reminder_id=$2`,
+          [user.id, id],
+        );
+        await generateNextReminderOccurrence(tx, user.id, id);
+        const [saved] = await tx.query(
+          `SELECT ${reminderColumns} FROM reminders WHERE owner_id=$1 AND id=$2`,
+          [user.id, id],
         );
         return reminderResponseSchema.parse({ reminder: saved });
       },

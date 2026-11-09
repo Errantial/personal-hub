@@ -27,6 +27,8 @@ import { useMutation, useResource } from '../lib/hooks';
 import { cachedOccurrence } from '../lib/offline';
 import type { CalendarEditorRoute, Route } from '../lib/router';
 import { Help } from './Help';
+import { ReminderOffsetsFields } from './ReminderOffsetsFields';
+import { weekdayChoices } from '../lib/recurrence';
 import { Link } from './Link';
 import { PlannerSource } from './PlannerSource';
 import { TimeZoneInput } from './TimeZoneInput';
@@ -222,14 +224,13 @@ function EditorForm({
     study: creating ? study : null,
     ...(editor.kind === 'new' && editor.start ? { start: editor.start } : {}),
   };
-  const [draft, setDraft] = useState<CalendarDraft>(() => ({
-    ...toDraft(source, defaults),
-    // An occurrence is one instance: it cannot repeat.
-    ...(occurrenceDate ? { frequency: 'none' as const } : {}),
-  }));
+  const [draft, setDraft] = useState<CalendarDraft>(() =>
+    toDraft(source, defaults),
+  );
   // The version the draft was made from; only an explicit load or this
   // editor's own save moves it, so newer server data is never adopted silently.
   const [base, setBase] = useState(source?.version ?? 0);
+  const [scope, setScope] = useState<'this' | 'future'>('this');
   const [server, setServer] = useState<CalendarDraft | null>(null);
   const [message, setMessage] = useState('');
   const [problem, setProblem] = useState<{
@@ -295,10 +296,7 @@ function EditorForm({
     setLoading(false);
     if (!fresh) return;
     setBase(fresh.version);
-    setServer({
-      ...toDraft(fresh, defaults),
-      ...(occurrenceDate ? { frequency: 'none' as const } : {}),
-    });
+    setServer(toDraft(fresh, defaults));
     save.reset();
     setMessage('Latest version loaded. Your edits are kept.');
   }
@@ -325,7 +323,14 @@ function EditorForm({
       calendarResponseSchema,
       creating ? 'POST' : 'PUT',
       path,
-      creating ? input : { ...input, expectedVersion: base },
+      creating
+        ? input
+        : {
+            ...input,
+            ...(occurrenceDate && scope === 'this' ? { recurrence: null } : {}),
+            expectedVersion: base,
+            ...(occurrenceDate ? { scope } : {}),
+          },
       'Could not save the event. Your changes are still here.',
     );
     if (!result) return;
@@ -382,7 +387,23 @@ function EditorForm({
       <h2 id="calendar-editor-title">{heading}</h2>
       {occurrenceDate && series && (
         <>
-          <p>Only {occurrenceDate} changes.</p>
+          <label>
+            Apply changes to
+            <select
+              value={scope}
+              onChange={(event) =>
+                setScope(event.target.value as 'this' | 'future')
+              }
+            >
+              <option value="this">This occurrence</option>
+              <option value="future">This and all future occurrences</option>
+            </select>
+          </label>
+          <p>
+            {scope === 'this'
+              ? `Only ${occurrenceDate} changes.`
+              : `Changes start at ${occurrenceDate} and do not alter earlier occurrences.`}
+          </p>
           <Link
             className="calendar-link"
             route={{ ...listRoute, editor: { kind: 'event', id: series.id } }}
@@ -538,7 +559,7 @@ function EditorForm({
           </Help>
         </fieldset>
 
-        {!occurrenceDate && (
+        {(!occurrenceDate || scope === 'future') && (
           <fieldset className="calendar-section">
             <legend>Repeat</legend>
             <label>
@@ -556,9 +577,11 @@ function EditorForm({
                 <option value="daily">Daily</option>
                 <option value="weekly">Weekly</option>
                 <option value="monthly">Monthly</option>
+                <option value="yearly">Yearly</option>
+                <option value="custom">Custom RRULE</option>
               </select>
             </label>
-            {draft.frequency !== 'none' && (
+            {draft.frequency !== 'none' && draft.frequency !== 'custom' && (
               <>
                 <div className="form-row">
                   <label>
@@ -590,6 +613,103 @@ function EditorForm({
                 </div>
                 {shownProblem('interval')}
                 {shownProblem('count')}
+                {draft.frequency === 'weekly' && (
+                  <fieldset>
+                    <legend>On these days</legend>
+                    {weekdayChoices.map(([code, label]) => (
+                      <label key={code} className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={draft.weekdays.includes(code)}
+                          onChange={(event) =>
+                            update(
+                              'weekdays',
+                              event.target.checked
+                                ? [...draft.weekdays, code]
+                                : draft.weekdays.filter((day) => day !== code),
+                            )
+                          }
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </fieldset>
+                )}
+                {draft.frequency === 'monthly' && (
+                  <>
+                    <label className="checkbox-label">
+                      <input
+                        type="radio"
+                        name="calendar-monthly-mode"
+                        checked={draft.monthlyMode === 'date'}
+                        onChange={() => update('monthlyMode', 'date')}
+                      />
+                      On day {draft.monthDay}
+                    </label>
+                    <label>
+                      Day of month
+                      <input
+                        {...attrs('monthDay')}
+                        type="number"
+                        inputMode="numeric"
+                        min={1}
+                        max={31}
+                        value={draft.monthDay}
+                        onChange={(event) =>
+                          update('monthDay', event.target.value)
+                        }
+                      />
+                    </label>
+                    <label className="checkbox-label">
+                      <input
+                        type="radio"
+                        name="calendar-monthly-mode"
+                        checked={draft.monthlyMode === 'weekday'}
+                        onChange={() => update('monthlyMode', 'weekday')}
+                      />
+                      On a weekday pattern
+                    </label>
+                    <div className="form-row">
+                      <label>
+                        Position
+                        <select
+                          value={draft.setPos}
+                          disabled={draft.monthlyMode !== 'weekday'}
+                          onChange={(event) =>
+                            update('setPos', event.target.value)
+                          }
+                        >
+                          <option value="1">First</option>
+                          <option value="2">Second</option>
+                          <option value="3">Third</option>
+                          <option value="4">Fourth</option>
+                          <option value="5">Fifth</option>
+                          <option value="-1">Last</option>
+                        </select>
+                      </label>
+                      <label>
+                        Weekday
+                        <select
+                          value={draft.weekdays[0] ?? 'MO'}
+                          disabled={draft.monthlyMode !== 'weekday'}
+                          onChange={(event) =>
+                            update('weekdays', [
+                              event.target
+                                .value as (typeof draft.weekdays)[number],
+                            ])
+                          }
+                        >
+                          {weekdayChoices.map(([code, label]) => (
+                            <option key={code} value={code}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    {shownProblem('monthDay')}
+                  </>
+                )}
                 <label>
                   Repeat until (optional)
                   <input
@@ -600,10 +720,23 @@ function EditorForm({
                   />
                 </label>
                 <Help label="Repeat">
-                  Weekly repeats use the start weekday. Monthly repeats skip
-                  months without the start day.
+                  Weekly repeats use the chosen weekdays. Monthly date repeats
+                  skip months without that day; monthly patterns use the first
+                  through last chosen weekday.
                 </Help>
               </>
+            )}
+            {draft.frequency === 'custom' && (
+              <label>
+                RRULE
+                <input
+                  {...attrs('custom')}
+                  value={draft.custom}
+                  placeholder="FREQ=WEEKLY;BYDAY=MO,WE"
+                  onChange={(event) => update('custom', event.target.value)}
+                />
+                {shownProblem('custom')}
+              </label>
             )}
             {willReset && (
               <p role="status" className="calendar-warning">
@@ -613,6 +746,14 @@ function EditorForm({
             )}
           </fieldset>
         )}
+
+        <ReminderOffsetsFields
+          value={draft.reminderOffsets}
+          disabled={save.pending}
+          onChange={(reminderOffsets) =>
+            update('reminderOffsets', reminderOffsets)
+          }
+        />
 
         <fieldset className="calendar-section">
           <legend>Study</legend>

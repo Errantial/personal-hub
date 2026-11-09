@@ -72,6 +72,10 @@ it('round-trips the stored side of a repeated due time', () => {
     canvasSource: null,
     academicSource: null,
     mailSource: null,
+    recurrence: null,
+    reminderOffsets: [],
+    seriesId: null,
+    occurrenceKey: null,
   } satisfies Task;
   expect(taskDueDraft(task)).toMatchObject({
     dueDate: '2027-11-07',

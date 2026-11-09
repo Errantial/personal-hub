@@ -7,13 +7,15 @@ import {
   tasksResponseSchema,
   wallTimeToInstant,
 } from '@hub/contracts';
-import type { Reminder } from '@hub/contracts';
+import type { RecurrenceRule, Reminder } from '@hub/contracts';
 import { getSnapshot } from '../lib/api';
+import { deviceTimeZone } from '../lib/time-zone';
 import { checkLocalTime, foldChoices } from '../lib/calendar';
 import { useMutation, useResource } from '../lib/hooks';
 import { snoozeChoices } from '../lib/reminders';
 import { instantToWall } from '@hub/contracts';
 import { Help } from './Help';
+import { RecurrenceFields } from './RecurrenceFields';
 
 type Offset = 'earlier' | 'later' | '';
 
@@ -137,7 +139,7 @@ export function ReminderEditor({
   reload: () => Promise<Reminder[] | undefined>;
   onDone: () => void;
 }) {
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = deviceTimeZone();
   const snoozing = reminder?.status === 'delivered';
   const [title, setTitle] = useState(reminder?.title ?? '');
   const [when, setWhen] = useState(
@@ -148,6 +150,10 @@ export function ReminderEditor({
     reminder?.targetKind ? `${reminder.targetKind}:${reminder.targetId}` : '',
   );
   const [occurrence, setOccurrence] = useState(reminder?.occurrenceDate ?? '');
+  const [recurrence, setRecurrence] = useState<RecurrenceRule | null>(
+    reminder?.recurrence ?? null,
+  );
+  const [scope, setScope] = useState<'this' | 'series'>('this');
   const [base, setBase] = useState(reminder?.version ?? 0);
   const [titleError, setTitleError] = useState('');
   const [timeError, setTimeError] = useState('');
@@ -225,6 +231,8 @@ export function ReminderEditor({
             targetId: sourceId || null,
             occurrenceDate:
               sourceKind === 'event' && occurrence ? occurrence : null,
+            recurrence,
+            ...(reminder?.seriesId ? { scope } : {}),
             ...(reminder ? { expectedVersion: base } : {}),
           },
           'Could not save reminder. Your changes are still here.',
@@ -375,6 +383,30 @@ export function ReminderEditor({
                 value={occurrence}
                 onChange={(event) => setOccurrence(event.target.value)}
               />
+            </label>
+          )}
+          <RecurrenceFields
+            value={recurrence}
+            anchor={when.slice(0, 10)}
+            timeZone={zone}
+            disabled={save.pending}
+            onChange={(next) => {
+              setRecurrence(next);
+              if (reminder?.seriesId) setScope('series');
+            }}
+          />
+          {reminder?.seriesId && (
+            <label>
+              Apply changes to
+              <select
+                value={scope}
+                onChange={(event) =>
+                  setScope(event.target.value as 'this' | 'series')
+                }
+              >
+                <option value="this">This reminder</option>
+                <option value="series">This and all future reminders</option>
+              </select>
             </label>
           )}
         </>

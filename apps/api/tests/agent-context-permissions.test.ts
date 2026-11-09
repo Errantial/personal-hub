@@ -126,6 +126,49 @@ describe('agent context and reminder permissions', () => {
       reminder: { title: 'Agent reminder' },
     });
 
+    const recurring = toProposal(
+      {
+        type: 'reminder.create',
+        ref: `t${taskIndex + 1}`,
+        title: 'Weekly planning reminder',
+        start: '2030-01-06T19:00',
+        dueDate: null,
+        clearDueDate: false,
+        priority: null,
+        completed: null,
+        end: null,
+        allDay: null,
+        notes: null,
+        recurrence: 'FREQ=WEEKLY;BYDAY=SU;COUNT=4',
+        reminderOffsets: null,
+        scope: null,
+      },
+      context,
+      'America/Denver',
+    );
+    expect(assistantProposalSchema.parse(recurring)).toMatchObject({
+      kind: 'reminder.create',
+      reminder: {
+        recurrence: {
+          frequency: 'weekly',
+          byDay: ['SU'],
+          count: 4,
+          timeZone: 'America/Denver',
+        },
+      },
+    });
+    const seriesDelete = modelCapabilityProposal(
+      'task.delete',
+      JSON.stringify({ ref: `t${taskIndex + 1}`, scope: 'series' }),
+      context,
+    );
+    expect(seriesDelete).toMatchObject({
+      kind: 'capability',
+      capability: 'task.delete',
+      tier: 2,
+      arguments: { scope: 'series' },
+    });
+
     const existing = context.reminders![reminderIndex!]!;
     const update = toProposal(
       {
@@ -343,12 +386,22 @@ describe('agent context and reminder permissions', () => {
     const afterSnapshot = audit!.after as { deletedAt: string | null };
     expect(beforeSnapshot.id).toBe(task.id);
     expect(afterSnapshot.deletedAt).not.toBeNull();
-    await undoCapability(h.database, h.owner, deleted.id);
+    await undoCapability(h.database, h.owner, deleted.id, randomUUID());
     const [restored] = await h.database.query(
       'SELECT deleted_at AS "deletedAt" FROM tasks WHERE id=$1',
       [task.id],
     );
     expect(restored!.deletedAt).toBeNull();
+    const [undoAudit] = await h.database.query(
+      'SELECT action,decision,tool,operation_id AS "operationId" FROM ai_capability_audit WHERE owner_id=$1 AND tool=\'undo\' ORDER BY created_at DESC LIMIT 1',
+      [h.owner],
+    );
+    expect(undoAudit).toMatchObject({
+      action: 'restore',
+      decision: 'applied',
+      tool: 'undo',
+    });
+    expect(undoAudit!.operationId).not.toBeNull();
 
     const before = await readStudyPreferences(h.database, h.owner);
     const changed = await executeCapability(
@@ -531,6 +584,55 @@ describe('agent context and reminder permissions', () => {
         [h.owner],
       ),
     ).toHaveLength(0);
+    await h.app.close();
+  });
+
+  it('keeps tier 3 proposals waiting with auto-approve on', async () => {
+    const h = await startHarness();
+    const turnId = await seedTurn(h);
+    const proposal = assistantProposalSchema.parse({
+      kind: 'capability',
+      capability: 'mail.send',
+      arguments: {},
+      summary: 'Send mail',
+      tier: 3,
+    });
+    await h.database.query(
+      'UPDATE ai_conversation_turns SET proposals=$2::jsonb,items=$3::jsonb WHERE owner_id=$1 AND id=$4',
+      [
+        h.owner,
+        JSON.stringify([proposal]),
+        JSON.stringify([
+          {
+            state: 'proposed',
+            applied: null,
+            error: null,
+            applyId: randomUUID(),
+            undoId: randomUUID(),
+          },
+        ]),
+        turnId,
+      ],
+    );
+    await h.database.query(
+      `INSERT INTO ai_action_policies(owner_id,policy,auto_approve)
+       VALUES($1,$2::jsonb,true)
+       ON CONFLICT(owner_id) DO UPDATE SET auto_approve=true`,
+      [
+        h.owner,
+        JSON.stringify({
+          tasks: 'approval-required',
+          calendar: 'approval-required',
+          reminders: 'approval-required',
+          capabilities: 'approval-required',
+          email: 'approval-required',
+        }),
+      ],
+    );
+    const saved = await readTurn(h.database, h.owner, turnId);
+    await applyByPolicy(h.database, h.owner, saved!);
+    const after = await readTurn(h.database, h.owner, turnId);
+    expect(after!.items[0]!.state).toBe('proposed');
     await h.app.close();
   });
 

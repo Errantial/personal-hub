@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { mailTaskSourceSchema } from './mail-source.js';
-import { Temporal, instant, recurrenceSchema, zone } from './features.js';
+import {
+  Temporal,
+  instant,
+  recurrenceSchema,
+  reminderOffsetsSchema,
+  zone,
+} from './features.js';
 import { academicPlannerSourceSummarySchema } from './academic-source.js';
 import { canvasSourceRefSchema, plannerSourceSchema } from './provenance.js';
 
@@ -67,6 +73,14 @@ const taskFields = {
   priority: z.enum(['low', 'normal', 'high']).default('normal'),
   completed: z.boolean().default(false),
   sensitivity: sensitivitySchema.default('unlabeled'),
+};
+const taskRecurrenceFields = {
+  recurrence: recurrenceSchema.nullable().default(null),
+  reminderOffsets: reminderOffsetsSchema.default([]),
+};
+const taskRecurrenceWriteFields = {
+  recurrence: recurrenceSchema.nullable().optional(),
+  reminderOffsets: reminderOffsetsSchema.optional(),
 };
 const taskTimingRecordFields = {
   dueAt: instant.nullable().default(null),
@@ -148,7 +162,11 @@ const metadata = {
 export const taskSchema = z.object({
   ...taskFields,
   ...taskTimingRecordFields,
+  ...taskRecurrenceFields,
   ...metadata,
+  /** Set on every materialized occurrence of a repeating task. */
+  seriesId: z.string().uuid().nullable().default(null),
+  occurrenceKey: dateSchema.nullable().default(null),
   canvasSource: plannerSourceSchema.nullable().default(null),
   academicSource: academicPlannerSourceSummarySchema.nullable().default(null),
   mailSource: mailTaskSourceSchema.nullable().default(null),
@@ -157,17 +175,29 @@ const validatedTaskSchema = taskSchema.superRefine(validateTaskTiming);
 export const createTaskSchema = z.strictObject({
   ...taskFields,
   ...taskTimingWriteFields,
+  ...taskRecurrenceWriteFields,
   canvasSourceRef: canvasSourceRefSchema.optional(),
   clientId: z.string().uuid().optional(),
   operationId: z.string().uuid(),
 });
-export const createTaskRequestSchema =
-  createTaskSchema.superRefine(validateTaskTiming);
+export const createTaskRequestSchema = createTaskSchema
+  .superRefine(validateTaskTiming)
+  .superRefine((value, context) => {
+    if (value.recurrence && !value.dueDate)
+      context.addIssue({
+        code: 'custom',
+        message: 'A repeating task needs a due date.',
+        path: ['dueDate'],
+      });
+  });
 export const updateTaskSchema = z
   .strictObject({
     ...taskFields,
     dueDate: dateSchema.nullable().optional(),
     ...taskTimingWriteFields,
+    ...taskRecurrenceWriteFields,
+    /** Apply this edit to one occurrence or the current and all future ones. */
+    scope: z.enum(['this', 'future']).optional(),
     sensitivity: sensitivitySchema.optional(),
     operationId: z.string().uuid(),
     expectedVersion: z.number().int().positive(),
@@ -176,6 +206,8 @@ export const updateTaskSchema = z
 export const deleteItemSchema = z.strictObject({
   operationId: z.string().uuid(),
   expectedVersion: z.number().int().positive(),
+  /** Repeating items: one occurrence, this and all future, or the series. */
+  scope: z.enum(['this', 'future', 'series']).optional(),
 });
 export const restoreItemSchema = deleteItemSchema;
 export const plannerRestorationSchema = z.object({
