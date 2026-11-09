@@ -14,6 +14,7 @@ import {
   eventResponseSchema,
   eventsResponseSchema,
   recurrenceSchema,
+  nextOccurrenceDate,
   Temporal,
 } from '@hub/contracts';
 import type { Database, QueryExecutor } from '../db/database.js';
@@ -230,8 +231,8 @@ export async function saveTask(
               [owner, seriesId, occurrenceKey],
             );
             await transaction.query(
-              `UPDATE reminders SET status='cancelled',version=version+1,
-                 updated_at=CURRENT_TIMESTAMP
+              `UPDATE reminders SET status='cancelled',cancel_reason=NULL,
+                 version=version+1,updated_at=CURRENT_TIMESTAMP
                WHERE owner_id=$1 AND target_kind='task' AND target_id IN
                  (SELECT id FROM tasks WHERE owner_id=$1 AND series_id=$2)
                  AND status IN ('queued','running','paused')`,
@@ -338,18 +339,35 @@ export async function saveTask(
           seriesId &&
           previousKey
         ) {
-          const generated = await transaction.query<{ id: string }>(
-            `DELETE FROM tasks
-             WHERE owner_id=$1 AND series_id=$2 AND occurrence_key > $3
-               AND auto_generated=true
-             RETURNING id`,
-            [owner, seriesId, previousKey],
+          const [series] = await transaction.query<{
+            rule: unknown;
+            anchor_date: string | Date;
+          }>(
+            `SELECT rule,to_char(anchor_date,'YYYY-MM-DD') AS anchor_date
+             FROM recurrence_series WHERE owner_id=$1 AND id=$2`,
+            [owner, seriesId],
           );
-          for (const row of generated)
-            await transaction.query(
-              'DELETE FROM reminders WHERE owner_id=$1 AND target_kind=$2 AND target_id=$3',
-              [owner, 'task', row.id],
+          const next = series
+            ? nextOccurrenceDate(
+                recurrenceSchema.parse(series.rule),
+                Temporal.PlainDate.from(String(series.anchor_date)),
+                Temporal.PlainDate.from(previousKey),
+              )
+            : null;
+          if (next) {
+            const generated = await transaction.query<{ id: string }>(
+              `DELETE FROM tasks
+               WHERE owner_id=$1 AND series_id=$2 AND occurrence_key=$3
+                 AND auto_generated=true
+               RETURNING id`,
+              [owner, seriesId, next.toString()],
             );
+            for (const row of generated)
+              await transaction.query(
+                'DELETE FROM reminders WHERE owner_id=$1 AND target_kind=$2 AND target_id=$3',
+                [owner, 'task', row.id],
+              );
+          }
         }
         if (input.completed && seriesId) {
           await syncTaskReminderOffsets(transaction, owner, id);
@@ -406,8 +424,8 @@ export async function saveTask(
           );
         }
         await transaction.query(
-          `UPDATE reminders SET status='cancelled',version=version+1,
-             updated_at=CURRENT_TIMESTAMP
+          `UPDATE reminders SET status='cancelled',cancel_reason='sync',
+             version=version+1,updated_at=CURRENT_TIMESTAMP
            WHERE owner_id=$1 AND target_kind='task' AND target_id IN
              (SELECT id FROM tasks WHERE owner_id=$1 AND series_id=$2)
              AND status IN ('queued','running','paused')`,
@@ -468,11 +486,16 @@ export function registerPlanner(
           const [deleted] = await tx.query<{
             deleted_at: Date | string;
             series_id: string | null;
+            occurrence_key: string | Date | null;
           }>(
             table === 'tasks'
-              ? `SELECT deleted_at,series_id FROM tasks
+              ? `SELECT deleted_at,series_id,
+                   to_char(occurrence_key,'YYYY-MM-DD') AS occurrence_key
+                 FROM tasks
                  WHERE owner_id=$1 AND id=$2 AND deleted_at IS NOT NULL`
-              : `SELECT deleted_at,NULL::uuid AS series_id FROM events
+              : `SELECT deleted_at,NULL::uuid AS series_id,
+                   NULL::text AS occurrence_key
+                 FROM events
                  WHERE owner_id=$1 AND id=$2 AND deleted_at IS NOT NULL`,
             [user.id, id],
           );
@@ -491,36 +514,58 @@ export function registerPlanner(
               ? String(deleted.series_id)
               : null;
             if (seriesId) {
-              const [series] = await tx.query<{ deleted_at: unknown }>(
-                'SELECT deleted_at FROM recurrence_series WHERE owner_id=$1 AND id=$2',
+              const [series] = await tx.query<{
+                deletedAt: string | null;
+                cancelledFrom: string | null;
+              }>(
+                `SELECT
+                   to_char(deleted_at AT TIME ZONE 'UTC',
+                     'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "deletedAt",
+                   to_char(cancelled_from,'YYYY-MM-DD') AS "cancelledFrom"
+                 FROM recurrence_series WHERE owner_id=$1 AND id=$2`,
                 [user.id, seriesId],
               );
-              if (series?.deleted_at) {
+              const targetDeletion = new Date(
+                deleted!.deleted_at as string,
+              ).toISOString();
+              const occurrenceKey = deleted?.occurrence_key
+                ? String(deleted.occurrence_key).slice(0, 10)
+                : null;
+              const sameBatch =
+                series?.deletedAt !== null &&
+                series?.deletedAt !== undefined &&
+                new Date(series.deletedAt).toISOString() === targetDeletion;
+              if (
+                sameBatch ||
+                (occurrenceKey !== null &&
+                  series?.cancelledFrom === occurrenceKey)
+              )
                 await tx.query(
-                  `UPDATE recurrence_series SET deleted_at=NULL,
-                     cancelled_from=NULL,version=version+1,
-                     updated_at=CURRENT_TIMESTAMP
+                  `UPDATE recurrence_series SET
+                     deleted_at=CASE WHEN $3::boolean THEN NULL ELSE deleted_at END,
+                     cancelled_from=CASE WHEN cancelled_from=$4::date THEN NULL
+                       ELSE cancelled_from END,
+                     version=version+1,updated_at=CURRENT_TIMESTAMP
                    WHERE owner_id=$1 AND id=$2`,
-                  [user.id, seriesId],
+                  [user.id, seriesId, sameBatch, occurrenceKey],
                 );
-                const restorable = await tx.query<{
-                  id: string;
-                  version: number;
-                }>(
-                  `SELECT id,version FROM tasks
-                   WHERE owner_id=$1 AND series_id=$2 AND deleted_at=$3`,
-                  [user.id, seriesId, deleted!.deleted_at],
+              const restorable = await tx.query<{
+                id: string;
+                version: number;
+              }>(
+                `SELECT id,version FROM tasks
+                 WHERE owner_id=$1 AND series_id=$2 AND deleted_at=$3`,
+                [user.id, seriesId, deleted!.deleted_at],
+              );
+              for (const item of restorable)
+                await restorePlannerItem(
+                  tx,
+                  'tasks',
+                  taskColumns,
+                  user.id,
+                  item.id,
+                  item.version,
                 );
-                for (const item of restorable)
-                  await restorePlannerItem(
-                    tx,
-                    'tasks',
-                    taskColumns,
-                    user.id,
-                    item.id,
-                    item.version,
-                  );
-              }
               const active = await tx.query<{ id: string }>(
                 `SELECT id FROM tasks WHERE owner_id=$1 AND series_id=$2
                    AND deleted_at IS NULL`,

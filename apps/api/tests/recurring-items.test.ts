@@ -13,6 +13,7 @@ import {
   runReminderBatch,
   saveReminderProposal,
 } from '../src/features/reminders.js';
+import { syncRecurringEventReminders } from '../src/features/recurrence.js';
 
 const origin = 'http://127.0.0.1:5173';
 const config = readConfig({ NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' });
@@ -542,6 +543,114 @@ it('restores a deleted series from one Recently deleted occurrence', async () =>
   );
 });
 
+it('restores a this-and-future deletion batch and clears its cut', async () => {
+  const created = await post('tasks', {
+    title: 'Future restore',
+    notes: '',
+    dueDate: '2028-01-01',
+    priority: 'normal',
+    completed: false,
+    sensitivity: 'unlabeled',
+    recurrence: {
+      frequency: 'daily',
+      interval: 1,
+      count: 4,
+      until: null,
+      timeZone: 'America/Denver',
+    },
+  });
+  const first = taskResponseSchema.parse(created.json()).task;
+  await put(`tasks/${first.id}`, {
+    title: first.title,
+    notes: first.notes,
+    dueDate: first.dueDate,
+    priority: first.priority,
+    completed: true,
+    sensitivity: first.sensitivity,
+    expectedVersion: first.version,
+  });
+  const second = (await tasks()).find(
+    (task) => task.seriesId === first.seriesId && task.dueDate === '2028-01-02',
+  )!;
+  const stopped = await del(`tasks/${second.id}`, {
+    expectedVersion: second.version,
+    scope: 'future',
+  });
+  expect(stopped.statusCode).toBe(200);
+  expect(
+    (await tasks()).filter((task) => task.seriesId === first.seriesId),
+  ).toHaveLength(1);
+  const restored = await post(`tasks/${second.id}/restore`, {
+    expectedVersion: taskResponseSchema.parse(stopped.json()).task.version,
+  });
+  expect(restored.statusCode).toBe(200);
+  expect(
+    (await tasks()).filter((task) => task.seriesId === first.seriesId),
+  ).toHaveLength(2);
+  const [series] = await db.query(
+    `SELECT cancelled_from AS "cancelledFrom",deleted_at AS "deletedAt"
+     FROM recurrence_series WHERE id=$1`,
+    [first.seriesId],
+  );
+  expect(series).toMatchObject({ cancelledFrom: null, deletedAt: null });
+});
+
+it('keeps a later generated occurrence when its parent was completed', async () => {
+  const created = await post('tasks', {
+    title: 'Nested reopen',
+    notes: '',
+    dueDate: '2028-03-01',
+    priority: 'normal',
+    completed: false,
+    sensitivity: 'unlabeled',
+    recurrence: {
+      frequency: 'daily',
+      interval: 1,
+      count: 5,
+      until: null,
+      timeZone: 'America/Denver',
+    },
+  });
+  const first = taskResponseSchema.parse(created.json()).task;
+  const complete = async (task: Task) => {
+    const response = await put(`tasks/${task.id}`, {
+      title: task.title,
+      notes: task.notes,
+      dueDate: task.dueDate,
+      priority: task.priority,
+      completed: true,
+      sensitivity: task.sensitivity,
+      expectedVersion: task.version,
+    });
+    return taskResponseSchema.parse(response.json()).task;
+  };
+  await complete(first);
+  const second = (await tasks()).find(
+    (task) => task.seriesId === first.seriesId && task.dueDate === '2028-03-02',
+  )!;
+  const secondDone = await complete(second);
+  const third = (await tasks()).find(
+    (task) => task.seriesId === first.seriesId && task.dueDate === '2028-03-03',
+  )!;
+  expect(third).toBeTruthy();
+  const reopened = await put(`tasks/${first.id}`, {
+    title: first.title,
+    notes: first.notes,
+    dueDate: first.dueDate,
+    priority: first.priority,
+    completed: false,
+    sensitivity: first.sensitivity,
+    expectedVersion: taskResponseSchema.parse(
+      (await get(`tasks/${first.id}`)).json(),
+    ).task.version,
+  });
+  expect(reopened.statusCode).toBe(200);
+  expect(
+    (await tasks()).filter((task) => task.seriesId === first.seriesId),
+  ).toHaveLength(3);
+  expect(secondDone.completed).toBe(true);
+});
+
 it('delivers a repeating reminder, schedules the next, and cancels the series', async () => {
   const target = await makeTask('Water plants', '2027-05-01');
   const created = await post('reminders', {
@@ -732,6 +841,106 @@ it('creates one reminder per event occurrence offset', async () => {
   expect(await statuses()).toEqual(['queued', 'queued']);
 });
 
+it('keeps a user-cancelled offset reminder cancelled through a sweep', async () => {
+  const created = await post('calendar', {
+    title: 'User cancelled offset',
+    notes: '',
+    startsAt: '2026-12-01T09:00:00-07:00',
+    endsAt: '2026-12-01T10:00:00-07:00',
+    timeZone: 'America/Denver',
+    sensitivity: 'unlabeled',
+    allDay: false,
+    startDate: null,
+    endDate: null,
+    courseId: null,
+    topicId: null,
+    studyStatus: 'planned',
+    recurrence: {
+      frequency: 'weekly',
+      interval: 1,
+      count: 2,
+      until: null,
+      timeZone: 'America/Denver',
+    },
+    reminderOffsets: [60],
+  });
+  expect(created.statusCode).toBe(200);
+  const event = created.json().event as { id: string };
+  const [offset] = (await get('reminders'))
+    .json()
+    .reminders.filter(
+      (row: {
+        targetId: string | null;
+        offsetMinutes: number | null;
+        occurrenceDate: string | null;
+      }) =>
+        row.targetId === event.id &&
+        row.offsetMinutes === 60 &&
+        row.occurrenceDate === '2026-12-01',
+    ) as { id: string; version: number; status: string }[];
+  expect(offset!.status).toBe('queued');
+  const cancelled = await post(`reminders/${offset!.id}/control`, {
+    action: 'cancel',
+    expectedVersion: offset!.version,
+  });
+  expect(cancelled.statusCode).toBe(200);
+  await syncRecurringEventReminders(db);
+  const [after] = (await get('reminders'))
+    .json()
+    .reminders.filter((row: { id: string }) => row.id === offset!.id) as {
+    status: string;
+  }[];
+  expect(after!.status).toBe('cancelled');
+});
+
+it('leaves a due queued offset reminder alone during sync', async () => {
+  const created = await makeTask('Past due offset', '2020-01-01');
+  const withOffset = await put(`tasks/${created.id}`, {
+    title: created.title,
+    notes: created.notes,
+    dueDate: created.dueDate,
+    dueAt: created.dueAt,
+    dueTimeZone: created.dueTimeZone,
+    reminderOffsets: [60],
+    priority: created.priority,
+    completed: false,
+    sensitivity: created.sensitivity,
+    expectedVersion: created.version,
+  });
+  const task = taskResponseSchema.parse(withOffset.json()).task;
+  const [ownerRow] = await db.query('SELECT id FROM users LIMIT 1');
+  const owner = String(ownerRow!.id);
+  const reminderId = randomUUID();
+  await db.query(
+    `INSERT INTO reminders(id,owner_id,title,scheduled_at,target_kind,target_id,
+       occurrence_date,offset_minutes,status)
+     VALUES($1,$2,$3,$4,'task',$5,$6,60,'queued')`,
+    [
+      reminderId,
+      owner,
+      'Past due offset',
+      '2020-01-01T08:00:00.000Z',
+      task.id,
+      '2020-01-01',
+    ],
+  );
+  const saved = await put(`tasks/${task.id}`, {
+    title: 'Past due offset renamed',
+    notes: task.notes,
+    dueDate: task.dueDate,
+    priority: task.priority,
+    completed: false,
+    sensitivity: task.sensitivity,
+    expectedVersion: task.version,
+  });
+  expect(saved.statusCode).toBe(200);
+  const [reminder] = await db.query(
+    'SELECT status FROM reminders WHERE id=$1',
+    [reminderId],
+  );
+  expect(reminder!.status).toBe('queued');
+});
+
 it('keeps offsets on a task and refreshes them when the due time changes', async () => {
   const task = await makeTask('Prepare slides', '2027-06-01');
   const created = await put(`tasks/${task.id}`, {
@@ -760,6 +969,11 @@ it('keeps offsets on a task and refreshes them when the due time changes', async
   expect(offsets.map((row) => row.offsetMinutes)).toEqual([60, 1440]);
   expect(offsets[0]!.scheduledAt).toBe('2027-06-01T14:00:00.000Z');
   expect(offsets[1]!.scheduledAt).toBe('2027-05-31T15:00:00.000Z');
+  await db.query(
+    `UPDATE reminders SET status='failed'
+     WHERE target_id=$1 AND offset_minutes=60`,
+    [task.id],
+  );
 
   const renamed = await put(`tasks/${task.id}`, {
     title: 'Prepare slides (renamed)',
@@ -776,4 +990,10 @@ it('keeps offsets on a task and refreshes them when the due time changes', async
   expect(taskResponseSchema.parse(renamed.json()).task.reminderOffsets).toEqual(
     [1440, 60],
   );
+  const [rescheduled] = await db.query(
+    `SELECT status FROM reminders
+     WHERE target_id=$1 AND offset_minutes=60`,
+    [task.id],
+  );
+  expect(rescheduled!.status).toBe('queued');
 });

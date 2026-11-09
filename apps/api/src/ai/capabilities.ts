@@ -427,8 +427,8 @@ export async function undoCapability(
           'This task changed again; undo would overwrite it.',
         );
       await tx.query(
-        `UPDATE reminders SET status='cancelled',version=version+1,
-           updated_at=CURRENT_TIMESTAMP
+        `UPDATE reminders SET status='cancelled',cancel_reason='sync',
+           version=version+1,updated_at=CURRENT_TIMESTAMP
          WHERE owner_id=$1 AND target_kind='task' AND target_id=$2
            AND status IN ('queued','running','paused')`,
         [owner, target.id],

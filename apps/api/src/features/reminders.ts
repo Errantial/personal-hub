@@ -141,7 +141,7 @@ export async function runReminderBatch(
         if (!current) return;
         if (!(await targetAvailable(tx, current))) {
           await tx.query(
-            "UPDATE reminders SET status='cancelled',lease_token=NULL,lease_until=NULL,version=version+1,updated_at=$2 WHERE id=$1",
+            "UPDATE reminders SET status='cancelled',cancel_reason='target-unavailable',lease_token=NULL,lease_until=NULL,version=version+1,updated_at=$2 WHERE id=$1",
             [job.id, now],
           );
           return;
@@ -310,7 +310,7 @@ export async function saveReminderProposal(
             occurrenceKey ?? undefined,
           );
           await tx.query(
-            `UPDATE reminders SET status='cancelled',version=version+1,
+            `UPDATE reminders SET status='cancelled',cancel_reason=NULL,version=version+1,
                updated_at=CURRENT_TIMESTAMP
              WHERE owner_id=$1 AND series_id=$2 AND status IN ('queued','running','paused')`,
             [owner, seriesId],
@@ -408,7 +408,7 @@ export async function cancelReminderProposal(
         if (input.scope === 'series') {
           await deleteRecurrenceSeries(tx, owner, seriesId, key);
           await tx.query(
-            `UPDATE reminders SET status='cancelled',version=version+1,
+            `UPDATE reminders SET status='cancelled',cancel_reason=NULL,version=version+1,
                updated_at=CURRENT_TIMESTAMP
              WHERE owner_id=$1 AND series_id=$2
                AND status IN ('queued','running','paused','failed')`,
@@ -417,7 +417,7 @@ export async function cancelReminderProposal(
         } else if (input.scope === 'future') {
           await stopRecurrenceSeriesFrom(tx, owner, seriesId, key);
           await tx.query(
-            `UPDATE reminders SET status='cancelled',version=version+1,
+            `UPDATE reminders SET status='cancelled',cancel_reason=NULL,version=version+1,
                updated_at=CURRENT_TIMESTAMP
              WHERE owner_id=$1 AND series_id=$2 AND occurrence_key >= $3
                AND status IN ('queued','running','paused','failed')`,
@@ -426,7 +426,7 @@ export async function cancelReminderProposal(
         }
       }
       const [saved] = await tx.query(
-        `UPDATE reminders SET status='cancelled',attempts=0,last_error=NULL,lease_token=NULL,lease_until=NULL,next_attempt_at=CURRENT_TIMESTAMP,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${reminderColumns}`,
+        `UPDATE reminders SET status='cancelled',cancel_reason=NULL,attempts=0,last_error=NULL,lease_token=NULL,lease_until=NULL,next_attempt_at=CURRENT_TIMESTAMP,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${reminderColumns}`,
         [id, owner],
       );
       return reminderResponseSchema.parse({ reminder: saved });
@@ -600,7 +600,7 @@ export function registerReminders(
                   occurrenceKey ?? undefined,
                 );
                 await tx.query(
-                  `UPDATE reminders SET status='cancelled',version=version+1,
+                  `UPDATE reminders SET status='cancelled',cancel_reason=NULL,version=version+1,
                      updated_at=CURRENT_TIMESTAMP
                    WHERE owner_id=$1 AND series_id=$2
                      AND status IN ('queued','running','paused')`,
@@ -732,7 +732,7 @@ export function registerReminders(
           if (input.scope === 'series') {
             await deleteRecurrenceSeries(tx, user.id, seriesId, key);
             await tx.query(
-              `UPDATE reminders SET status='cancelled',version=version+1,
+              `UPDATE reminders SET status='cancelled',cancel_reason=NULL,version=version+1,
                  updated_at=CURRENT_TIMESTAMP
                WHERE owner_id=$1 AND series_id=$2
                  AND status IN ('queued','running','paused','failed')`,
@@ -741,7 +741,7 @@ export function registerReminders(
           } else if (input.scope === 'future') {
             await stopRecurrenceSeriesFrom(tx, user.id, seriesId, key);
             await tx.query(
-              `UPDATE reminders SET status='cancelled',version=version+1,
+              `UPDATE reminders SET status='cancelled',cancel_reason=NULL,version=version+1,
                  updated_at=CURRENT_TIMESTAMP
                WHERE owner_id=$1 AND series_id=$2 AND occurrence_key >= $3
                  AND status IN ('queued','running','paused','failed')`,

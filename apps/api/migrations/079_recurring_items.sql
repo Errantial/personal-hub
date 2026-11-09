@@ -39,7 +39,9 @@ ALTER TABLE reminders
   ADD COLUMN recurrence JSONB,
   ADD COLUMN series_id UUID,
   ADD COLUMN occurrence_key DATE,
-  ADD COLUMN offset_minutes INTEGER CHECK (offset_minutes BETWEEN 0 AND 10080);
+  ADD COLUMN offset_minutes INTEGER CHECK (offset_minutes BETWEEN 0 AND 10080),
+  ADD COLUMN cancel_reason TEXT
+    CHECK (cancel_reason IS NULL OR cancel_reason IN ('sync','target-unavailable'));
 ALTER TABLE reminders DROP CONSTRAINT IF EXISTS reminders_check;
 ALTER TABLE reminders ADD CONSTRAINT reminders_target_pair_check CHECK (
   (target_kind IS NULL AND target_id IS NULL AND occurrence_date IS NULL)

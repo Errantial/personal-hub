@@ -179,7 +179,7 @@ export async function saveEvent(
           [owner, id],
         );
         await tx.query(
-          `UPDATE reminders SET status='cancelled',version=version+1,
+          `UPDATE reminders SET status='cancelled',cancel_reason='sync',version=version+1,
              updated_at=CURRENT_TIMESTAMP
            WHERE owner_id=$1 AND target_kind='event' AND target_id=$2
              AND status IN ('queued','running','paused')`,
@@ -338,7 +338,7 @@ export async function saveEvent(
       ) {
         await tx.query('DELETE FROM event_exceptions WHERE event_id=$1', [id]);
         await tx.query(
-          "UPDATE reminders SET status='cancelled',version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND target_id=$2 AND target_kind='event' AND occurrence_date IS NOT NULL AND status IN ('queued','running','paused')",
+          "UPDATE reminders SET status='cancelled',cancel_reason='sync',version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND target_id=$2 AND target_kind='event' AND occurrence_date IS NOT NULL AND status IN ('queued','running','paused')",
           [owner, id],
         );
       }
@@ -504,7 +504,7 @@ export function registerCalendar(
                   [user.id, id],
                 );
                 await tx.query(
-                  `UPDATE reminders SET status='cancelled',version=version+1,
+                  `UPDATE reminders SET status='cancelled',cancel_reason='sync',version=version+1,
                      updated_at=CURRENT_TIMESTAMP
                    WHERE owner_id=$1 AND target_kind='event' AND target_id=$2
                      AND status IN ('queued','running','paused')`,
@@ -540,7 +540,7 @@ export function registerCalendar(
                   [id, date],
                 );
                 await tx.query(
-                  `UPDATE reminders SET status='cancelled',version=version+1,
+                  `UPDATE reminders SET status='cancelled',cancel_reason='sync',version=version+1,
                      updated_at=CURRENT_TIMESTAMP
                    WHERE owner_id=$1 AND target_kind='event' AND target_id=$2
                      AND occurrence_date >= $3
@@ -658,7 +658,7 @@ export function registerCalendar(
                 [id, date, futureId],
               );
               await tx.query(
-                `UPDATE reminders SET status='cancelled',version=version+1,
+                `UPDATE reminders SET status='cancelled',cancel_reason='sync',version=version+1,
                    updated_at=CURRENT_TIMESTAMP
                  WHERE owner_id=$1 AND target_kind='event' AND target_id=$2
                    AND occurrence_date >= $3
@@ -679,7 +679,7 @@ export function registerCalendar(
                   [user.id, id],
                 );
                 await tx.query(
-                  `UPDATE reminders SET status='cancelled',version=version+1,
+                  `UPDATE reminders SET status='cancelled',cancel_reason='sync',version=version+1,
                      updated_at=CURRENT_TIMESTAMP
                    WHERE owner_id=$1 AND target_kind='event' AND target_id=$2
                      AND status IN ('queued','running','paused')`,
@@ -738,7 +738,7 @@ export function registerCalendar(
               ],
             );
             await tx.query(
-              "UPDATE reminders SET status='cancelled',version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND target_id=$2 AND target_kind='event' AND occurrence_date=$3 AND status IN ('queued','running','paused')",
+              "UPDATE reminders SET status='cancelled',cancel_reason='sync',version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND target_id=$2 AND target_kind='event' AND occurrence_date=$3 AND status IN ('queued','running','paused')",
               [user.id, id, date],
             );
             await tx.query(

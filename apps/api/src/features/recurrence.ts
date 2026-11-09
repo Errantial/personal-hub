@@ -105,7 +105,7 @@ export async function deleteRecurrenceSeries(
 ) {
   await tx.query(
     `UPDATE recurrence_series SET deleted_at=CURRENT_TIMESTAMP,
-       cancelled_from=COALESCE($3::date,cancelled_from),
+       cancelled_from=COALESCE(cancelled_from,$3::date),
        version=version+1,updated_at=CURRENT_TIMESTAMP
      WHERE id=$1 AND owner_id=$2`,
     [id, owner, cancelledFrom ?? null],
@@ -289,7 +289,7 @@ export async function syncTaskReminderOffsets(
   if (!task) return;
   if (task.deleted_at || task.completed) {
     await tx.query(
-      `UPDATE reminders SET status='cancelled',version=version+1,
+      `UPDATE reminders SET status='cancelled',cancel_reason='sync',version=version+1,
          updated_at=CURRENT_TIMESTAMP
        WHERE owner_id=$1 AND target_kind='task' AND target_id=$2
          AND offset_minutes IS NOT NULL AND status IN ('queued','running','paused')`,
@@ -301,7 +301,7 @@ export async function syncTaskReminderOffsets(
   const selected = offsets(task.reminder_offsets);
   if (!dueDate || selected.length === 0) {
     await tx.query(
-      `UPDATE reminders SET status='cancelled',version=version+1,
+      `UPDATE reminders SET status='cancelled',cancel_reason='sync',version=version+1,
          updated_at=CURRENT_TIMESTAMP
        WHERE owner_id=$1 AND target_kind='task' AND target_id=$2
          AND offset_minutes IS NOT NULL AND status IN ('queued','running','paused')`,
@@ -321,16 +321,8 @@ export async function syncTaskReminderOffsets(
           .toPlainDateTime({ hour: 9 })
           .toZonedDateTime(zone, { disambiguation: 'compatible' })
           .toInstant();
-  const [existing] = await tx.query<{ offset_minutes: number }>(
-    `SELECT offset_minutes FROM reminders
-     WHERE owner_id=$1 AND target_kind='task' AND target_id=$2
-       AND offset_minutes IS NOT NULL
-       AND status IN ('queued','running','paused')`,
-    [owner, taskId],
-  );
-  void existing;
   await tx.query(
-    `UPDATE reminders SET status='cancelled',version=version+1,
+    `UPDATE reminders SET status='cancelled',cancel_reason='sync',version=version+1,
        updated_at=CURRENT_TIMESTAMP
      WHERE owner_id=$1 AND target_kind='task' AND target_id=$2
        AND offset_minutes IS NOT NULL
@@ -343,20 +335,13 @@ export async function syncTaskReminderOffsets(
     const scheduledAt = due
       .subtract({ minutes: offset })
       .toString({ smallestUnit: 'millisecond' });
-    if (Date.parse(scheduledAt) <= Date.now()) {
-      await tx.query(
-        `UPDATE reminders SET status='cancelled',version=version+1,
-           updated_at=CURRENT_TIMESTAMP
-         WHERE owner_id=$1 AND target_kind='task' AND target_id=$2
-           AND occurrence_date=$3 AND offset_minutes=$6
-           AND status IN ('queued','running','paused')`,
-        [owner, taskId, dueDate, task.title, scheduledAt, offset],
-      );
-      continue;
-    }
+    if (Date.parse(scheduledAt) <= Date.now()) continue;
     const updated = await tx.query(
-      `UPDATE reminders SET title=$4,scheduled_at=$5,version=version+1,
-         updated_at=CURRENT_TIMESTAMP
+      `UPDATE reminders SET title=$4,scheduled_at=$5,
+         status=CASE WHEN status='failed' THEN 'queued' ELSE status END,
+         attempts=CASE WHEN status='failed' THEN 0 ELSE attempts END,
+         last_error=CASE WHEN status='failed' THEN NULL ELSE last_error END,
+         cancel_reason=NULL,version=version+1,updated_at=CURRENT_TIMESTAMP
        WHERE owner_id=$1 AND target_kind='task' AND target_id=$2
          AND occurrence_date=$3 AND offset_minutes=$6
          AND status IN ('queued','running','paused','failed')
@@ -368,10 +353,11 @@ export async function syncTaskReminderOffsets(
     const revived = await tx.query(
       `UPDATE reminders SET status='queued',title=$4,scheduled_at=$5,
          attempts=0,last_error=NULL,lease_token=NULL,lease_until=NULL,
-         next_attempt_at=CURRENT_TIMESTAMP,version=version+1,
-         updated_at=CURRENT_TIMESTAMP
+         next_attempt_at=CURRENT_TIMESTAMP,cancel_reason=NULL,
+         version=version+1,updated_at=CURRENT_TIMESTAMP
        WHERE owner_id=$1 AND target_kind='task' AND target_id=$2
          AND occurrence_date=$3 AND offset_minutes=$6 AND status='cancelled'
+         AND cancel_reason IN ('sync','target-unavailable')
        RETURNING id`,
       [owner, taskId, dueDate, task.title, scheduledAt, offset],
     );
@@ -419,7 +405,7 @@ export async function syncEventReminderOffsets(
   const selected = offsets(event.reminder_offsets);
   if (!selected.length) {
     await tx.query(
-      `UPDATE reminders SET status='cancelled',version=version+1,
+      `UPDATE reminders SET status='cancelled',cancel_reason='sync',version=version+1,
          updated_at=CURRENT_TIMESTAMP
        WHERE owner_id=$1 AND target_kind='event' AND target_id=$2
          AND offset_minutes IS NOT NULL AND status IN ('queued','running','paused')`,
@@ -452,7 +438,7 @@ export async function syncEventReminderOffsets(
     rule ? recurrenceDates(rule, start, from, until) : [start]
   ).filter((date) => !exceptions.get(date.toString())?.cancelled);
   await tx.query(
-    `UPDATE reminders SET status='cancelled',version=version+1,
+    `UPDATE reminders SET status='cancelled',cancel_reason='sync',version=version+1,
        updated_at=CURRENT_TIMESTAMP
      WHERE owner_id=$1 AND target_kind='event' AND target_id=$2
        AND offset_minutes IS NOT NULL
@@ -470,20 +456,13 @@ export async function syncEventReminderOffsets(
       const scheduledAt = startsAt
         .subtract({ minutes: offset })
         .toString({ smallestUnit: 'millisecond' });
-      if (Date.parse(scheduledAt) <= Date.now()) {
-        await tx.query(
-          `UPDATE reminders SET status='cancelled',version=version+1,
-             updated_at=CURRENT_TIMESTAMP
-           WHERE owner_id=$1 AND target_kind='event' AND target_id=$2
-             AND occurrence_date=$3 AND offset_minutes=$6
-             AND status IN ('queued','running','paused')`,
-          [owner, eventId, occurrenceDate, event.title, scheduledAt, offset],
-        );
-        continue;
-      }
+      if (Date.parse(scheduledAt) <= Date.now()) continue;
       const updated = await tx.query(
-        `UPDATE reminders SET title=$4,scheduled_at=$5,version=version+1,
-           updated_at=CURRENT_TIMESTAMP
+        `UPDATE reminders SET title=$4,scheduled_at=$5,
+           status=CASE WHEN status='failed' THEN 'queued' ELSE status END,
+           attempts=CASE WHEN status='failed' THEN 0 ELSE attempts END,
+           last_error=CASE WHEN status='failed' THEN NULL ELSE last_error END,
+           cancel_reason=NULL,version=version+1,updated_at=CURRENT_TIMESTAMP
          WHERE owner_id=$1 AND target_kind='event' AND target_id=$2
            AND occurrence_date=$3 AND offset_minutes=$6
            AND status IN ('queued','running','paused','failed')
@@ -495,10 +474,11 @@ export async function syncEventReminderOffsets(
       const revived = await tx.query(
         `UPDATE reminders SET status='queued',title=$4,scheduled_at=$5,
            attempts=0,last_error=NULL,lease_token=NULL,lease_until=NULL,
-           next_attempt_at=CURRENT_TIMESTAMP,version=version+1,
-           updated_at=CURRENT_TIMESTAMP
+           next_attempt_at=CURRENT_TIMESTAMP,cancel_reason=NULL,
+           version=version+1,updated_at=CURRENT_TIMESTAMP
          WHERE owner_id=$1 AND target_kind='event' AND target_id=$2
            AND occurrence_date=$3 AND offset_minutes=$6 AND status='cancelled'
+           AND cancel_reason IN ('sync','target-unavailable')
          RETURNING id`,
         [owner, eventId, occurrenceDate, event.title, scheduledAt, offset],
       );
