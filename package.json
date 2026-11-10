@@ -28,6 +28,7 @@
     "doctor": "node scripts/doctor.mjs",
     "ai:runtime-doctor": "node --import tsx scripts/ai-runtime-doctor.mjs",
     "agent:acceptance": "node --import tsx scripts/run-agent-acceptance.mjs",
+    "edge:check": "node scripts/edge-check.mjs",
     "android:build": "node scripts/android-build.mjs",
     "android:server": "node --import tsx scripts/android-server.mjs"
   },

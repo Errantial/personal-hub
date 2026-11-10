@@ -1071,3 +1071,11 @@ Preserve: per-source failure isolation, the Overdue card only when something is 
 Known limits: class work cannot be marked submitted from Today; opening Today offline on a day it was not loaded still shows the schedule, Canvas and imported-deadline reads as unavailable (their cache keys are dated); the imported-deadline editor is not cached; Next 7 days does not list events.
 
 Validation: `tests/e2e/today.spec.ts` (completion and Undo by keyboard, offline queue and replay, overdue/upcoming deadlines and class work, completed and moved deadlines staying hidden, the due-date button, the overdue disclosure and first-screen position at 360 px, cache pruning in IndexedDB, and axe/overflow/target/overlap checks at 1280 px, dark 360 px and e-ink 320 px), `apps/web/tests/today.test.ts`, `cache-windows.test.ts` and `tasks.test.ts`. Synthetic browser evidence only; not Kompakt hardware.
+
+## Edge rules the built app must keep (2026-11-10)
+
+The prepared production site block sends a content security policy: scripts, styles, fonts, images and requests from the app's own origin only, no framing, no `eval`. The built app therefore has no inline `<script>` or `<style>`, no inline event handlers, no remote fonts, images or scripts, and no `data:` images. React `style` props are fine (they do not use inline style attributes). `lib/zod-config.ts` turns off Zod's compiled parsers before any schema runs, because their `new Function` probe would be refused and reported on every load. A new dependency that injects styles or evaluates strings needs a policy decision, not a quiet exception. The Android shell serves its bundled copy and is not subject to this header.
+
+The service worker serves `/assets/*` from its cache first (the names are content-hashed) and still asks the network first for the app shell and other files. It never stores an HTML answer under an asset name. Its precache list must name only files the build wrote: one 404 fails the whole install. `vite.config.ts` builds the list after Vite's own bundle hooks and fails the build otherwise.
+
+`RATE_LIMITED` (HTTP 429) is a distinct error: **Too many requests from this connection. Wait a few minutes and try again.** Keep the draft; do not retry automatically. The outbox already treats 429 as "try later", not as a rejected change.

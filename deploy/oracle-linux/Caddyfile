@@ -1,11 +1,38 @@
+# Personal Hub site. The same Caddy instance may serve other sites: change
+# this block in place or import this file; never replace the live Caddyfile.
 {$HUB_DOMAIN} {
-	@sw path /sw.js
-	header @sw Cache-Control "no-cache"
-	handle /api/* {
-		reverse_proxy 127.0.0.1:3001
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		# The built app loads only its own scripts, styles, fonts and API.
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "camera=(), geolocation=(), microphone=(), payment=(), usb=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+		-Server
 	}
+
+	handle /api/* {
+		reverse_proxy {$HUB_API_UPSTREAM:127.0.0.1:3001}
+	}
+
+	# Built assets have a content hash in their name: keep them for a year,
+	# and answer a missing one with 404 rather than the app shell.
+	handle /assets/* {
+		root * {$HUB_STATIC_ROOT:/srv/personal-hub/current/apps/web/dist}
+		@built file
+		header @built Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# The app shell, service worker and deep links are always revalidated.
 	handle {
-		root * /srv/personal-hub/current/apps/web/dist
+		root * {$HUB_STATIC_ROOT:/srv/personal-hub/current/apps/web/dist}
+		header Cache-Control "no-cache"
 		try_files {path} /index.html
 		file_server
 	}

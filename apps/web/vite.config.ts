@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, loadEnv } from 'vite';
 import type { Plugin } from 'vite';
@@ -13,6 +14,7 @@ const serviceWorker = fileURLToPath(new URL('./src/sw.js', import.meta.url));
  *  version changes with the asset list, which makes browsers install the
  *  new worker and drop the previous cache. */
 function serviceWorkerPlugin(): Plugin {
+  let files: string[] = [];
   return {
     name: 'hub-service-worker',
     configureServer(server) {
@@ -22,22 +24,39 @@ function serviceWorkerPlugin(): Plugin {
         response.end(readFileSync(serviceWorker));
       });
     },
-    generateBundle(_options, bundle) {
-      const files = [
-        '/favicon.svg',
-        ...Object.keys(bundle)
-          .filter((name) => name !== 'index.html' && !name.endsWith('.map'))
-          .map((name) => `/${name}`),
-      ].sort();
-      const version = createHash('sha256')
-        .update(files.join('\n'))
-        .digest('hex')
-        .slice(0, 16);
-      this.emitFile({
-        type: 'asset',
-        fileName: 'sw.js',
-        source: `self.__HUB_PRECACHE__ = ${JSON.stringify({ version, files })};\n${readFileSync(serviceWorker, 'utf8')}`,
-      });
+    // Last, after Vite drops the empty script chunks of CSS-only imports;
+    // listing one of those would make the worker's install fail on a 404.
+    generateBundle: {
+      order: 'post',
+      handler(_options, bundle) {
+        files = [
+          '/favicon.svg',
+          ...Object.keys(bundle)
+            .filter((name) => name !== 'index.html' && !name.endsWith('.map'))
+            .map((name) => `/${name}`),
+        ].sort();
+        const version = createHash('sha256')
+          .update(files.join('\n'))
+          .digest('hex')
+          .slice(0, 16);
+        this.emitFile({
+          type: 'asset',
+          fileName: 'sw.js',
+          source: `self.__HUB_PRECACHE__ = ${JSON.stringify({ version, files })};\n${readFileSync(serviceWorker, 'utf8')}`,
+        });
+      },
+    },
+    // One missing file fails the whole precache, so fail the build instead.
+    writeBundle(options) {
+      const missing = files.filter(
+        (file) =>
+          file !== '/favicon.svg' &&
+          !existsSync(join(options.dir ?? 'dist', file)),
+      );
+      if (missing.length)
+        throw new Error(
+          `The service worker would precache unwritten files: ${missing.join(', ')}`,
+        );
     },
   };
 }

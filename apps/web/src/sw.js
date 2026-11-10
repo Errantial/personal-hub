@@ -42,14 +42,29 @@ self.addEventListener('fetch', (event) => {
     !/\.(js|mjs|ts|tsx|css|svg|ico|woff2)(\?|$)/.test(url.pathname)
   )
     return;
+  // Built assets carry a content hash in their name, so a cached copy never
+  // goes stale: serve it without asking the network.
+  const immutable = !navigation && url.pathname.startsWith('/assets/');
   event.respondWith(
     (async () => {
       const cache = await caches.open(shellCache);
       // Every view is served by the same app shell, so navigations share one key.
       const key = navigation ? shellKey : request;
+      if (immutable) {
+        // Precached entries were fetched without the Origin header that module
+        // scripts send; servers commonly answer with Vary: Origin.
+        const cached = await cache.match(key, { ignoreVary: true });
+        if (cached) return cached;
+      }
       try {
         const response = await fetch(request);
-        if (response.ok) await cache.put(key, response.clone());
+        // A host that answers a missing asset with the app shell must not
+        // have that page kept under the asset's name.
+        const shellForAsset =
+          immutable &&
+          (response.headers.get('Content-Type') || '').includes('text/html');
+        if (response.ok && !shellForAsset)
+          await cache.put(key, response.clone());
         return response;
       } catch (error) {
         // Precached entries were fetched without the Origin header that module
