@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { trackedDeadlineResponseSchema } from '@hub/contracts';
 import type { TrackedDeadline } from '@hub/contracts';
 import { dueLabel } from '../lib/deadlines';
+import { formatInstant } from '../lib/format';
 import { useMutation, useOnline } from '../lib/hooks';
 import type { Route } from '../lib/router';
 import { Help } from './Help';
@@ -19,10 +20,13 @@ export type DeadlineListResource = {
 
 export function DeadlineList({
   resource,
+  cachedAt,
   route,
   navigate,
 }: {
   resource: DeadlineListResource;
+  /** When the list is a saved copy shown without a connection. */
+  cachedAt: string | null;
   route: TasksRoute;
   navigate: (route: Route) => void;
 }) {
@@ -71,6 +75,11 @@ export function DeadlineList({
       </div>
       {resource.loading && !resource.data && <p role="status">Loading…</p>}
       {resource.error && <p role="alert">{resource.error}</p>}
+      {cachedAt && (
+        <p className="meta">
+          Cached imported deadlines: {formatInstant(cachedAt)}
+        </p>
+      )}
       <button
         type="button"
         className="text-button"

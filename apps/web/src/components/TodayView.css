@@ -6,6 +6,11 @@
 .today-view .panel {
   padding: var(--space-4);
 }
+@media (max-width: 30rem) {
+  .today-view {
+    gap: var(--space-4);
+  }
+}
 .today-list {
   list-style: none;
   padding: 0;
@@ -38,52 +43,198 @@
   gap: var(--space-2);
   align-items: center;
 }
+.today-heading h2 {
+  margin: 0;
+}
 .today-heading__date {
   margin-left: var(--space-2);
   color: var(--text-muted);
   font-weight: var(--weight-regular);
 }
-.today-overdue {
-  border-left: 4px solid var(--danger);
+.today-heading__refresh,
+.today-heading__links {
+  margin-left: auto;
 }
-.today-rows {
-  list-style: none;
-  padding: 0;
-  margin: var(--space-3) 0;
+.today-heading__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-4);
 }
-.today-row {
-  display: grid;
-  grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr) auto;
-  gap: var(--space-3);
-  align-items: center;
-  min-height: var(--target);
-  padding: var(--space-2) 0;
-  border-bottom: var(--border-width) solid var(--border-subtle);
-}
-.today-row__time {
-  color: var(--text-muted);
-  font-size: var(--text-small);
-  white-space: nowrap;
-}
-.today-row__title {
-  overflow-wrap: anywhere;
-}
-.today-row__title a {
+.today-heading__links a {
   display: inline-flex;
   align-items: center;
   min-height: var(--target);
 }
+/* The page header already shows the date on narrow screens. */
+@media (max-width: 30rem) {
+  .today-heading__date {
+    display: none;
+  }
+}
+.today-overdue {
+  border-left: 4px solid var(--danger);
+}
+.today-offline-note {
+  margin: 0;
+}
+.today-source-error {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.today-source-error p {
+  margin: 0;
+}
+.today-cached {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: var(--space-2) 0 0;
+}
+
+/* Rows: an optional checkbox, the title, then the time and tags beneath it.
+   The Today list puts the time in its own first column on wide screens. */
+.today-rows {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-2) 0;
+}
+.today-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0 var(--space-2);
+  align-items: start;
+  padding: var(--space-1) 0;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+/* A list with any checkbox keeps one leading column, so titles line up. */
+.today-rows--check .today-row {
+  grid-template-columns: var(--target) minmax(0, 1fr);
+}
+.today-rows--check .today-row__main {
+  grid-column: 2;
+}
+.today-row__check {
+  grid-column: 1;
+  width: var(--target);
+  height: var(--target);
+  margin: 0;
+}
+.today-row__main {
+  display: grid;
+  min-width: 0;
+}
+.today-row__title {
+  overflow-wrap: anywhere;
+}
+/* The title is the row's full-height target. Its lower padding holds the
+   meta line, so a stacked row is one target tall instead of two lines. */
+.today-row__title > a,
+.today-row__title > span {
+  display: inline-flex;
+  align-items: flex-start;
+  min-height: var(--target);
+  padding: var(--space-1) 0 var(--today-meta-line);
+}
+.today-row {
+  --today-meta-line: 1.375rem;
+}
+.today-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-2);
+  align-items: center;
+  min-height: var(--today-meta-line);
+  margin-top: calc(-1 * var(--today-meta-line));
+  /* Taps on the meta line reach the title link beneath it. */
+  pointer-events: none;
+}
+.today-row__time,
 .today-row__note {
   color: var(--text-muted);
+  font-size: var(--text-small);
 }
-@media (max-width: 30rem) {
-  .today-row {
-    grid-template-columns: minmax(0, 1fr) auto;
+.today-row__tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-2);
+  align-items: center;
+}
+.today-row__time + .today-row__tags > .today-row__note:first-child::before {
+  content: '· ';
+}
+.today-row__error {
+  grid-column: 1 / -1;
+  margin: 0 0 var(--space-1);
+}
+/* A completed row stays in place with its Undo. */
+.today-rows .today-row--done {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: var(--target);
+}
+.today-row__done-text {
+  overflow-wrap: anywhere;
+}
+@media (min-width: 40rem) {
+  .today-rows--timed .today-row:not(.today-row--done) {
+    grid-template-columns: minmax(9.5rem, auto) minmax(0, 1fr) auto;
+    gap: 0 var(--space-3);
+    align-items: center;
   }
-  .today-row__time {
-    grid-column: 1 / -1;
+  .today-rows--timed.today-rows--check .today-row:not(.today-row--done) {
+    grid-template-columns:
+      var(--target) minmax(9.5rem, auto) minmax(0, 1fr)
+      auto;
+  }
+  .today-rows--timed .today-row__main,
+  .today-rows--timed .today-row__meta {
+    display: contents;
+  }
+  .today-rows--timed .today-row__title > a,
+  .today-rows--timed .today-row__title > span {
+    align-items: center;
+    padding: 0;
+  }
+  .today-rows--timed .today-row__note:first-child::before {
+    content: none;
+  }
+  .today-rows--timed .today-row__check,
+  .today-rows--timed .today-row__time,
+  .today-rows--timed .today-row__title,
+  .today-rows--timed .today-row__tags {
+    grid-row: 1;
+  }
+  .today-rows--timed .today-row__time {
+    grid-column: 1;
+    white-space: nowrap;
+  }
+  .today-rows--timed .today-row__title {
+    grid-column: 2;
+  }
+  .today-rows--timed .today-row__tags {
+    grid-column: 3;
+    justify-content: flex-end;
+  }
+  .today-rows--timed.today-rows--check .today-row__time {
+    grid-column: 2;
+  }
+  .today-rows--timed.today-rows--check .today-row__title {
+    grid-column: 3;
+  }
+  .today-rows--timed.today-rows--check .today-row__tags {
+    grid-column: 4;
   }
 }
+.today-day__label {
+  margin: var(--space-3) 0 0;
+  font-weight: var(--weight-strong);
+}
+.today-day .today-rows {
+  margin-top: 0;
+}
+.today-overdue__more summary,
 .today-more summary {
   display: flex;
   align-items: center;

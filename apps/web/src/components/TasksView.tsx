@@ -6,7 +6,7 @@ import {
   trackedDeadlineListSchema,
 } from '@hub/contracts';
 import type { RecurrenceRule, Task } from '@hub/contracts';
-import { getJson, getSnapshot } from '../lib/api';
+import { getSnapshot } from '../lib/api';
 import {
   useMutation,
   useOfflineStatus,
@@ -17,7 +17,12 @@ import type { OfflineStatus } from '../lib/hooks';
 import { offlineStatus } from '../lib/offline';
 import { taskFilterLabels, taskFilters } from '../lib/router';
 import type { Route, TaskFilter } from '../lib/router';
-import { countByFilter, groupTasks, matchesFilter } from '../lib/tasks';
+import {
+  completionBody,
+  countByFilter,
+  groupTasks,
+  matchesFilter,
+} from '../lib/tasks';
 import { maxSelection } from '../lib/selection';
 import { deviceTimeZone } from '../lib/time-zone';
 import { useChoice, useConfirm } from './ConfirmDialog';
@@ -75,7 +80,7 @@ export function TasksView({
   );
   const deadlines = useResource(
     (signal) =>
-      getJson(
+      getSnapshot(
         '/api/v1/deadlines?status=all&limit=200',
         trackedDeadlineListSchema,
         signal,
@@ -304,7 +309,8 @@ export function TasksView({
           )}
           <ReadState resource={tasks} label="tasks" />
           <DeadlineList
-            resource={deadlines}
+            resource={{ ...deadlines, data: deadlines.data?.data }}
+            cachedAt={deadlines.data?.cachedAt ?? null}
             route={route}
             navigate={navigate}
           />
@@ -414,15 +420,7 @@ function TaskRow({
       taskResponseSchema,
       'PUT',
       `/api/v1/tasks/${task.id}`,
-      {
-        title: task.title,
-        notes: task.notes,
-        dueDate: task.dueDate,
-        priority: task.priority,
-        sensitivity: task.sensitivity,
-        completed: !task.completed,
-        expectedVersion: task.version,
-      },
+      completionBody(task, !task.completed),
       'Could not update the task. It is unchanged.',
     );
     if (!result) return;

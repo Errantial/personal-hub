@@ -89,6 +89,19 @@ export function groupTasks(
     .filter((group) => group.tasks.length > 0);
 }
 
+/** PUT body that completes or reopens a task and leaves its other fields as
+ *  they are (without operationId, which the mutation hook adds). Omitted
+ *  timing, repeat and reminder fields keep their saved values. */
+export const completionBody = (task: Task, completed: boolean) => ({
+  title: task.title,
+  notes: task.notes,
+  dueDate: task.dueDate,
+  priority: task.priority,
+  sensitivity: task.sensitivity,
+  completed,
+  expectedVersion: task.version,
+});
+
 /* Selected changes (POST /api/v1/tasks/batch); see ./selection. */
 
 export type BatchChange =

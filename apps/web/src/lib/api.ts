@@ -206,6 +206,8 @@ const cachedPath = (path: string) =>
   /^\/api\/v1\/connections\/canvas\/planner-work\?.+$/.test(path) ||
   /^\/api\/v1\/connections\/canvas\/lms\/records\?.+$/.test(path) ||
   /^\/api\/v1\/connections\/canvas\/(calendar|items)\?.+$/.test(path) ||
+  // Imported-deadline lists are readable offline; their writes stay online-only.
+  /^\/api\/v1\/deadlines\?.+$/.test(path) ||
   /^\/api\/v1\/(tasks|events|calendar|courses|topics|reminders|notifications)(\/occurrences\?.*)?$/.test(
     path,
   ) ||

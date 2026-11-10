@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import type { Task } from '@hub/contracts';
 import {
   batchBody,
+  completionBody,
   countByFilter,
   groupTasks,
   matchesFilter,
@@ -167,4 +168,30 @@ it('refreshes a selection to latest versions and drops unavailable tasks', () =>
     (item) => item.id !== blocked.id,
   );
   expect([...refreshed]).toEqual([[kept.id, 4]]);
+});
+
+it('completionBody changes only completion and keeps saved timing and repeat fields out of the write', () => {
+  const timed = task('Timed', {
+    notes: 'Bring ID',
+    dueDate: '2026-10-14',
+    dueAt: '2026-10-14T21:00:00.000Z',
+    dueTimeZone: 'America/Denver',
+    priority: 'high',
+    sensitivity: 'personal',
+    version: 7,
+    recurrence: { frequency: 'weekly', interval: 1, count: null, until: null },
+    reminderOffsets: [30],
+  });
+  expect(completionBody(timed, true)).toEqual({
+    title: 'Timed',
+    notes: 'Bring ID',
+    dueDate: '2026-10-14',
+    priority: 'high',
+    sensitivity: 'personal',
+    completed: true,
+    expectedVersion: 7,
+  });
+  expect(completionBody({ ...timed, completed: true }, false).completed).toBe(
+    false,
+  );
 });

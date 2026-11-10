@@ -70,7 +70,7 @@ AI permissions include provider-routing rules based only on sources/content expl
 
 ## Working direction
 
-Today now shows overdue tasks, today's planner/Canvas schedule, due/upcoming tasks and unread reminders, with independent cached sections and offline task capture. The UI rewrite (Today, Tasks, Calendar, Classes, Inbox, and Settings with Appearance, Connections and AI) is integrated into main and deployed; actual Kompakt and screen-reader verification remain open. See the [frontend plan](docs/frontend-plan.md).
+Today now shows overdue tasks, class work and recent imported deadlines, today's planner/Canvas schedule, everything due in the next seven days and unread reminders, with independent cached sections, offline task capture and completion with Undo from the list. The UI rewrite (Today, Tasks, Calendar, Classes, Inbox, and Settings with Appearance, Connections and AI) is integrated into main and deployed; actual Kompakt and screen-reader verification remain open. See the [frontend plan](docs/frontend-plan.md).
 
 Build a dependable daily planner first, then connect academic deadlines and email, then add AI actions through the same validated operations used by the UI. Introduce basic class tracking and an e-ink-friendly interface early.
 
