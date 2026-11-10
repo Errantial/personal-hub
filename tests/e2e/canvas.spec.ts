@@ -270,12 +270,19 @@ test('Canvas class links survive refreshes and appear as read-only entries in po
     date: '2027-03-20',
     view: 'Agenda',
   });
+  // Imported deadlines are cached too, so offline the tracked deadline stays
+  // in place of its raw Canvas entry.
   const offlinePoint = agenda.getByRole('article', {
-    name: 'Canvas entry Canvas refreshed deadline',
+    name: 'Imported deadline Canvas refreshed deadline',
     exact: true,
   });
   await expect(offlinePoint).toBeVisible();
-  await expect(offlinePoint).toContainText('Read only');
+  await expect(
+    agenda.getByRole('article', {
+      name: 'Canvas entry Canvas refreshed deadline',
+      exact: true,
+    }),
+  ).toHaveCount(0);
   await context.setOffline(false);
 });
 
