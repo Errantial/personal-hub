@@ -34,12 +34,31 @@
   cursor: not-allowed;
 }
 .command-bar__field {
-  flex: 1 1 14rem;
+  flex: 1 1 10rem;
   min-width: 0;
 }
+/* On a phone the idle bar is the mode choice, the field and Add. The Due
+   date button joins once the field is in use or a deadline is chosen. */
+@media (max-width: 30rem) {
+  .command-bar__form:not(:focus-within):not([data-active]) .command-bar__due {
+    display: none;
+  }
+}
+/* The open due fields take their own row between the toggle and Add. */
 .command-bar__date {
-  flex: 1 1 12rem;
+  flex: 1 1 100%;
   min-width: 0;
+}
+.command-bar__date[hidden] {
+  display: none;
+}
+.command-bar__date .task-due-fields {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  align-items: end;
+}
+.command-bar__date .task-due-fields > .form-error,
+.command-bar__date .task-due-fields > fieldset {
+  grid-column: 1 / -1;
 }
 .command-bar__field input,
 .command-bar__date input {

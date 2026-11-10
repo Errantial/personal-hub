@@ -38,6 +38,7 @@ import {
   sessionResponseSchema,
 } from '@hub/contracts';
 import { z } from 'zod';
+import { isCachedWindow, staleWindows } from './cache-windows';
 import { nativePlatform } from './transport';
 import type {
   AcademicWork,
@@ -769,7 +770,11 @@ export async function cacheResponse(path: string, data: unknown) {
   const owner = currentOwner;
   await state(true, (value) => {
     if (!owner || owner !== currentOwner || !authorized(value)) return;
-    value.cache[path] = { data, savedAt: new Date().toISOString() };
+    const now = new Date();
+    value.cache[path] = { data, savedAt: now.toISOString() };
+    if (isCachedWindow(path))
+      for (const stale of staleWindows(Object.keys(value.cache), path, now))
+        delete value.cache[stale];
     if (path === '/api/v1/tasks') {
       const remote = tasksResponseSchema.parse(data).tasks;
       const pending = new Set(value.jobs.map((job) => job.task.id));

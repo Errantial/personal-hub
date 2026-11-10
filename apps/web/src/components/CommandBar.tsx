@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
   assistantRequestResponseSchema,
@@ -8,6 +8,7 @@ import {
 import { useMutation, useOnline, useResource } from '../lib/hooks';
 import { getJson } from '../lib/api';
 import { destinationReason } from '../lib/assistant';
+import { formatDate } from '../lib/format';
 import { offlineStatus } from '../lib/offline';
 import type { Route } from '../lib/router';
 import { useAssistantSettings } from './AssistantComposer';
@@ -31,7 +32,8 @@ function readMode(): Mode {
 /**
  * Today's one input (D-rework): add a task (works offline, queued through
  * the task transport) or ask the assistant, whose answer opens on the
- * Assistant page. The chosen mode is remembered on this device.
+ * Assistant page. The chosen mode is remembered on this device. A task's
+ * optional due date and time open from the Due date button.
  */
 export function CommandBar({
   navigate,
@@ -59,6 +61,9 @@ export function CommandBar({
   const mode: Mode = chosen === 'ask' && canAsk ? 'ask' : 'task';
   const [text, setText] = useState('');
   const [deadline, setDeadline] = useState(emptyTaskDue);
+  // The due fields stay closed until asked for, so the bar is one short block.
+  const [dueOpen, setDueOpen] = useState(false);
+  const dueFields = useId();
   const [message, setMessage] = useState('');
   const save = useMutation();
   const ask = useMutation();
@@ -86,6 +91,7 @@ export function CommandBar({
         save.setError(
           error instanceof Error ? error.message : 'Choose a valid due time.',
         );
+        setDueOpen(true);
         return;
       }
       const result = await save.run(
@@ -104,6 +110,7 @@ export function CommandBar({
       if (!result) return;
       setText('');
       setDeadline(emptyTaskDue());
+      setDueOpen(false);
       const state = await offlineStatus().catch(() => null);
       setMessage(
         state?.queued.includes(result.task.id)
@@ -132,10 +139,26 @@ export function CommandBar({
   }
 
   const error = save.error || ask.error;
+  // The chosen deadline stays readable on the button while the fields are closed.
+  const dueLabel = deadline.dueDate
+    ? `Due ${formatDate(deadline.dueDate)}${
+        deadline.dueTime
+          ? `, ${new Date(
+              `${deadline.dueDate}T${deadline.dueTime}`,
+            ).toLocaleTimeString(undefined, {
+              hour: 'numeric',
+              minute: '2-digit',
+            })}`
+          : ''
+      }`
+    : 'Due date';
   return (
     <section className="panel command-bar" aria-label="Add or ask">
       <form
         className="command-bar__form"
+        data-active={
+          dueOpen || deadline.dueDate || text.trim() ? 'true' : undefined
+        }
         noValidate
         onSubmit={(event) => {
           void submit(event);
@@ -185,16 +208,27 @@ export function CommandBar({
           />
         </label>
         {mode === 'task' && (
-          <div className="command-bar__date">
-            <TaskDueFields
-              value={deadline}
-              onChange={(value) => {
-                setDeadline(value);
-                save.setError('');
-              }}
-              disabled={pending}
-            />
-          </div>
+          <>
+            <button
+              type="button"
+              className="secondary-button command-bar__due"
+              aria-expanded={dueOpen}
+              aria-controls={dueFields}
+              onClick={() => setDueOpen((value) => !value)}
+            >
+              {dueLabel}
+            </button>
+            <div id={dueFields} className="command-bar__date" hidden={!dueOpen}>
+              <TaskDueFields
+                value={deadline}
+                onChange={(value) => {
+                  setDeadline(value);
+                  save.setError('');
+                }}
+                disabled={pending}
+              />
+            </div>
+          </>
         )}
         <button
           className="primary-button"

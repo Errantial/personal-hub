@@ -10,7 +10,7 @@ import type {
   TrackedDeadline,
 } from '@hub/contracts';
 import { occursOn } from './calendar';
-import type { TodayItem } from './today';
+import type { PlannerTarget } from './today';
 
 /* Week/Day time-grid layout (docs/superpowers/specs/2026-10-14-ui-rework-design.md).
    Positions are minutes elapsed since local midnight in the viewing zone, so a
@@ -18,7 +18,7 @@ import type { TodayItem } from './today';
 
 export type GridSource = 'event' | 'study' | 'canvas' | 'task';
 
-type CalendarTarget = TodayItem['target'] | { type: 'deadline'; id: string };
+type CalendarTarget = PlannerTarget | { type: 'deadline'; id: string };
 
 export type Block = {
   key: string;

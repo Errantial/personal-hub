@@ -5,7 +5,14 @@ import type {
   Task,
   TrackedDeadline,
 } from '@hub/contracts';
-import { todayItems } from '../src/lib/today';
+import {
+  overdueDeadlineDays,
+  overdueItems,
+  todayItems,
+  todayLists,
+  upcomingDays,
+} from '../src/lib/today';
+import type { WorkItem } from '../src/lib/today';
 
 const today = '2026-10-14';
 const timeZone = 'America/Denver';
@@ -240,4 +247,240 @@ it('todayItems excludes completed tracked deadlines and keeps raw Canvas fallbac
     occurrences: [],
   });
   expect(items.map((item) => item.title)).toEqual(['Untracked Canvas']);
+});
+
+const work = (title: string, extra: Partial<WorkItem> = {}) =>
+  ({
+    id: `work-${title}`,
+    courseId: '00000000-0000-4000-8000-000000000021',
+    courseName: 'Chemistry',
+    courseVersion: 1,
+    courseArchived: false,
+    title,
+    kind: 'assignment',
+    notes: '',
+    dueDate: today,
+    estimatedMinutes: null,
+    priority: 3,
+    status: 'planned',
+    grade: null,
+    deletedAt: null,
+    ...extra,
+  }) as WorkItem;
+const empty = { today, timeZone, tasks: [], canvas: [], occurrences: [] };
+
+it('todayItems lists open class work due today with its class and no checkbox', () => {
+  const items = todayItems({
+    ...empty,
+    tasks: [task('Waiver')],
+    occurrences: [occurrence('Calculus')],
+    work: [
+      work('Lab report'),
+      work('Final', { kind: 'exam', priority: 5 }),
+      work('Submitted', { status: 'submitted' }),
+      work('Dropped', { status: 'cancelled' }),
+      work('Archived class', { courseArchived: true }),
+      work('Undated', { dueDate: null }),
+      work('Tomorrow', { dueDate: '2026-10-15' }),
+    ],
+  });
+  expect(items.map((item) => [item.kind, item.title])).toEqual([
+    ['work', 'Final'],
+    ['work', 'Lab report'],
+    ['task', 'Waiver'],
+    ['event', 'Calculus'],
+  ]);
+  expect(items[0]).toMatchObject({
+    context: 'Exam · Chemistry',
+    highPriority: true,
+    action: null,
+    target: { type: 'work', courseId: '00000000-0000-4000-8000-000000000021' },
+  });
+  expect(items[1]).toMatchObject({ context: 'Chemistry', highPriority: false });
+});
+
+it('todayItems gives tasks and tracked deadlines a completion action', () => {
+  const due = task('Waiver', { priority: 'high' });
+  const tracked = deadline('Essay', { version: 4, priority: 'high' });
+  const items = todayItems({ ...empty, tasks: [due], deadlines: [tracked] });
+  expect(items.map((item) => item.action)).toEqual([
+    { type: 'deadline', id: tracked.id, version: 4 },
+    { type: 'task', task: due },
+  ]);
+  expect(items.every((item) => item.highPriority)).toBe(true);
+});
+
+it('a completed tracked deadline keeps its raw Canvas entry hidden', () => {
+  const raw = canvas('Raw Canvas title', {
+    sourceUrl: 'https://canvas.colorado.edu/courses/1/assignments/2',
+  });
+  const input = {
+    ...empty,
+    canvas: [raw],
+    deadlines: [
+      deadline('Finished', { completedAt: '2026-10-14T10:00:00.000Z' }),
+    ],
+  };
+  expect(todayItems(input)).toEqual([]);
+  expect(upcomingDays(input)).toEqual([]);
+  expect(overdueItems(input)).toEqual([]);
+});
+
+it('todayItems leaves later Canvas entries of a wider window to the week list', () => {
+  const later = canvas('Exam review', {
+    startDate: '2026-10-16',
+    endDate: '2026-10-17',
+  });
+  const underWay = canvas('Reading days', {
+    startDate: '2026-10-13',
+    endDate: '2026-10-16',
+  });
+  const input = { ...empty, canvas: [later, underWay] };
+  expect(todayItems(input).map((item) => item.title)).toEqual(['Reading days']);
+  expect(upcomingDays(input)).toEqual([
+    {
+      date: '2026-10-16',
+      items: [expect.objectContaining({ title: 'Exam review', action: null })],
+    },
+  ]);
+});
+
+it('overdueItems lists open tasks, class work and recent imported deadlines, newest first', () => {
+  const recent = deadline('Recent quiz', {
+    id: 'deadline-recent',
+    canonicalKey: 'canvas:canvas.colorado.edu:/courses/1/quizzes/3',
+    due: { kind: 'date', dueDate: '2026-10-12' },
+  });
+  const boundary = deadline('Boundary essay', {
+    id: 'deadline-boundary',
+    canonicalKey: 'canvas:canvas.colorado.edu:/courses/1/assignments/4',
+    due: { kind: 'date', dueDate: '2026-09-30' },
+  });
+  const old = deadline('Old essay', {
+    id: 'deadline-old',
+    canonicalKey: 'canvas:canvas.colorado.edu:/courses/1/assignments/5',
+    due: { kind: 'date', dueDate: '2026-09-29' },
+  });
+  expect(overdueDeadlineDays).toBe(14);
+  const items = overdueItems({
+    ...empty,
+    tasks: [
+      task('Old task', { dueDate: '2026-01-05' }),
+      task('Yesterday', { dueDate: '2026-10-13' }),
+      task('Finished', { dueDate: '2026-10-13', completed: true }),
+      task('Due today'),
+      task('Undated', { dueDate: null }),
+    ],
+    work: [
+      work('Late lab', { dueDate: '2026-10-10' }),
+      work('Late but submitted', {
+        dueDate: '2026-10-10',
+        status: 'submitted',
+      }),
+    ],
+    deadlines: [
+      recent,
+      boundary,
+      old,
+      deadline('Done quiz', {
+        id: 'deadline-done',
+        canonicalKey: 'canvas:canvas.colorado.edu:/courses/1/quizzes/6',
+        due: { kind: 'date', dueDate: '2026-10-12' },
+        completedAt: '2026-10-12T10:00:00.000Z',
+      }),
+    ],
+    canvas: [
+      canvas('Raw past entry', {
+        startDate: '2026-10-12',
+        endDate: '2026-10-13',
+      }),
+    ],
+  });
+  expect(items.map((item) => [item.date, item.title])).toEqual([
+    ['2026-10-13', 'Yesterday'],
+    ['2026-10-12', 'Recent quiz'],
+    ['2026-10-10', 'Late lab'],
+    ['2026-09-30', 'Boundary essay'],
+    ['2026-01-05', 'Old task'],
+  ]);
+});
+
+it('upcomingDays groups the next seven days of deadlines by day', () => {
+  const days = upcomingDays({
+    ...empty,
+    tasks: [
+      task('Due today'),
+      task('Tomorrow timed', {
+        dueDate: '2026-10-15',
+        dueAt: '2026-10-15T21:00:00.000Z',
+        dueTimeZone: 'America/Denver',
+      }),
+      task('Tomorrow', { dueDate: '2026-10-15' }),
+      task('Last day', { dueDate: '2026-10-21' }),
+      task('Too far', { dueDate: '2026-10-22' }),
+      task('Done', { dueDate: '2026-10-15', completed: true }),
+    ],
+    work: [work('Problem set', { dueDate: '2026-10-15' })],
+    deadlines: [
+      deadline('Tracked quiz', {
+        due: {
+          kind: 'timed',
+          // 23:30 on Oct 16 in Denver, already Oct 17 in UTC.
+          dueAt: '2026-10-17T05:30:00.000Z',
+          timeZone: 'America/Denver',
+        },
+      }),
+    ],
+    occurrences: [
+      occurrence('Lecture', {
+        startsAt: '2026-10-15T15:00:00.000Z',
+        endsAt: '2026-10-15T16:00:00.000Z',
+      }),
+    ],
+  });
+  expect(
+    days.map((day) => [day.date, day.items.map((item) => item.title)]),
+  ).toEqual([
+    ['2026-10-15', ['Problem set', 'Tomorrow', 'Tomorrow timed']],
+    ['2026-10-16', ['Tracked quiz']],
+    ['2026-10-21', ['Last day']],
+  ]);
+});
+
+it('a Canvas assignment outside the loaded deadline range is not listed as a raw entry', () => {
+  // Its tracked deadline has a Personal Hub due date beyond the read range.
+  const moved = canvas('Moved by the owner', {
+    sourceUrl: 'https://canvas.colorado.edu/courses/1/assignments/77',
+  });
+  const event = canvas('Review session', { sourceUrl: null });
+  const input = { ...empty, canvas: [moved, event] };
+  expect(todayItems(input).map((item) => item.title)).toEqual([
+    'Moved by the owner',
+    'Review session',
+  ]);
+  expect(
+    todayItems({ ...input, deadlinesComplete: true }).map((item) => item.title),
+  ).toEqual(['Review session']);
+});
+
+it('todayLists returns the same three lists as the single builders', () => {
+  const input = {
+    ...empty,
+    tasks: [
+      task('Yesterday', { dueDate: '2026-10-13' }),
+      task('Due today'),
+      task('Tomorrow', { dueDate: '2026-10-15' }),
+    ],
+    work: [work('Lab report'), work('Late lab', { dueDate: '2026-10-10' })],
+    deadlines: [deadline('Essay')],
+    occurrences: [occurrence('Calculus')],
+  };
+  expect(todayLists(input)).toEqual({
+    overdue: overdueItems(input),
+    today: todayItems(input),
+    days: upcomingDays(input),
+  });
+  expect(todayLists(input).overdue).toHaveLength(2);
+  expect(todayLists(input).today).toHaveLength(4);
+  expect(todayLists(input).days).toHaveLength(1);
 });

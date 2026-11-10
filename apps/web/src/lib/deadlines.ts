@@ -106,20 +106,21 @@ export function dueLabel(
   });
 }
 
-export function dueFallsOn(
+/** The local day a deadline falls on in the viewing zone, or null when unknown. */
+export function dueDay(due: TrackedDeadlineDue, timeZone: string) {
+  if (due.kind === 'unknown') return null;
+  if (due.kind === 'date') return due.dueDate;
+  return Temporal.Instant.from(due.dueAt)
+    .toZonedDateTimeISO(timeZone)
+    .toPlainDate()
+    .toString();
+}
+
+export const dueFallsOn = (
   due: TrackedDeadlineDue,
   day: string,
   timeZone: string,
-) {
-  if (due.kind === 'unknown') return false;
-  if (due.kind === 'date') return due.dueDate === day;
-  return (
-    Temporal.Instant.from(due.dueAt)
-      .toZonedDateTimeISO(timeZone)
-      .toPlainDate()
-      .toString() === day
-  );
-}
+) => dueDay(due, timeZone) === day;
 
 /** Only exact canonical Canvas assignment/quiz URLs are offered externally. */
 export function safeCanvasHref(value: string | null | undefined) {
