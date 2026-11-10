@@ -90,7 +90,14 @@ export async function buildApp(
     await database.close();
     throw error;
   }
-  const app = Fastify({ bodyLimit: 64 * 1024, ...options });
+  const app = Fastify({
+    bodyLimit: 64 * 1024,
+    // A forwarded address is believed only from a loopback peer, so a client
+    // that reaches the API directly cannot choose its own rate-limit key.
+    trustProxy:
+      config.TRUST_PROXY === 'loopback' ? ['127.0.0.0/8', '::1/128'] : false,
+    ...options,
+  });
   let worker: ReturnType<typeof startReminderWorker> | undefined;
   let canvasWorker: ReturnType<typeof startCanvasWorker> | undefined;
   let canvasLmsWorker: ReturnType<typeof startCanvasLmsWorker> | undefined;
@@ -111,6 +118,7 @@ export async function buildApp(
   });
   app.addHook('onRequest', async (request, reply) => {
     reply.header('Cache-Control', 'no-store');
+    reply.header('X-Content-Type-Options', 'nosniff');
     if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
       // The local mail connector is not a browser: it authenticates with a
       // bearer token instead of a session cookie, so CSRF origin checks do
@@ -272,6 +280,17 @@ export async function buildApp(
       error instanceof Error && 'statusCode' in error
         ? error.statusCode
         : undefined;
+    // The limiter has already set Retry-After; say what happened and what to do.
+    if (statusCode === 429)
+      return reply
+        .code(429)
+        .header('Cache-Control', 'no-store')
+        .send({
+          error: {
+            code: 'RATE_LIMITED',
+            message: 'Too many requests. Wait before trying again.',
+          },
+        });
     const status =
       typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500
         ? statusCode

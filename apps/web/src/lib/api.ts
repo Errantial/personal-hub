@@ -85,6 +85,8 @@ export async function liveRequestJson<T>(
       REGISTRY_CONFLICT:
         'Provider profiles changed. Reload preflights before trying again.',
       RETRY_REQUIRED: 'The server was busy. Retry the same operation.',
+      RATE_LIMITED:
+        'Too many requests from this connection. Wait a few minutes and try again.',
       PROVENANCE_UNAVAILABLE:
         'Source label history is incomplete. This context cannot be routed.',
       CANVAS_NOT_CONFIGURED: 'Configure the Canvas feed on the server first.',

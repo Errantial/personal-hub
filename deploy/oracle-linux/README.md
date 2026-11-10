@@ -62,9 +62,68 @@ Enter it in the site's setup form; keep it out of chat, commits and logs. After 
 - `/opt/personal-hub/node`: checksum-verified Node 24.21.0 / npm 11.19.0 ARM64 runtime. `/opt/personal-hub/caddy`: checksum-verified Caddy 2.11.7 ARM64 binary.
 - `/etc/personal-hub/hub.env`: root-readable production configuration. PostgreSQL 16.15 uses the `hub` Unix account/role over a peer-authenticated local socket. Database TCP and API ports remain loopback-only.
 - `personal-hub.service`: unprivileged API, 384 MiB JS heap / 640 MiB service memory limit, supervised restart and filesystem restrictions.
-- `personal-hub-caddy.service`: separate user, managed HTTPS, HTTP redirect, static deep-link fallback and same-origin `/api` proxy. `/sw.js` uses `Cache-Control: no-cache`. Access logging is not enabled; its admin port stays on loopback.
+- `personal-hub-caddy.service`: separate user, managed HTTPS, HTTP redirect, static deep-link fallback and same-origin `/api` proxy. `/sw.js` uses `Cache-Control: no-cache`. Access logging is not enabled; its admin port stays on loopback. The same instance serves other sites; see [Edge configuration](#edge-configuration-prepared-2026-11-10-not-applied).
 
 The host firewall and owner-configured Oracle Cloud rules allow TCP 80/443. SSH and the existing port-25565 service are preserved.
+
+## Edge configuration (prepared 2026-11-10, not applied)
+
+`Caddyfile` in this directory is the hub's site block only. Observed read-only on 2026-11-10: the live `/etc/personal-hub/Caddyfile` also holds site blocks for other services on this host, and its hub block is still the original one. Never copy this file over the live Caddyfile; `provision.sh` no longer does.
+
+Measured against the live site that day: the 656 kB entry script and all API JSON were sent uncompressed, no security headers were set, a missing `/assets/…` path answered 200 with the app shell, and the API's rate limits were keyed on the proxy's loopback address, so every client shared one bucket (ten sign-in attempts per fifteen minutes for everyone).
+
+The prepared block:
+
+- compresses text responses (`encode zstd gzip`), including proxied API JSON;
+- sets `Strict-Transport-Security`, a `Content-Security-Policy` that allows only the app's own scripts, styles, fonts and API, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy: same-origin`, `Permissions-Policy`, `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy`, and removes `Server`;
+- serves existing `/assets/*` files with `Cache-Control: public, max-age=31536000, immutable` and answers a missing one with 404;
+- serves the app shell, deep links and `/sw.js` with `Cache-Control: no-cache`;
+- leaves the API's own `Cache-Control: no-store` untouched.
+
+`HUB_STATIC_ROOT` and `HUB_API_UPSTREAM` are optional overrides used by the fixture; production keeps the defaults.
+
+The API side ships with the release: in production it now believes `X-Forwarded-For` only from a loopback peer (`TRUST_PROXY=loopback`, the production default), so limits apply per client. Caddy replaces any `X-Forwarded-For` a client sends; the fixture checks this. Set `TRUST_PROXY=off` only if the API is ever reached without the proxy.
+
+`bash deploy/oracle-linux/test-edge.sh [path-to-caddy]` runs the block under a real Caddy on loopback HTTP with a synthetic static tree and API, and checks every item above. It skips with a message when no Caddy binary is found.
+
+### Apply (owner step, after the release is approved)
+
+Deploy the release first. Releases before this one list a file in the service worker's precache that the build never writes (`/assets/Assistant-….js`). Today the server answers that path with the app shell, so the install works; once this block answers 404, the worker would not install and the app would stop working offline. The same applies to a code rollback while the block is live: roll back to a release from this one onward, or restore the previous Caddyfile too. Check the live list before reloading; it must print nothing:
+
+```sh
+curl -s https://hub.ecg.name/sw.js |
+  grep -o '"/[^"]*"' | tr -d '"' | while read -r f; do
+    curl -s -o /dev/null -w "%{http_code} %{content_type} $f\n" "https://hub.ecg.name$f"
+  done | awk '$1 != 200 || $2 ~ /html/'
+```
+
+The per-client limits arrive with the release alone.
+
+```sh
+# 1. Install the hub block as its own file.
+sudo install -m 0644 deploy/oracle-linux/Caddyfile /etc/personal-hub/hub.caddy
+# 2. Back up the live file, then replace only its hub block ({$HUB_DOMAIN} { … })
+#    with the single line: import /etc/personal-hub/hub.caddy
+sudo cp -a /etc/personal-hub/Caddyfile "/etc/personal-hub/Caddyfile.pre-edge-$(date -u +%Y%m%dT%H%M%SZ)"
+sudoedit /etc/personal-hub/Caddyfile
+# 3. Parse the combined file without applying it, then reload.
+sudo env HUB_DOMAIN=hub.ecg.name /opt/personal-hub/caddy adapt \
+  --config /etc/personal-hub/Caddyfile --adapter caddyfile >/dev/null
+sudo systemctl reload personal-hub-caddy
+```
+
+A reload that fails keeps the running configuration. Then check from another machine:
+
+```sh
+curl -sI -H 'Accept-Encoding: gzip' https://hub.ecg.name/ |
+  grep -iE 'content-encoding|content-security-policy|strict-transport|cache-control'
+curl -s -o /dev/null -w '%{http_code}\n' https://hub.ecg.name/assets/missing.js   # 404
+curl -sI https://hub.ecg.name/api/health | grep -iE 'cache-control|x-ratelimit'      # no-store
+```
+
+Open the site, sign in and add a task: a policy mistake would show as a blank page or failed saves with `Content-Security-Policy` errors in the browser console. To roll back, restore the backup file and reload. Later updates replace only `/etc/personal-hub/hub.caddy`.
+
+Read-only rehearsal on 2026-11-10: a copy of the live Caddyfile with its hub block replaced by an import of this file adapted cleanly under Caddy 2.11.7 with all six sites present. Nothing on the server was changed.
 
 ## Assistant key
 

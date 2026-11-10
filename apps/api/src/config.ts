@@ -43,6 +43,13 @@ const environmentSchema = z
       .transform((value) => value.split(',').map((origin) => origin.trim()))
       .pipe(z.array(originSchema).min(1)),
     SETUP_TOKEN: z.string().min(32).optional(),
+    // Client addresses come from X-Forwarded-For only when the connecting
+    // peer is a loopback reverse proxy. Without this every client behind the
+    // proxy shares one address and therefore one rate-limit bucket.
+    TRUST_PROXY: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.enum(['loopback', 'off']).optional(),
+    ),
     CANVAS_API_TOKEN: z.preprocess(
       (value) => (value === '' ? undefined : value),
       z
@@ -117,6 +124,10 @@ export function readConfig(environment: Record<string, string | undefined>) {
   }
   return {
     ...result.data,
+    // Production runs behind the same-host HTTPS proxy unless told otherwise.
+    TRUST_PROXY:
+      result.data.TRUST_PROXY ??
+      (result.data.NODE_ENV === 'production' ? 'loopback' : 'off'),
     AI_PROVIDER_PROFILES: readAIProfiles(environment),
   };
 }

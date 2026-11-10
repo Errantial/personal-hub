@@ -59,7 +59,15 @@ fi
 printf 'HUB_DOMAIN=%s\n' "$domain" > /etc/personal-hub/caddy.env
 chmod 0600 /etc/personal-hub/hub.env
 chmod 0644 /etc/personal-hub/caddy.env
-install -m 0644 "$directory/Caddyfile" /etc/personal-hub/Caddyfile
+# The hub's site block is its own file. Other sites may share this Caddy
+# instance, so an existing Caddyfile is never replaced.
+install -m 0644 "$directory/Caddyfile" /etc/personal-hub/hub.caddy
+if [[ ! -f /etc/personal-hub/Caddyfile ]]; then
+  printf 'import /etc/personal-hub/hub.caddy\n' > /etc/personal-hub/Caddyfile
+  chmod 0644 /etc/personal-hub/Caddyfile
+elif ! grep -qxF 'import /etc/personal-hub/hub.caddy' /etc/personal-hub/Caddyfile; then
+  echo 'Kept the existing /etc/personal-hub/Caddyfile. Replace its hub site block with: import /etc/personal-hub/hub.caddy' >&2
+fi
 for unit in personal-hub.service personal-hub-caddy.service personal-hub-backup.service personal-hub-backup.timer; do
   install -m 0644 "$directory/$unit" "/etc/systemd/system/$unit"
 done
