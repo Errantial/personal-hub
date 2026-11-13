@@ -5,6 +5,7 @@ import {
   assistantProposalSchema,
   courseResponseSchema,
   topicResponseSchema,
+  topicSchema,
   trackedDeadlineResponseSchema,
   Temporal,
 } from '@hub/contracts';
@@ -27,6 +28,7 @@ import {
   proposalPolicyMode,
   proposalTier,
 } from '../src/features/agent-run.js';
+import { topicColumns } from '../src/features/common.js';
 import { readTurn } from '../src/features/assistant-conversations.js';
 import { proposalDigest } from '../src/features/ai-planner-origin.js';
 import { turnDigest } from '../src/ai/live-manifest.js';
@@ -287,6 +289,46 @@ describe('assistant capability matrix phase 2', { timeout: 60000 }, () => {
       tier: 1,
       arguments: { id: deadline.id, expectedVersion: 1 },
     });
+    const timedOverride = modelCapabilityProposal(
+      'trackedDeadline.update',
+      JSON.stringify({
+        ref: deadlineRef,
+        dueOverride: {
+          kind: 'timed',
+          dueAt: '2030-01-10T17:00:00-07:00',
+          timeZone: 'America/Denver',
+        },
+      }),
+      context,
+      academic.items,
+      deadlines.items,
+    );
+    expect(assistantProposalSchema.parse(timedOverride)).toMatchObject({
+      capability: 'trackedDeadline.update',
+      arguments: {
+        dueOverride: {
+          kind: 'timed',
+          dueAt: '2030-01-10T17:00:00-07:00',
+          timeZone: 'America/Denver',
+        },
+      },
+    });
+    const dateOverride = modelCapabilityProposal(
+      'trackedDeadline.update',
+      JSON.stringify({
+        ref: deadlineRef,
+        dueOverride: { kind: 'date', dueDate: '2030-01-10' },
+      }),
+      context,
+      academic.items,
+      deadlines.items,
+    );
+    expect(assistantProposalSchema.parse(dateOverride)).toMatchObject({
+      capability: 'trackedDeadline.update',
+      arguments: {
+        dueOverride: { kind: 'date', dueDate: '2030-01-10' },
+      },
+    });
     expect(
       modelCapabilityProposal(
         'trackedDeadline.reopen',
@@ -422,6 +464,142 @@ describe('assistant capability matrix phase 2', { timeout: 60000 }, () => {
     await h.app.close();
   });
 
+  it('withholds lowered-label and legacy unknown-history topics', async () => {
+    const h = await startHarness();
+    const course = await createCourse(h, 'Labeled class');
+    const topic = await createTopic(h, course.id, 'History topic');
+    const personal = await h.call('PUT', `/api/v1/topics/${topic.id}`, {
+      courseId: course.id,
+      name: topic.name,
+      notes: '',
+      confidence: 'unknown',
+      progress: 0,
+      sensitivity: 'personal',
+      expectedVersion: topic.version,
+      operationId: randomUUID(),
+    });
+    expect(personal.statusCode).toBe(200);
+    const lowered = await h.call('PUT', `/api/v1/topics/${topic.id}`, {
+      courseId: course.id,
+      name: topic.name,
+      notes: '',
+      confidence: 'unknown',
+      progress: 0,
+      sensitivity: 'unlabeled',
+      expectedVersion: topicResponseSchema.parse(personal.json()).topic.version,
+      operationId: randomUUID(),
+    });
+    expect(lowered.statusCode).toBe(200);
+    const [stored] = await h.database.query(
+      'SELECT sensitivity,academic_labels AS "academicLabels" FROM topics WHERE owner_id=$1 AND id=$2',
+      [h.owner, topic.id],
+    );
+    expect(stored).toMatchObject({
+      sensitivity: 'unlabeled',
+      academicLabels: ['personal'],
+    });
+
+    const unlabeledOnly = await assistantContext(h.database, h.owner, 'UTC', [
+      'unlabeled',
+    ]);
+    expect(unlabeledOnly.topics?.some((item) => item.id === topic.id)).toBe(
+      false,
+    );
+    const personalAllowed = await assistantContext(h.database, h.owner, 'UTC', [
+      'unlabeled',
+      'personal',
+    ]);
+    expect(personalAllowed.topics?.some((item) => item.id === topic.id)).toBe(
+      true,
+    );
+    const source = plannerSources(
+      h.owner,
+      randomUUID(),
+      personalAllowed,
+      'UTC',
+    ).find((item) => item.kind === 'topic' && item.id === topic.id);
+    expect(source?.labels).toEqual(['personal']);
+
+    const legacyId = randomUUID();
+    await h.database.query(
+      `INSERT INTO topics(id,owner_id,course_id,name,notes,confidence,progress,sensitivity,academic_labels,version)
+       VALUES($1,$2,$3,'Legacy null','','unknown',0,'unlabeled',NULL,1)`,
+      [legacyId, h.owner, course.id],
+    );
+    const legacyContext = await assistantContext(h.database, h.owner, 'UTC', [
+      'unlabeled',
+      'personal',
+    ]);
+    expect(legacyContext.topics?.some((item) => item.id === legacyId)).toBe(
+      false,
+    );
+    const [legacyRow] = await h.database.query(
+      `SELECT ${topicColumns} FROM topics WHERE owner_id=$1 AND id=$2`,
+      [h.owner, legacyId],
+    );
+    const legacyTopic = topicSchema.parse(legacyRow);
+    expect(() =>
+      plannerSources(
+        h.owner,
+        randomUUID(),
+        {
+          tasks: [],
+          events: [],
+          courses: [course],
+          topics: [legacyTopic],
+        },
+        'UTC',
+      ),
+    ).toThrow('Topic label history is unavailable.');
+    await h.app.close();
+  });
+
+  it('never leaves topics without a class ref after budget trimming', async () => {
+    const h = await startHarness();
+    for (let index = 0; index < 30; index++) {
+      const courseId = randomUUID();
+      await h.database.query(
+        `INSERT INTO courses(id,owner_id,name,term,instructor,notes,sensitivity,version)
+         VALUES($1,$2,$3,'','','','unlabeled',1)`,
+        [courseId, h.owner, `${index} ${'c'.repeat(180)}`],
+      );
+      await h.database.query(
+        `INSERT INTO topics(id,owner_id,course_id,name,notes,confidence,progress,sensitivity,academic_labels,version)
+         VALUES($1,$2,$3,$4,'','unknown',0,'unlabeled','{}',1)`,
+        [randomUUID(), h.owner, courseId, `${index} ${'t'.repeat(180)}`],
+      );
+    }
+    for (let index = 0; index < 60; index++) {
+      await h.database.query(
+        `INSERT INTO tasks(id,owner_id,title,due_date,priority,completed,sensitivity)
+         VALUES($1,$2,$3,'2030-01-01','normal',false,'unlabeled')`,
+        [randomUUID(), h.owner, `${index} ${'x'.repeat(180)}`],
+      );
+      await h.database.query(
+        `INSERT INTO events(id,owner_id,title,notes,starts_at,ends_at,time_zone,sensitivity,all_day,study_status,academic_labels)
+         VALUES($1,$2,$3,'',CURRENT_TIMESTAMP + interval '1 day',CURRENT_TIMESTAMP + interval '1 day 1 hour','UTC','unlabeled',false,'planned','{}')`,
+        [randomUUID(), h.owner, `${index} ${'e'.repeat(180)}`],
+      );
+    }
+    const context = await assistantContext(h.database, h.owner, 'UTC');
+    expect(context.topics!.length).toBeLessThan(30);
+    expect(context.courses!.length).toBeLessThan(30);
+    const request = buildAssistantRequest(
+      'anthropic/claude-haiku-5.5',
+      context,
+      'Check my classes',
+      'UTC',
+    );
+    const payload = JSON.parse(request.messages.at(-1)!.content as string) as {
+      courses?: Array<{ ref: string }>;
+      topics?: Array<{ ref: string; courseRef: string | null }>;
+    };
+    const courseRefs = new Set((payload.courses ?? []).map((item) => item.ref));
+    for (const topic of payload.topics ?? [])
+      expect(courseRefs.has(topic.courseRef ?? '')).toBe(true);
+    await h.app.close();
+  });
+
   it('creates, updates and deletes classes and topics with audit snapshots and undo', async () => {
     const h = await startHarness();
     const turnId = await seedTurn(h);
@@ -463,6 +641,14 @@ describe('assistant capability matrix phase 2', { timeout: 60000 }, () => {
     expect(updateAudit!.after).toMatchObject({
       name: 'History II',
       version: 2,
+    });
+    const [updateTarget] = await h.database.query(
+      'SELECT target_kind AS "targetKind",target_id AS "targetId" FROM ai_capability_audit WHERE id=$1',
+      [updated.id],
+    );
+    expect(updateTarget).toMatchObject({
+      targetKind: null,
+      targetId: course.id,
     });
     await expect(
       executeCapability(
@@ -561,7 +747,7 @@ describe('assistant capability matrix phase 2', { timeout: 60000 }, () => {
     );
     expect(cascade!.deletedAt).not.toBeNull();
     const [deleteAudit] = await h.database.query(
-      "SELECT before,after FROM ai_capability_audit WHERE owner_id=$1 AND tool='course.delete' ORDER BY created_at DESC LIMIT 1",
+      'SELECT before,after,target_id AS "targetId" FROM ai_capability_audit WHERE owner_id=$1 AND tool=\'course.delete\' ORDER BY created_at DESC LIMIT 1',
       [h.owner],
     );
     expect(deleteAudit!.before).toMatchObject({
@@ -570,6 +756,7 @@ describe('assistant capability matrix phase 2', { timeout: 60000 }, () => {
         expect.objectContaining({ id: secondTopic.id }),
       ]),
     });
+    expect(deleteAudit!.targetId).toBe(course.id);
 
     const auditList = (
       await h.call('GET', '/api/v1/ai/capabilities/audit')
@@ -608,6 +795,11 @@ describe('assistant capability matrix phase 2', { timeout: 60000 }, () => {
       [secondTopic.id],
     );
     expect(topicAfterUndo!.deletedAt).toBeNull();
+    const [undoAudit] = await h.database.query(
+      'SELECT target_id AS "targetId" FROM ai_capability_audit WHERE owner_id=$1 AND tool=\'undo\' ORDER BY created_at DESC LIMIT 1',
+      [h.owner],
+    );
+    expect(undoAudit!.targetId).toBe(course.id);
 
     await expect(
       undoCapability(h.database, h.owner, created.id, randomUUID()),
@@ -672,6 +864,42 @@ describe('assistant capability matrix phase 2', { timeout: 60000 }, () => {
       [unitThree.id],
     );
     expect(unitThreeTombstone!.deletedAt).not.toBeNull();
+
+    const dependentCourseCreate = await executeCapability(
+      h.database,
+      h.owner,
+      turnId,
+      'course.create',
+      { name: 'Dependent class' },
+      randomUUID(),
+    );
+    const dependentCourse = (
+      (await h.call('GET', '/api/v1/courses')).json().courses as Array<{
+        id: string;
+        name: string;
+        version: number;
+      }>
+    ).find((item) => item.name === 'Dependent class')!;
+    await executeCapability(
+      h.database,
+      h.owner,
+      turnId,
+      'topic.create',
+      {
+        courseId: dependentCourse.id,
+        expectedCourseVersion: dependentCourse.version,
+        name: 'Dependent topic',
+      },
+      randomUUID(),
+    );
+    await expect(
+      undoCapability(
+        h.database,
+        h.owner,
+        dependentCourseCreate.id,
+        randomUUID(),
+      ),
+    ).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
     await h.app.close();
   });
 
@@ -721,6 +949,21 @@ describe('assistant capability matrix phase 2', { timeout: 60000 }, () => {
       title: 'Lab report revised',
       priority: 2,
     });
+    await expect(
+      executeCapability(
+        h.database,
+        h.owner,
+        turnId,
+        'academicWork.update',
+        {
+          id: createdWork.id,
+          expectedVersion: createdWork.version,
+          expectedCourseVersion: course.version,
+          notes: 'Stale',
+        },
+        randomUUID(),
+      ),
+    ).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
 
     await h.database.query(
       `UPDATE academic_work SET status='submitted',grade='{"earned":9,"possible":10}'::jsonb,version=version+1 WHERE owner_id=$1 AND id=$2`,
@@ -1154,6 +1397,68 @@ describe('assistant capability matrix phase 2', { timeout: 60000 }, () => {
         turnId,
         'course.delete',
         { id: courseId, expectedVersion: 1 },
+        randomUUID(),
+      ),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+    const topicId = randomUUID();
+    await h.database.query(
+      `INSERT INTO topics(id,owner_id,course_id,name,notes,confidence,progress,sensitivity,academic_labels,version)
+       VALUES($1,$2,$3,'Foreign topic','','unknown',0,'unlabeled','{}',1)`,
+      [topicId, foreignOwner, courseId],
+    );
+    const workId = randomUUID();
+    await h.database.query(
+      `INSERT INTO academic_work(id,owner_id,course_id,title,kind,notes,priority,status,sensitivity,academic_labels,version)
+       VALUES($1,$2,$3,'Foreign work','assignment','',3,'planned','unlabeled','{}',1)`,
+      [workId, foreignOwner, courseId],
+    );
+    await expect(
+      executeCapability(
+        h.database,
+        h.owner,
+        turnId,
+        'topic.update',
+        { id: topicId, expectedVersion: 1, progress: 10 },
+        randomUUID(),
+      ),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await expect(
+      executeCapability(
+        h.database,
+        h.owner,
+        turnId,
+        'topic.delete',
+        { id: topicId, expectedVersion: 1 },
+        randomUUID(),
+      ),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await expect(
+      executeCapability(
+        h.database,
+        h.owner,
+        turnId,
+        'academicWork.update',
+        {
+          id: workId,
+          expectedVersion: 1,
+          expectedCourseVersion: 1,
+          notes: 'Hijack',
+        },
+        randomUUID(),
+      ),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await expect(
+      executeCapability(
+        h.database,
+        h.owner,
+        turnId,
+        'academicWork.delete',
+        {
+          id: workId,
+          expectedVersion: 1,
+          expectedCourseVersion: 1,
+        },
         randomUUID(),
       ),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });

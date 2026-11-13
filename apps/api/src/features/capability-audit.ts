@@ -83,11 +83,13 @@ export async function recordCapabilityAudit(
     tool?: string | null;
     before?: unknown;
     after?: unknown;
+    targetId?: string | null;
     undoable?: boolean;
     autoApproved?: boolean;
   } = {},
 ) {
   const item = target(proposal);
+  const targetId = options.targetId === undefined ? item.id : options.targetId;
   const id = randomUUID();
   await tx.query(
     `INSERT INTO ai_capability_audit
@@ -101,7 +103,7 @@ export async function recordCapabilityAudit(
       capability(proposal),
       action(proposal),
       item.kind,
-      item.id,
+      targetId,
       decision,
       options.reason ?? null,
       options.operationId ?? null,

@@ -24,6 +24,7 @@ import {
 } from './live-projections.js';
 import type { MailProjected } from './live-projections.js';
 import { reprojectTrackedDeadlineSource } from './tracked-deadline-context.js';
+import { topicLabelState } from './topic-labels.js';
 import { readAssistantSettings } from './live-request.js';
 import { courseSchema, reminderSchema, topicSchema } from '@hub/contracts';
 import { reminderColumns } from '../features/reminders.js';
@@ -344,6 +345,18 @@ export async function verifyLive(
       if (!row || Number(row.version) !== source.version)
         return 'context-changed';
       const topic = topicSchema.parse(row);
+      const [course] = await tx.query(
+        'SELECT sensitivity FROM courses WHERE owner_id=$1 AND id=$2 AND deleted_at IS NULL',
+        [owner, topic.courseId],
+      );
+      if (!course) return 'context-changed';
+      const labels = topicLabelState(topic, course.sensitivity);
+      if (
+        !labels.complete ||
+        labels.labels.length !== source.labels.length ||
+        !labels.labels.every((label) => source.labels.includes(label))
+      )
+        return 'context-changed';
       const courseSource = manifest.sources.find(
         (candidate) =>
           candidate.kind === 'course' && candidate.id === topic.courseId,

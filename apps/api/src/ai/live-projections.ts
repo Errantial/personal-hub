@@ -16,11 +16,12 @@ import type {
 import { z } from 'zod';
 import type { QueryExecutor } from '../db/database.js';
 import { ApiError } from '../errors.js';
-import { eventColumns, strongest } from '../features/common.js';
+import { eventColumns } from '../features/common.js';
 import { taskColumns } from '../planner/routes.js';
 import { readMemorySettings } from '../features/memory.js';
 import { sourceDigest } from './live-manifest.js';
 import type { LiveSource } from './live-manifest.js';
+import { topicLabelState } from './topic-labels.js';
 
 // Live planner projections (docs/live-context-admission-design.md). These are
 // exactly the fields the Assistant has always sent; the manifest binds each
@@ -275,15 +276,20 @@ export function plannerSources(
       const courseRef = course
         ? `c${context.courses!.indexOf(course) + 1}`
         : null;
+      const labels = topicLabelState(topic, course?.sensitivity ?? 'unlabeled');
+      if (!labels.complete)
+        throw new ApiError(
+          409,
+          'PROVENANCE_UNAVAILABLE',
+          'Topic label history is unavailable.',
+        );
       return {
         projection: 'planner-topic-v1',
         kind: 'topic',
         id: topic.id,
         version: topic.version,
         ref,
-        labels: [
-          strongest(topic.sensitivity, course?.sensitivity ?? 'unlabeled'),
-        ],
+        labels: labels.labels,
         digest: sourceDigest(
           owner,
           requestId,

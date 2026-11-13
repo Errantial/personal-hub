@@ -175,8 +175,9 @@ export function AIActionSettings() {
             Allow all Tier 1 automatically
           </button>
           <p>
-            Email always asks first. Deletes and restores follow the Tier 1/2
-            setting above; Tier 3 actions always ask.
+            Other Tier 1 follows the grant above. Tier 2 deletes and restores
+            ask first unless Auto-approve agent changes is on. Email and Tier 3
+            actions always ask.
           </p>
           <CapabilityAudit online={online} />
           <button type="submit" disabled={busy || !online}>

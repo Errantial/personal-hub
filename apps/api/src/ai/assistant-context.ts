@@ -14,6 +14,7 @@ import {
   projectTopic,
 } from './live-projections.js';
 import type { PlannerContext } from './live-projections.js';
+import { topicLabelState } from './topic-labels.js';
 
 /** Conservative serialized-size budget for the server-assembled context. */
 export const maxContextChars = 24000;
@@ -57,17 +58,40 @@ export async function assistantContext(
     .map((row) => courseSchema.parse(row))
     .filter((course) => allowed.includes(course.sensitivity)) as Course[];
   const courseIds = new Set(courses.map((course) => course.id));
+  const courseSensitivity = new Map(
+    courses.map((course) => [course.id, course.sensitivity]),
+  );
   const topics = (
     await tx.query(
-      `SELECT ${topicColumns} FROM topics WHERE owner_id=$1 AND deleted_at IS NULL ORDER BY name,id LIMIT 120`,
-      [owner],
+      `SELECT ${topicColumns} FROM topics
+       WHERE owner_id=$1 AND deleted_at IS NULL
+         AND academic_labels IS NOT NULL
+         AND sensitivity=ANY($2::text[])
+         AND EXISTS (
+           SELECT 1 FROM courses c
+           WHERE c.id=topics.course_id AND c.owner_id=topics.owner_id
+             AND c.deleted_at IS NULL AND c.sensitivity=ANY($2::text[])
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM unnest(academic_labels) AS history(label)
+           WHERE history.label<>ALL($2::text[])
+         )
+       ORDER BY name,id LIMIT 120`,
+      [owner, allowed],
     )
   )
     .map((row) => topicSchema.parse(row))
-    .filter(
-      (topic) =>
-        courseIds.has(topic.courseId) && allowed.includes(topic.sensitivity),
-    ) as Topic[];
+    .filter((topic) => {
+      if (!courseIds.has(topic.courseId)) return false;
+      const labels = topicLabelState(
+        topic,
+        courseSensitivity.get(topic.courseId) ?? 'unlabeled',
+      );
+      return (
+        labels.complete &&
+        labels.labels.every((label) => allowed.includes(label))
+      );
+    }) as Topic[];
   return fitContext(
     {
       ...base,
@@ -161,5 +185,13 @@ function fitContext(context: AssistantContext, timeZone: string) {
     } else break;
     current = estimate(tasks, events, reminders, courses, topics);
   }
+  // A course removed on the final budget iteration must not leave its topics
+  // behind with a missing course ref.
+  const finalCourseIds = courseIds();
+  for (let index = topics.length - 1; index >= 0; index--)
+    if (!finalCourseIds.has(topics[index]!.courseId)) {
+      topics.splice(index, 1);
+      trimmed += 1;
+    }
   return { ...context, tasks, events, reminders, courses, topics, trimmed };
 }

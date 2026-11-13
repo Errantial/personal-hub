@@ -511,9 +511,42 @@ function proposal(
   };
 }
 
-async function readCourseRecord(tx: QueryExecutor, owner: string, id: string) {
+function recordId(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const id = (value as { id?: unknown }).id;
+  return typeof id === 'string' ? id : null;
+}
+
+function capabilityTargetId(
+  args: Record<string, unknown>,
+  before: unknown,
+  after: unknown,
+): string | null {
+  const afterObject = after as
+    { id?: unknown; course?: { id?: unknown } } | null | undefined;
+  const beforeObject = before as
+    { id?: unknown; course?: { id?: unknown } } | null | undefined;
+  const target =
+    recordId(after) ??
+    (typeof afterObject?.course?.id === 'string'
+      ? afterObject.course.id
+      : null) ??
+    recordId(before) ??
+    (typeof beforeObject?.course?.id === 'string'
+      ? beforeObject.course.id
+      : null) ??
+    (typeof args.id === 'string' ? args.id : null);
+  return target;
+}
+
+async function readCourseRecord(
+  tx: QueryExecutor,
+  owner: string,
+  id: string,
+  lock = false,
+) {
   const [row] = await tx.query(
-    `SELECT ${courseColumns} FROM courses WHERE owner_id=$1 AND id=$2`,
+    `SELECT ${courseColumns} FROM courses WHERE owner_id=$1 AND id=$2${lock ? ' FOR UPDATE' : ''}`,
     [owner, id],
   );
   if (!row) throw new ApiError(404, 'NOT_FOUND', 'Class not available.');
@@ -804,7 +837,7 @@ export async function executeCapability(
       } else {
         const current =
           table === 'courses'
-            ? await readCourseRecord(tx, owner, id)
+            ? await readCourseRecord(tx, owner, id, true)
             : await readTopicRecord(tx, owner, id);
         const activeTopics =
           table === 'courses' ? await readCourseTopics(tx, owner, id) : [];
@@ -998,6 +1031,7 @@ export async function executeCapability(
         operationId,
         before,
         after,
+        targetId: capabilityTargetId(args, before, after),
         undoable: true,
         reason: summary,
         tool: capability,
@@ -1592,7 +1626,7 @@ export async function undoCapability(
           : row.tool === 'event.delete' || row.tool === 'event.restore'
             ? 'event'
             : null,
-        after?.id ?? null,
+        capabilityTargetId({}, before, after),
         `Undid ${row.tool ?? 'capability action'}.`,
         operationId,
         JSON.stringify(after),
