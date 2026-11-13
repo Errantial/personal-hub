@@ -20,6 +20,7 @@ import {
   brokerDependencyCount,
 } from './broker-lineage.js';
 import { trackedDeadlineHistoryEligible } from './tracked-deadline-context.js';
+import { topicLabelState } from './topic-labels.js';
 
 // Bound conversation history (docs/live-context-admission-design.md). Only
 // turns whose kept reply came from a verified exchange are resent, together
@@ -119,6 +120,25 @@ export async function historySourcesEligible(
       current.set(`course:${row.id}`, {
         labels: [sensitivitySchema.parse(row.sensitivity)],
       });
+  const topics = ids('topic');
+  if (topics.length)
+    for (const row of await tx.query(
+      `SELECT t.id,t.sensitivity,t.academic_labels AS "academicLabels",
+         c.sensitivity AS "courseSensitivity"
+       FROM topics t JOIN courses c ON c.id=t.course_id AND c.owner_id=t.owner_id
+       WHERE t.owner_id=$1 AND t.id=ANY($2::uuid[]) AND t.deleted_at IS NULL AND c.deleted_at IS NULL`,
+      [owner, topics],
+    )) {
+      const labels = topicLabelState(
+        {
+          sensitivity: row.sensitivity,
+          academicLabels: row.academicLabels,
+        },
+        row.courseSensitivity,
+      );
+      if (!labels.complete) return false;
+      current.set(`topic:${row.id}`, { labels: labels.labels });
+    }
   const academic = ids('academic-work');
   if (academic.length)
     for (const row of await tx.query(

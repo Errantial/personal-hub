@@ -410,13 +410,16 @@ const localDateForTimed = (
     .toPlainDate()
     .toString();
 
-const duesCompatible = (
+export const duesCompatible = (
   left: TrackedDeadlineDue,
   right: TrackedDeadlineDue,
 ) => {
   if (left.kind === 'unknown' || right.kind === 'unknown') return true;
   if (left.kind === 'timed' && right.kind === 'timed')
-    return left.dueAt === right.dueAt;
+    return (
+      Temporal.Instant.from(left.dueAt).epochNanoseconds ===
+      Temporal.Instant.from(right.dueAt).epochNanoseconds
+    );
   if (left.kind === 'date' && right.kind === 'date')
     return left.dueDate === right.dueDate;
   if (left.kind === 'date' && right.kind === 'timed')

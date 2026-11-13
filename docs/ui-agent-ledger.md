@@ -1,5 +1,15 @@
 # UI agent ledger
 
+## Assistant capability matrix phase 2 (backend, 2026-11-13)
+
+The Assistant can propose `course.create/update/delete`, `topic.create/update/delete`, `academicWork.create/update/delete/restore` and `trackedDeadline.update/complete/reopen` through the existing capability registry. Reuse the existing proposal review, Apply/Undo, pending/offline/conflict and audit list controls; no new screen is required in this slice. Settings › AI › Actions keeps the grouped grants and auto-approve switch: class/topic/work creates and updates are Tier 1, deletes/restores are Tier 2, and the switch remains the only way to auto-apply Tier 2. Reminder cancellation is the explicit Tier 2 exception and always asks. The Help copy now names classes, topics, academic work and imported-deadline planning fields.
+
+Required states to preserve: concise summaries without private notes; version-pinned `c`/`p`/`w`/`d` refs; stale refs surface `VERSION_CONFLICT` and require reload; archived classes surface `ACADEMIC_CLASS_ARCHIVED`; a recorded score blocks a submitted-to-open change with `ACADEMIC_SCORE_REVIEW_REQUIRED`; class deletion cascades its active topics and Undo restores the captured class/topic state; a class Undo that would remove later topics, events or work is refused. `trackedDeadline.complete`/`reopen` is local planning state only and must never be described as Canvas submission, grading, mastery or source completeness. Reopen is addressable only through a completed `d` ref from the last 30 days on an owner ask; scheduled agents keep open deadlines only. Academic-work restore uses an exact deleted record ID, not a model-proposed ref, so do not offer it as a general chat recovery path.
+
+Undo restores the captured owner fields but deliberately does not lower labels already propagated to classes, topics, events, work or tracked deadlines. Keep the retained-label explanation in contextual Help; an undo is not a label-history rewrite.
+
+Known limitations: no batch operations, no standalone class/topic restore capability, no grade entry, no class moves for topics/work, no memory/study-goal/mail capabilities, and no UI-specific picker for deleted academic work. Audit rows for the new capabilities keep `target_kind` null under the existing schema check and record the affected record in `target_id`. Validation is synthetic API/unit coverage only; no provider call, owner data, browser run, Kompakt or screen-reader acceptance is claimed here.
+
 ## Read-only Outlook browser collector (Release 2026-11-13 development)
 
 Connections › School Outlook keeps the existing **Outlook access gate** visible and distinct, then adds a separate **Browser collector (read-only)** section. Do not merge the two: the gate records Graph feasibility metadata, while the collector reports a local browser source and can never establish Graph/OAuth access. Copy must say the collector uses normal interactive Outlook Web sign-in, not Microsoft Graph, and that it is read-only.

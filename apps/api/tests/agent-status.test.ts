@@ -24,12 +24,18 @@ afterEach(async () => {
 });
 
 async function agent(title = 'Synthetic agent') {
+  // Keep the next scheduled slot well outside the test's short retry window
+  // so a date/time-dependent admission cannot hide the run under test.
+  const next = new Date(Date.now() + 6 * 60 * 60 * 1000);
+  const time = `${String(next.getUTCHours()).padStart(2, '0')}:${String(
+    next.getUTCMinutes(),
+  ).padStart(2, '0')}`;
   const response = await h.call('POST', '/api/v1/agents', {
     operationId: randomUUID(),
     template: 'daily-plan',
     title,
     goal: 'Private synthetic goal',
-    schedule: { frequency: 'daily', times: ['07:00'] },
+    schedule: { frequency: 'daily', times: [time] },
     useMail: false,
     monthlyCapMicros: 2000000,
     timeZone: 'UTC',
