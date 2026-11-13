@@ -111,6 +111,7 @@ test('Outlook browser collection stays read-only, separate from the access gate 
                 receivedAt: message.receivedAt,
                 snippet: message.snippet,
               },
+              effectiveSensitivity: 'personal',
               capturedAt: stamp,
               createdAt: stamp,
             },
@@ -187,6 +188,9 @@ test('Outlook browser collection stays read-only, separate from the access gate 
     .getByRole('button', { name: 'Help: Outlook browser collector' })
     .click();
   await expect(region).toContainText('does not use Microsoft Graph');
+  await expect(region).toContainText('read/unread');
+  await expect(region).toContainText('read-receipt');
+  await expect(region).toContainText('raw headers');
 
   await region.getByRole('button', { name: 'Create collector token' }).click();
   await expect(

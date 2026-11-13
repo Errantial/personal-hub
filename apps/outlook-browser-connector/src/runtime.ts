@@ -1,13 +1,16 @@
-import type { BrowserContext, Page, Response } from 'playwright-core';
+import type { BrowserContext, Locator, Page, Response } from 'playwright-core';
 import { chromium } from 'playwright-core';
 import type { OutlookBrowserConnectorConfig } from './config.js';
 import {
+  assessMessageList,
   canonicalMessageLinks,
   classifyOutlookPage,
   CollectionError,
   nextSettleState,
+  isMailRoute,
   normalizeFolders,
   normalizeMessages,
+  outlookMessageIdentity,
   uncertainFolderList,
 } from './extract.js';
 import type {
@@ -17,16 +20,22 @@ import type {
   MessageRow,
   OutlookOrigin,
 } from './extract.js';
+import {
+  detectAuthState,
+  domSelectors,
+  readMessageList,
+  readReadingPane,
+  scrollMessageList,
+} from './dom.js';
+import type { MessageListSnapshot, MessageRowSnapshot } from './dom.js';
 import { ensureDedicatedProfile } from './profile.js';
 
 const maxRows = 200;
-const loadingSelector =
-  '[aria-busy="true"], [role="progressbar"], .loading, .spinner, [data-testid*="loading" i]';
-const folderLinkSelector =
-  '[data-app-section="folder-list"] a[href*="/mail/"], [role="treeitem"] a[href*="/mail/"], nav[aria-label*="folder" i] a[href*="/mail/"], [role="navigation"] a[href*="/mail/"]';
-const messageRowSelector =
-  '[data-testid="message-list"] [role="option"], [data-app-section="message-list"] [role="option"], [role="listbox"] [role="option"]';
-const messageLinkSelector = `${messageRowSelector} a[href*="/id/"]`;
+const maxSweepPasses = 14;
+const loadingSelector = domSelectors.loading;
+const folderLinkSelector = domSelectors.folderLinks;
+const messageRowSelector = domSelectors.messageRows;
+const readingPaneSelector = domSelectors.readingPanes;
 
 export type Discovery = { status: 'complete' | 'partial'; folders: Folder[] };
 export type FolderObservation = {
@@ -45,6 +54,18 @@ export type BrowserCollector = {
 
 const delay = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+const listExpression = `(${readMessageList.toString()})(document, ${JSON.stringify(domSelectors)})`;
+const authExpression = `(${detectAuthState.toString()})(document)`;
+const scrollExpression = (position: 'top' | 'next' | 'end') =>
+  `(${scrollMessageList.toString()})(document, ${JSON.stringify(domSelectors)}, ${JSON.stringify(position)})`;
+
+const readListSnapshot = (page: Page) =>
+  page.evaluate(listExpression) as Promise<MessageListSnapshot>;
+const readAuthState = (page: Page) =>
+  page.evaluate(authExpression) as Promise<'sign-in' | 'mfa' | null>;
+const scrollList = (page: Page, position: 'top' | 'next' | 'end') =>
+  page.evaluate(scrollExpression(position));
 
 async function settle(page: Page, selector: string) {
   let previous = -1;
@@ -79,14 +100,29 @@ async function settle(page: Page, selector: string) {
   throw new CollectionError('traversal-failed');
 }
 
-async function mfaVisible(page: Page) {
-  return (
-    (await page
-      .locator(
-        '#idDiv_SAOTCC_Description, #idTxtBx_SAOTCC_OTC, [data-testid="proofList"], [data-testid="mfa"], [data-testid="codeVerification"]',
-      )
-      .count()) > 0
-  );
+async function settleMessageList(page: Page) {
+  let previous = -1;
+  let stable = 0;
+  for (let pass = 0; pass < 60; pass++) {
+    const snapshot = await readListSnapshot(page);
+    if (snapshot.options > 0)
+      await page
+        .locator(messageRowSelector)
+        .last()
+        .scrollIntoViewIfNeeded()
+        .catch(() => undefined);
+    const next = nextSettleState({
+      count: snapshot.options,
+      loading: snapshot.loading,
+      previous,
+      stablePasses: stable,
+    });
+    stable = next.stablePasses;
+    if (next.done) return;
+    previous = snapshot.options;
+    await page.waitForTimeout(500);
+  }
+  throw new CollectionError('traversal-failed');
 }
 
 function sameOriginSignIn(pathname: string) {
@@ -96,7 +132,8 @@ function sameOriginSignIn(pathname: string) {
 /**
  * Waits for the owner to finish normal interactive sign-in or MFA in the
  * dedicated headful profile. It never reads or retains credentials or page
- * text. A foreign origin fails closed immediately.
+ * text. A foreign origin fails closed immediately. An auth overlay on an
+ * Outlook page is also detected instead of being projected as mail.
  */
 async function waitForInteractiveSignIn(
   page: Page,
@@ -104,19 +141,34 @@ async function waitForInteractiveSignIn(
 ) {
   const origin = config.outlookOrigin as OutlookOrigin;
   let current = classifyOutlookPage(origin, page.url());
-  if (current.kind === 'outlook' && !sameOriginSignIn(current.pathname)) return;
   if (current.kind === 'blank') return;
   if (current.kind === 'foreign') throw new CollectionError('foreign-origin');
+  let auth = await readAuthState(page).catch(
+    () => null as 'sign-in' | 'mfa' | null,
+  );
+  if (
+    current.kind === 'outlook' &&
+    !sameOriginSignIn(current.pathname) &&
+    !auth
+  )
+    return;
 
-  let sawMfa = false;
+  let sawMfa = auth === 'mfa';
   const deadline = Date.now() + config.signInWaitSeconds * 1000;
   while (Date.now() < deadline) {
-    if (await mfaVisible(page)) sawMfa = true;
     await delay(2000);
     current = classifyOutlookPage(origin, page.url());
-    if (current.kind === 'outlook' && !sameOriginSignIn(current.pathname))
-      return;
     if (current.kind === 'foreign') throw new CollectionError('foreign-origin');
+    auth = await readAuthState(page).catch(
+      () => null as 'sign-in' | 'mfa' | null,
+    );
+    if (auth === 'mfa') sawMfa = true;
+    if (
+      current.kind === 'outlook' &&
+      !sameOriginSignIn(current.pathname) &&
+      !auth
+    )
+      return;
   }
   throw new CollectionError(sawMfa ? 'mfa-required' : 'sign-in-required');
 }
@@ -137,6 +189,14 @@ async function openPage(
   }
   await waitForInteractiveSignIn(page, config);
   return response;
+}
+
+function currentPath(page: Page, config: OutlookBrowserConnectorConfig) {
+  const current = classifyOutlookPage(
+    config.outlookOrigin as OutlookOrigin,
+    page.url(),
+  );
+  return current.kind === 'outlook' ? current.pathname : null;
 }
 
 function requireOutlookPath(
@@ -169,7 +229,7 @@ function statusKind(response: Response | null) {
 async function folderRows(page: Page) {
   return page.locator(folderLinkSelector).evaluateAll((anchors) =>
     anchors.map((anchor) => ({
-      href: (anchor as HTMLAnchorElement).href,
+      href: anchor.getAttribute('href') ?? '',
       name: (anchor.textContent ?? '').trim(),
     })),
   );
@@ -204,97 +264,261 @@ async function listUncertain(page: Page) {
   });
 }
 
-async function messageRows(page: Page) {
-  return page.locator(messageRowSelector).evaluateAll((nodes) => {
-    const text = (node: Element, selector: string) =>
-      node.querySelector(selector)?.textContent?.trim() ?? null;
-    const attr = (node: Element, selector: string, name: string) =>
-      node.querySelector(selector)?.getAttribute(name) ?? null;
-    return nodes.map((node) => {
-      const anchor = node.querySelector<HTMLAnchorElement>('a[href*="/id/"]');
-      const time = node.querySelector<HTMLElement>('time[datetime]');
-      return {
-        href: anchor?.href ?? '',
-        subject: text(
-          node,
-          '[data-testid="message-subject"], [data-conversation-subject], [class*="subject" i]',
-        ),
-        sender: text(
-          node,
-          '[data-testid="message-sender"], [class*="sender" i]',
-        ),
-        senderAddress: attr(
-          node,
-          'a[href^="mailto:"], [data-email-address]',
-          'href',
-        ),
-        snippet: text(
-          node,
-          '[data-testid="message-preview"], [data-testid="message-snippet"], [class*="preview" i]',
-        ),
-        receivedAt: time?.getAttribute('datetime') ?? null,
-        conversationId:
-          node.getAttribute('data-conversation-id') ??
-          node.getAttribute('data-conversationid') ??
-          null,
-      };
-    });
-  });
+function rowKey(origin: OutlookOrigin, href: string) {
+  try {
+    const url = new URL(href, `${origin}/`);
+    if (url.origin === origin) return `${url.origin}${url.pathname}`;
+  } catch {
+    // Invalid rows remain unresolved/skipped below.
+  }
+  return href;
 }
 
-async function readingPane(page: Page): Promise<MessageDetail | null> {
-  const pane = page.locator(
-    '[data-testid="message-body"], [role="document"], [aria-label*="Message body" i]',
-  );
-  try {
-    await pane.first().waitFor({ state: 'attached', timeout: 15000 });
-  } catch {
-    return null;
+function firstText(...values: (string | null | undefined)[]) {
+  for (const value of values) {
+    const text = (value ?? '').trim();
+    if (text) return text;
   }
-  return page.evaluate(() => {
-    const text = (selector: string) =>
-      document.querySelector(selector)?.textContent?.trim() ?? null;
-    const attr = (selector: string, name: string) =>
-      document.querySelector(selector)?.getAttribute(name) ?? null;
-    const body = document.querySelector<HTMLElement>(
-      '[data-testid="message-body"], [role="document"], [aria-label*="Message body" i]',
-    );
-    const link = document.querySelector<HTMLAnchorElement>(
-      '[data-testid="message-sender"] a[href^="mailto:"], [data-testid="sender"] a[href^="mailto:"], a[href^="mailto:"]',
-    );
-    return {
-      subject: text(
-        '[data-testid="message-subject"], [role="main"] h1, h1[role="heading"], [role="heading"][aria-level="1"]',
-      ),
-      sender: text(
-        '[data-testid="message-sender"], [data-testid="sender"], [class*="sender" i]',
-      ),
-      senderAddress: link?.getAttribute('href') ?? null,
-      receivedAt: attr('time[datetime]', 'datetime'),
-      bodyText: body ? body.innerText : null,
-      conversationId:
-        attr('[data-conversation-id]', 'data-conversation-id') ??
-        attr('[data-conversationid]', 'data-conversationid'),
-    };
-  });
+  return '';
+}
+
+function mergeRow(previous: MessageRowSnapshot, row: MessageRowSnapshot) {
+  return {
+    href: firstText(previous.href, row.href),
+    subject: firstText(previous.subject, row.subject) || null,
+    sender: firstText(previous.sender, row.sender) || null,
+    senderAddress: firstText(previous.senderAddress, row.senderAddress) || null,
+    snippet: firstText(previous.snippet, row.snippet) || null,
+    receivedAt: firstText(previous.receivedAt, row.receivedAt) || null,
+    conversationId:
+      firstText(previous.conversationId, row.conversationId) || null,
+    ariaPosition: firstText(previous.ariaPosition, row.ariaPosition) || null,
+    ariaSetSize: firstText(previous.ariaSetSize, row.ariaSetSize) || null,
+    rowIndex: firstText(previous.rowIndex, row.rowIndex) || null,
+  };
+}
+
+type SweepResult = {
+  rows: Map<string, MessageRowSnapshot>;
+  unresolved: number;
+  loadMore: boolean;
+  next: boolean;
+  collapsed: boolean;
+  totalCount: number | null;
+  setSize: number | null;
+  recycledIndexes: boolean;
+  reachedBottom: boolean;
+  scrollable: boolean;
+  maxOptions: number;
+};
+
+function atBottom(snapshot: MessageListSnapshot) {
+  return (
+    !snapshot.scrollable ||
+    snapshot.scrollTop + snapshot.clientHeight >= snapshot.scrollHeight - 4
+  );
+}
+
+function mergeSnapshot(
+  result: SweepResult,
+  snapshot: MessageListSnapshot,
+  origin: OutlookOrigin,
+  indexMap: Map<string, string>,
+) {
+  result.unresolved = Math.max(result.unresolved, snapshot.unresolved);
+  result.maxOptions = Math.max(result.maxOptions, snapshot.options);
+  result.loadMore ||= snapshot.loadMore;
+  result.next ||= snapshot.next;
+  result.collapsed ||= snapshot.collapsed;
+  result.scrollable ||= snapshot.scrollable;
+  if (snapshot.totalCount !== null)
+    result.totalCount = Math.max(result.totalCount ?? 0, snapshot.totalCount);
+  if (snapshot.setSize !== null)
+    result.setSize = Math.max(result.setSize ?? 0, snapshot.setSize);
+  for (const row of snapshot.rows) {
+    if (!row.href) continue;
+    const key = rowKey(origin, row.href);
+    if (row.rowIndex) {
+      const previous = indexMap.get(row.rowIndex);
+      if (previous && previous !== key) result.recycledIndexes = true;
+      else indexMap.set(row.rowIndex, key);
+    }
+    const existing = result.rows.get(key);
+    result.rows.set(key, existing ? mergeRow(existing, row) : row);
+  }
+  return atBottom(snapshot);
+}
+
+async function sweepOnce(page: Page, origin: OutlookOrigin) {
+  const result: SweepResult = {
+    rows: new Map(),
+    unresolved: 0,
+    loadMore: false,
+    next: false,
+    collapsed: false,
+    totalCount: null,
+    setSize: null,
+    recycledIndexes: false,
+    reachedBottom: false,
+    scrollable: false,
+    maxOptions: 0,
+  };
+  const indexMap = new Map<string, string>();
+  await scrollList(page, 'top');
+  for (let pass = 0; pass < maxSweepPasses; pass++) {
+    const snapshot = await readListSnapshot(page);
+    const bottom = mergeSnapshot(result, snapshot, origin, indexMap);
+    if (bottom) {
+      result.reachedBottom = true;
+      break;
+    }
+    if (pass === maxSweepPasses - 1) break;
+    const before = snapshot.scrollTop;
+    await scrollList(page, 'next');
+    await page.waitForTimeout(250);
+    const after = await readListSnapshot(page);
+    if (after.scrollTop === before && !atBottom(after)) break;
+  }
+  return result;
+}
+
+function sameKeys(left: Map<string, unknown>, right: Map<string, unknown>) {
+  if (left.size !== right.size) return false;
+  for (const key of left.keys()) if (!right.has(key)) return false;
+  return true;
+}
+
+function mergeSweeps(first: SweepResult, second: SweepResult): SweepResult {
+  const merged: SweepResult = {
+    ...first,
+    rows: new Map(first.rows),
+    loadMore: first.loadMore || second.loadMore,
+    next: first.next || second.next,
+    collapsed: first.collapsed || second.collapsed,
+    recycledIndexes: first.recycledIndexes || second.recycledIndexes,
+    reachedBottom: first.reachedBottom && second.reachedBottom,
+    scrollable: first.scrollable || second.scrollable,
+    maxOptions: Math.max(first.maxOptions, second.maxOptions),
+  };
+  for (const [key, row] of second.rows) {
+    const previous = merged.rows.get(key);
+    merged.rows.set(key, previous ? mergeRow(previous, row) : row);
+  }
+  if (second.totalCount !== null)
+    merged.totalCount = Math.max(merged.totalCount ?? 0, second.totalCount);
+  if (second.setSize !== null)
+    merged.setSize = Math.max(merged.setSize ?? 0, second.setSize);
+  return merged;
+}
+
+async function readingPane(
+  page: Page,
+  config: OutlookBrowserConnectorConfig,
+  expected: { providerId: string; folderProviderId: string },
+  expectedPath: string,
+) {
+  const panes = page.locator(readingPaneSelector);
+  const count = await panes.count();
+  let pane: Locator | null = null;
+  let visible = 0;
+  for (let index = 0; index < count; index++) {
+    const candidate = panes.nth(index);
+    if (await candidate.isVisible().catch(() => false)) {
+      visible++;
+      pane = candidate;
+    }
+  }
+  if (visible === 0) {
+    const first = panes.first();
+    await first.waitFor({ state: 'visible', timeout: 15000 }).catch(() => null);
+    for (let index = 0; index < (await panes.count()); index++) {
+      const candidate = panes.nth(index);
+      if (await candidate.isVisible().catch(() => false)) {
+        visible++;
+        pane = candidate;
+      }
+    }
+  }
+  if (visible !== 1 || !pane) return null;
+  let lastFingerprint = '';
+  let stable = 0;
+  const normalizePath = (value: string) => value.replace(/\/+$/, '');
+  for (let pass = 0; pass < 12; pass++) {
+    const path = currentPath(page, config);
+    if (!path || normalizePath(path) !== normalizePath(expectedPath)) {
+      // Avoid projecting a pane after navigation away from the requested row.
+      return null;
+    }
+    const result = await pane.evaluate(readReadingPane, {
+      expected,
+      selectors: domSelectors,
+    });
+    if (result.status === 'mismatch' || result.status === 'ambiguous')
+      return null;
+    if (result.status === 'ok') {
+      if (result.fingerprint === lastFingerprint) stable++;
+      else {
+        stable = 0;
+        lastFingerprint = result.fingerprint;
+      }
+      if (stable >= 2) return result.detail;
+    } else {
+      stable = 0;
+      lastFingerprint = '';
+    }
+    await delay(250);
+  }
+  return null;
 }
 
 async function detailFor(
   page: Page,
   config: OutlookBrowserConnectorConfig,
-  href: string,
+  folderProviderId: string,
+  row: MessageRow,
 ): Promise<MessageDetail | null> {
-  let url: URL;
+  let requested: ReturnType<typeof outlookMessageIdentity>;
   try {
-    url = new URL(href, `${config.outlookOrigin}/`);
+    requested = outlookMessageIdentity(config.outlookOrigin, row.href);
   } catch {
     return null;
   }
-  if (url.origin !== config.outlookOrigin) return null;
-  const response = await openPage(page, config, `${url.origin}${url.pathname}`);
-  if (!requireOutlookPath(page, config, url.pathname)) return null;
+  if (
+    !requested ||
+    (requested.folderProviderId !== null &&
+      requested.folderProviderId !== folderProviderId)
+  )
+    return null;
+  const response = await openPage(
+    page,
+    config,
+    `${config.outlookOrigin}${new URL(requested.canonicalUrl).pathname}`,
+  );
+  const requestedPath = new URL(requested.canonicalUrl).pathname;
+  if (!requireOutlookPath(page, config, requestedPath)) return null;
+  let identity: ReturnType<typeof outlookMessageIdentity>;
+  try {
+    identity = outlookMessageIdentity(config.outlookOrigin, page.url());
+  } catch {
+    return null;
+  }
+  if (
+    !identity ||
+    identity.providerId !== requested.providerId ||
+    (identity.folderProviderId !== null &&
+      identity.folderProviderId !== folderProviderId)
+  )
+    return null;
   if (statusKind(response) !== 'ok') return null;
-  return readingPane(page);
+  return readingPane(
+    page,
+    config,
+    {
+      providerId: requested.providerId,
+      folderProviderId,
+    },
+    requestedPath,
+  );
 }
 
 export async function openBrowserCollector(
@@ -319,7 +543,8 @@ export async function openBrowserCollector(
   return {
     discover: async () => {
       const response = await openPage(page, config, `${origin}/mail/`);
-      if (!requireOutlookPath(page, config, null))
+      const path = currentPath(page, config);
+      if (!path || !isMailRoute(path))
         throw new CollectionError('outlook-unavailable');
       const status = statusKind(response);
       if (status === 'sign-in') throw new CollectionError('sign-in-required');
@@ -331,7 +556,7 @@ export async function openBrowserCollector(
           .first()
           .waitFor({ state: 'attached', timeout: 15000 });
       } catch {
-        return { status: 'partial', folders: [] };
+        throw new CollectionError('traversal-failed');
       }
       await settle(page, folderLinkSelector);
       const folders = normalizeFolders(origin, await folderRows(page));
@@ -365,25 +590,43 @@ export async function openBrowserCollector(
       } catch {
         return { status: 'partial', messages: [] };
       }
-      await settle(page, messageRowSelector);
-      const rows = (await messageRows(page)).filter((row) => row.href);
-      if (rows.length > maxRows) throw new CollectionError('traversal-limit');
-      const links = canonicalMessageLinks(
-        origin,
-        folder.providerId,
-        await page
-          .locator(messageLinkSelector)
-          .evaluateAll((anchors) =>
-            anchors.map((anchor) => (anchor as HTMLAnchorElement).href),
-          ),
-      );
-      const uncertain = await listUncertain(page);
+      await settleMessageList(page);
+      const before = await readListSnapshot(page);
+      if (before.options === 0) return { status: 'partial', messages: [] };
+
+      const firstSweep = await sweepOnce(page, origin);
+      const secondSweep = await sweepOnce(page, origin);
+      const merged = mergeSweeps(firstSweep, secondSweep);
+      const pathAfter = currentPath(page, config);
+      if (
+        !pathAfter ||
+        pathAfter.replace(/\/+$/, '') !== expectedPath.replace(/\/+$/, '')
+      )
+        return { status: 'inaccessible', messages: [] };
+
+      const rows = [...merged.rows.values()].filter((row) => row.href);
+      let links: string[];
+      try {
+        links = canonicalMessageLinks(
+          origin,
+          folder.providerId,
+          rows.map((row) => row.href),
+        );
+      } catch {
+        return { status: 'partial', messages: [] };
+      }
+      const boundedRows = rows.slice(0, maxRows);
       const entries: { row: MessageRow; detail: MessageDetail | undefined }[] =
         [];
-      for (const row of rows) {
+      for (const row of boundedRows) {
         let detail: MessageDetail | null = null;
         try {
-          detail = await detailFor(page, config, row.href);
+          detail = await detailFor(
+            page,
+            config,
+            folder.providerId,
+            row as MessageRow,
+          );
         } catch (error) {
           if (
             error instanceof CollectionError &&
@@ -394,7 +637,7 @@ export async function openBrowserCollector(
             throw error;
         }
         entries.push({
-          row: { ...row, senderAddress: row.senderAddress },
+          row: row as MessageRow,
           detail: detail ?? undefined,
         });
       }
@@ -405,15 +648,33 @@ export async function openBrowserCollector(
       const exactCoverage =
         links.length === messageLinks.size &&
         links.every((link) => messageLinks.has(link));
+      const assessment = assessMessageList({
+        identities: merged.rows.size,
+        renderedOptions: merged.maxOptions,
+        unresolved: merged.unresolved,
+        loadMore: merged.loadMore,
+        next: merged.next,
+        collapsed: merged.collapsed,
+        totalCount: merged.totalCount,
+        setSize: merged.setSize,
+        scrollable: merged.scrollable,
+        reachedBottom: merged.reachedBottom,
+        stable:
+          firstSweep.reachedBottom &&
+          secondSweep.reachedBottom &&
+          sameKeys(firstSweep.rows, secondSweep.rows),
+        recycledIndexes: merged.recycledIndexes,
+      });
       return {
         status:
-          rows.length === 0 ||
-          rows.length >= maxRows ||
-          normalized.skipped > 0 ||
-          !exactCoverage ||
-          uncertain
-            ? 'partial'
-            : 'complete',
+          assessment.complete &&
+          normalized.skipped === 0 &&
+          exactCoverage &&
+          !merged.loadMore &&
+          !merged.next &&
+          !merged.collapsed
+            ? 'complete'
+            : 'partial',
         messages: normalized.messages,
       };
     },

@@ -363,7 +363,36 @@ it('reconciles only complete folder observations, keeps captures append-only and
   expect(detail.statusCode).toBe(200);
   expect(detail.json().message.bodyText).toBe('Synthetic body text.');
   expect(detail.json().captures).toHaveLength(1);
+  expect(detail.json().captures[0].effectiveSensitivity).toBe('unlabeled');
   expect(JSON.stringify(detail.json())).not.toContain('token_hash');
+
+  const finishedAttempt = attemptId;
+  const retryFinished = await collector(token, 'POST', 'attempt', {
+    attemptId: finishedAttempt,
+    expectedSourceVersion: state.version,
+  });
+  expect(retryFinished.statusCode).toBe(409);
+  expect(retryFinished.json().error.code).toBe('ATTEMPT_CHANGED');
+
+  attemptId = await begin(token);
+  await discover(token, attemptId);
+  const emptyComplete = await collector(token, 'POST', 'folder', {
+    attemptId,
+    folderId: selected.id,
+    status: 'complete',
+    capturedAt: '2026-11-13T18:15:00.000Z',
+    messages: [],
+  });
+  expect(emptyComplete.statusCode).toBe(400);
+  state = await get();
+  expect(
+    state.messages.every((value) => value.availability === 'available'),
+  ).toBe(true);
+  await collector(token, 'POST', 'attempt/finish', {
+    attemptId,
+    outcome: 'partial',
+    errorCode: null,
+  });
 
   attemptId = await begin(token);
   await discover(token, attemptId);
@@ -438,9 +467,18 @@ it('reconciles only complete folder observations, keeps captures append-only and
     ),
   ).rejects.toThrow();
 
+  state = outlookBrowserConnectionSchema.parse(
+    (
+      await owner('PUT', base, {
+        operationId: randomUUID(),
+        expectedVersion: state.version,
+        sensitivity: 'restricted',
+      })
+    ).json(),
+  );
   const exported = (await owner('GET', '/api/v1/planner/export')).json();
   expect(exported.records.outlookBrowserSource).toEqual({
-    sensitivity: 'unlabeled',
+    sensitivity: 'restricted',
     version: state.version,
   });
   expect(exported.records.outlookBrowserFolders).toHaveLength(1);
@@ -452,6 +490,18 @@ it('reconciles only complete folder observations, keeps captures append-only and
         value.providerId === 'syntheticMessage0001',
     ).bodyText,
   ).toBe('Synthetic body text.');
+  expect(
+    exported.records.outlookBrowserMessageCaptures.every(
+      (value: { effectiveSensitivity: string }) =>
+        value.effectiveSensitivity === 'restricted',
+    ),
+  ).toBe(true);
+  expect(
+    exported.records.outlookBrowserFolders.every(
+      (value: { effectiveSensitivity: string }) =>
+        value.effectiveSensitivity === 'restricted',
+    ),
+  ).toBe(true);
   expect(JSON.stringify(exported)).not.toContain(token);
   expect(JSON.stringify(exported.records)).not.toContain('activeAttemptId');
   expect(JSON.stringify(exported.records)).not.toContain('discoveryHash');

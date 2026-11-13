@@ -49,9 +49,9 @@ The migration does not alter or backfill `outlook_access_gate`. A production-cop
 - At most 200 messages per selected folder in one observation window.
 - Message subject 500 characters; sender display 200; sender address 320; snippet 2,000; plain-text body 20,000; canonical URL 2,000.
 - Received time is an exact instant or null. It is never inferred from a display label.
-- Current messages keep the plain-text body. Append-only captures keep metadata and snippet, not a second copy of the body.
+- Current messages keep the plain-text body. Append-only captures keep metadata and snippet, not a second copy of the body. Message detail and portable export add a read-time `effectiveSensitivity` to each capture by combining the current source, folder and message labels; immutable snapshot bytes are never rewritten by a later relabel.
 - Message identity is folder-scoped because Outlook Web folds folder membership into the rendered list. The same provider message visible in two selected folders is retained as two current records rather than silently merged.
-- Export includes safe source/folder/current-message/capture records. It excludes collector tokens, token hashes, attempt hashes, active-attempt IDs and browser profile/session data.
+- Export includes safe source/folder/current-message/capture records with read-time effective sensitivity. It excludes collector tokens, token hashes, attempt hashes, active-attempt IDs and browser profile/session data.
 
 ## Routes
 
@@ -81,7 +81,7 @@ Owner routes use the normal session, origin policy and operation receipts. Colle
 
 ## Local connector
 
-`apps/outlook-browser-connector` is a Playwright Core process. It launches a dedicated persistent Chrome or Edge profile **headful**. The profile directory must be new/empty on first use or already contain the exact Personal Hub Outlook profile marker, so pointing it at a normal Chrome/Edge profile fails closed. Sign-in and MFA remain normal interactive browser actions in the opened window; the connector waits a bounded configured interval, then reports `sign-in-required` or `mfa-required`.
+`apps/outlook-browser-connector` is a Playwright Core process. It launches a dedicated persistent Chrome or Edge profile **headful**. The profile directory must be new/empty on first use or already contain the exact Personal Hub Outlook profile marker, so pointing it at a normal Chrome/Edge profile fails closed. Sign-in and MFA remain normal interactive browser actions in the opened window; the connector waits a bounded configured interval, detects sign-in/MFA overlays and reports `sign-in-required` or `mfa-required`. Discovery requires an Outlook `/mail` route with a folder-list container, not just any same-origin page.
 
 Configuration lives outside the repository at `%APPDATA%\personal-hub\outlook-browser-connector.json` by default, or the path named by `HUB_OUTLOOK_BROWSER_CONFIG`:
 
@@ -113,9 +113,9 @@ Visible states are `never-synced`, `syncing`, `current`, `stale`, `partial`, `si
 - `current` requires a complete folder discovery, at least one selected folder, a complete observation for every folder selected at attempt start, and a matching selected-folder coverage revision.
 - Changing the selected set immediately invalidates `current` until that exact set completes.
 - A complete folder observation marks unseen messages missing **within that folder only**. Partial, inaccessible, sign-in, MFA or failed observations never prune unseen messages.
-- An empty rendered message list is currently reported as `partial`, not proven complete. Empty-state acceptance is part of the live gate.
-- A folder that redirects elsewhere, returns 403/404 or loses a reading pane becomes partial or inaccessible rather than an empty complete snapshot.
-- A message missing a required subject, sender, reading pane or valid exact timestamp is skipped and makes the folder partial. Unsafe or decorated canonical URLs fail validation instead of being guessed.
+- A complete observation requires a proven stable, fully linked identity window: every rendered `role="option"` resolves to a message identity, two bounded scroll sweeps reach the same identity set, and there is no unresolved skeleton, virtualized/recycled-row signal, `aria-setsize`/total-count gap, generic load-more, `rel="next"` pagination or collapsed section. Any such signal reports `partial` and never prunes. The server also rejects a `complete` observation with zero messages; the connector reports an empty folder as partial until live empty-state proof exists.
+- A folder that redirects elsewhere, returns 403/404 or loses a reading pane becomes partial or inaccessible rather than an empty complete snapshot. The rendered list is verified against the requested folder before upload.
+- A message missing a required subject, sender, reading pane or valid exact timestamp is skipped and makes the folder partial. Reading-pane projection is scoped to a single visible pane, requires stable content and a non-empty body or an explicit empty-body marker, verifies message identity and never follows body links as the sender. Unsafe or decorated canonical URLs fail validation instead of being guessed.
 - `stale` uses a six-hour freshness threshold. A collector that runs less often will visibly show stale rather than current.
 - Token revocation keeps imported records and shows `revoked`; a replacement token restores collector access.
 

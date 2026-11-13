@@ -11,5 +11,8 @@
   "dependencies": {
     "playwright-core": "1.64.0",
     "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "linkedom": "0.18.15"
   }
 }

@@ -76,6 +76,7 @@ export type MessageDetail = {
   senderAddress: string | null;
   receivedAt: string | null;
   bodyText: string | null;
+  bodyProvenEmpty?: boolean;
   conversationId: string | null;
 };
 
@@ -101,7 +102,16 @@ function addressOf(value: string | null | undefined) {
   const text = clean(value);
   if (!text) return null;
   const named = /<([^<>]+)>$/.exec(text);
-  const candidate = (named?.[1] ?? text).replace(/^mailto:/i, '');
+  const raw = (named?.[1] ?? text)
+    .replace(/^mailto:/i, '')
+    .split(/[?#]/, 1)[0]!
+    .trim();
+  let candidate: string;
+  try {
+    candidate = decodeURIComponent(raw);
+  } catch {
+    candidate = raw;
+  }
   if (
     candidate.length < 3 ||
     candidate.length > maxAddress ||
@@ -109,6 +119,14 @@ function addressOf(value: string | null | undefined) {
   )
     return null;
   return candidate;
+}
+
+function firstNonEmpty(...values: (string | null | undefined)[]) {
+  for (const value of values) {
+    const text = clean(value);
+    if (text) return text;
+  }
+  return '';
 }
 
 function instant(value: string | null | undefined) {
@@ -171,6 +189,24 @@ export function normalizeFolders(
   return sorted;
 }
 
+export function outlookMessageIdentity(origin: OutlookOrigin, value: string) {
+  const url = outlookIdentity(origin, value);
+  if (!url) return null;
+  const match =
+    /^\/mail\/(?:([A-Za-z0-9_-]{1,200})\/)?id\/([A-Za-z0-9_-]{8,2000})$/.exec(
+      url.pathname,
+    );
+  if (!match) return null;
+  const folderProviderId = match[1] ?? null;
+  if (folderProviderId && reservedFolderSegments.has(folderProviderId))
+    return null;
+  return {
+    providerId: match[2]!,
+    folderProviderId,
+    canonicalUrl: `${origin}${url.pathname}`,
+  };
+}
+
 export function canonicalMessageLinks(
   origin: OutlookOrigin,
   folderProviderIdValue: string,
@@ -222,13 +258,23 @@ export function projectMessage(
   if (!detail) return null;
 
   const providerId = match[2]!;
-  const subject = clean(detail.subject ?? row.subject).slice(0, maxSubject);
-  const senderDisplay = display(detail.sender ?? row.sender);
-  const senderAddress = addressOf(detail.senderAddress ?? row.senderAddress);
-  const receivedAt = instant(detail.receivedAt ?? row.receivedAt);
+  const subject = clean(firstNonEmpty(detail.subject, row.subject)).slice(
+    0,
+    maxSubject,
+  );
+  const senderDisplay = display(firstNonEmpty(detail.sender, row.sender));
+  const senderAddress = addressOf(
+    firstNonEmpty(detail.senderAddress, row.senderAddress),
+  );
+  const receivedAt = instant(
+    firstNonEmpty(detail.receivedAt, row.receivedAt) || null,
+  );
   const bodyText = (detail.bodyText ?? '').replace(/\r\n?/g, '\n').trim();
+  if (!bodyText && !detail.bodyProvenEmpty) return null;
   if (!subject || !senderDisplay || bodyText.length > maxBody) return null;
-  const conversation = clean(detail.conversationId ?? row.conversationId);
+  const conversation = clean(
+    firstNonEmpty(detail.conversationId, row.conversationId),
+  );
   const snippet =
     clean(row.snippet).slice(0, maxSnippet) ||
     clean(bodyText).slice(0, maxSnippet);
@@ -308,8 +354,10 @@ export function classifyOutlookPage(
   } catch {
     return { kind: 'foreign' };
   }
+  if (url.username || url.password) return { kind: 'foreign' };
   if (url.origin === origin) return { kind: 'outlook', pathname: url.pathname };
-  if (signInHosts.has(url.hostname)) return { kind: 'sign-in' };
+  if (url.protocol === 'https:' && signInHosts.has(url.hostname))
+    return { kind: 'sign-in' };
   return { kind: 'foreign' };
 }
 
@@ -338,4 +386,49 @@ export function uncertainFolderList(input: {
     input.loading ||
     input.pagination
   );
+}
+
+/**
+ * Conservative completeness proof for one folder message window. A complete
+ * observation requires every rendered option to resolve, stable identity
+ * coverage across a bounded scroll sweep and no virtualization/load-more or
+ * collapsed-section signal.
+ */
+export function assessMessageList(input: {
+  identities: number;
+  renderedOptions: number;
+  unresolved: number;
+  loadMore: boolean;
+  next: boolean;
+  collapsed: boolean;
+  totalCount: number | null;
+  setSize: number | null;
+  scrollable: boolean;
+  reachedBottom: boolean;
+  stable: boolean;
+  recycledIndexes: boolean;
+}) {
+  const reasons: string[] = [];
+  if (input.identities === 0) reasons.push('empty');
+  if (input.identities > maxMessagesPerFolder) reasons.push('bounded-window');
+  if (input.identities > input.renderedOptions)
+    reasons.push('virtualized-window');
+  if (input.unresolved > 0) reasons.push('unresolved-rows');
+  if (input.loadMore) reasons.push('load-more');
+  if (input.next) reasons.push('next-page');
+  if (input.collapsed) reasons.push('collapsed-section');
+  if (input.recycledIndexes) reasons.push('recycled-rows');
+  if (!input.stable) reasons.push('unstable-identities');
+  if (input.scrollable && !input.reachedBottom)
+    reasons.push('scroll-incomplete');
+  if (input.setSize !== null && input.identities < input.setSize)
+    reasons.push('virtualized-window');
+  if (input.totalCount !== null && input.identities < input.totalCount)
+    reasons.push('total-count-gap');
+  return { complete: reasons.length === 0, reasons };
+}
+
+/** True only for the Outlook Web mail application route. */
+export function isMailRoute(pathname: string) {
+  return /^\/mail(?:\/|$)/.test(pathname);
 }

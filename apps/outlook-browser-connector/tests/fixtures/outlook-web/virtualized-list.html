@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+  <body>
+    <main>
+      <div data-testid="message-list">
+        <div data-testid="message-list-count" aria-label="12 total messages">
+          12
+        </div>
+        <div role="listbox" data-testid="message-scroll">
+          <div role="option" aria-setsize="12" aria-posinset="1" data-index="0">
+            <a href="/mail/inbox/id/syntheticMessage0001">
+              <span data-testid="message-subject">Synthetic one</span>
+            </a>
+            <span data-testid="message-sender">Synthetic Advisor</span>
+            <time datetime="2026-11-01T15:30:00Z"></time>
+          </div>
+          <div role="option" aria-setsize="12" aria-posinset="2" data-index="1">
+            <a href="/mail/inbox/id/syntheticMessage0002">
+              <span data-testid="message-subject">Synthetic two</span>
+            </a>
+            <span data-testid="message-sender">Synthetic Advisor</span>
+          </div>
+          <div role="option" aria-setsize="12" aria-posinset="3" data-index="2">
+            <span data-testid="message-subject"
+              >Unlinked virtualized skeleton</span
+            >
+          </div>
+          <button aria-label="Load more messages">Load more</button>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

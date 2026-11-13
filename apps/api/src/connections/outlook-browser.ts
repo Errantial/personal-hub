@@ -281,16 +281,17 @@ async function readMessage(
      ORDER BY captured_at DESC,id LIMIT 50`,
     [owner, id],
   );
+  const effectiveSensitivity = strongest(
+    String(source?.sensitivity ?? 'unlabeled'),
+    String(folderLabel ?? 'unlabeled'),
+    String(message.sensitivity),
+  );
   return {
-    message: {
-      ...stored,
-      effectiveSensitivity: strongest(
-        String(source?.sensitivity ?? 'unlabeled'),
-        String(folderLabel ?? 'unlabeled'),
-        String(message.sensitivity),
-      ),
-    },
-    captures,
+    message: { ...stored, effectiveSensitivity },
+    captures: captures.map((capture) => ({
+      ...capture,
+      effectiveSensitivity,
+    })),
   };
 }
 
@@ -539,11 +540,14 @@ export function registerOutlookBrowser(
         [collector.owner, input.attemptId],
       );
       if (existing) {
-        if (existing.sourceVersion !== input.expectedSourceVersion)
+        if (
+          source.activeAttemptId !== input.attemptId ||
+          existing.sourceVersion !== input.expectedSourceVersion
+        )
           throw new ApiError(
             409,
             'ATTEMPT_CHANGED',
-            'The Outlook browser collection attempt changed.',
+            'The Outlook browser collection attempt is no longer active.',
           );
         return outlookBrowserAttemptStartResponseSchema.parse({
           attemptId: input.attemptId,
@@ -1007,6 +1011,16 @@ export async function exportOutlookBrowser(tx: QueryExecutor, owner: string) {
   const folderLabel = new Map(
     connection.folders.map((folder) => [folder.id, folder.sensitivity]),
   );
+  const messageSensitivity = new Map(
+    connection.messages.map((message) => [
+      message.id,
+      strongest(
+        connection.sensitivity,
+        String(folderLabel.get(message.browserFolderId) ?? 'unlabeled'),
+        message.sensitivity,
+      ),
+    ]),
+  );
   return {
     outlookBrowserSource: {
       sensitivity: connection.sensitivity,
@@ -1022,7 +1036,12 @@ export async function exportOutlookBrowser(tx: QueryExecutor, owner: string) {
       ),
     })),
     outlookBrowserMessageCaptures: captures.map((capture) =>
-      outlookBrowserMessageCaptureSchema.parse(capture),
+      outlookBrowserMessageCaptureSchema.parse({
+        ...capture,
+        effectiveSensitivity:
+          messageSensitivity.get(String(capture.browserMessageId)) ??
+          connection.sensitivity,
+      }),
     ),
   };
 }

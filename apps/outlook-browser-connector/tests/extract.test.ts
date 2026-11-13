@@ -3,6 +3,7 @@ import {
   canonicalMessageLinks,
   classifyOutlookPage,
   CollectionError,
+  isMailRoute,
   nextSettleState,
   normalizeFolders,
   normalizeMessages,
@@ -314,4 +315,84 @@ it('marks active search, filters, loading and pagination as uncertain', () => {
       pagination: true,
     }),
   ).toBe(true);
+});
+
+it('rejects non-HTTPS or userinfo sign-in hosts and only accepts exact Outlook origins', () => {
+  expect(
+    classifyOutlookPage(origin, 'http://login.microsoftonline.com/common'),
+  ).toEqual({ kind: 'foreign' });
+  expect(
+    classifyOutlookPage(
+      origin,
+      'https://user:secret@login.microsoftonline.com/common',
+    ),
+  ).toEqual({ kind: 'foreign' });
+  expect(
+    classifyOutlookPage(origin, 'https://login.microsoftonline.com/common'),
+  ).toEqual({ kind: 'sign-in' });
+});
+
+it('strips query/hash from sender mailto addresses and requires body text proof', () => {
+  const row: MessageRow = {
+    href: '/mail/inbox/id/syntheticAddress001',
+    subject: 'Synthetic subject',
+    sender: 'Synthetic Advisor',
+    senderAddress: null,
+    snippet: null,
+    receivedAt: null,
+    conversationId: null,
+  };
+  const withQuery = normalizeMessages(origin, 'inbox', [
+    {
+      row,
+      detail: {
+        subject: 'Synthetic subject',
+        sender: 'Synthetic Advisor',
+        senderAddress: 'mailto:advisor@example.test?subject=ignored#fragment',
+        receivedAt: null,
+        bodyText: 'Synthetic body.',
+        conversationId: null,
+      },
+    },
+  ]);
+  expect(withQuery.messages[0]?.senderAddress).toBe('advisor@example.test');
+  expect(
+    normalizeMessages(origin, 'inbox', [
+      {
+        row,
+        detail: {
+          subject: 'Synthetic subject',
+          sender: 'Synthetic Advisor',
+          senderAddress: null,
+          receivedAt: null,
+          bodyText: '',
+          conversationId: null,
+        },
+      },
+    ]).skipped,
+  ).toBe(1);
+  expect(
+    normalizeMessages(origin, 'inbox', [
+      {
+        row,
+        detail: {
+          subject: 'Synthetic subject',
+          sender: 'Synthetic Advisor',
+          senderAddress: null,
+          receivedAt: null,
+          bodyText: '',
+          bodyProvenEmpty: true,
+          conversationId: null,
+        },
+      },
+    ]).messages,
+  ).toHaveLength(1);
+});
+
+it('requires the Outlook mail route for discovery and rejects other same-origin pages', () => {
+  expect(isMailRoute('/mail')).toBe(true);
+  expect(isMailRoute('/mail/')).toBe(true);
+  expect(isMailRoute('/mail/inbox')).toBe(true);
+  expect(isMailRoute('/owa/')).toBe(false);
+  expect(isMailRoute('/calendar')).toBe(false);
 });

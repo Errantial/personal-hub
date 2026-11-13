@@ -209,6 +209,7 @@ export const outlookBrowserMessageCaptureSchema = z.object({
   attemptId: z.string().uuid(),
   browserMessageId: z.string().uuid(),
   snapshot: outlookBrowserMessageCaptureDataSchema,
+  effectiveSensitivity: sensitivitySchema,
   capturedAt: z.string().datetime(),
   createdAt: z.string().datetime(),
 });
@@ -331,6 +332,13 @@ export const outlookBrowserFolderObservationSchema = z
         code: 'custom',
         path: ['messages'],
         message: 'An inaccessible folder cannot include observed messages.',
+      });
+    if (value.status === 'complete' && value.messages.length === 0)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['messages'],
+        message:
+          'A complete observation requires an observed message window; empty folders report partial.',
       });
     const seen = new Set<string>();
     for (const message of value.messages) {

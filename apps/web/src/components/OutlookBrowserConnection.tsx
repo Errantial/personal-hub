@@ -80,6 +80,7 @@ export function OutlookBrowserConnection() {
     useState<OutlookBrowserMessageDetailResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
   const [status, setStatus] = useState('');
   const pending = useRef<{ key: string; id: string } | null>(null);
 
@@ -90,6 +91,7 @@ export function OutlookBrowserConnection() {
       signal ? { signal } : {},
     );
     if (!signal?.aborted) {
+      setLoadError('');
       setData(connection);
       setSourceDraft((previous) =>
         previous?.dirty
@@ -109,7 +111,7 @@ export function OutlookBrowserConnection() {
     const refresh = () => {
       void load(abort.signal).catch(() => {
         if (!abort.signal.aborted)
-          setError(
+          setLoadError(
             'Outlook browser status unavailable. Reload to check freshness.',
           );
       });
@@ -125,6 +127,7 @@ export function OutlookBrowserConnection() {
   async function perform(action: () => Promise<void>) {
     setBusy(true);
     setError('');
+    setLoadError('');
     setStatus('');
     try {
       await action();
@@ -170,6 +173,7 @@ export function OutlookBrowserConnection() {
       <section aria-label="Outlook browser connection" className="panel">
         <h3>Browser collector (read-only)</h3>
         <p role="status">Loading Outlook browser status…</p>
+        {loadError && <p role="alert">{loadError}</p>}
         {error && <p role="alert">{error}</p>}
       </section>
     );
@@ -196,7 +200,10 @@ export function OutlookBrowserConnection() {
         interactive Outlook Web sign-in. It imports selected folder coverage,
         bounded message metadata and plain text only. It does not use Microsoft
         Graph, export cookies, read hidden API responses, take screenshots,
-        download attachments or send, write or change calendar items. Partial or
+        download attachments or send, write or change calendar items. No HTML,
+        raw headers, cookies or session data are stored. Opening a reading pane
+        can follow your account's normal read/unread and read-receipt settings,
+        so this is not a guarantee of zero server-side state change. Partial or
         inaccessible folders never remove unseen messages. This is separate from
         the Graph access gate above.
       </Help>
@@ -213,6 +220,7 @@ export function OutlookBrowserConnection() {
             ` · ${errorHelp(data.lastErrorCode)}`}
         </p>
       )}
+      {loadError && <p role="alert">{loadError}</p>}
       {error && <p role="alert">{error}</p>}
       {status && <p role="status">{status}</p>}
 
@@ -370,10 +378,14 @@ export function OutlookBrowserConnection() {
           type="button"
           disabled={busy}
           onClick={() =>
-            setSourceDraft({
-              version: data.version,
-              sensitivity: source.sensitivity,
-              dirty: source.sensitivity !== data.sensitivity,
+            void perform(async () => {
+              const connection = await load();
+              setSourceDraft({
+                version: connection.version,
+                sensitivity: connection.sensitivity,
+                dirty: false,
+              });
+              setStatus('Outlook browser source version reloaded.');
             })
           }
         >
@@ -395,7 +407,6 @@ export function OutlookBrowserConnection() {
         </p>
       )}
       {data.folders.map((item) => {
-        const latest = data.folders.find((value) => value.id === item.id);
         return (
           <section
             key={item.id}
@@ -501,16 +512,28 @@ export function OutlookBrowserConnection() {
                   <button disabled={busy}>Save browser folder</button>
                   <button
                     type="button"
-                    disabled={!latest || busy}
-                    onClick={() => {
-                      if (latest)
+                    disabled={busy}
+                    onClick={() =>
+                      void perform(async () => {
+                        const connection = await load();
+                        const fresh = connection.folders.find(
+                          (value) => value.id === folder.item.id,
+                        );
+                        if (!fresh) {
+                          setFolder(null);
+                          throw new Error(
+                            'This folder is no longer discovered. Reload status.',
+                          );
+                        }
                         setFolder({
-                          item: latest,
-                          selected: latest.selected,
-                          notes: latest.notes,
-                          sensitivity: latest.sensitivity,
+                          item: fresh,
+                          selected: fresh.selected,
+                          notes: fresh.notes,
+                          sensitivity: fresh.sensitivity,
                         });
-                    }}
+                        setStatus('Outlook browser folder version reloaded.');
+                      })
+                    }
                   >
                     Reload folder version
                   </button>
@@ -542,7 +565,6 @@ export function OutlookBrowserConnection() {
         </p>
       )}
       {data.messages.map((item) => {
-        const latest = data.messages.find((value) => value.id === item.id);
         const folderName = data.folders.find(
           (value) => value.id === item.browserFolderId,
         )?.name;
@@ -679,15 +701,27 @@ export function OutlookBrowserConnection() {
                   <button disabled={busy}>Save message notes</button>
                   <button
                     type="button"
-                    disabled={!latest || busy}
-                    onClick={() => {
-                      if (latest)
+                    disabled={busy}
+                    onClick={() =>
+                      void perform(async () => {
+                        const connection = await load();
+                        const fresh = connection.messages.find(
+                          (value) => value.id === message.item.id,
+                        );
+                        if (!fresh) {
+                          setMessage(null);
+                          throw new Error(
+                            'This message is no longer retained. Reload status.',
+                          );
+                        }
                         setMessage({
-                          item: latest,
-                          notes: latest.notes,
-                          sensitivity: latest.sensitivity,
+                          item: fresh,
+                          notes: fresh.notes,
+                          sensitivity: fresh.sensitivity,
                         });
-                    }}
+                        setStatus('Outlook browser message version reloaded.');
+                      })
+                    }
                   >
                     Reload message version
                   </button>
