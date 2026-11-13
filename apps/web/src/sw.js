@@ -39,7 +39,7 @@ self.addEventListener('fetch', (event) => {
   if (
     !navigation &&
     !['/@vite/client', '/@react-refresh'].includes(url.pathname) &&
-    !/\.(js|mjs|ts|tsx|css|svg|ico|woff2)(\?|$)/.test(url.pathname)
+    !/\.(js|mjs|ts|tsx|css|svg|ico|woff2|json)(\?|$)/.test(url.pathname)
   )
     return;
   // Built assets carry a content hash in their name, so a cached copy never
