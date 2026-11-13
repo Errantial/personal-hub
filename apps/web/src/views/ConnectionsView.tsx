@@ -13,6 +13,7 @@ import { CanvasBrowserConnection } from '../components/CanvasBrowserConnection';
 import { CanvasReconciliation } from '../components/CanvasReconciliation';
 import { EmailConnectors } from '../components/EmailConnectors';
 import { OutlookAccessGate } from '../components/OutlookAccessGate';
+import { OutlookBrowserConnection } from '../components/OutlookBrowserConnection';
 import { getSnapshot } from '../lib/api';
 import { useResource } from '../lib/hooks';
 import { canvasTabLabels, canvasTabs } from '../lib/router';
@@ -128,8 +129,9 @@ export function ConnectionsView({
       <h2 id="connections-title">Connections</h2>
       <Help label="Connections">
         Proton Mail is imported read-only through a connector on the computer
-        running Proton Bridge. School Outlook has a feasibility/access gate but
-        no mailbox adapter yet. Proton Calendar is not implemented yet.
+        running Proton Bridge. School Outlook has a separate Graph access gate
+        and a read-only local browser collector; neither sends or writes mail.
+        Proton Calendar is not implemented yet.
       </Help>
       <div className="connection-grid">
         <CanvasCard navigate={navigate} />
@@ -176,6 +178,7 @@ function OutlookDetail({ navigate }: { navigate: (route: Route) => void }) {
       </Link>
       <h2 id="outlook-title">School Outlook</h2>
       <OutlookAccessGate />
+      <OutlookBrowserConnection />
     </section>
   );
 }

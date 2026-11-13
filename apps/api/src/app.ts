@@ -24,6 +24,10 @@ import { registerCanvasReconciliation } from './connections/canvas-reconciliatio
 import { registerCanvasPlannerWork } from './connections/canvas-planner-work.js';
 import { registerOutlook } from './connections/outlook.js';
 import {
+  outlookBrowserCollectorPathPrefix,
+  registerOutlookBrowser,
+} from './connections/outlook-browser.js';
+import {
   canvasBrowserCollectorPathPrefix,
   registerCanvasBrowser,
 } from './connections/canvas-browser.js';
@@ -127,7 +131,9 @@ export async function buildApp(
         (request.url.startsWith(connectorPathPrefix) &&
           request.headers.authorization?.startsWith('Bearer hubc_')) ||
         (request.url.startsWith(canvasBrowserCollectorPathPrefix) &&
-          request.headers.authorization?.startsWith('Bearer hubcb_'));
+          request.headers.authorization?.startsWith('Bearer hubcb_')) ||
+        (request.url.startsWith(outlookBrowserCollectorPathPrefix) &&
+          request.headers.authorization?.startsWith('Bearer hubob_'));
       if (
         !connector &&
         (!request.headers.origin ||
@@ -148,6 +154,7 @@ export async function buildApp(
   registerCanvas(app, database, auth, config);
   registerCanvasLms(app, database, auth, config);
   registerCanvasBrowser(app, database, auth);
+  registerOutlookBrowser(app, database, auth);
   registerCanvasReconciliation(app, database, auth);
   registerCanvasPlannerWork(app, database, auth);
   registerTrackedDeadlines(app, database, auth);
