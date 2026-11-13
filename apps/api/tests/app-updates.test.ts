@@ -255,7 +255,7 @@ describe('app update service', () => {
       }
       throw new Error(`Unexpected network URL: ${url}`);
     };
-    const service = createAppUpdateService({ fetcher });
+    const service = createAppUpdateService({ fetcher, now: () => 1_000 });
     const first = service.check(1);
     const second = service.check(1);
     await Promise.resolve();
