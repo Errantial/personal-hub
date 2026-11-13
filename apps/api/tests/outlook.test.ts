@@ -99,7 +99,24 @@ it('records the Outlook access gate without creating OAuth or mailbox state and 
     await db.query(
       "SELECT table_name FROM information_schema.tables WHERE table_name LIKE 'outlook_%' ORDER BY table_name",
     ),
-  ).toEqual([{ table_name: 'outlook_access_gate' }]);
+  ).toEqual([
+    { table_name: 'outlook_access_gate' },
+    { table_name: 'outlook_browser_attempts' },
+    { table_name: 'outlook_browser_folder_observations' },
+    { table_name: 'outlook_browser_folders' },
+    { table_name: 'outlook_browser_message_captures' },
+    { table_name: 'outlook_browser_messages' },
+    { table_name: 'outlook_browser_sources' },
+  ]);
+  for (const table of [
+    'outlook_browser_sources',
+    'outlook_browser_attempts',
+    'outlook_browser_folders',
+    'outlook_browser_messages',
+    'outlook_browser_folder_observations',
+    'outlook_browser_message_captures',
+  ])
+    expect(await db.query(`SELECT * FROM ${table}`)).toEqual([]);
 });
 
 it('derives admin, scope-review and blocked states without inferring permission from an Outlook client name', async () => {

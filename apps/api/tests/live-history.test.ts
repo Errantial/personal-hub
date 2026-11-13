@@ -307,4 +307,62 @@ describe('history planner provenance', () => {
     );
     expect(await eligible()).toBe(false);
   });
+
+  it('withholds topic history when retained labels exceed the allowed set', async () => {
+    const id = randomUUID();
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes('FROM topics')) {
+        return [
+          {
+            id,
+            sensitivity: 'unlabeled',
+            academicLabels: ['personal'],
+            courseSensitivity: 'unlabeled',
+          },
+        ];
+      }
+      return [];
+    });
+    expect(
+      await historySourcesEligible(
+        { query } as unknown as QueryExecutor,
+        owner,
+        [{ kind: 'topic', id, labels: ['unlabeled'] }],
+        { allowed: ['unlabeled'], useMail: false },
+      ),
+    ).toBe(false);
+    expect(
+      await historySourcesEligible(
+        { query } as unknown as QueryExecutor,
+        owner,
+        [{ kind: 'topic', id, labels: ['personal'] }],
+        { allowed: ['unlabeled', 'personal'], useMail: false },
+      ),
+    ).toBe(true);
+  });
+
+  it('withholds legacy topic history with no retained label history', async () => {
+    const id = randomUUID();
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes('FROM topics')) {
+        return [
+          {
+            id,
+            sensitivity: 'unlabeled',
+            academicLabels: null,
+            courseSensitivity: 'unlabeled',
+          },
+        ];
+      }
+      return [];
+    });
+    expect(
+      await historySourcesEligible(
+        { query } as unknown as QueryExecutor,
+        owner,
+        [{ kind: 'topic', id, labels: ['unlabeled'] }],
+        { allowed: ['unlabeled', 'personal'], useMail: false },
+      ),
+    ).toBe(false);
+  });
 });

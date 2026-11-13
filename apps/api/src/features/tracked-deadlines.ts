@@ -19,7 +19,66 @@ import {
 
 const idParams = z.strictObject({ id: z.string().uuid() });
 
-async function changedOrMissing(tx: QueryExecutor, owner: string, id: string) {
+export type TrackedDeadlineUpdate = z.infer<typeof trackedDeadlineUpdateSchema>;
+
+/** One owned local deadline edit; the caller owns the operation receipt. */
+export async function saveTrackedDeadlineUpdate(
+  tx: QueryExecutor,
+  owner: string,
+  id: string,
+  input: TrackedDeadlineUpdate,
+) {
+  const dueAt =
+    input.dueOverride.kind === 'timed' ? input.dueOverride.dueAt : null;
+  const dueDate =
+    input.dueOverride.kind === 'date' ? input.dueOverride.dueDate : null;
+  const dueTimeZone =
+    input.dueOverride.kind === 'timed' ? input.dueOverride.timeZone : null;
+  const saved = await tx.query(
+    `UPDATE tracked_deadlines
+     SET title_override=$4,priority=$5,notes=$6,due_override_kind=$7,due_at_override=$8,due_date_override=$9,due_time_zone=$10,sensitivity=$11,version=version+1,updated_at=CURRENT_TIMESTAMP
+     WHERE owner_id=$1 AND id=$2 AND version=$3 RETURNING id`,
+    [
+      owner,
+      id,
+      input.expectedVersion,
+      input.titleOverride,
+      input.priority,
+      input.notes,
+      input.dueOverride.kind,
+      dueAt,
+      dueDate,
+      dueTimeZone,
+      input.sensitivity,
+    ],
+  );
+  if (!saved.length) await changedOrMissing(tx, owner, id);
+  return readTrackedDeadline(tx, owner, id);
+}
+
+/** One owned local complete/reopen; Canvas is never called or changed. */
+export async function changeTrackedDeadlineCompletion(
+  tx: QueryExecutor,
+  owner: string,
+  action: 'complete' | 'reopen',
+  id: string,
+  expectedVersion: number,
+) {
+  const saved = await tx.query(
+    `UPDATE tracked_deadlines
+     SET completed_at=${action === 'complete' ? 'CURRENT_TIMESTAMP' : 'NULL'},version=version+1,updated_at=CURRENT_TIMESTAMP
+     WHERE owner_id=$1 AND id=$2 AND version=$3 RETURNING id`,
+    [owner, id, expectedVersion],
+  );
+  if (!saved.length) await changedOrMissing(tx, owner, id);
+  return readTrackedDeadline(tx, owner, id);
+}
+
+export async function changedOrMissing(
+  tx: QueryExecutor,
+  owner: string,
+  id: string,
+) {
   const [existing] = await tx.query(
     'SELECT id FROM tracked_deadlines WHERE owner_id=$1 AND id=$2',
     [owner, id],
@@ -109,38 +168,10 @@ export function registerTrackedDeadlines(
       user.id,
       input.operationId,
       { kind: 'deadline.update', id, input },
-      async (tx) => {
-        const dueAt =
-          input.dueOverride.kind === 'timed' ? input.dueOverride.dueAt : null;
-        const dueDate =
-          input.dueOverride.kind === 'date' ? input.dueOverride.dueDate : null;
-        const dueTimeZone =
-          input.dueOverride.kind === 'timed'
-            ? input.dueOverride.timeZone
-            : null;
-        const saved = await tx.query(
-          `UPDATE tracked_deadlines
-           SET title_override=$4,priority=$5,notes=$6,due_override_kind=$7,due_at_override=$8,due_date_override=$9,due_time_zone=$10,sensitivity=$11,version=version+1,updated_at=CURRENT_TIMESTAMP
-           WHERE owner_id=$1 AND id=$2 AND version=$3 RETURNING id`,
-          [
-            user.id,
-            id,
-            input.expectedVersion,
-            input.titleOverride,
-            input.priority,
-            input.notes,
-            input.dueOverride.kind,
-            dueAt,
-            dueDate,
-            dueTimeZone,
-            input.sensitivity,
-          ],
-        );
-        if (!saved.length) await changedOrMissing(tx, user.id, id);
-        return trackedDeadlineResponseSchema.parse({
-          deadline: await readTrackedDeadline(tx, user.id, id),
-        });
-      },
+      async (tx) =>
+        trackedDeadlineResponseSchema.parse({
+          deadline: await saveTrackedDeadlineUpdate(tx, user.id, id, input),
+        }),
     );
   });
 
@@ -154,18 +185,16 @@ export function registerTrackedDeadlines(
         user.id,
         input.operationId,
         { kind: `deadline.${action}`, id, input },
-        async (tx) => {
-          const saved = await tx.query(
-            `UPDATE tracked_deadlines
-             SET completed_at=${action === 'complete' ? 'CURRENT_TIMESTAMP' : 'NULL'},version=version+1,updated_at=CURRENT_TIMESTAMP
-             WHERE owner_id=$1 AND id=$2 AND version=$3 RETURNING id`,
-            [user.id, id, input.expectedVersion],
-          );
-          if (!saved.length) await changedOrMissing(tx, user.id, id);
-          return trackedDeadlineResponseSchema.parse({
-            deadline: await readTrackedDeadline(tx, user.id, id),
-          });
-        },
+        async (tx) =>
+          trackedDeadlineResponseSchema.parse({
+            deadline: await changeTrackedDeadlineCompletion(
+              tx,
+              user.id,
+              action,
+              id,
+              input.expectedVersion,
+            ),
+          }),
       );
     });
 }

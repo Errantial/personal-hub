@@ -10,6 +10,7 @@ import { readConfig } from '../src/config.js';
 import { openDatabase } from '../src/db/database.js';
 import { runCanvasSync } from '../src/connections/canvas.js';
 import { runCanvasLmsSync } from '../src/connections/canvas-lms.js';
+import { duesCompatible } from '../src/connections/canvas-deadlines.js';
 import type { CanvasApiSnapshot } from '../src/connections/canvas-api.js';
 
 const origin = 'http://127.0.0.1:5173';
@@ -241,6 +242,37 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app?.close();
+});
+
+it('treats equal timed instants with different offsets as compatible', () => {
+  expect(
+    duesCompatible(
+      {
+        kind: 'timed',
+        dueAt: '2027-05-02T05:30:00-06:00',
+        timeZone: 'America/Denver',
+      },
+      {
+        kind: 'timed',
+        dueAt: '2027-05-02T11:30:00.000Z',
+        timeZone: 'UTC',
+      },
+    ),
+  ).toBe(true);
+  expect(
+    duesCompatible(
+      {
+        kind: 'timed',
+        dueAt: '2027-05-02T05:30:00-06:00',
+        timeZone: 'America/Denver',
+      },
+      {
+        kind: 'timed',
+        dueAt: '2027-05-02T11:31:00.000Z',
+        timeZone: 'UTC',
+      },
+    ),
+  ).toBe(false);
 });
 
 it('keeps the first exact source primary, reviews richer alternates, and changes effective data only after owner adoption', async () => {

@@ -20,12 +20,15 @@ import {
   projectEvent,
   projectReminder,
   projectTask,
+  projectTopic,
 } from './live-projections.js';
 import type { MailProjected } from './live-projections.js';
 import { reprojectTrackedDeadlineSource } from './tracked-deadline-context.js';
+import { topicLabelState } from './topic-labels.js';
 import { readAssistantSettings } from './live-request.js';
-import { courseSchema, reminderSchema } from '@hub/contracts';
+import { courseSchema, reminderSchema, topicSchema } from '@hub/contracts';
 import { reminderColumns } from '../features/reminders.js';
+import { topicColumns } from '../features/common.js';
 import { exchange, pinnedRouting } from './openrouter-live.js';
 import type { ExchangeResult, OpenRouterFetch } from './openrouter-live.js';
 
@@ -289,7 +292,10 @@ export async function verifyLive(
   }
 
   for (const source of manifest.sources.filter(
-    (item) => item.kind === 'reminder' || item.kind === 'course',
+    (item) =>
+      item.kind === 'reminder' ||
+      item.kind === 'course' ||
+      item.kind === 'topic',
   )) {
     if (source.kind === 'reminder') {
       const [row] = await tx.query(
@@ -309,7 +315,7 @@ export async function verifyLive(
         ) !== source.digest
       )
         return 'context-changed';
-    } else {
+    } else if (source.kind === 'course') {
       const [row] = await tx.query(
         `SELECT id,name,term,instructor,notes,sensitivity,version,
            to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
@@ -328,6 +334,40 @@ export async function verifyLive(
           source.projection,
           source.id,
           projectCourse(course, source.ref),
+        ) !== source.digest
+      )
+        return 'context-changed';
+    } else {
+      const [row] = await tx.query(
+        `SELECT ${topicColumns} FROM topics WHERE owner_id=$1 AND id=$2 AND deleted_at IS NULL`,
+        [owner, source.id],
+      );
+      if (!row || Number(row.version) !== source.version)
+        return 'context-changed';
+      const topic = topicSchema.parse(row);
+      const [course] = await tx.query(
+        'SELECT sensitivity FROM courses WHERE owner_id=$1 AND id=$2 AND deleted_at IS NULL',
+        [owner, topic.courseId],
+      );
+      if (!course) return 'context-changed';
+      const labels = topicLabelState(topic, course.sensitivity);
+      if (
+        !labels.complete ||
+        labels.labels.length !== source.labels.length ||
+        !labels.labels.every((label) => source.labels.includes(label))
+      )
+        return 'context-changed';
+      const courseSource = manifest.sources.find(
+        (candidate) =>
+          candidate.kind === 'course' && candidate.id === topic.courseId,
+      );
+      if (
+        sourceDigest(
+          owner,
+          requestId,
+          source.projection,
+          source.id,
+          projectTopic(topic, source.ref, courseSource?.ref ?? null),
         ) !== source.digest
       )
         return 'context-changed';

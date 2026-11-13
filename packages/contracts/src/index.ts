@@ -13,6 +13,7 @@ export * from './canvas-planner-work.js';
 export * from './canvas-identity.js';
 export * from './tracked-deadlines.js';
 export * from './outlook.js';
+export * from './outlook-browser.js';
 export * from './ai-routing.js';
 export * from './ai-preflight.js';
 export * from './ai-context-manifest.js';

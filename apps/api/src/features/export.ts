@@ -7,6 +7,7 @@ import { taskColumns } from '../planner/routes.js';
 import { readCanvasLms } from '../connections/canvas-lms.js';
 import { exportCanvasBrowser } from '../connections/canvas-browser.js';
 import { readOutlookAccessGate } from '../connections/outlook.js';
+import { exportOutlookBrowser } from '../connections/outlook-browser.js';
 import {
   readBrowserReconciliations,
   readReconciliations,
@@ -122,6 +123,7 @@ export function registerExport(
         canvasBrowserReconciliations,
         trackedDeadlines: await readTrackedDeadlines(tx, owner.id, 10000),
         outlookAccessGate: await readOutlookAccessGate(tx, owner.id),
+        ...(await exportOutlookBrowser(tx, owner.id)),
         aiRouting: await readAIRoutingPolicy(tx, owner.id),
         aiActions: await readAIActionPolicy(tx, owner.id),
         ...(await exportEmailDrafts(tx, owner.id)),

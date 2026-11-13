@@ -279,6 +279,7 @@ async function applyInTransaction(
     const requestedMode = proposalPolicyMode(proposal, policy);
     const autoApproved =
       autoApprove === true &&
+      proposal.kind !== 'reminder.cancel' &&
       proposalTier(proposal) <= 2 &&
       requestedMode === 'approval-required';
     const mode = autoApproved ? 'automatic' : requestedMode;

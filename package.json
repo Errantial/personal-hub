@@ -14,7 +14,7 @@
   "scripts": {
     "predev": "npm run build --workspace @hub/contracts",
     "dev": "concurrently --kill-others --names contracts,api,web \"npm run dev --workspace @hub/contracts\" \"npm run dev --workspace @hub/api\" \"npm run dev --workspace @hub/web\"",
-    "build": "npm run build --workspace @hub/contracts && npm run build --workspace @hub/api && npm run build --workspace @hub/web",
+    "build": "npm run build --workspace @hub/contracts && npm run build --workspace @hub/api && npm run build --workspace @hub/web && npm run build --workspace @hub/outlook-browser-connector",
     "typecheck": "npm run build --workspace @hub/contracts && npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
     "format": "prettier --write .",

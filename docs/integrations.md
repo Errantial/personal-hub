@@ -54,7 +54,7 @@ Proof required: create a permitted feed, observe an event update/cancellation an
 
 ## School email through Outlook
 
-Confirmed: school mail is accessed through Outlook. Outlook is a client; the hub now has a metadata-only owner-recorded access gate for backend, school-managed tenant class, mailbox scope, app-registration availability and delegated-consent policy. The gate performs no Microsoft sign-in, OAuth/token storage or mailbox read. Microsoft Graph remains the proposed adapter only if actual account/tenant evidence proves it feasible. [Outlook mail API](https://learn.microsoft.com/en-us/graph/outlook-mail-concept-overview).
+Confirmed: school mail is accessed through Outlook. Outlook is a client; the hub now has a metadata-only owner-recorded access gate for backend, school-managed tenant class, mailbox scope, app-registration availability and delegated-consent policy. The gate itself performs no Microsoft sign-in, OAuth/token storage or mailbox read. A separate read-only [browser collector](outlook-browser.md) is implemented in development with a dedicated local profile and normal interactive sign-in; it is not Graph access, does not export cookies and was tested only with synthetic fixtures. Microsoft Graph remains the proposed OAuth adapter only if actual account/tenant evidence proves it feasible. [Outlook mail API](https://learn.microsoft.com/en-us/graph/outlook-mail-concept-overview).
 
 Use delegated user access for this personal hub, with the smallest needed scopes. School tenant policy may prevent user consent even for scopes normally consentable by a user. Avoid tenant-wide app-only access for this workflow. [Graph permissions overview](https://learn.microsoft.com/en-us/graph/permissions-overview).
 

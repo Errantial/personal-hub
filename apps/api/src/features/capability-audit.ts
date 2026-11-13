@@ -19,6 +19,19 @@ const actionByCapability: Record<string, string> = {
   'event.delete': 'delete',
   'event.restore': 'restore',
   'study.preferences.update': 'update',
+  'course.create': 'create',
+  'course.update': 'update',
+  'course.delete': 'delete',
+  'topic.create': 'create',
+  'topic.update': 'update',
+  'topic.delete': 'delete',
+  'academicWork.create': 'create',
+  'academicWork.update': 'update',
+  'academicWork.delete': 'delete',
+  'academicWork.restore': 'restore',
+  'trackedDeadline.update': 'update',
+  'trackedDeadline.complete': 'update',
+  'trackedDeadline.reopen': 'update',
   'settings.auto_approve': 'update',
   'mail.archive': 'update',
   'mail.label': 'update',
@@ -70,11 +83,13 @@ export async function recordCapabilityAudit(
     tool?: string | null;
     before?: unknown;
     after?: unknown;
+    targetId?: string | null;
     undoable?: boolean;
     autoApproved?: boolean;
   } = {},
 ) {
   const item = target(proposal);
+  const targetId = options.targetId === undefined ? item.id : options.targetId;
   const id = randomUUID();
   await tx.query(
     `INSERT INTO ai_capability_audit
@@ -88,7 +103,7 @@ export async function recordCapabilityAudit(
       capability(proposal),
       action(proposal),
       item.kind,
-      item.id,
+      targetId,
       decision,
       options.reason ?? null,
       options.operationId ?? null,

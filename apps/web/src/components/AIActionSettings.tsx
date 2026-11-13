@@ -80,8 +80,9 @@ export function AIActionSettings() {
       <h2>Actions</h2>
       <Help label="Agent actions">
         These settings govern agent runs. Assistant answers always ask first.
-        Automatic changes apply to hub tasks, calendar records and task
-        reminders. Destructive reminder changes still ask first.
+        Automatic changes apply to hub tasks, calendar records, task reminders,
+        classes, topics, academic work and imported-deadline planning fields.
+        Destructive reminder changes still ask first.
       </Help>
       {!online && <p role="status">Offline. Reconnect to save.</p>}
       {error && <p role="alert">{error}</p>}
@@ -118,9 +119,9 @@ export function AIActionSettings() {
           </label>
           {draft.autoApprove && (
             <p role="alert" className="form-error">
-              Tier 1 and Tier 2 agent changes apply without a prompt. Tier 3
-              actions still ask, and every applied change is audited and
-              undoable.
+              Tier 1 and Tier 2 agent changes apply without a prompt. Reminder
+              cancellations and Tier 3 actions still ask, and every applied
+              change is audited and undoable.
             </p>
           )}
           {(['tasks', 'calendar', 'reminders', 'capabilities'] as const).map(
@@ -174,8 +175,9 @@ export function AIActionSettings() {
             Allow all Tier 1 automatically
           </button>
           <p>
-            Email always asks first. Deletes and restores follow the Tier 1/2
-            setting above; Tier 3 actions always ask.
+            Other Tier 1 follows the grant above. Tier 2 deletes and restores
+            ask first unless Auto-approve agent changes is on. Reminder
+            cancellations, email and Tier 3 actions always ask.
           </p>
           <CapabilityAudit online={online} />
           <button type="submit" disabled={busy || !online}>
