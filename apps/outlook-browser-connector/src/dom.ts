@@ -100,8 +100,18 @@ export function readMessageList(
     clone.querySelectorAll('a').forEach((anchor) => anchor.remove());
     return elementText(clone);
   };
-  const rowNodes = [...document.querySelectorAll(selectors.messageRows)];
-  const root = document.querySelector(selectors.list) ?? document;
+  const explicitList = document.querySelector(
+    '[data-testid="message-list"], [data-app-section="message-list"]',
+  );
+  const listbox = [...document.querySelectorAll('[role="listbox"]')].find(
+    (node) => node.querySelector('a[href*="/id/"]'),
+  );
+  const root = explicitList ?? listbox ?? document;
+  const rowNodes = [
+    ...(root === document
+      ? document.querySelectorAll(selectors.messageRows)
+      : root.querySelectorAll('[role="option"]')),
+  ];
   const rows: MessageRowSnapshot[] = rowNodes.map((node) => {
     const link = node.querySelector(selectors.messageLink);
     const emailNode = node.querySelector('[data-email-address]');
@@ -183,10 +193,16 @@ export function readMessageList(
     document.querySelector('[aria-busy="true"]'),
   );
   const collapsed = [
-    ...root.querySelectorAll('details:not([open]), [aria-expanded="false"]'),
+    ...root.querySelectorAll(
+      'details:not([open]), [data-collapsed="true"], [data-testid*="collapsed" i], [aria-expanded="false"]',
+    ),
   ].some((node) => {
-    if (!node.closest('[role="option"]')) return true;
-    return !['BUTTON', 'A', 'INPUT', 'SELECT'].includes(node.tagName);
+    if (node.tagName === 'DETAILS') return true;
+    if (node.getAttribute('data-collapsed') === 'true') return true;
+    if ((node.getAttribute('data-testid') ?? '').includes('collapsed'))
+      return true;
+    const label = `${node.getAttribute('aria-label') ?? ''} ${elementText(node)}`;
+    return /expand|collapsed|conversation/i.test(label);
   });
   const ancestors: Element[] = [];
   let ancestor = (root as Element).parentElement ?? null;
@@ -241,7 +257,14 @@ export function scrollMessageList(
   selectors: typeof domSelectors,
   position: 'top' | 'next' | 'end',
 ) {
-  const root = document.querySelector(selectors.list) ?? document;
+  const root =
+    document.querySelector(
+      '[data-testid="message-list"], [data-app-section="message-list"]',
+    ) ??
+    [...document.querySelectorAll('[role="listbox"]')].find((node) =>
+      node.querySelector('a[href*="/id/"]'),
+    ) ??
+    document;
   const ancestors: Element[] = [];
   let ancestor = (root as Element).parentElement ?? null;
   for (let depth = 0; depth < 5 && ancestor; depth++) {

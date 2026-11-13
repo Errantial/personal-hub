@@ -34,7 +34,6 @@ const maxRows = 200;
 const maxSweepPasses = 14;
 const loadingSelector = domSelectors.loading;
 const folderLinkSelector = domSelectors.folderLinks;
-const messageRowSelector = domSelectors.messageRows;
 const readingPaneSelector = domSelectors.readingPanes;
 
 export type Discovery = { status: 'complete' | 'partial'; folders: Folder[] };
@@ -107,7 +106,9 @@ async function settleMessageList(page: Page) {
     const snapshot = await readListSnapshot(page);
     if (snapshot.options > 0)
       await page
-        .locator(messageRowSelector)
+        .locator(domSelectors.list)
+        .first()
+        .locator('[role="option"]')
         .last()
         .scrollIntoViewIfNeeded()
         .catch(() => undefined);
@@ -584,7 +585,9 @@ export async function openBrowserCollector(
       if (status === 'partial') return { status: 'partial', messages: [] };
       try {
         await page
-          .locator(messageRowSelector)
+          .locator(domSelectors.list)
+          .first()
+          .locator('[role="option"]')
           .first()
           .waitFor({ state: 'attached', timeout: 15000 });
       } catch {
