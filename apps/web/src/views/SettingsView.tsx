@@ -1,6 +1,7 @@
 import { Help } from '../components/Help';
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { AccountSettings } from '../components/AccountSettings';
+import { AppUpdatesSettings } from '../components/AppUpdatesSettings';
 import { MemorySettings } from '../components/MemorySettings';
 import { StudySettings } from '../components/StudySettings';
 import { AIView } from '../components/AIView';
@@ -11,9 +12,6 @@ import type { User } from '@hub/contracts';
 import type { Appearance } from '../lib/appearance';
 import { sectionLabels, settingsSections } from '../lib/router';
 import type { Route } from '../lib/router';
-
-/** Set by the Android build script; absent on the website. */
-const appVersion = import.meta.env.VITE_HUB_APP_VERSION as string | undefined;
 
 export function SettingsView({
   route,
@@ -51,6 +49,7 @@ export function SettingsView({
         {section === 'account' && (
           <div className="preferences-grid">
             <AccountSettings />
+            <AppUpdatesSettings />
             <section className="panel preference-panel">
               <h2>Sign out</h2>
               <p>Signed in as {user.email}</p>
@@ -68,12 +67,6 @@ export function SettingsView({
                 Sign out
               </button>
             </section>
-            {appVersion && (
-              <section className="panel preference-panel">
-                <h2>App version</h2>
-                <p>{appVersion}</p>
-              </section>
-            )}
           </div>
         )}
         {section === 'appearance' && (

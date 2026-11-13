@@ -26,6 +26,8 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // Capacitor discovers custom plugins before the bridge is created.
+        registerPlugin(AppUpdaterPlugin.class);
         super.onCreate(savedInstanceState);
         // Capacitor's stock activity leaves desktop-style history navigation
         // to the WebView. Route the system Back gesture through WebView history

@@ -61,12 +61,13 @@ AI permissions include provider-routing rules based only on sources/content expl
 9. [Persistent agent scope](docs/agent-scope.md): OpenAI Dots/OpenDots-style responsibilities, scheduled work, memory and controls.
 10. [Implementation backlog](docs/backlog.md): current progress, acceptance checks, unresolved verification and next work.
 11. [Android prototype](docs/android.md): APK builds, isolated emulator server and hardware boundaries.
-12. [Canvas calendar ingestion](docs/canvas.md): private feed setup, read-only imports, notes and refresh boundaries.
-13. [Canvas API metadata](docs/canvas-api.md): private token setup, course/assignment sync, class links and access boundaries.
-14. [Canvas reconciliation](docs/canvas-reconciliation.md): confirmed source associations, label provenance and linked planner work.
-15. [AI gateway foundation](docs/ai-gateway.md): server profiles, spending limits, bounded preflight and metadata history; execution disabled.
-16. [UI agent ledger](docs/ui-agent-ledger.md): behavior and state requirements for the later UI rewrite.
-17. [UI/UX guidelines](docs/ui-guidelines.md) and [frontend plan](docs/frontend-plan.md): adopted design rules and the phased UI rewrite; implementation in progress.
+12. [App updates](docs/app-updates.md): GitHub release feed, signed release tooling and the Android in-app updater.
+13. [Canvas calendar ingestion](docs/canvas.md): private feed setup, read-only imports, notes and refresh boundaries.
+14. [Canvas API metadata](docs/canvas-api.md): private token setup, course/assignment sync, class links and access boundaries.
+15. [Canvas reconciliation](docs/canvas-reconciliation.md): confirmed source associations, label provenance and linked planner work.
+16. [AI gateway foundation](docs/ai-gateway.md): server profiles, spending limits, bounded preflight and metadata history; execution disabled.
+17. [UI agent ledger](docs/ui-agent-ledger.md): behavior and state requirements for the later UI rewrite.
+18. [UI/UX guidelines](docs/ui-guidelines.md) and [frontend plan](docs/frontend-plan.md): adopted design rules and the phased UI rewrite; implementation in progress.
 
 ## Working direction
 

@@ -3,6 +3,7 @@ export * from './features.js';
 export * from './calendar-management.js';
 export * from './occurrences.js';
 export * from './account.js';
+export * from './app-updates.js';
 export * from './connections.js';
 export * from './provenance.js';
 export * from './canvas-lms.js';

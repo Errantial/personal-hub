@@ -28,7 +28,7 @@ Connections supports read-only [Canvas feeds](canvas.md), [API metadata](canvas-
 
 At the recorded deployment, startup applies append-only migrations through 057 before readiness. Never alter an applied migration. Existing notes, versions, captures, operation receipts and tombstones must survive upgrades. Legacy source identities and missing label history cannot be reconstructed by assumption; unknown provenance remains blocked for AI while ordinary planner edits remain available. Study blocks and recorded time do not prove assignment completion/mastery, and external calendars are not checked by study previews.
 
-The provisional Capacitor APK bundles the UI and task outbox, uses native cookie transport and disables native request logging. AOSP emulator checks cover offline task edits/process restart/replay. Actual Kompakt, closed-app native reminders, offline Calendar/class/reminder edits and release signing retain separate pending gates. Browser checks are Chromium evidence, not hardware evidence. MCP compatibility/implementation is post-v1 and should not be treated as a current pre-v1 delivery blocker. Tests must use isolated servers/databases and never seed/reset the owner's database.
+The provisional Capacitor APK bundles the UI and task outbox, uses native cookie transport and disables native request logging. AOSP emulator checks cover offline task edits/process restart/replay. Actual Kompakt, closed-app native reminders, offline Calendar/class/reminder edits and release signing retain separate pending gates. The website and app can check an owner-authorized stable GitHub release feed; the Android in-app download/installer prompt is implemented but not yet exercised on an emulator or the Kompakt. See [app updates](app-updates.md). Browser checks are Chromium evidence, not hardware evidence. MCP compatibility/implementation is post-v1 and should not be treated as a current pre-v1 delivery blocker. Tests must use isolated servers/databases and never seed/reset the owner's database.
 
 Interface copy: prefer concise titles/labels. Put useful secondary explanations in keyboard/tap-accessible contextual Help. Keep actionable errors and pending/offline/conflict states visible. Visual refinement remains deferred; preserve the [UI ledger](ui-agent-ledger.md) contracts.
 
@@ -76,6 +76,7 @@ Copy `.env.example` to repository-root `.env` only when changing defaults. Exist
 | `LOG_LEVEL` | API logging level, default info |
 | `CANVAS_CALENDAR_FEED_URL` | Optional private calendar URL on the exact school host; never returned to clients or exported. Enable automatic refresh in Connections after setup |
 | `CANVAS_API_TOKEN` | Optional server-only token for personal Canvas API testing; fixed school origin/enrolled owner, read-only metadata adapter. Expansion requires OAuth |
+| `GITHUB_TOKEN` | Optional server-only GitHub API token for the app update check; raises rate limits and is never sent to clients or logged |
 
 Open the exact configured browser origin: `localhost` and `127.0.0.1` are different origins. The frontend uses relative `/api` URLs through the same-origin proxy; no permissive CORS policy is installed. Unsafe methods require an allowed `Origin` and JSON content type, including scripts/CLI clients. Future MCP callers will need their own authenticated transport rather than borrowing browser cookies.
 
@@ -120,6 +121,7 @@ Planner undo backend: owner-authorized `POST /api/v1/tasks/:id/restore`, `POST /
 | `GET /api/health` | Process liveness and contract version |
 | `GET /api/ready` | Database query readiness, 503 when unavailable |
 | `GET /api/v1/bootstrap` | Four planned, explicitly unconfigured connections |
+| `GET /api/v1/app/update?platform=android&versionCode=...` | Owner-authorized stable GitHub release check; bounded manifest or an explicit unavailable state |
 | `GET /api/v1/auth/session` | Current user or null, enrollment state and actual session expiry |
 | `POST /api/v1/auth/setup` | First owner enrollment; email, password, optional production setupToken |
 | `POST /api/v1/auth/login` | Email/password login |

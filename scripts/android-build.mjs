@@ -94,6 +94,7 @@ const versionName = `${packageVersion}+${git('rev-parse', '--short=7', 'HEAD')}$
 const env = {
   ...process.env,
   VITE_HUB_APP_VERSION: `${versionName}${test ? ' (test)' : release ? '' : ' (debug)'}`,
+  VITE_HUB_APP_VERSION_CODE: String(versionCode),
   ANDROID_HOME: sdk,
   JAVA_HOME: java,
   CI: 'true',
