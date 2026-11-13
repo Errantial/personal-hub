@@ -1,11 +1,12 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
 import { expect, it } from 'vitest';
-import { sweepOnce } from '../src/runtime.js';
+import { readingPane, sweepOnce } from '../src/runtime.js';
 
 const root = process.cwd();
 const connector = join(root, 'apps', 'outlook-browser-connector');
@@ -137,6 +138,71 @@ it.skipIf(!browserAvailable)(
           senderAddress: 'advisor@example.test',
           bodyText: 'Synthetic body.',
         },
+      });
+    } finally {
+      await browser.close();
+    }
+  },
+  60000,
+);
+
+it.skipIf(!browserAvailable)(
+  'rejects a same-conversation no-ID stale pane through the runtime',
+  async () => {
+    const staleHtml = await readFile(
+      new URL(
+        './fixtures/outlook-web/reading-pane-no-id-stale.html',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+    const matchingHtml = await readFile(
+      new URL(
+        './fixtures/outlook-web/reading-pane-no-id-match.html',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+    const browser = await chromium.launch({
+      headless: true,
+      executablePath: executablePath!,
+    });
+    try {
+      const page = await browser.newPage();
+      await page.addInitScript(
+        'globalThis.__name = globalThis.__name || ((target) => target)',
+      );
+      let body = staleHtml;
+      await page.route('https://outlook.office.com/**', (route) =>
+        route.fulfill({ status: 200, contentType: 'text/html', body }),
+      );
+      const config = {
+        hubUrl: 'https://hub.example.invalid',
+        hubToken: `hubob_${'A'.repeat(43)}`,
+        profilePath: '/unused',
+        browserChannel: 'chrome' as const,
+        outlookOrigin: 'https://outlook.office.com' as const,
+        signInWaitSeconds: 0,
+      };
+      const expected = {
+        providerId: 'syntheticMessage0001',
+        folderProviderId: 'inbox',
+        subject: 'Synthetic subject',
+        sender: 'Synthetic Advisor',
+        conversationId: 'syntheticConversation0001',
+        receivedAt: '2026-11-01T15:30:00Z',
+      };
+      await page.goto(
+        'https://outlook.office.com/mail/inbox/id/syntheticMessage0001',
+      );
+      expect(await readingPane(page, config, expected)).toBeNull();
+      body = matchingHtml;
+      await page.goto(
+        'https://outlook.office.com/mail/inbox/id/syntheticMessage0001',
+      );
+      expect(await readingPane(page, config, expected)).toMatchObject({
+        subject: 'Synthetic subject',
+        bodyText: 'Matching synthetic body.',
       });
     } finally {
       await browser.close();

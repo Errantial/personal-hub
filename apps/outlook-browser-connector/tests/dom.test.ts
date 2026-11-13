@@ -177,6 +177,16 @@ it('distinguishes delayed, empty, proven-empty, ambiguous and stale panes', asyn
     }).status,
   ).toBe('empty');
 
+  const textWithMarker = await documentFor(
+    'reading-pane-body-text-with-marker.html',
+  );
+  const preserved = readReadingPane(paneFrom(textWithMarker), {
+    expected,
+    selectors: domSelectors,
+  });
+  expect(preserved.status).toBe('ok');
+  expect(preserved.detail?.bodyText).toContain('Real synthetic body text.');
+
   const ambiguous = await documentFor('reading-pane-ambiguous.html');
   expect(
     readReadingPane(paneFrom(ambiguous), {

@@ -420,7 +420,7 @@ export function mergeSweeps(
   return merged;
 }
 
-async function readingPane(
+export async function readingPane(
   page: Page,
   config: OutlookBrowserConnectorConfig,
   expected: {
@@ -429,6 +429,7 @@ async function readingPane(
     subject?: string | null;
     sender?: string | null;
     conversationId?: string | null;
+    receivedAt?: string | null;
   },
 ) {
   const panes = page.locator(readingPaneSelector);
@@ -536,6 +537,7 @@ async function detailFor(
     subject: row.subject,
     sender: row.sender,
     conversationId: row.conversationId,
+    receivedAt: row.receivedAt,
   });
 }
 

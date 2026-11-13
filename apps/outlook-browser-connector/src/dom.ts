@@ -389,10 +389,14 @@ export function readReadingPane(
   const rawBodyText = `${bodyElement.innerText ?? body.textContent ?? ''}`
     .replace(/\r\n?/g, '\n')
     .trim();
-  const emptyMarker =
+  const directMarker = [...body.children].find((child) =>
+    child.matches(selectors.emptyBody),
+  );
+  const markerPresent =
     body.getAttribute('data-empty') === 'true' ||
-    Boolean(body.querySelector(selectors.emptyBody));
-  const bodyText = emptyMarker ? '' : rawBodyText;
+    Boolean(directMarker && !elementText(directMarker));
+  const emptyMarker = markerPresent && !rawBodyText;
+  const bodyText = rawBodyText;
   if (!bodyText && !emptyMarker)
     return { status: 'empty', detail: null, fingerprint: '' };
   const subject = first(
