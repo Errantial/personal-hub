@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import {
-  Temporal,
   reminderSchema,
   taskResponseSchema,
   tasksResponseSchema,
+  Temporal,
 } from '@hub/contracts';
 import type { Task } from '@hub/contracts';
 import { buildApp } from '../src/app.js';
@@ -857,23 +857,21 @@ it('accepts a recurring reminder proposal through the agent write path', async (
 });
 
 it('creates one reminder per event occurrence offset', async () => {
-  const start = Temporal.Now.zonedDateTimeISO('America/Denver')
-    .add({ days: 2 })
-    .with({
-      hour: 19,
-      minute: 0,
-      second: 0,
-      millisecond: 0,
-      microsecond: 0,
-      nanosecond: 0,
-    });
-  const firstDate = start.toPlainDate();
+  const firstDate = Temporal.Now.plainDateISO().add({ days: 10 });
   const secondDate = firstDate.add({ days: 7 });
+  const firstStart = firstDate
+    .toPlainDateTime({ hour: 19 })
+    .toZonedDateTime('America/Denver', { disambiguation: 'compatible' })
+    .toInstant();
+  const firstEnd = firstDate
+    .toPlainDateTime({ hour: 20 })
+    .toZonedDateTime('America/Denver', { disambiguation: 'compatible' })
+    .toInstant();
   const created = await post('calendar', {
     title: 'Weekly planning',
     notes: '',
-    startsAt: start.toInstant().toString(),
-    endsAt: start.add({ hours: 1 }).toInstant().toString(),
+    startsAt: firstStart.toString({ smallestUnit: 'millisecond' }),
+    endsAt: firstEnd.toString({ smallestUnit: 'millisecond' }),
     timeZone: 'America/Denver',
     sensitivity: 'unlabeled',
     allDay: false,
@@ -911,17 +909,16 @@ it('creates one reminder per event occurrence offset', async () => {
   const generated = rows.filter(
     (row) => row.targetId === eventId && row.offsetMinutes === 60,
   );
-  expect(generated.map((row) => row.occurrenceDate).sort()).toEqual([
-    firstDate.toString(),
-    secondDate.toString(),
-  ]);
+  const expectedDates = [firstDate.toString(), secondDate.toString()].sort();
+  expect(generated.map((row) => row.occurrenceDate).sort()).toEqual(
+    expectedDates,
+  );
   expect(
     generated.find((row) => row.occurrenceDate === firstDate.toString())!
       .scheduledAt,
   ).toBe(
-    start
+    firstStart
       .subtract({ minutes: 60 })
-      .toInstant()
       .toString({ smallestUnit: 'millisecond' }),
   );
 
@@ -948,11 +945,20 @@ it('creates one reminder per event occurrence offset', async () => {
 });
 
 it('keeps a user-cancelled offset reminder cancelled through a sweep', async () => {
+  const offsetDate = Temporal.Now.plainDateISO().add({ days: 12 });
+  const offsetStart = offsetDate
+    .toPlainDateTime({ hour: 9 })
+    .toZonedDateTime('America/Denver', { disambiguation: 'compatible' })
+    .toInstant();
+  const offsetEnd = offsetDate
+    .toPlainDateTime({ hour: 10 })
+    .toZonedDateTime('America/Denver', { disambiguation: 'compatible' })
+    .toInstant();
   const created = await post('calendar', {
     title: 'User cancelled offset',
     notes: '',
-    startsAt: '2026-12-01T09:00:00-07:00',
-    endsAt: '2026-12-01T10:00:00-07:00',
+    startsAt: offsetStart.toString({ smallestUnit: 'millisecond' }),
+    endsAt: offsetEnd.toString({ smallestUnit: 'millisecond' }),
     timeZone: 'America/Denver',
     sensitivity: 'unlabeled',
     allDay: false,
@@ -982,7 +988,7 @@ it('keeps a user-cancelled offset reminder cancelled through a sweep', async () 
       }) =>
         row.targetId === event.id &&
         row.offsetMinutes === 60 &&
-        row.occurrenceDate === '2026-12-01',
+        row.occurrenceDate === offsetDate.toString(),
     ) as { id: string; version: number; status: string }[];
   expect(offset!.status).toBe('queued');
   const cancelled = await post(`reminders/${offset!.id}/control`, {
