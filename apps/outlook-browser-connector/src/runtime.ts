@@ -378,6 +378,10 @@ async function sweepOnce(page: Page, origin: OutlookOrigin) {
     await scrollList(page, 'next');
     await page.waitForTimeout(250);
     const after = await readListSnapshot(page);
+    if (mergeSnapshot(result, after, origin, indexMap)) {
+      result.reachedBottom = true;
+      break;
+    }
     if (after.scrollTop === before && !atBottom(after)) break;
   }
   return result;

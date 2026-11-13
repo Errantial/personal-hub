@@ -114,7 +114,13 @@ export function readMessageList(
   ];
   const rows: MessageRowSnapshot[] = rowNodes.map((node) => {
     const link = node.querySelector(selectors.messageLink);
-    const emailNode = node.querySelector('[data-email-address]');
+    const senderNode = node.querySelector(selectors.sender);
+    const emailNode =
+      senderNode?.getAttribute('data-email-address') !== null &&
+      senderNode?.getAttribute('data-email-address') !== undefined
+        ? senderNode
+        : (senderNode?.querySelector('[data-email-address]') ??
+          node.querySelector('[data-email-address]'));
     const senderLink = node.querySelector(
       '[data-testid="message-sender"] a[href^="mailto:"], [data-testid="sender"] a[href^="mailto:"], [class*="sender" i] a[href^="mailto:"]',
     );
@@ -264,6 +270,7 @@ export function scrollMessageList(
     [...document.querySelectorAll('[role="listbox"]')].find((node) =>
       node.querySelector('a[href*="/id/"]'),
     ) ??
+    document.querySelector(selectors.list) ??
     document;
   const ancestors: Element[] = [];
   let ancestor = (root as Element).parentElement ?? null;
