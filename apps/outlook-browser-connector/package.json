@@ -1,0 +1,20 @@
+{
+  "name": "@hub/outlook-browser-connector",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only local Outlook Web browser collector for bounded plain-text mail metadata.",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "sync": "node dist/main.js sync",
+    "presync": "npm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "playwright-core": "1.64.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "linkedom": "0.18.15"
+  }
+}

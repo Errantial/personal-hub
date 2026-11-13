@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+  <body>
+    <div
+      data-testid="reading-pane"
+      data-message-id="syntheticMessage0001"
+      data-conversation-id="syntheticConversation0001"
+    >
+      <h1 data-testid="message-subject">Synthetic subject</h1>
+      <div
+        data-testid="message-sender"
+        data-email-address="advisor@example.test"
+      >
+        Synthetic Advisor
+        <a href="mailto:advisor@example.test?subject=stripped">mail</a>
+      </div>
+      <time datetime="2026-11-01T15:30:00Z"></time>
+      <div data-testid="message-body" role="document">
+        Synthetic plain-text body.
+        <a href="mailto:body-link@example.test"
+          >Body link must not become the sender.</a
+        >
+      </div>
+    </div>
+  </body>
+</html>

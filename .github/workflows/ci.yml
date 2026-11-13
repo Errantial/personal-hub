@@ -29,6 +29,8 @@ jobs:
       - if: runner.os == 'Linux'
         run: npx playwright install --with-deps chromium
       - if: runner.os == 'Linux'
+        run: npx vitest run apps/outlook-browser-connector/tests/chromium.test.ts
+      - if: runner.os == 'Linux'
         run: npm run test:e2e
       - if: failure() && runner.os == 'Linux'
         uses: actions/upload-artifact@v7
