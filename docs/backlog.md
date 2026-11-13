@@ -73,7 +73,7 @@ Acceptance remaining for the broader planner milestone: an Android edit survives
 
 - Verify Oracle CPU architecture, supported Bridge host/uptime, and persistent storage.
 - Compare authorized Canvas API, calendar feed, and text-browser coverage; never store the private calendar URL in the repository.
-- Use the [Outlook access gate](outlook.md) to verify the school mailbox backend, school-managed tenant, mailbox scope, app-registration route and Graph delegated-consent policy. Implement a read-only Graph adapter only if that live gate permits it; browser fallback remains a separate proposal.
+- Use the [Outlook access gate](outlook.md) to verify the school mailbox backend, school-managed tenant, mailbox scope, app-registration route and Graph delegated-consent policy. Implement a read-only Graph adapter only if that live gate permits it. A separate read-only Outlook Web browser collector is implemented in development; live sign-in/MFA, selectors, two-folder/all-selected-folder coverage and scheduling remain owner gates.
 - Prove Proton Mail/Gmail completeness through Bridge and a text-only Proton Calendar write path.
 - Confirm provider/model choices, numeric spending caps, and data retention before paid AI processing.
 

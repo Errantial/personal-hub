@@ -993,3 +993,178 @@ it('upgrades populated assistant turns and requests through 060 without rewritin
     await db.close();
   }
 });
+
+it('applies migration 080 to a fresh synthetic database with hash-only tokens and immutable captures', async () => {
+  const db = await openDatabase(
+    readConfig({ NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' }),
+  );
+  try {
+    await migrate(db);
+    const names = await db.query<{ name: string }>(
+      'SELECT name FROM schema_migrations ORDER BY name',
+    );
+    expect(names.map((row) => row.name)).toContain('080_outlook_browser.sql');
+    expect(
+      await db.query(
+        'SELECT COUNT(*)::integer AS count FROM outlook_browser_sources',
+      ),
+    ).toEqual([{ count: 0 }]);
+    expect(
+      await db.query(
+        'SELECT COUNT(*)::integer AS count FROM outlook_browser_message_captures',
+      ),
+    ).toEqual([{ count: 0 }]);
+
+    const owner = randomUUID();
+    const folder = randomUUID();
+    const attempt = randomUUID();
+    const message = randomUUID();
+    const capture = randomUUID();
+    await db.query(
+      "INSERT INTO users(id,email,password_hash) VALUES($1,'outlook-fresh@example.test','unused')",
+      [owner],
+    );
+    await db.query(
+      "INSERT INTO outlook_browser_sources(owner_id,token_hash,sensitivity) VALUES($1,$2,'personal')",
+      [owner, 'a'.repeat(64)],
+    );
+    const other = randomUUID();
+    await db.query(
+      "INSERT INTO users(id,email,password_hash) VALUES($1,'outlook-fresh-other@example.test','unused')",
+      [other],
+    );
+    await expect(
+      db.query(
+        "INSERT INTO outlook_browser_sources(owner_id,token_hash) VALUES($1,'plain-token')",
+        [other],
+      ),
+    ).rejects.toThrow();
+    await db.query(
+      "INSERT INTO outlook_browser_folders(id,owner_id,provider_id,name,canonical_url,selected,sensitivity) VALUES($1,$2,'inbox','Inbox','https://outlook.office.com/mail/inbox',TRUE,'unlabeled')",
+      [folder, owner],
+    );
+    await db.query(
+      'INSERT INTO outlook_browser_attempts(id,owner_id,source_version,coverage_revision,selected_count) VALUES($1,$2,1,1,1)',
+      [attempt, owner],
+    );
+    await db.query(
+      "INSERT INTO outlook_browser_messages(id,owner_id,browser_folder_id,provider_id,canonical_url,subject,sender_display,sender_address,received_at,snippet,body_text,captured_at) VALUES($1,$2,$3,'syntheticMessage0001','https://outlook.office.com/mail/inbox/id/syntheticMessage0001','Synthetic subject','Synthetic Advisor','advisor@example.test','2026-11-13T18:00:00Z','Synthetic preview','Synthetic body','2026-11-13T18:00:00Z')",
+      [message, owner, folder],
+    );
+    await db.query(
+      "INSERT INTO outlook_browser_message_captures(id,owner_id,attempt_id,browser_message_id,snapshot,captured_at) VALUES($1,$2,$3,$4,$5::jsonb,'2026-11-13T18:00:00Z')",
+      [
+        capture,
+        owner,
+        attempt,
+        message,
+        JSON.stringify({
+          providerId: 'syntheticMessage0001',
+          conversationId: null,
+          canonicalUrl:
+            'https://outlook.office.com/mail/inbox/id/syntheticMessage0001',
+          subject: 'Synthetic subject',
+          senderDisplay: 'Synthetic Advisor',
+          senderAddress: 'advisor@example.test',
+          receivedAt: '2026-11-13T18:00:00.000Z',
+          snippet: 'Synthetic preview',
+        }),
+      ],
+    );
+    await expect(
+      db.query(
+        'UPDATE outlook_browser_message_captures SET captured_at=CURRENT_TIMESTAMP WHERE id=$1',
+        [capture],
+      ),
+    ).rejects.toThrow('immutable');
+    await expect(
+      db.query(
+        "INSERT INTO outlook_browser_messages(id,owner_id,browser_folder_id,provider_id,canonical_url,subject,sender_display,sender_address,received_at,snippet,body_text,captured_at) VALUES($1,$2,$3,'syntheticMessage0002','https://outlook.office.com/mail/inbox/id/syntheticMessage0002','Synthetic subject','Synthetic Advisor','not-mail','2026-11-13T18:00:00Z','','','2026-11-13T18:00:00Z')",
+        [randomUUID(), owner, folder],
+      ),
+    ).rejects.toThrow();
+    expect(await db.query('SELECT * FROM outlook_access_gate')).toEqual([]);
+    await migrate(db);
+    expect(await db.query('SELECT name FROM schema_migrations')).toHaveLength(
+      names.length,
+    );
+  } finally {
+    await db.close();
+  }
+});
+
+it('upgrades a populated production-copy fixture through 080 without rewriting the Outlook access gate', async () => {
+  const db = await openDatabase(
+    readConfig({ NODE_ENV: 'test', PGLITE_DATA_DIR: 'memory://' }),
+  );
+  try {
+    const directory = new URL('../migrations/', import.meta.url);
+    const names = (await readdir(directory))
+      .filter((name) => /^\d+_.+\.sql$/.test(name))
+      .sort();
+    await db.exec(
+      'CREATE TABLE schema_migrations (name TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)',
+    );
+    for (const name of names.filter((name) => Number(name.slice(0, 3)) <= 79)) {
+      const sql = await readFile(new URL(name, directory), 'utf8');
+      await db.exec(sql);
+      await db.query(
+        'INSERT INTO schema_migrations(name,checksum) VALUES($1,$2)',
+        [name, createHash('sha256').update(sql).digest('hex')],
+      );
+    }
+    const owner = randomUUID();
+    const task = randomUUID();
+    await db.query(
+      "INSERT INTO users(id,email,password_hash) VALUES($1,'outlook-production-copy@example.test','unused')",
+      [owner],
+    );
+    await db.query(
+      "INSERT INTO tasks(id,owner_id,title,notes,sensitivity,version) VALUES($1,$2,'Retained task','Retained notes','restricted',4)",
+      [task, owner],
+    );
+    await db.query(
+      "INSERT INTO outlook_access_gate(owner_id,backend,tenant,mailbox_scope,app_registration,consent,version,checked_at) VALUES($1,'exchange-online','school-managed','primary-only','owner-can-register','admin-consent-required',6,'2026-11-01T12:00:00Z')",
+      [owner],
+    );
+    const beforeGate = await db.query(
+      'SELECT * FROM outlook_access_gate WHERE owner_id=$1',
+      [owner],
+    );
+    const beforeTask = await db.query('SELECT * FROM tasks WHERE owner_id=$1', [
+      owner,
+    ]);
+
+    await migrate(db);
+
+    expect(
+      await db.query('SELECT * FROM outlook_access_gate WHERE owner_id=$1', [
+        owner,
+      ]),
+    ).toEqual(beforeGate);
+    expect(
+      await db.query('SELECT * FROM tasks WHERE owner_id=$1', [owner]),
+    ).toEqual(beforeTask);
+    for (const table of [
+      'outlook_browser_sources',
+      'outlook_browser_attempts',
+      'outlook_browser_folders',
+      'outlook_browser_messages',
+      'outlook_browser_folder_observations',
+      'outlook_browser_message_captures',
+    ])
+      expect(await db.query(`SELECT * FROM ${table}`)).toEqual([]);
+    expect(await db.query('SELECT name FROM schema_migrations')).toHaveLength(
+      names.length,
+    );
+    expect(
+      (
+        await db.query<{ name: string }>(
+          'SELECT name FROM schema_migrations ORDER BY name',
+        )
+      ).map((row) => row.name),
+    ).toContain('080_outlook_browser.sql');
+  } finally {
+    await db.close();
+  }
+});

@@ -51,6 +51,11 @@ import {
 import { taskSchema, userSchema, plannerRestorationSchema } from './core.js';
 import { canvasItemSchema } from './connections.js';
 import { outlookAccessGateSchema } from './outlook.js';
+import {
+  outlookBrowserFolderSchema,
+  outlookBrowserMessageCaptureSchema,
+  outlookBrowserMessageSchema,
+} from './outlook-browser.js';
 import { mailBrokerSettingsSchema } from './mail-broker.js';
 import {
   canvasLmsCourseSchema,
@@ -180,6 +185,18 @@ export const plannerExportSchema = z.object({
       .nullable()
       .default(null),
     outlookAccessGate: outlookAccessGateSchema.nullable().default(null),
+    outlookBrowserSource: z
+      .object({
+        sensitivity: z.enum(['unlabeled', 'personal', 'restricted']),
+        version: z.number().int().positive(),
+      })
+      .nullable()
+      .default(null),
+    outlookBrowserFolders: z.array(outlookBrowserFolderSchema).default([]),
+    outlookBrowserMessages: z.array(outlookBrowserMessageSchema).default([]),
+    outlookBrowserMessageCaptures: z
+      .array(outlookBrowserMessageCaptureSchema)
+      .default([]),
   }),
 });
 export type AccountResponse = z.infer<typeof accountResponseSchema>;
