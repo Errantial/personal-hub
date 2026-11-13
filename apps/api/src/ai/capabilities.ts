@@ -553,9 +553,14 @@ async function readCourseRecord(
   return courseSchema.parse(row);
 }
 
-async function readTopicRecord(tx: QueryExecutor, owner: string, id: string) {
+async function readTopicRecord(
+  tx: QueryExecutor,
+  owner: string,
+  id: string,
+  lock = false,
+) {
   const [row] = await tx.query(
-    `SELECT ${topicColumns} FROM topics WHERE owner_id=$1 AND id=$2`,
+    `SELECT ${topicColumns} FROM topics WHERE owner_id=$1 AND id=$2${lock ? ' FOR UPDATE' : ''}`,
     [owner, id],
   );
   if (!row) throw new ApiError(404, 'NOT_FOUND', 'Topic not available.');
@@ -1058,31 +1063,38 @@ async function undoCourseCreate(
   owner: string,
   after: Course,
 ) {
-  const [current] = await tx.query(
-    'SELECT version,deleted_at AS "deletedAt" FROM courses WHERE owner_id=$1 AND id=$2',
-    [owner, after.id],
-  );
-  if (
-    !current ||
-    current.deletedAt ||
-    Number(current.version) !== after.version
-  )
+  const current = await readCourseRecord(tx, owner, after.id, true);
+  if (current.deletedAt || current.version !== after.version)
     throw conflict('This class changed again; undo would overwrite it.');
   const [dependent] = await tx.query(
     `SELECT
        EXISTS(SELECT 1 FROM topics WHERE owner_id=$1 AND course_id=$2 AND deleted_at IS NULL) AS topics,
        EXISTS(SELECT 1 FROM events WHERE owner_id=$1 AND course_id=$2 AND deleted_at IS NULL) AS events,
-       EXISTS(SELECT 1 FROM academic_work WHERE owner_id=$1 AND course_id=$2 AND deleted_at IS NULL) AS work`,
+       EXISTS(SELECT 1 FROM academic_work WHERE owner_id=$1 AND course_id=$2 AND deleted_at IS NULL) AS work,
+       EXISTS(SELECT 1 FROM study_goals WHERE owner_id=$1 AND course_id=$2) AS goals,
+       EXISTS(SELECT 1 FROM canvas_lms_courses WHERE owner_id=$1 AND course_id=$2) AS lms,
+       EXISTS(SELECT 1 FROM canvas_browser_courses WHERE owner_id=$1 AND course_id=$2) AS browser`,
     [owner, after.id],
   );
-  if (dependent?.topics || dependent?.events || dependent?.work)
+  if (
+    dependent?.topics ||
+    dependent?.events ||
+    dependent?.work ||
+    dependent?.goals ||
+    dependent?.lms ||
+    dependent?.browser
+  )
     throw conflict(
-      'This class has newer topics, events or work; undo would remove them.',
+      'This class has newer topics, events, work, study goals or Canvas links; undo would remove them.',
     );
-  await tx.query(
-    'UPDATE courses SET deleted_at=CURRENT_TIMESTAMP,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2',
-    [owner, after.id],
+  const [row] = await tx.query(
+    `UPDATE courses SET deleted_at=CURRENT_TIMESTAMP,version=version+1,updated_at=CURRENT_TIMESTAMP
+     WHERE owner_id=$1 AND id=$2 AND version=$3 AND deleted_at IS NULL
+     RETURNING id`,
+    [owner, after.id, after.version],
   );
+  if (!row)
+    throw conflict('This class changed again; undo would overwrite it.');
 }
 
 async function undoCourseUpdate(
@@ -1143,26 +1155,29 @@ async function undoCourseDelete(
 }
 
 async function undoTopicCreate(tx: QueryExecutor, owner: string, after: Topic) {
-  const [current] = await tx.query(
-    'SELECT version,deleted_at AS "deletedAt" FROM topics WHERE owner_id=$1 AND id=$2',
-    [owner, after.id],
-  );
-  if (
-    !current ||
-    current.deletedAt ||
-    Number(current.version) !== after.version
-  )
+  const current = await readTopicRecord(tx, owner, after.id, true);
+  if (current.deletedAt || current.version !== after.version)
     throw conflict('This topic changed again; undo would overwrite it.');
-  const [event] = await tx.query(
-    'SELECT id FROM events WHERE owner_id=$1 AND topic_id=$2 AND deleted_at IS NULL LIMIT 1',
+  const [dependent] = await tx.query(
+    `SELECT
+       EXISTS(SELECT 1 FROM events WHERE owner_id=$1 AND topic_id=$2 AND deleted_at IS NULL) AS direct,
+       EXISTS(
+         SELECT 1 FROM event_exceptions x
+         JOIN events e ON e.id=x.event_id AND e.owner_id=$1
+         WHERE e.deleted_at IS NULL AND x.replacement->>'topicId'=$2::text
+       ) AS exceptions`,
     [owner, after.id],
   );
-  if (event)
+  if (dependent?.direct || dependent?.exceptions)
     throw conflict('This topic has calendar events; undo would unlink them.');
-  await tx.query(
-    'UPDATE topics SET deleted_at=CURRENT_TIMESTAMP,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2',
-    [owner, after.id],
+  const [row] = await tx.query(
+    `UPDATE topics SET deleted_at=CURRENT_TIMESTAMP,version=version+1,updated_at=CURRENT_TIMESTAMP
+     WHERE owner_id=$1 AND id=$2 AND version=$3 AND deleted_at IS NULL
+     RETURNING id`,
+    [owner, after.id, after.version],
   );
+  if (!row)
+    throw conflict('This topic changed again; undo would overwrite it.');
 }
 
 async function undoTopicUpdate(
@@ -1193,7 +1208,7 @@ async function undoTopicUpdate(
 
 async function undoTopicDelete(tx: QueryExecutor, owner: string, after: Topic) {
   const [course] = await tx.query(
-    'SELECT deleted_at AS "deletedAt" FROM courses WHERE owner_id=$1 AND id=$2',
+    'SELECT deleted_at AS "deletedAt" FROM courses WHERE owner_id=$1 AND id=$2 FOR UPDATE',
     [owner, after.courseId],
   );
   if (!course) throw new ApiError(404, 'NOT_FOUND', 'Class not available.');
@@ -1213,11 +1228,41 @@ async function undoTopicDelete(tx: QueryExecutor, owner: string, after: Topic) {
     throw conflict('This topic changed again; undo would overwrite it.');
 }
 
+async function academicWorkHasDependents(
+  tx: QueryExecutor,
+  owner: string,
+  id: string,
+) {
+  const [dependent] = await tx.query(
+    `SELECT
+       EXISTS(
+         SELECT 1 FROM reminders
+         WHERE owner_id=$1 AND target_kind='academic-work' AND target_id=$2
+           AND status IN ('queued','running','paused','failed')
+       ) AS reminders,
+       EXISTS(SELECT 1 FROM academic_planner_sources WHERE owner_id=$1 AND work_id=$2) AS planner,
+       EXISTS(SELECT 1 FROM study_workload_sources WHERE owner_id=$1 AND work_id=$2) AS workload`,
+    [owner, id],
+  );
+  return Boolean(
+    dependent?.reminders || dependent?.planner || dependent?.workload,
+  );
+}
+
 async function undoAcademicWorkCreate(
   tx: QueryExecutor,
   owner: string,
   after: AcademicWork,
 ) {
+  const current = await readAcademicWorkRecord(tx, owner, after.id, true);
+  if (current.deletedAt || current.version !== after.version)
+    throw conflict(
+      'This academic work changed again; undo would overwrite it.',
+    );
+  if (await academicWorkHasDependents(tx, owner, after.id))
+    throw conflict(
+      'This academic work has newer reminders or linked planner/study work; undo would remove it.',
+    );
   const [row] = await tx.query(
     `UPDATE academic_work SET deleted_at=CURRENT_TIMESTAMP,version=version+1,updated_at=CURRENT_TIMESTAMP
      WHERE owner_id=$1 AND id=$2 AND version=$3 AND deleted_at IS NULL
@@ -1270,7 +1315,7 @@ async function undoAcademicWorkDelete(
   after: AcademicWork,
 ) {
   const [course] = await tx.query(
-    'SELECT deleted_at AS "deletedAt" FROM courses WHERE owner_id=$1 AND id=$2',
+    'SELECT deleted_at AS "deletedAt" FROM courses WHERE owner_id=$1 AND id=$2 FOR UPDATE',
     [owner, after.courseId],
   );
   if (!course) throw new ApiError(404, 'NOT_FOUND', 'Class not available.');
@@ -1297,6 +1342,15 @@ async function undoAcademicWorkRestore(
   owner: string,
   after: AcademicWork,
 ) {
+  const current = await readAcademicWorkRecord(tx, owner, after.id, true);
+  if (current.deletedAt || current.version !== after.version)
+    throw conflict(
+      'This academic work changed again; undo would overwrite it.',
+    );
+  if (await academicWorkHasDependents(tx, owner, after.id))
+    throw conflict(
+      'This academic work has newer reminders or linked planner/study work; undo would remove it.',
+    );
   const [row] = await tx.query(
     `UPDATE academic_work SET deleted_at=CURRENT_TIMESTAMP,version=version+1,updated_at=CURRENT_TIMESTAMP
      WHERE owner_id=$1 AND id=$2 AND version=$3 AND deleted_at IS NULL

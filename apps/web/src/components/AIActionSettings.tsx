@@ -119,9 +119,9 @@ export function AIActionSettings() {
           </label>
           {draft.autoApprove && (
             <p role="alert" className="form-error">
-              Tier 1 and Tier 2 agent changes apply without a prompt. Tier 3
-              actions still ask, and every applied change is audited and
-              undoable.
+              Tier 1 and Tier 2 agent changes apply without a prompt. Reminder
+              cancellations and Tier 3 actions still ask, and every applied
+              change is audited and undoable.
             </p>
           )}
           {(['tasks', 'calendar', 'reminders', 'capabilities'] as const).map(
@@ -176,8 +176,8 @@ export function AIActionSettings() {
           </button>
           <p>
             Other Tier 1 follows the grant above. Tier 2 deletes and restores
-            ask first unless Auto-approve agent changes is on. Email and Tier 3
-            actions always ask.
+            ask first unless Auto-approve agent changes is on. Reminder
+            cancellations, email and Tier 3 actions always ask.
           </p>
           <CapabilityAudit online={online} />
           <button type="submit" disabled={busy || !online}>

@@ -3,14 +3,24 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { topicSchema } from '@hub/contracts';
 import { sealEnvelope } from '../src/ai/live-envelope.js';
-import { admitLive, findReplay } from '../src/ai/live-request.js';
+import {
+  admitLive,
+  findReplay,
+  readAssistantSettings,
+} from '../src/ai/live-request.js';
+import { resolveLiveDestination } from '../src/ai/live-destination.js';
+import { pinnedRouting } from '../src/ai/openrouter-live.js';
 import {
   academicContext,
   academicSources,
   memoryContext,
   memorySources,
+  projectTopic,
 } from '../src/ai/live-projections.js';
+import { sourceDigest } from '../src/ai/live-manifest.js';
+import { topicColumns } from '../src/features/common.js';
 import {
   admitPlanner as admit,
   createTask,
@@ -20,7 +30,7 @@ import {
 import { model, startHarness } from './helpers/openrouter.js';
 import type { Harness } from './helpers/openrouter.js';
 import type { QueryExecutor } from '../src/db/database.js';
-import type { LiveSource } from '../src/ai/live-manifest.js';
+import type { LiveManifest, LiveSource } from '../src/ai/live-manifest.js';
 
 // Admission binding and the final transmission guard
 // (docs/live-context-admission-design.md). Exchanges are injected.
@@ -57,6 +67,74 @@ async function seedAcademic(h: Harness, title = 'Synthetic essay') {
     academicLabels,
   );
   return { courseId, workId, items };
+}
+
+/** Seals and admits a planner exchange whose only source is one topic. */
+async function admitTopic(h: Harness, topicId: string) {
+  const requestId = randomUUID();
+  const settings = await readAssistantSettings(h.database, h.owner);
+  const destination = await resolveLiveDestination(
+    h.database,
+    h.config,
+    h.owner,
+  );
+  const [row] = await h.database.query(
+    `SELECT ${topicColumns} FROM topics WHERE owner_id=$1 AND id=$2`,
+    [h.owner, topicId],
+  );
+  const topic = topicSchema.parse(row);
+  const projected = projectTopic(topic, 'p1', null);
+  const body = {
+    model,
+    max_tokens: 100,
+    provider: pinnedRouting(destination.upstream),
+    messages: [{ role: 'user', content: 'Synthetic topic context' }],
+  };
+  const manifest: LiveManifest = {
+    formatVersion: 1,
+    owner: h.owner,
+    requestId,
+    kind: 'planner',
+    round: 1,
+    conversationId: null,
+    priorRequestIds: [],
+    destination,
+    settingsVersion: settings.version,
+    useMail: false,
+    request: { provenance: 'owner-entered', labels: ['unlabeled'] },
+    timeZone: 'UTC',
+    history: { turns: [], sources: [], withheld: 0 },
+    sources: [
+      {
+        projection: 'planner-topic-v1',
+        kind: 'topic',
+        id: topic.id,
+        version: topic.version,
+        ref: 'p1',
+        labels: ['unlabeled'],
+        digest: sourceDigest(
+          h.owner,
+          requestId,
+          'planner-topic-v1',
+          topic.id,
+          projected,
+        ),
+      },
+    ],
+    bytes: Buffer.byteLength(JSON.stringify(body)),
+  };
+  const sealed = sealEnvelope(h.owner, requestId, body, manifest);
+  await admitLive(h.database, h.owner, {
+    id: requestId,
+    kind: 'planner',
+    operationId: randomUUID(),
+    hash: 'synthetic-topic',
+    model,
+    maximumMicros: 1000,
+    withheld: 0,
+    sealed,
+  });
+  return { sealed, requestId };
 }
 
 /** Re-projects bound academic sources as the production callback does. */
@@ -254,6 +332,52 @@ describe('final transmission guard', () => {
     ).toBe('confirmed');
     expect(harness.chatCalls()).toBe(1);
     expect((await state(harness, sealed.requestId))!.guard).toBe('verified');
+  });
+
+  it('withholds a topic relabel after admission', async () => {
+    harness = await startHarness();
+    const courseId = randomUUID();
+    const topicId = randomUUID();
+    await harness.database.query(
+      "INSERT INTO courses(id,owner_id,name,sensitivity,version) VALUES($1,$2,'Synthetic topic class','unlabeled',1)",
+      [courseId, harness.owner],
+    );
+    await harness.database.query(
+      `INSERT INTO topics(id,owner_id,course_id,name,notes,confidence,progress,sensitivity,academic_labels,version)
+       VALUES($1,$2,$3,'Synthetic topic','','unknown',0,'unlabeled','{}',1)`,
+      [topicId, harness.owner, courseId],
+    );
+    const { sealed } = await admitTopic(harness, topicId);
+    await harness.database.query(
+      "UPDATE topics SET sensitivity='personal',academic_labels=ARRAY['personal'],version=version+1 WHERE owner_id=$1 AND id=$2",
+      [harness.owner, topicId],
+    );
+    expect(await send(harness, sealed)).toMatchObject({
+      status: 'withheld',
+      reason: 'context-changed',
+    });
+    expect(harness.chatCalls()).toBe(0);
+  });
+
+  it('withholds a legacy topic with no retained label history', async () => {
+    harness = await startHarness();
+    const courseId = randomUUID();
+    const topicId = randomUUID();
+    await harness.database.query(
+      "INSERT INTO courses(id,owner_id,name,sensitivity,version) VALUES($1,$2,'Synthetic topic class','unlabeled',1)",
+      [courseId, harness.owner],
+    );
+    await harness.database.query(
+      `INSERT INTO topics(id,owner_id,course_id,name,notes,confidence,progress,sensitivity,academic_labels,version)
+       VALUES($1,$2,$3,'Legacy topic','','unknown',0,'unlabeled',NULL,1)`,
+      [topicId, harness.owner, courseId],
+    );
+    const { sealed } = await admitTopic(harness, topicId);
+    expect(await send(harness, sealed)).toMatchObject({
+      status: 'withheld',
+      reason: 'context-changed',
+    });
+    expect(harness.chatCalls()).toBe(0);
   });
 
   it('withholds an academic edit without a version change', async () => {

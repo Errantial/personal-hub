@@ -273,10 +273,14 @@ export function plannerSources(
       const course = (context.courses ?? []).find(
         (candidate) => candidate.id === topic.courseId,
       );
-      const courseRef = course
-        ? `c${context.courses!.indexOf(course) + 1}`
-        : null;
-      const labels = topicLabelState(topic, course?.sensitivity ?? 'unlabeled');
+      if (!course)
+        throw new ApiError(
+          409,
+          'PROVENANCE_UNAVAILABLE',
+          'Topic class is unavailable for AI context.',
+        );
+      const courseRef = `c${context.courses!.indexOf(course) + 1}`;
+      const labels = topicLabelState(topic, course.sensitivity);
       if (!labels.complete)
         throw new ApiError(
           409,

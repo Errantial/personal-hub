@@ -4,6 +4,7 @@ import {
   academicWorkResponseSchema,
   assistantProposalSchema,
   courseResponseSchema,
+  reminderResponseSchema,
   topicResponseSchema,
   topicSchema,
   trackedDeadlineResponseSchema,
@@ -1159,6 +1160,50 @@ describe('assistant capability matrix phase 2', { timeout: 60000 }, () => {
       dueDateOverride: null,
     });
 
+    const [afterDateUndo] = await h.database.query(
+      'SELECT version FROM tracked_deadlines WHERE owner_id=$1 AND id=$2',
+      [h.owner, deadline.id],
+    );
+    const timedUpdate = await executeCapability(
+      h.database,
+      h.owner,
+      turnId,
+      'trackedDeadline.update',
+      {
+        id: deadline.id,
+        expectedVersion: afterDateUndo!.version,
+        dueOverride: {
+          kind: 'timed',
+          dueAt: '2030-03-01T17:00:00-07:00',
+          timeZone: 'America/Denver',
+        },
+      },
+      randomUUID(),
+    );
+    const [timed] = await h.database.query(
+      `SELECT due_override_kind AS "dueOverrideKind",
+         to_char(due_at_override AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "dueAt",
+         due_time_zone AS "timeZone"
+       FROM tracked_deadlines WHERE owner_id=$1 AND id=$2`,
+      [h.owner, deadline.id],
+    );
+    expect(timed).toMatchObject({
+      dueOverrideKind: 'timed',
+      timeZone: 'America/Denver',
+    });
+    expect(timed!.dueAt).toBe('2030-03-02T00:00:00.000Z');
+    await undoCapability(h.database, h.owner, timedUpdate.id, randomUUID());
+    const [timedReverted] = await h.database.query(
+      `SELECT due_override_kind AS "dueOverrideKind",
+         due_date_override AS "dueDateOverride"
+       FROM tracked_deadlines WHERE owner_id=$1 AND id=$2`,
+      [h.owner, deadline.id],
+    );
+    expect(timedReverted).toMatchObject({
+      dueOverrideKind: 'provider',
+      dueDateOverride: null,
+    });
+
     await expect(
       executeCapability(
         h.database,
@@ -1364,6 +1409,75 @@ describe('assistant capability matrix phase 2', { timeout: 60000 }, () => {
       [h.owner, 'topic.delete'],
     );
     expect(audit!.autoApproved).toBe(true);
+    await h.app.close();
+  });
+
+  it('keeps reminder cancellation proposed even with auto-approve on', async () => {
+    const h = await startHarness();
+    const turnId = await seedTurn(h);
+    const task = await h.call('POST', '/api/v1/tasks', {
+      title: 'Cancellation target',
+      operationId: randomUUID(),
+    });
+    const reminder = await h.call('POST', '/api/v1/reminders', {
+      title: 'Always review cancellation',
+      scheduledAt: '2030-01-01T09:00:00.000Z',
+      targetKind: 'task',
+      targetId: task.json().task.id,
+      operationId: randomUUID(),
+    });
+    const target = reminderResponseSchema.parse(reminder.json()).reminder;
+    const proposal = assistantProposalSchema.parse({
+      kind: 'reminder.cancel',
+      target,
+      scope: 'this',
+    });
+    expect(proposalTier(proposal)).toBe(2);
+    expect(
+      proposalPolicyMode(proposal, {
+        tasks: 'automatic',
+        calendar: 'automatic',
+        reminders: 'automatic',
+        capabilities: 'automatic',
+      }),
+    ).toBe('approval-required');
+    await saveTurnProposal(h, turnId, proposal);
+    await h.database.query(
+      `INSERT INTO ai_action_policies(owner_id,policy,auto_approve)
+       VALUES($1,$2::jsonb,true)
+       ON CONFLICT(owner_id) DO UPDATE SET policy=EXCLUDED.policy,auto_approve=true`,
+      [
+        h.owner,
+        JSON.stringify({
+          tasks: 'automatic',
+          calendar: 'automatic',
+          reminders: 'automatic',
+          capabilities: 'automatic',
+          email: 'approval-required',
+        }),
+      ],
+    );
+    await applyByPolicy(
+      h.database,
+      h.owner,
+      (await readTurn(h.database, h.owner, turnId))!,
+    );
+    expect((await readTurn(h.database, h.owner, turnId))!.items[0]!.state).toBe(
+      'proposed',
+    );
+    const [current] = await h.database.query(
+      'SELECT status FROM reminders WHERE owner_id=$1 AND id=$2',
+      [h.owner, target.id],
+    );
+    expect(current!.status).toBe('queued');
+    const [audit] = await h.database.query(
+      `SELECT decision,auto_approved AS "autoApproved"
+       FROM ai_capability_audit
+       WHERE owner_id=$1 AND capability='reminder' AND target_id=$2
+       ORDER BY created_at DESC LIMIT 1`,
+      [h.owner, target.id],
+    );
+    expect(audit).toMatchObject({ decision: 'proposed', autoApproved: false });
     await h.app.close();
   });
 
