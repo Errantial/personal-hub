@@ -23,7 +23,7 @@ export type TrackedDeadlineProjected = {
   title: string;
   due: { kind: 'timed'; at: string } | { kind: 'date'; date: string };
   priority: 'low' | 'normal' | 'high';
-  completed: false;
+  completed: boolean;
 };
 
 export type TrackedDeadlineContextItem = {
@@ -131,7 +131,7 @@ export function projectTrackedDeadline(
               .toString({ smallestUnit: 'minute' }),
           },
     priority: deadline.priority,
-    completed: false,
+    completed: deadline.completedAt !== null,
   };
 }
 
@@ -140,8 +140,10 @@ function eligibleItem(
   allowed: Sensitivity[],
   timeZone: string,
   ref: string,
+  options: { allowCompleted?: boolean } = {},
 ): TrackedDeadlineContextItem | null {
-  if (deadline.completedAt || deadline.sourceConflict) return null;
+  if (deadline.sourceConflict) return null;
+  if (deadline.completedAt && !options.allowCompleted) return null;
   const labels = labelsOf(deadline);
   if (labels.some((label) => !allowed.includes(label))) return null;
   const dependencies = dependenciesOf(deadline);
@@ -173,14 +175,38 @@ export async function trackedDeadlineContext(
   allowed: Sensitivity[],
   timeZone: string,
   now = Temporal.Now.instant(),
+  options: { includeCompleted?: boolean } = {},
 ): Promise<TrackedDeadlineContext> {
   const today = now.toZonedDateTimeISO(timeZone).toPlainDate();
   const last = today.add({ days: 7 }).toString();
+  const completedSince = now.subtract({ hours: 24 * 30 });
   const deadlines = await readTrackedDeadlines(tx, owner);
-  const eligible: TrackedDeadlineContextItem[] = [];
+  const open: TrackedDeadlineContextItem[] = [];
+  const completed: {
+    item: TrackedDeadlineContextItem;
+    completedAt: string;
+  }[] = [];
   let withheld = 0;
   for (const deadline of deadlines) {
-    if (deadline.completedAt) continue;
+    if (deadline.completedAt) {
+      if (!options.includeCompleted) continue;
+      if (
+        Temporal.Instant.from(deadline.completedAt).epochMilliseconds <
+        completedSince.epochMilliseconds
+      ) {
+        withheld += 1;
+        continue;
+      }
+      const item = eligibleItem(deadline, allowed, timeZone, 'd1', {
+        allowCompleted: true,
+      });
+      if (!item) {
+        withheld += 1;
+        continue;
+      }
+      completed.push({ item, completedAt: deadline.completedAt });
+      continue;
+    }
     const date = localDate(deadline, timeZone);
     if (date === null) {
       withheld += 1;
@@ -192,22 +218,34 @@ export async function trackedDeadlineContext(
       withheld += 1;
       continue;
     }
-    eligible.push(item);
+    open.push(item);
   }
-  eligible.sort((left, right) => {
-    const due = (item: TrackedDeadlineContextItem) =>
-      item.projected.due.kind === 'date'
-        ? `${item.projected.due.date}Z`
-        : item.projected.due.at;
-    return (
-      due(left).localeCompare(due(right)) || left.id.localeCompare(right.id)
-    );
-  });
-  const selected = eligible.slice(0, 50).map((item, index) => {
-    const ref = `d${index + 1}`;
-    return { ...item, ref, projected: { ...item.projected, ref } };
-  });
-  withheld += Math.max(0, eligible.length - selected.length);
+  const byDue = (left: TrackedDeadlineContextItem) =>
+    left.projected.due.kind === 'date'
+      ? `${left.projected.due.date}Z`
+      : left.projected.due.at;
+  open.sort(
+    (left, right) =>
+      byDue(left).localeCompare(byDue(right)) ||
+      left.id.localeCompare(right.id),
+  );
+  completed.sort(
+    (left, right) =>
+      right.completedAt.localeCompare(left.completedAt) ||
+      left.item.id.localeCompare(right.item.id),
+  );
+  const selectedOpen = open.slice(0, 50);
+  const selectedCompleted = completed.slice(0, 20).map((value) => value.item);
+  withheld +=
+    open.length -
+    selectedOpen.length +
+    (completed.length - selectedCompleted.length);
+  const selected = [...selectedOpen, ...selectedCompleted].map(
+    (item, index) => {
+      const ref = `d${index + 1}`;
+      return { ...item, ref, projected: { ...item.projected, ref } };
+    },
+  );
   return { items: selected, withheld };
 }
 
@@ -249,7 +287,9 @@ export async function reprojectTrackedDeadlineSource(
   } catch {
     return null;
   }
-  const item = eligibleItem(deadline, allowed, timeZone, source.ref);
+  const item = eligibleItem(deadline, allowed, timeZone, source.ref, {
+    allowCompleted: true,
+  });
   if (!item) return null;
   return trackedDeadlineSources(owner, requestId, [item])[0] ?? null;
 }
@@ -278,7 +318,6 @@ export async function trackedDeadlineHistoryEligible(
     labels.some((label) => !allowed.includes(label)) ||
     labels.length !== source.labels.length ||
     !labels.every((label) => source.labels.includes(label)) ||
-    deadline.completedAt ||
     deadline.sourceConflict
   )
     return false;

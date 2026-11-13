@@ -80,8 +80,9 @@ export function AIActionSettings() {
       <h2>Actions</h2>
       <Help label="Agent actions">
         These settings govern agent runs. Assistant answers always ask first.
-        Automatic changes apply to hub tasks, calendar records and task
-        reminders. Destructive reminder changes still ask first.
+        Automatic changes apply to hub tasks, calendar records, task reminders,
+        classes, topics, academic work and imported-deadline planning fields.
+        Destructive reminder changes still ask first.
       </Help>
       {!online && <p role="status">Offline. Reconnect to save.</p>}
       {error && <p role="alert">{error}</p>}

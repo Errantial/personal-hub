@@ -1,15 +1,17 @@
-import type { Course } from '@hub/contracts';
+import type { Course, Topic } from '@hub/contracts';
 import type { z } from 'zod';
 import type { sensitivitySchema } from '@hub/contracts';
-import { courseSchema, reminderSchema } from '@hub/contracts';
+import { courseSchema, reminderSchema, topicSchema } from '@hub/contracts';
 import type { QueryExecutor } from '../db/database.js';
 import { reminderColumns } from '../features/reminders.js';
+import { topicColumns } from '../features/common.js';
 import {
   livePlannerContext,
   projectCourse,
   projectEvent,
   projectReminder,
   projectTask,
+  projectTopic,
 } from './live-projections.js';
 import type { PlannerContext } from './live-projections.js';
 
@@ -54,11 +56,24 @@ export async function assistantContext(
   )
     .map((row) => courseSchema.parse(row))
     .filter((course) => allowed.includes(course.sensitivity)) as Course[];
+  const courseIds = new Set(courses.map((course) => course.id));
+  const topics = (
+    await tx.query(
+      `SELECT ${topicColumns} FROM topics WHERE owner_id=$1 AND deleted_at IS NULL ORDER BY name,id LIMIT 120`,
+      [owner],
+    )
+  )
+    .map((row) => topicSchema.parse(row))
+    .filter(
+      (topic) =>
+        courseIds.has(topic.courseId) && allowed.includes(topic.sensitivity),
+    ) as Topic[];
   return fitContext(
     {
       ...base,
       reminders,
       courses,
+      topics,
       trimmed: base.trimmed ?? 0,
     },
     timeZone,
@@ -79,17 +94,23 @@ function fitContext(context: AssistantContext, timeZone: string) {
     )
     .slice(0, 40);
   const courses = (context.courses ?? []).slice(0, 30);
+  const courseIds = () => new Set(courses.map((course) => course.id));
+  const topics = (context.topics ?? [])
+    .filter((topic) => courseIds().has(topic.courseId))
+    .slice(0, 60);
   let trimmed =
     (context.trimmed ?? 0) +
     (context.tasks.length - tasks.length) +
     (context.events.length - events.length) +
     ((context.reminders ?? []).length - reminders.length) +
-    ((context.courses ?? []).length - courses.length);
+    ((context.courses ?? []).length - courses.length) +
+    ((context.topics ?? []).length - topics.length);
   const estimate = (
     t: typeof tasks,
     e: typeof events,
     r: typeof reminders,
     c: typeof courses,
+    p: typeof topics,
   ) =>
     size({
       tasks: t.map((task, index) => projectTask(task, `t${index + 1}`)),
@@ -100,10 +121,32 @@ function fitContext(context: AssistantContext, timeZone: string) {
         projectReminder(reminder, `r${index + 1}`, timeZone),
       ),
       courses: c.map((course, index) => projectCourse(course, `c${index + 1}`)),
+      topics: p.map((topic, index) =>
+        projectTopic(
+          topic,
+          `p${index + 1}`,
+          c.find((course) => course.id === topic.courseId)
+            ? `c${c.findIndex((course) => course.id === topic.courseId) + 1}`
+            : null,
+        ),
+      ),
     });
-  let current = estimate(tasks, events, reminders, courses);
+  let current = estimate(tasks, events, reminders, courses, topics);
   while (current > maxContextChars) {
-    if (courses.length > 5) {
+    const activeCourseIds = courseIds();
+    const orphans = topics.filter(
+      (topic) => !activeCourseIds.has(topic.courseId),
+    );
+    if (orphans.length) {
+      for (let index = topics.length - 1; index >= 0; index--)
+        if (!activeCourseIds.has(topics[index]!.courseId)) {
+          topics.splice(index, 1);
+          trimmed += 1;
+        }
+    } else if (topics.length > 5) {
+      topics.pop();
+      trimmed += 1;
+    } else if (courses.length > 5) {
       courses.pop();
       trimmed += 1;
     } else if (reminders.length > 5) {
@@ -116,7 +159,7 @@ function fitContext(context: AssistantContext, timeZone: string) {
       tasks.pop();
       trimmed += 1;
     } else break;
-    current = estimate(tasks, events, reminders, courses);
+    current = estimate(tasks, events, reminders, courses, topics);
   }
-  return { ...context, tasks, events, reminders, courses, trimmed };
+  return { ...context, tasks, events, reminders, courses, topics, trimmed };
 }

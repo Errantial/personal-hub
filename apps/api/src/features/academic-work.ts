@@ -31,7 +31,7 @@ import { propagateAcademicPlannerLabels } from './academic-provenance.js';
 export const academicWorkColumns = `${metadataColumns},course_id AS "courseId",title,kind,notes,to_char(due_date,'YYYY-MM-DD') AS "dueDate",estimated_minutes AS "estimatedMinutes",priority,status,grade,sensitivity,academic_labels AS "academicLabels",'owner-entered' AS provenance`;
 const idOf = (params: unknown) =>
   z.object({ id: z.string().uuid() }).parse(params).id;
-async function readWork(
+export async function readAcademicWorkRecord(
   tx: QueryExecutor,
   owner: string,
   id: string,
@@ -45,6 +45,132 @@ async function readWork(
     throw new ApiError(404, 'NOT_FOUND', 'Academic work not available.');
   return academicWorkSchema.parse(row);
 }
+type AcademicWorkWrite =
+  | z.infer<typeof academicWorkWriteSchema>
+  | z.infer<typeof academicWorkUpdateSchema>;
+
+/** One owned manual work write, shared by the route and Assistant capabilities. */
+export async function saveAcademicWorkRecord(
+  tx: QueryExecutor,
+  owner: string,
+  method: 'POST' | 'PUT',
+  id: string,
+  input: AcademicWorkWrite,
+  explicitSensitivity: boolean,
+) {
+  const course = await active(tx, 'courses', owner, input.courseId);
+  const previous =
+    method === 'PUT' ? await readAcademicWorkRecord(tx, owner, id, true) : null;
+  if (previous) {
+    version(previous, input.expectedVersion);
+    if (previous.deletedAt)
+      throw new ApiError(
+        409,
+        'ACADEMIC_WORK_DELETED',
+        'Restore the record before editing.',
+      );
+    if (previous.courseId !== input.courseId)
+      throw new ApiError(
+        400,
+        'INVALID_INPUT',
+        'Keep the original class for this record.',
+      );
+  }
+  const ownLabel = explicitSensitivity
+    ? input.sensitivity
+    : (previous?.sensitivity ?? input.sensitivity);
+  const labels = mergeAcademicLabels(
+    previous?.academicLabels,
+    [ownLabel, String(course.sensitivity)].filter(
+      (label) => label !== 'unlabeled',
+    ),
+  );
+  const values = [
+    id,
+    owner,
+    input.courseId,
+    input.title,
+    input.kind,
+    input.notes,
+    input.dueDate,
+    input.estimatedMinutes,
+    input.priority,
+    input.status,
+    input.grade === null ? null : JSON.stringify(input.grade),
+    strongest(ownLabel, String(course.sensitivity)),
+    labels,
+  ];
+  const [row] =
+    method === 'POST'
+      ? await tx.query(
+          `INSERT INTO academic_work(id,owner_id,course_id,title,kind,notes,due_date,estimated_minutes,priority,status,grade,sensitivity,academic_labels) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13::text[]) ON CONFLICT (id) DO NOTHING RETURNING ${academicWorkColumns}`,
+          values,
+        )
+      : await tx.query(
+          `UPDATE academic_work SET course_id=$3,title=$4,kind=$5,notes=$6,due_date=$7,estimated_minutes=$8,priority=$9,status=$10,grade=$11::jsonb,sensitivity=$12,academic_labels=$13::text[],version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${academicWorkColumns}`,
+          values,
+        );
+  if (!row)
+    throw new ApiError(
+      409,
+      'OPERATION_CONFLICT',
+      'This identifier is already in use.',
+    );
+  const result = academicWorkResponseSchema.parse({ work: row });
+  await propagateAcademicPlannerLabels(
+    tx,
+    owner,
+    { workId: id },
+    result.work.academicLabels.filter(
+      (label) => !previous?.academicLabels.includes(label),
+    ),
+  );
+  await propagateWorkloadLabels(
+    tx,
+    owner,
+    { workId: id },
+    result.work.academicLabels.filter(
+      (label) => !previous?.academicLabels.includes(label),
+    ),
+  );
+  return result;
+}
+
+/** One owned manual work tombstone or restore. */
+export async function changeAcademicWorkDeletion(
+  tx: QueryExecutor,
+  owner: string,
+  action: 'delete' | 'restore',
+  id: string,
+  expectedVersion: number,
+) {
+  const before = await readAcademicWorkRecord(tx, owner, id);
+  // Ancestor first, including archived classes for deletion of historical work.
+  const [course] = await tx.query(
+    'SELECT id,deleted_at FROM courses WHERE owner_id=$1 AND id=$2 FOR UPDATE',
+    [owner, before.courseId],
+  );
+  const current = await readAcademicWorkRecord(tx, owner, id, true);
+  version(current, expectedVersion);
+  if (action === 'restore' && course?.deleted_at)
+    throw new ApiError(
+      409,
+      'ACADEMIC_CLASS_ARCHIVED',
+      'The class is archived; this record cannot be restored.',
+    );
+  if (action === 'restore' ? !current.deletedAt : current.deletedAt)
+    throw new ApiError(
+      409,
+      action === 'restore' ? 'NOT_DELETED' : 'ACADEMIC_WORK_DELETED',
+      'Reload the current record.',
+    );
+  const [row] = await tx.query(
+    `UPDATE academic_work SET deleted_at=${action === 'delete' ? 'CURRENT_TIMESTAMP' : 'NULL'},version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2 RETURNING ${academicWorkColumns}`,
+    [owner, id],
+  );
+  return academicWorkResponseSchema.parse({ work: row });
+}
+
 export function registerAcademicWork(
   app: FastifyInstance,
   database: Database,
@@ -77,7 +203,7 @@ export function registerAcademicWork(
           throw new ApiError(404, 'NOT_FOUND', 'Class not available.');
       }
       const anchor = input.before
-        ? await readWork(tx, owner, input.before)
+        ? await readAcademicWorkRecord(tx, owner, input.before)
         : null;
       const [cursor] = anchor
         ? await tx.query(
@@ -126,7 +252,7 @@ export function registerAcademicWork(
   app.get(`${base}/:id`, (request) =>
     snapshot(request, async (tx, owner) =>
       academicWorkResponseSchema.parse({
-        work: await readWork(tx, owner, idOf(request.params)),
+        work: await readAcademicWorkRecord(tx, owner, idOf(request.params)),
       }),
     ),
   );
@@ -143,6 +269,10 @@ export function registerAcademicWork(
           method === 'POST'
             ? (input.clientId ?? randomUUID())
             : idOf(request.params);
+        const explicit =
+          typeof request.body === 'object' &&
+          request.body !== null &&
+          'sensitivity' in request.body;
         return mutateSchedule(
           database,
           owner.id,
@@ -152,93 +282,8 @@ export function registerAcademicWork(
             id: method === 'POST' ? null : id,
             input,
           },
-          async (tx) => {
-            const course = await active(
-              tx,
-              'courses',
-              owner.id,
-              input.courseId,
-            );
-            const previous =
-              method === 'PUT' ? await readWork(tx, owner.id, id, true) : null;
-            if (previous) {
-              version(previous, input.expectedVersion);
-              if (previous.deletedAt)
-                throw new ApiError(
-                  409,
-                  'ACADEMIC_WORK_DELETED',
-                  'Restore the record before editing.',
-                );
-              if (previous.courseId !== input.courseId)
-                throw new ApiError(
-                  400,
-                  'INVALID_INPUT',
-                  'Keep the original class for this record.',
-                );
-            }
-            const explicit =
-              typeof request.body === 'object' &&
-              request.body !== null &&
-              'sensitivity' in request.body;
-            const ownLabel = explicit
-              ? input.sensitivity
-              : (previous?.sensitivity ?? input.sensitivity);
-            const labels = mergeAcademicLabels(
-              previous?.academicLabels,
-              [ownLabel, String(course.sensitivity)].filter(
-                (label) => label !== 'unlabeled',
-              ),
-            );
-            const values = [
-              id,
-              owner.id,
-              input.courseId,
-              input.title,
-              input.kind,
-              input.notes,
-              input.dueDate,
-              input.estimatedMinutes,
-              input.priority,
-              input.status,
-              input.grade === null ? null : JSON.stringify(input.grade),
-              strongest(ownLabel, String(course.sensitivity)),
-              labels,
-            ];
-            const [row] =
-              method === 'POST'
-                ? await tx.query(
-                    `INSERT INTO academic_work(id,owner_id,course_id,title,kind,notes,due_date,estimated_minutes,priority,status,grade,sensitivity,academic_labels) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13::text[]) ON CONFLICT (id) DO NOTHING RETURNING ${academicWorkColumns}`,
-                    values,
-                  )
-                : await tx.query(
-                    `UPDATE academic_work SET course_id=$3,title=$4,kind=$5,notes=$6,due_date=$7,estimated_minutes=$8,priority=$9,status=$10,grade=$11::jsonb,sensitivity=$12,academic_labels=$13::text[],version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND owner_id=$2 RETURNING ${academicWorkColumns}`,
-                    values,
-                  );
-            if (!row)
-              throw new ApiError(
-                409,
-                'OPERATION_CONFLICT',
-                'This identifier is already in use.',
-              );
-            const result = academicWorkResponseSchema.parse({ work: row });
-            await propagateAcademicPlannerLabels(
-              tx,
-              owner.id,
-              { workId: id },
-              result.work.academicLabels.filter(
-                (label) => !previous?.academicLabels.includes(label),
-              ),
-            );
-            await propagateWorkloadLabels(
-              tx,
-              owner.id,
-              { workId: id },
-              result.work.academicLabels.filter(
-                (label) => !previous?.academicLabels.includes(label),
-              ),
-            );
-            return result;
-          },
+          async (tx) =>
+            saveAcademicWorkRecord(tx, owner.id, method, id, input, explicit),
         );
       },
     });
@@ -255,33 +300,14 @@ export function registerAcademicWork(
           owner.id,
           input.operationId,
           { kind: `academic-work.${action}`, id, input },
-          async (tx) => {
-            const before = await readWork(tx, owner.id, id);
-            // Ancestor first, including archived classes for deletion of historical work.
-            const [course] = await tx.query(
-              'SELECT id,deleted_at FROM courses WHERE owner_id=$1 AND id=$2 FOR UPDATE',
-              [owner.id, before.courseId],
-            );
-            const current = await readWork(tx, owner.id, id, true);
-            version(current, input.expectedVersion);
-            if (action === 'restore' && course?.deleted_at)
-              throw new ApiError(
-                409,
-                'ACADEMIC_CLASS_ARCHIVED',
-                'The class is archived; this record cannot be restored.',
-              );
-            if (action === 'restore' ? !current.deletedAt : current.deletedAt)
-              throw new ApiError(
-                409,
-                action === 'restore' ? 'NOT_DELETED' : 'ACADEMIC_WORK_DELETED',
-                'Reload the current record.',
-              );
-            const [row] = await tx.query(
-              `UPDATE academic_work SET deleted_at=${action === 'delete' ? 'CURRENT_TIMESTAMP' : 'NULL'},version=version+1,updated_at=CURRENT_TIMESTAMP WHERE owner_id=$1 AND id=$2 RETURNING ${academicWorkColumns}`,
-              [owner.id, id],
-            );
-            return academicWorkResponseSchema.parse({ work: row });
-          },
+          async (tx) =>
+            changeAcademicWorkDeletion(
+              tx,
+              owner.id,
+              action,
+              id,
+              input.expectedVersion,
+            ),
         );
       },
     });

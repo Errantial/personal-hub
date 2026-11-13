@@ -6,7 +6,7 @@ import {
 import { z } from 'zod';
 import type { QueryExecutor } from '../db/database.js';
 import { taskColumns } from '../planner/routes.js';
-import { eventColumns } from '../features/common.js';
+import { eventColumns, strongest } from '../features/common.js';
 import { readMemorySettings } from '../features/memory.js';
 import { openTask, openEvent } from './live-projections.js';
 import {
@@ -118,6 +118,22 @@ export async function historySourcesEligible(
     ))
       current.set(`course:${row.id}`, {
         labels: [sensitivitySchema.parse(row.sensitivity)],
+      });
+  const topics = ids('topic');
+  if (topics.length)
+    for (const row of await tx.query(
+      `SELECT t.id,t.sensitivity,c.sensitivity AS "courseSensitivity"
+       FROM topics t JOIN courses c ON c.id=t.course_id AND c.owner_id=t.owner_id
+       WHERE t.owner_id=$1 AND t.id=ANY($2::uuid[]) AND t.deleted_at IS NULL AND c.deleted_at IS NULL`,
+      [owner, topics],
+    ))
+      current.set(`topic:${row.id}`, {
+        labels: [
+          strongest(
+            sensitivitySchema.parse(row.sensitivity),
+            sensitivitySchema.parse(row.courseSensitivity),
+          ),
+        ],
       });
   const academic = ids('academic-work');
   if (academic.length)

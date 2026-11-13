@@ -11,11 +11,12 @@ import type {
   Course,
   Reminder,
   Task,
+  Topic,
 } from '@hub/contracts';
 import { z } from 'zod';
 import type { QueryExecutor } from '../db/database.js';
 import { ApiError } from '../errors.js';
-import { eventColumns } from '../features/common.js';
+import { eventColumns, strongest } from '../features/common.js';
 import { taskColumns } from '../planner/routes.js';
 import { readMemorySettings } from '../features/memory.js';
 import { sourceDigest } from './live-manifest.js';
@@ -55,6 +56,8 @@ export type PlannerContext = {
   reminders?: Reminder[];
   /** Classes (names only) for context. */
   courses?: Course[];
+  /** Topics (names and planning fields only) for context. */
+  topics?: Topic[];
   withheld: number;
   /** Items dropped by the context budget. */
   trimmed?: number;
@@ -168,11 +171,27 @@ export const projectCourse = (course: Course, ref: string) => ({
   sensitivity: course.sensitivity,
 });
 
+export const projectTopic = (
+  topic: Topic,
+  ref: string,
+  courseRef: string | null,
+) => ({
+  ref,
+  name: topic.name,
+  courseRef,
+  confidence: topic.confidence,
+  progress: topic.progress,
+  sensitivity: topic.sensitivity,
+});
+
 /** Manifest entries for the planner context, refs t1… and e1… as sent. */
 export function plannerSources(
   owner: string,
   requestId: string,
-  context: Pick<PlannerContext, 'tasks' | 'events' | 'reminders' | 'courses'>,
+  context: Pick<
+    PlannerContext,
+    'tasks' | 'events' | 'reminders' | 'courses' | 'topics'
+  >,
   timeZone: string,
 ): LiveSource[] {
   return [
@@ -245,6 +264,32 @@ export function plannerSources(
           'planner-course-v1',
           course.id,
           projectCourse(course, ref),
+        ),
+      };
+    }),
+    ...(context.topics ?? []).map((topic, index): LiveSource => {
+      const ref = `p${index + 1}`;
+      const course = (context.courses ?? []).find(
+        (candidate) => candidate.id === topic.courseId,
+      );
+      const courseRef = course
+        ? `c${context.courses!.indexOf(course) + 1}`
+        : null;
+      return {
+        projection: 'planner-topic-v1',
+        kind: 'topic',
+        id: topic.id,
+        version: topic.version,
+        ref,
+        labels: [
+          strongest(topic.sensitivity, course?.sensitivity ?? 'unlabeled'),
+        ],
+        digest: sourceDigest(
+          owner,
+          requestId,
+          'planner-topic-v1',
+          topic.id,
+          projectTopic(topic, ref, courseRef),
         ),
       };
     }),

@@ -1,5 +1,13 @@
 # UI agent ledger
 
+## Assistant capability matrix phase 2 (backend, 2026-11-13)
+
+The Assistant can propose `course.create/update/delete`, `topic.create/update/delete`, `academicWork.create/update/delete/restore` and `trackedDeadline.update/complete/reopen` through the existing capability registry. Reuse the existing proposal review, Apply/Undo, pending/offline/conflict and audit list controls; no new screen is required in this slice. Settings › AI › Actions keeps the grouped grants and auto-approve switch: class/topic/work creates and updates are Tier 1, deletes/restores are Tier 2, and the switch remains the only way to auto-apply Tier 2. The Help copy now names classes, topics, academic work and imported-deadline planning fields.
+
+Required states to preserve: concise summaries without private notes; version-pinned `c`/`p`/`w`/`d` refs; stale refs surface `VERSION_CONFLICT` and require reload; archived classes surface `ACADEMIC_CLASS_ARCHIVED`; a recorded score blocks a submitted-to-open change with `ACADEMIC_SCORE_REVIEW_REQUIRED`; class deletion cascades its active topics and Undo restores the captured class/topic state; a class Undo that would remove later topics, events or work is refused. `trackedDeadline.complete`/`reopen` is local planning state only and must never be described as Canvas submission, grading, mastery or source completeness. Reopen is addressable only through a completed `d` ref from the last 30 days on an owner ask; scheduled agents keep open deadlines only. Academic-work restore uses an exact deleted record ID, not a model-proposed ref, so do not offer it as a general chat recovery path.
+
+Known limitations: no batch operations, no standalone class/topic restore capability, no grade entry, no class moves for topics/work, no memory/study-goal/mail capabilities, and no UI-specific picker for deleted academic work. Validation is synthetic API/unit coverage only; no provider call, owner data, browser run, Kompakt or screen-reader acceptance is claimed here.
+
 ## Imported Canvas deadlines (Release C development, 2026-10-19)
 
 Tasks now has a separate **Imported deadlines** section backed by the owned tracked-deadline API. Open and completed imported deadlines remain distinct from ordinary owner-created tasks. Opening one uses `/tasks/deadline/:id`; the editor can keep the Canvas title/due value or save Personal Hub overrides for title, due date/time, priority, notes and sensitivity. Completion/reopen and every edit are local Personal Hub state: they do not submit, reopen, reschedule or otherwise change work in Canvas.
