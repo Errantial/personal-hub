@@ -184,6 +184,27 @@ it('distinguishes delayed, empty, proven-empty, ambiguous and stale panes', asyn
   ).toBe('mismatch');
 });
 
+it('does not project a foreign-origin message link as a folder record', async () => {
+  const document = await documentFor('foreign-link-list.html');
+  const snapshot = readMessageList(document, domSelectors);
+  expect(snapshot.rows[0]?.href).toContain('https://evil.example/');
+  const normalized = normalizeMessages(origin, 'inbox', [
+    {
+      row: snapshot.rows[0]!,
+      detail: {
+        subject: 'Foreign synthetic row',
+        sender: 'Synthetic Advisor',
+        senderAddress: null,
+        receivedAt: null,
+        bodyText: 'Synthetic body.',
+        conversationId: null,
+      },
+    },
+  ]);
+  expect(normalized.messages).toEqual([]);
+  expect(normalized.skipped).toBe(1);
+});
+
 it('detects sign-in and MFA overlays from static DOM', async () => {
   expect(detectAuthState(await documentFor('sign-in.html'))).toBe('sign-in');
   expect(detectAuthState(await documentFor('mfa.html'))).toBe('mfa');
