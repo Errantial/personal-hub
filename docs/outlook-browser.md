@@ -24,9 +24,11 @@ Not implemented or authorized:
 - hidden API response reading or network interception of message content;
 - screenshots, OCR, attachments or attachment-derived text;
 - HTML storage, raw headers or session data;
-- send, reply, delete, move, flag, archive or any other provider-side write;
+- send, reply, delete, move, flag, archive or any other explicit provider-side write;
 - calendar access or invitation/cancellation email side effects;
 - automatic task creation, AI dispatch or autonomous actions.
+
+Opening a message in Outlook Web can update its read/unread state or trigger normal account read-receipt behavior, depending on the school account's Outlook Web settings. The collector does not click mark-read, flag, move or send controls, but it cannot promise that Outlook itself performs no server-side state change when the reading pane opens. This is part of the live owner acceptance gate; it is not described as a guaranteed zero-side-effect read.
 
 ## Server and migration
 
@@ -127,6 +129,7 @@ Complete these checks with the owner's normal school sign-in before claiming liv
 4. Select at least two folders and finish a complete run. Compare retained counts/subjects with the owner's Outlook UI without putting private titles, addresses, IDs or bodies into receipts.
 5. Sign out in the dedicated profile and confirm `sign-in-required`; confirm partial/inaccessible folders did not mark unseen messages missing.
 6. Confirm no attachment, HTML, screenshot, cookie or hidden API content exists in stored records or export. Revoke the token and confirm collector requests fail while records remain.
+7. Confirm how the school account's Outlook Web reading-pane settings treat read/unread state and read receipts when a message opens. Record the observed behavior; the collector performs no explicit mark-read or send control, but Outlook itself may change server-side state.
 
 Unattended scheduling is intentionally not installed. Only after the checklist passes should a local schedule be designed and audited; the collector requires the owner's interactive session and is not an always-on server job.
 
