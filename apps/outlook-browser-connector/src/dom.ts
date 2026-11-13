@@ -274,7 +274,7 @@ export function readMessageList(
 
 export function scrollMessageList(
   document: Document,
-  selectors: typeof domSelectors,
+  _selectors: typeof domSelectors,
   position: 'top' | 'next' | 'end',
 ) {
   const root =
@@ -284,7 +284,6 @@ export function scrollMessageList(
     [...document.querySelectorAll('[role="listbox"]')].find((node) =>
       node.querySelector('a[href*="/id/"]'),
     ) ??
-    document.querySelector(selectors.list) ??
     document;
   const scrollable = (node: Element) => {
     const element = node as HTMLElement;
