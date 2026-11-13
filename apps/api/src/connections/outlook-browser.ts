@@ -1004,22 +1004,17 @@ export async function exportOutlookBrowser(tx: QueryExecutor, owner: string) {
     [owner],
   );
   const captures = await tx.query(
-    `SELECT id,attempt_id AS "attemptId",browser_message_id AS "browserMessageId",snapshot,${stamp('captured_at', 'capturedAt')},${stamp('created_at', 'createdAt')}
-     FROM outlook_browser_message_captures WHERE owner_id=$1 ORDER BY captured_at,id LIMIT 10001`,
+    `SELECT c.id,c.attempt_id AS "attemptId",c.browser_message_id AS "browserMessageId",c.snapshot,
+       m.sensitivity AS "messageSensitivity",f.sensitivity AS "folderSensitivity",
+       ${stamp('c.captured_at', 'capturedAt')},${stamp('c.created_at', 'createdAt')}
+     FROM outlook_browser_message_captures c
+     JOIN outlook_browser_messages m ON m.id=c.browser_message_id AND m.owner_id=c.owner_id
+     JOIN outlook_browser_folders f ON f.id=m.browser_folder_id AND f.owner_id=m.owner_id
+     WHERE c.owner_id=$1 ORDER BY c.captured_at,c.id LIMIT 10001`,
     [owner],
   );
   const folderLabel = new Map(
     connection.folders.map((folder) => [folder.id, folder.sensitivity]),
-  );
-  const messageSensitivity = new Map(
-    messages.map((message) => [
-      String(message.id),
-      strongest(
-        connection.sensitivity,
-        String(folderLabel.get(String(message.browserFolderId)) ?? 'unlabeled'),
-        String(message.sensitivity),
-      ),
-    ]),
   );
   return {
     outlookBrowserSource: {
@@ -1035,13 +1030,20 @@ export async function exportOutlookBrowser(tx: QueryExecutor, owner: string) {
         String(message.sensitivity),
       ),
     })),
-    outlookBrowserMessageCaptures: captures.map((capture) =>
-      outlookBrowserMessageCaptureSchema.parse({
-        ...capture,
-        effectiveSensitivity:
-          messageSensitivity.get(String(capture.browserMessageId)) ??
+    outlookBrowserMessageCaptures: captures.map((capture) => {
+      const {
+        messageSensitivity: capturedMessageLabel,
+        folderSensitivity: capturedFolderLabel,
+        ...stored
+      } = capture;
+      return outlookBrowserMessageCaptureSchema.parse({
+        ...stored,
+        effectiveSensitivity: strongest(
           connection.sensitivity,
-      }),
-    ),
+          String(capturedFolderLabel ?? 'unlabeled'),
+          String(capturedMessageLabel ?? 'unlabeled'),
+        ),
+      });
+    }),
   };
 }

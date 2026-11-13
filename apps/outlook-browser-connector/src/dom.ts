@@ -343,6 +343,7 @@ export function readReadingPane(
       subject?: string | null;
       sender?: string | null;
       conversationId?: string | null;
+      receivedAt?: string | null;
     };
     selectors: typeof domSelectors;
   },
@@ -385,10 +386,13 @@ export function readReadingPane(
     return { status: 'ambiguous', detail: null, fingerprint: '' };
   const body = bodyNodes[0]!;
   const bodyElement = body as HTMLElement;
-  const bodyText = `${bodyElement.innerText ?? body.textContent ?? ''}`
+  const rawBodyText = `${bodyElement.innerText ?? body.textContent ?? ''}`
     .replace(/\r\n?/g, '\n')
     .trim();
-  const emptyMarker = pane.querySelector(selectors.emptyBody);
+  const emptyMarker =
+    body.getAttribute('data-empty') === 'true' ||
+    Boolean(body.querySelector(selectors.emptyBody));
+  const bodyText = emptyMarker ? '' : rawBodyText;
   if (!bodyText && !emptyMarker)
     return { status: 'empty', detail: null, fingerprint: '' };
   const subject = first(
@@ -424,6 +428,7 @@ export function readReadingPane(
   const expectedSubject = first(expected.subject);
   const expectedSender = first(expected.sender);
   const expectedConversation = first(expected.conversationId);
+  const expectedReceivedAt = first(expected.receivedAt);
   const normalizedSubject = subject.toLowerCase();
   const normalizedExpectedSubject = expectedSubject.toLowerCase();
   const subjectMatches =
@@ -433,13 +438,34 @@ export function readReadingPane(
         normalizedExpectedSubject.length >= 8 &&
         (normalizedSubject.startsWith(normalizedExpectedSubject) ||
           normalizedExpectedSubject.startsWith(normalizedSubject))));
-  const identityMatches =
-    Boolean(declaredId) ||
-    (Boolean(expectedConversation) &&
-      expectedConversation.toLowerCase() === conversationId.toLowerCase()) ||
-    (Boolean(expectedSender) &&
-      expectedSender.toLowerCase() === sender.toLowerCase()) ||
-    subjectMatches;
+  const conversationMatches =
+    Boolean(expectedConversation) &&
+    expectedConversation.toLowerCase() === conversationId.toLowerCase();
+  const senderMatches =
+    Boolean(expectedSender) &&
+    expectedSender.toLowerCase() === sender.toLowerCase();
+  const sameInstant = (left: string, right: string) => {
+    const leftTime = Date.parse(left);
+    const rightTime = Date.parse(right);
+    return Number.isFinite(leftTime) && Number.isFinite(rightTime)
+      ? leftTime === rightTime
+      : left === right;
+  };
+  const receivedMatches =
+    Boolean(expectedReceivedAt && receivedAt) &&
+    sameInstant(expectedReceivedAt, receivedAt);
+  let identityMatches = Boolean(declaredId);
+  if (!declaredId) {
+    if (expectedReceivedAt && receivedAt) {
+      identityMatches =
+        receivedMatches &&
+        (conversationMatches || senderMatches || subjectMatches);
+    } else {
+      identityMatches =
+        [conversationMatches, senderMatches, subjectMatches].filter(Boolean)
+          .length >= 2;
+    }
+  }
   if (!identityMatches) {
     return { status: 'mismatch', detail: null, fingerprint: '' };
   }

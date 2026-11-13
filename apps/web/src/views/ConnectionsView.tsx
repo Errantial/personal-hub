@@ -88,9 +88,11 @@ function OutlookCard({ navigate }: { navigate: (route: Route) => void }) {
       )}
       <ReadState resource={access} label="Outlook" />
       <Help label="School Outlook">
-        School mail remains unavailable until the access gate proves the
-        Microsoft 365 backend, mailbox scope, app registration and delegated
-        consent policy. Reviewing the gate does not sign in or read mail.
+        The Graph access gate records Microsoft 365 backend, mailbox scope, app
+        registration and delegated-consent feasibility; it does not sign in or
+        read mail. A separate read-only local browser collector is implemented
+        in development and uses normal Outlook Web sign-in; live selectors,
+        sign-in/MFA and mailbox coverage remain owner gates.
       </Help>
       <Link
         route={{

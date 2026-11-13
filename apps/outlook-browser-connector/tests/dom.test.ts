@@ -167,6 +167,16 @@ it('distinguishes delayed, empty, proven-empty, ambiguous and stale panes', asyn
   expect(proven.status).toBe('ok');
   expect(proven.detail?.bodyText).toBe('');
 
+  const siblingMarker = await documentFor(
+    'reading-pane-sibling-empty-marker.html',
+  );
+  expect(
+    readReadingPane(paneFrom(siblingMarker), {
+      expected,
+      selectors: domSelectors,
+    }).status,
+  ).toBe('empty');
+
   const ambiguous = await documentFor('reading-pane-ambiguous.html');
   expect(
     readReadingPane(paneFrom(ambiguous), {
@@ -192,6 +202,7 @@ it('distinguishes delayed, empty, proven-empty, ambiguous and stale panes', asyn
         subject: 'Synthetic subject',
         sender: 'Synthetic Advisor',
         conversationId: 'syntheticConversation0001',
+        receivedAt: '2026-11-01T15:30:00Z',
       },
       selectors: domSelectors,
     }).status,
@@ -205,6 +216,7 @@ it('distinguishes delayed, empty, proven-empty, ambiguous and stale panes', asyn
         subject: 'Synthetic subject',
         sender: 'Synthetic Advisor',
         conversationId: 'syntheticConversation0001',
+        receivedAt: '2026-11-01T15:30:00Z',
       },
       selectors: domSelectors,
     }).status,

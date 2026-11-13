@@ -675,7 +675,7 @@ it('invalidates complete coverage when selected folders change and requires ever
   expect(state.lastCompleteAt).not.toBeNull();
 });
 
-it('rejects foreign or mismatched identities, unselected folders and foreign message detail', async () => {
+it('rejects foreign/mismatched identities, unselected folder uploads and other-owner detail', async () => {
   const token = await issueToken();
   let attemptId = await begin(token);
   const foreign = await discover(token, attemptId, 'complete', [
@@ -697,15 +697,37 @@ it('rejects foreign or mismatched identities, unselected folders and foreign mes
   ]);
   expect(mismatch.statusCode).toBe(400);
 
-  expect((await discover(token, attemptId)).statusCode).toBe(200);
+  expect(
+    (
+      await discover(token, attemptId, 'complete', [
+        folder('inbox', 'Inbox'),
+        folder('sentitems', 'Sent Items'),
+      ])
+    ).statusCode,
+  ).toBe(200);
   await collector(token, 'POST', 'attempt/finish', {
     attemptId,
     outcome: 'partial',
     errorCode: null,
   });
   const selected = await selectFolder();
+  const unselectedFolder = (await get()).folders.find(
+    (value) => value.providerId === 'sentitems',
+  )!;
   attemptId = await begin(token);
-  await discover(token, attemptId);
+  await discover(token, attemptId, 'complete', [
+    folder('inbox', 'Inbox'),
+    folder('sentitems', 'Sent Items'),
+  ]);
+  const unselectedObservation = await collector(token, 'POST', 'folder', {
+    attemptId,
+    folderId: unselectedFolder.id,
+    status: 'partial',
+    capturedAt: '2026-11-13T18:00:00.000Z',
+    messages: [],
+  });
+  expect(unselectedObservation.statusCode).toBe(409);
+  expect(unselectedObservation.json().error.code).toBe('FOLDER_CHANGED');
   const wrongProvider = await collector(token, 'POST', 'folder', {
     attemptId,
     folderId: selected.id,
@@ -766,8 +788,39 @@ it('rejects foreign or mismatched identities, unselected folders and foreign mes
       })
     ).statusCode,
   ).toBe(400);
-  const unselected = await get();
-  expect(unselected.folders).toHaveLength(1);
+  const observed = await collector(token, 'POST', 'folder', {
+    attemptId,
+    folderId: selected.id,
+    status: 'complete',
+    capturedAt: '2026-11-13T18:05:00.000Z',
+    messages: [message('syntheticMessage0001')],
+  });
+  expect(observed.statusCode).toBe(200);
+  const state = await get();
+  const retained = state.messages.find(
+    (value) => value.providerId === 'syntheticMessage0001',
+  )!;
+  expect(
+    (
+      await app.inject({
+        url: `${base}/messages/${retained.id}`,
+        headers: { origin, cookie: otherCookie },
+      })
+    ).statusCode,
+  ).toBe(404);
+  expect(
+    (await owner('GET', `${base}/messages/${retained.id}`)).statusCode,
+  ).toBe(200);
+  expect(
+    (
+      await collector(token, 'POST', 'attempt/finish', {
+        attemptId,
+        outcome: 'complete',
+        errorCode: null,
+      })
+    ).statusCode,
+  ).toBe(200);
+  expect(state.folders).toHaveLength(2);
 });
 
 it('surfaces sign-in and MFA failures without pruning and leases active attempts by recent progress', async () => {
