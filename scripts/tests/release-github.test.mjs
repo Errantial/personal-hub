@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import {
   chmod,
+  copyFile,
   mkdir,
   mkdtemp,
   readFile,
@@ -16,6 +17,7 @@ import { releaseManifestSchema } from '@hub/contracts';
 import { parseArguments } from '../release-github.mjs';
 
 const script = fileURLToPath(new URL('../release-github.mjs', import.meta.url));
+const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url));
 const directories = [];
 afterEach(async () => {
   await Promise.all(
@@ -78,6 +80,45 @@ async function fakeTools(bin) {
   await chmod(join(bin, 'npm'), 0o755);
   return bin;
 }
+
+it('starts --help from a clean source tree without contracts dist', async () => {
+  const directory = await temporaryDirectory('hub-release-help-');
+  await mkdir(join(directory, 'scripts'), { recursive: true });
+  await mkdir(join(directory, 'packages', 'contracts', 'src'), {
+    recursive: true,
+  });
+  await copyFile(
+    join(repositoryRoot, 'scripts', 'release-github.mjs'),
+    join(directory, 'scripts', 'release-github.mjs'),
+  );
+  await copyFile(
+    join(repositoryRoot, 'scripts', 'release-tooling.mjs'),
+    join(directory, 'scripts', 'release-tooling.mjs'),
+  );
+  await copyFile(
+    join(
+      repositoryRoot,
+      'packages',
+      'contracts',
+      'src',
+      'app-update-repository.json',
+    ),
+    join(
+      directory,
+      'packages',
+      'contracts',
+      'src',
+      'app-update-repository.json',
+    ),
+  );
+  const result = spawnSync(
+    process.execPath,
+    [join(directory, 'scripts', 'release-github.mjs'), '--help'],
+    { cwd: directory, encoding: 'utf8' },
+  );
+  expect(result.status, result.stderr).toBe(0);
+  expect(result.stdout).toContain('Usage:');
+});
 
 it('requires an origin for --build and an explicit --replace for updates', () => {
   expect(() => parseArguments(['--build'])).toThrow('--origin');

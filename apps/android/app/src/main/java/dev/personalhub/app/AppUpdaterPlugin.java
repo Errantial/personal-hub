@@ -269,7 +269,7 @@ public class AppUpdaterPlugin extends Plugin {
         }
         HttpURLConnection connection = null;
         try {
-            for (int redirects = 0; redirects < MAX_REDIRECTS; redirects++) {
+            for (int redirects = 0; ; redirects++) {
                 connection = (HttpURLConnection) url.openConnection();
                 connection.setInstanceFollowRedirects(false);
                 connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
@@ -291,6 +291,12 @@ public class AppUpdaterPlugin extends Plugin {
                     status == 307 ||
                     status == 308
                 ) {
+                    if (redirects >= MAX_REDIRECTS) {
+                        throw new UpdateException(
+                            "DOWNLOAD_FAILED",
+                            "The update download had too many redirects."
+                        );
+                    }
                     String next = connection.getHeaderField("Location");
                     connection.disconnect();
                     connection = null;

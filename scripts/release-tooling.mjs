@@ -1,13 +1,22 @@
 import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
+import { createReadStream, readFileSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { basename } from 'node:path';
-import { appUpdateRepository } from '@hub/contracts';
+
+const repository = JSON.parse(
+  readFileSync(
+    new URL(
+      '../packages/contracts/src/app-update-repository.json',
+      import.meta.url,
+    ),
+    'utf8',
+  ),
+).repository;
 
 export const maximumArtifactBytes = 250 * 1024 * 1024;
 export const maximumNotesCharacters = 4000;
 export const manifestAssetName = 'release-manifest.json';
-export const releaseRepository = appUpdateRepository;
+export const releaseRepository = repository;
 export const productionCertificateSha256 =
   'F9:F1:69:37:1A:E0:E7:FA:D1:3B:0A:99:B3:10:BE:54:FC:28:94:01:00:C8:91:1F:BC:51:8D:C3:10:92:53:E7';
 
@@ -57,6 +66,71 @@ export function assertReplacementAdvances(existing, next) {
     throw new Error(
       `Replacement versionCode ${next} must be greater than existing ${existing}; publish a forward fix instead.`,
     );
+}
+
+export function replacementReleaseSteps({
+  tag,
+  repo,
+  assets,
+  title,
+  notesPath,
+  flags,
+}) {
+  return [
+    ['release', 'edit', tag, '--repo', repo, '--draft=true'],
+    ['release', 'upload', tag, ...assets, '--repo', repo, '--clobber'],
+    [
+      'release',
+      'edit',
+      tag,
+      '--repo',
+      repo,
+      '--title',
+      title,
+      '--notes-file',
+      notesPath,
+      '--draft=false',
+      ...flags,
+    ],
+  ];
+}
+
+export function parseExistingReleaseManifest(value) {
+  const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+  if (
+    !parsed ||
+    !Number.isInteger(parsed.versionCode) ||
+    parsed.versionCode <= 0
+  )
+    throw new Error('The existing release manifest has no valid versionCode.');
+  return parsed;
+}
+
+const manifestIdentity = (manifest) =>
+  JSON.stringify({
+    formatVersion: manifest.formatVersion,
+    channel: manifest.channel,
+    versionName: manifest.versionName,
+    versionCode: manifest.versionCode,
+    notes: manifest.notes,
+    android: manifest.android,
+    desktop: manifest.desktop,
+  });
+
+export function assertReplacementAllowed(existing, next) {
+  if (!existing || !Number.isInteger(existing.versionCode))
+    throw new Error('The existing release manifest is invalid.');
+  if (!next || !Number.isInteger(next.versionCode))
+    throw new Error('The replacement manifest is invalid.');
+  if (next.versionCode > existing.versionCode) return;
+  if (
+    next.versionCode === existing.versionCode &&
+    manifestIdentity(existing) === manifestIdentity(next)
+  )
+    return;
+  throw new Error(
+    `Replacement versionCode ${next.versionCode} must be greater than existing ${existing.versionCode}, or exactly match the staged manifest for a retry; publish a forward fix instead.`,
+  );
 }
 
 /** Reads `aapt dump badging` package identity. */

@@ -232,6 +232,79 @@ describe('app update service', () => {
     expect(calls).toHaveLength(2);
   });
 
+  it('does not forward the GitHub token across redirects', async () => {
+    const redirectUrl =
+      'https://github.com/Errantial/personal-hub/releases/download/tag/redirected.json';
+    const calls: { url: string; headers: Record<string, string> }[] = [];
+    const fetcher: GithubFetch = async (input, init) => {
+      const url = String(input);
+      calls.push({
+        url,
+        headers: (init?.headers as Record<string, string>) ?? {},
+      });
+      if (
+        url ===
+        `https://api.github.com/repos/${appUpdateRepository}/releases/latest`
+      )
+        return new Response(null, {
+          status: 302,
+          headers: { location: redirectUrl },
+        });
+      if (url === redirectUrl) return json(release);
+      if (url === manifestUrl) return json(manifest);
+      throw new Error(`Unexpected network URL: ${url}`);
+    };
+    await createAppUpdateService({
+      fetcher,
+      token: 'synthetic-github-token',
+    }).check(1);
+    expect(calls[0]?.headers.Authorization).toBe(
+      'Bearer synthetic-github-token',
+    );
+    expect(calls[1]?.headers.Authorization).toBeUndefined();
+    expect(calls[2]?.headers.Authorization).toBeUndefined();
+  });
+
+  it('degrades on a redirect without Location and on redirect exhaustion', async () => {
+    const missingLocation: GithubFetch = async (input) => {
+      const url = String(input);
+      if (
+        url ===
+        `https://api.github.com/repos/${appUpdateRepository}/releases/latest`
+      )
+        return new Response(null, { status: 302 });
+      throw new Error(`Unexpected network URL: ${url}`);
+    };
+    expect(
+      (await createAppUpdateService({ fetcher: missingLocation }).check(1))
+        .reason,
+    ).toBe('GITHUB_UNAVAILABLE');
+
+    const looped =
+      'https://objects.githubusercontent.com/synthetic/manifest-loop';
+    let manifestCalls = 0;
+    const looping: GithubFetch = async (input) => {
+      const url = String(input);
+      if (
+        url ===
+        `https://api.github.com/repos/${appUpdateRepository}/releases/latest`
+      )
+        return json(release);
+      if (url === manifestUrl || url === looped) {
+        manifestCalls += 1;
+        return new Response(null, {
+          status: 302,
+          headers: { location: looped },
+        });
+      }
+      throw new Error(`Unexpected network URL: ${url}`);
+    };
+    expect(
+      (await createAppUpdateService({ fetcher: looping }).check(1)).reason,
+    ).toBe('GITHUB_UNAVAILABLE');
+    expect(manifestCalls).toBeGreaterThan(1);
+  });
+
   it('follows only bounded GitHub asset redirects', async () => {
     const redirected =
       'https://objects.githubusercontent.com/synthetic/manifest';

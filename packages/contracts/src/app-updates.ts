@@ -1,7 +1,8 @@
 import { z } from 'zod';
+import repository from './app-update-repository.json' with { type: 'json' };
 
 /** The release feed is fixed to the owner's repository. */
-export const appUpdateRepository = 'Errantial/personal-hub';
+export const appUpdateRepository = repository.repository;
 
 /** The release feed publishes bounded metadata only. */
 export const releaseChannelSchema = z.enum(['stable', 'beta']);

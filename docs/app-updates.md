@@ -133,11 +133,15 @@ signing key and its passwords are supplied only through the existing
    checks that an existing local or remote tag points at `HEAD`, and creates the
    release. Replacing assets on an existing release requires the explicit
    `--replace` flag; the script downloads the existing `release-manifest.json`
-   and refuses unless the new `versionCode` is greater. It temporarily marks the
-   release draft, uploads with `gh release upload --clobber`, then publishes it
-   again with the new title and notes. This is still not atomic; prefer a new
-   `versionCode` forward fix. Uploading is a real network write and remains
-   owner-authorized; this release implementation did not run it.
+   and refuses unless the new `versionCode` is greater, or the manifest exactly
+   matches the staged one for a safe retry. It temporarily marks the release
+   draft, uploads with `gh release upload --clobber`, then publishes it again
+   with the new title and notes. This is still not atomic; prefer a new
+   `versionCode` forward fix. If a replacement is interrupted, inspect the draft
+   and re-run the identical command only when the manifest matches; otherwise
+   publish a forward fix or repair the draft manually. Uploading is a real
+   network write and remains owner-authorized; this release implementation did
+   not run it.
 
    `--build --origin https://hub.ecg.name` can run the signed build first. The
    server origin is baked into the APK. `--tag`, `--channel`, `--output-dir` and

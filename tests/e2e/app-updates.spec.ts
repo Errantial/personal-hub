@@ -8,11 +8,18 @@ const androidAsset = {
   sha256: 'a'.repeat(64),
   size: 2 * 1024 * 1024,
 };
+const notes = [
+  'Synthetic release notes.',
+  ...Array.from(
+    { length: 80 },
+    (_, index) => `Synthetic release note line ${index + 1}.`,
+  ),
+].join('\n');
 const latest = {
   versionName: '0.1.0+abc1234',
   versionCode: 300,
   channel: 'stable',
-  notes: 'Synthetic release notes.\nSecond synthetic line.',
+  notes,
   android: androidAsset,
   desktop: [],
 };
@@ -57,8 +64,15 @@ test('Account shows a synthetic Android update at 320 px without offering a web 
   ).toBeVisible();
   await expect(page.getByText(/Synthetic release notes/)).toBeVisible();
   const notes = page.getByLabel('Release notes');
-  await notes.focus();
+  await page.keyboard.press('Tab');
   await expect(notes).toBeFocused();
+  const notesMetrics = await notes.evaluate((element) => ({
+    scrollHeight: element.scrollHeight,
+    clientHeight: element.clientHeight,
+    outlineStyle: getComputedStyle(element).outlineStyle,
+  }));
+  expect(notesMetrics.scrollHeight).toBeGreaterThan(notesMetrics.clientHeight);
+  expect(notesMetrics.outlineStyle).not.toBe('none');
   await expect(
     page.getByText(
       'Open Personal Hub on Android to download and install this update.',

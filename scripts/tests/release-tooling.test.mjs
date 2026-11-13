@@ -9,14 +9,17 @@ import {
   androidBuildCommand,
   artifactDetails,
   assertReplacementAdvances,
+  assertReplacementAllowed,
   boundedNotes,
   buildReleaseManifest,
   maximumNotesCharacters,
   normalizeCertificateSha256,
   parseAaptBadging,
   parseDesktopArgument,
+  parseExistingReleaseManifest,
   releaseAssetUrl,
   releaseRepository,
+  replacementReleaseSteps,
   safeOrigin,
 } from '../release-tooling.mjs';
 import { appUpdateRepository } from '@hub/contracts';
@@ -289,9 +292,53 @@ it('rejects duplicate or malformed desktop platforms in the contract', () => {
   ).not.toThrow();
 });
 
-it('refuses an older or equal replacement release', () => {
+it('refuses an older or different equal replacement release', () => {
+  const base = {
+    formatVersion: 1,
+    channel: 'stable',
+    versionName: '0.1.0+abc1234',
+    versionCode: 300,
+    notes: 'Synthetic release notes.',
+    android: null,
+    desktop: [],
+  };
+  expect(() =>
+    assertReplacementAllowed(base, { ...base, versionCode: 301 }),
+  ).not.toThrow();
+  expect(() => assertReplacementAllowed(base, { ...base })).not.toThrow();
+  expect(() =>
+    assertReplacementAllowed(base, { ...base, notes: 'Different notes.' }),
+  ).toThrow('exactly match');
+  expect(() =>
+    assertReplacementAllowed(base, { ...base, versionCode: 299 }),
+  ).toThrow('greater');
   expect(() => assertReplacementAdvances(300, 301)).not.toThrow();
   expect(() => assertReplacementAdvances(300, 300)).toThrow('greater');
-  expect(() => assertReplacementAdvances(300, 299)).toThrow('greater');
   expect(() => assertReplacementAdvances(0, 301)).toThrow('invalid');
+  expect(parseExistingReleaseManifest(JSON.stringify(base))).toEqual(base);
+  expect(() => parseExistingReleaseManifest('{}')).toThrow('versionCode');
+  expect(() => parseExistingReleaseManifest('not-json')).toThrow();
+});
+
+it('drafts before replacing assets and publishes only after upload', () => {
+  const steps = replacementReleaseSteps({
+    tag: 'android-0.1.0-300',
+    repo: 'Errantial/personal-hub',
+    assets: ['app.apk', 'app.apk.sha256', 'release-manifest.json'],
+    title: 'Personal Hub 0.1.0+abc1234',
+    notesPath: 'release-notes.txt',
+    flags: ['--latest', '--prerelease=false'],
+  });
+  expect(steps[0]).toEqual([
+    'release',
+    'edit',
+    'android-0.1.0-300',
+    '--repo',
+    'Errantial/personal-hub',
+    '--draft=true',
+  ]);
+  expect(steps[1]).toContain('--clobber');
+  expect(steps[1]).toContain('release-manifest.json');
+  expect(steps[2]).toContain('--draft=false');
+  expect(steps[2]).toContain('--latest');
 });

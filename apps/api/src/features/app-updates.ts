@@ -97,7 +97,13 @@ function allowedInitialFetchUrl(value: string) {
   try {
     const url = new URL(value);
     return (
-      (url.hostname === 'api.github.com' &&
+      (url.protocol === 'https:' &&
+        !url.username &&
+        !url.password &&
+        url.port === '' &&
+        !url.search &&
+        !url.hash &&
+        url.hostname === 'api.github.com' &&
         url.pathname === `/repos/${appUpdateRepository}/releases/latest`) ||
       (url.hostname === 'github.com' && isGithubReleaseAssetUrl(value))
     );
@@ -120,6 +126,13 @@ function allowedRedirectUrl(value: string) {
   } catch {
     return false;
   }
+}
+
+function withoutAuthorization(headers: Record<string, string>) {
+  const copy = { ...headers };
+  for (const key of Object.keys(copy))
+    if (key.toLowerCase() === 'authorization') delete copy[key];
+  return copy;
 }
 
 function sameReleaseAssetUrl(left: string, right: string) {
@@ -216,11 +229,15 @@ export function createAppUpdateService(options: {
     // GitHub body cannot hold an update check open indefinitely.
     const signal = AbortSignal.timeout(requestTimeoutMs);
     let current = new URL(url);
+    const initialOrigin = current.origin;
     for (let redirects = 0; ; redirects += 1) {
       let response: Response;
       try {
         response = await options.fetcher(current.toString(), {
-          headers,
+          headers:
+            current.origin === initialOrigin
+              ? headers
+              : withoutAuthorization(headers),
           signal,
           redirect: 'manual',
         });

@@ -17,6 +17,7 @@ import {
   updateUnavailableText,
   versionCodeFromBuild,
 } from '../lib/app-updates';
+import { createNativeInfoLoader } from '../lib/native-info';
 
 /** Set by scripts/android-build.mjs; absent on the website. */
 const buildVersionName = import.meta.env.VITE_HUB_APP_VERSION as
@@ -45,42 +46,29 @@ export function AppUpdatesSettings() {
 
   useEffect(() => {
     if (!native) return;
-    let active = true;
-    let generation = 0;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const load = () => {
-      const request = ++generation;
-      let settled = false;
-      if (timer) clearTimeout(timer);
-      setInfo(null);
-      setInfoState('checking');
-      const finish = (value: NativeAppInfo | null, failed = false) => {
-        if (!active || request !== generation || settled) return;
-        settled = true;
-        if (timer) clearTimeout(timer);
-        timer = undefined;
+    const loader = createNativeInfoLoader({
+      read: readNativeAppInfo,
+      timeoutMs: nativeInfoTimeoutMs,
+      onChecking: () => {
+        setInfo(null);
+        setInfoState('checking');
+      },
+      onValue: (value) => {
         setInfo(value);
-        setInfoState(failed || !value ? 'error' : 'ready');
-      };
-      const timeout = new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error('Native app information timed out.')),
-          nativeInfoTimeoutMs,
-        );
-      });
-      void Promise.race([readNativeAppInfo(), timeout]).then(
-        (value) => finish(value),
-        () => finish(null, true),
-      );
-    };
-    load();
+        setInfoState(value ? 'ready' : 'error');
+      },
+      onError: () => {
+        setInfo(null);
+        setInfoState('error');
+      },
+    });
+    loader.load();
     const onVisible = () => {
-      if (document.visibilityState === 'visible') load();
+      if (document.visibilityState === 'visible') loader.load();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => {
-      active = false;
-      if (timer) clearTimeout(timer);
+      loader.dispose();
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [native]);
