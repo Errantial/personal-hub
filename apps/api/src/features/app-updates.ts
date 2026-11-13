@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   appUpdateQuerySchema,
+  appUpdateRepository,
   appUpdateResponseSchema,
   releaseManifestSchema,
 } from '@hub/contracts';
@@ -14,13 +15,12 @@ import type { FastifyInstance } from 'fastify';
 import type { authService } from '../auth/routes.js';
 import type { Config } from '../config.js';
 
+export { appUpdateRepository };
 /** Tests inject this; the default is the global fetch. */
 export type GithubFetch = (
   input: string | URL,
   init?: RequestInit,
 ) => Promise<Response>;
-
-export const appUpdateRepository = 'Errantial/personal-hub';
 const releaseEndpoint = `https://api.github.com/repos/${appUpdateRepository}/releases/latest`;
 const manifestName = 'release-manifest.json';
 const requestTimeoutMs = 8000;
@@ -28,6 +28,15 @@ const releaseJsonLimit = 512 * 1024;
 const manifestLimit = 64 * 1024;
 const successCacheMs = 5 * 60 * 1000;
 const failureCacheMs = 60 * 1000;
+const maximumRedirects = 5;
+const redirectHosts = new Set([
+  'api.github.com',
+  'github.com',
+  'objects.githubusercontent.com',
+  'release-assets.githubusercontent.com',
+  'github-releases.githubusercontent.com',
+]);
+const redirectStatuses = new Set([301, 302, 303, 307, 308]);
 
 const githubAssetSchema = z.object({
   name: z.string().min(1).max(255),
@@ -83,6 +92,35 @@ export function isGithubReleaseAssetUrl(value: string) {
 
 const safeAssetName = (name: string) =>
   /^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/.test(name) && !name.includes('..');
+
+function allowedInitialFetchUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return (
+      (url.hostname === 'api.github.com' &&
+        url.pathname === `/repos/${appUpdateRepository}/releases/latest`) ||
+      (url.hostname === 'github.com' && isGithubReleaseAssetUrl(value))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function allowedRedirectUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === 'https:' &&
+      !url.username &&
+      !url.password &&
+      url.port === '' &&
+      redirectHosts.has(url.hostname) &&
+      !decodedPath(url.pathname).includes('..')
+    );
+  } catch {
+    return false;
+  }
+}
 
 function sameReleaseAssetUrl(left: string, right: string) {
   try {
@@ -172,13 +210,46 @@ export function createAppUpdateService(options: {
     url: string,
     headers: Record<string, string>,
   ) => {
+    if (!allowedInitialFetchUrl(url))
+      throw new UpdateUnavailable('GITHUB_UNAVAILABLE');
     // The signal stays attached while the response body is read, so a stalled
     // GitHub body cannot hold an update check open indefinitely.
     const signal = AbortSignal.timeout(requestTimeoutMs);
-    try {
-      return await options.fetcher(url, { headers, signal });
-    } catch {
-      throw new UpdateUnavailable('GITHUB_UNAVAILABLE');
+    let current = new URL(url);
+    for (let redirects = 0; ; redirects += 1) {
+      let response: Response;
+      try {
+        response = await options.fetcher(current.toString(), {
+          headers,
+          signal,
+          redirect: 'manual',
+        });
+      } catch {
+        throw new UpdateUnavailable('GITHUB_UNAVAILABLE');
+      }
+      if (!redirectStatuses.has(response.status)) return response;
+      if (redirects >= maximumRedirects) {
+        if (response.body) await response.body.cancel().catch(() => undefined);
+        throw new UpdateUnavailable('GITHUB_UNAVAILABLE');
+      }
+      const location = response.headers.get('location');
+      if (!location) {
+        if (response.body) await response.body.cancel().catch(() => undefined);
+        throw new UpdateUnavailable('GITHUB_UNAVAILABLE');
+      }
+      let next: URL;
+      try {
+        next = new URL(location, current);
+      } catch {
+        if (response.body) await response.body.cancel().catch(() => undefined);
+        throw new UpdateUnavailable('GITHUB_UNAVAILABLE');
+      }
+      if (!allowedRedirectUrl(next.toString())) {
+        if (response.body) await response.body.cancel().catch(() => undefined);
+        throw new UpdateUnavailable('GITHUB_UNAVAILABLE');
+      }
+      if (response.body) await response.body.cancel().catch(() => undefined);
+      current = next;
     }
   };
 

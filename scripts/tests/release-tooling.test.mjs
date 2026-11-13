@@ -6,7 +6,9 @@ import { afterEach, expect, it } from 'vitest';
 import { releaseManifestSchema } from '@hub/contracts';
 import {
   androidBuildArguments,
+  androidBuildCommand,
   artifactDetails,
+  assertReplacementAdvances,
   boundedNotes,
   buildReleaseManifest,
   maximumNotesCharacters,
@@ -14,8 +16,10 @@ import {
   parseAaptBadging,
   parseDesktopArgument,
   releaseAssetUrl,
+  releaseRepository,
   safeOrigin,
 } from '../release-tooling.mjs';
+import { appUpdateRepository } from '@hub/contracts';
 
 const directories = [];
 afterEach(async () => {
@@ -176,6 +180,24 @@ it('constructs the release build with the required server origin', () => {
     '--origin',
     'https://hub.ecg.name',
   ]);
+  expect(androidBuildCommand('https://hub.ecg.name', 'win32')).toEqual({
+    command: 'cmd.exe',
+    args: [
+      '/d',
+      '/c',
+      'npm',
+      'run',
+      'android:build',
+      '--',
+      '--release',
+      '--origin',
+      'https://hub.ecg.name',
+    ],
+  });
+  expect(androidBuildCommand('https://hub.ecg.name', 'linux')).toEqual({
+    command: 'npm',
+    args: androidBuildArguments('https://hub.ecg.name'),
+  });
   expect(() => androidBuildArguments('http://hub.ecg.name')).toThrow(
     '--origin',
   );
@@ -185,6 +207,7 @@ it('constructs the release build with the required server origin', () => {
   expect(safeOrigin('https://hub.ecg.name')).toBe(true);
   expect(safeOrigin('https://user:pass@hub.ecg.name')).toBe(false);
   expect(safeOrigin('https://hub.ecg.name/path')).toBe(false);
+  expect(releaseRepository).toBe(appUpdateRepository);
 });
 
 it('reads the APK package identity from aapt badging output', () => {
@@ -264,4 +287,11 @@ it('rejects duplicate or malformed desktop platforms in the contract', () => {
       desktop: [{ ...asset, platform: 'windows' }],
     }),
   ).not.toThrow();
+});
+
+it('refuses an older or equal replacement release', () => {
+  expect(() => assertReplacementAdvances(300, 301)).not.toThrow();
+  expect(() => assertReplacementAdvances(300, 300)).toThrow('greater');
+  expect(() => assertReplacementAdvances(300, 299)).toThrow('greater');
+  expect(() => assertReplacementAdvances(0, 301)).toThrow('invalid');
 });

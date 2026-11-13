@@ -41,6 +41,7 @@ public class AppUpdaterPlugin extends Plugin {
     private static final int CONNECT_TIMEOUT_MS = 15000;
     private static final int READ_TIMEOUT_MS = 30000;
     private static final Pattern SHA256 = Pattern.compile("^[a-f0-9]{64}$");
+    // Keep this repository path in sync with appUpdateRepository in @hub/contracts.
     private static final Pattern APK_URL = Pattern.compile(
         "^/Errantial/personal-hub/releases/download/[A-Za-z0-9._+-]+/personal-hub-[A-Za-z0-9._+-]+\\.apk$"
     );
@@ -147,13 +148,19 @@ public class AppUpdaterPlugin extends Plugin {
             );
             return;
         }
-        long size = ((Number) rawSize).longValue();
-        if (!SHA256.matcher(digest).matches()) {
-            call.reject("The update checksum is invalid.", "INVALID_DIGEST");
+        double numericSize = ((Number) rawSize).doubleValue();
+        if (
+            !Double.isFinite(numericSize) ||
+            numericSize != Math.rint(numericSize) ||
+            numericSize <= 0 ||
+            numericSize > MAX_DOWNLOAD_BYTES
+        ) {
+            call.reject("The update size is invalid.", "INVALID_SIZE");
             return;
         }
-        if (size <= 0 || size > MAX_DOWNLOAD_BYTES) {
-            call.reject("The update size is invalid.", "INVALID_SIZE");
+        long size = (long) numericSize;
+        if (!SHA256.matcher(digest).matches()) {
+            call.reject("The update checksum is invalid.", "INVALID_DIGEST");
             return;
         }
         try {
@@ -261,104 +268,106 @@ public class AppUpdaterPlugin extends Plugin {
             );
         }
         HttpURLConnection connection = null;
-        for (int redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
-            connection = (HttpURLConnection) url.openConnection();
-            connection.setInstanceFollowRedirects(false);
-            connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
-            connection.setReadTimeout(READ_TIMEOUT_MS);
-            connection.setRequestProperty("Accept", "application/octet-stream");
-            connection.setRequestProperty("Accept-Encoding", "identity");
-            connection.setRequestProperty(
-                "User-Agent",
-                "Personal-Hub-Android-Updater"
-            );
-            int status = connection.getResponseCode();
-            if (
-                status == HttpURLConnection.HTTP_MOVED_PERM ||
-                status == HttpURLConnection.HTTP_MOVED_TEMP ||
-                status == HttpURLConnection.HTTP_SEE_OTHER ||
-                status == 307 ||
-                status == 308
-            ) {
-                String next = connection.getHeaderField("Location");
-                connection.disconnect();
-                connection = null;
-                if (next == null) {
+        try {
+            for (int redirects = 0; redirects < MAX_REDIRECTS; redirects++) {
+                connection = (HttpURLConnection) url.openConnection();
+                connection.setInstanceFollowRedirects(false);
+                connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+                connection.setReadTimeout(READ_TIMEOUT_MS);
+                connection.setRequestProperty(
+                    "Accept",
+                    "application/octet-stream"
+                );
+                connection.setRequestProperty("Accept-Encoding", "identity");
+                connection.setRequestProperty(
+                    "User-Agent",
+                    "Personal-Hub-Android-Updater"
+                );
+                int status = connection.getResponseCode();
+                if (
+                    status == HttpURLConnection.HTTP_MOVED_PERM ||
+                    status == HttpURLConnection.HTTP_MOVED_TEMP ||
+                    status == HttpURLConnection.HTTP_SEE_OTHER ||
+                    status == 307 ||
+                    status == 308
+                ) {
+                    String next = connection.getHeaderField("Location");
+                    connection.disconnect();
+                    connection = null;
+                    if (next == null) {
+                        throw new UpdateException(
+                            "DOWNLOAD_FAILED",
+                            "The update download was redirected without a target."
+                        );
+                    }
+                    url = new URL(url, next);
+                    if (!isRedirectUrl(url)) {
+                        throw new UpdateException(
+                            "INVALID_URL",
+                            "The update download was redirected to an unsafe host."
+                        );
+                    }
+                    continue;
+                }
+                if (status != HttpURLConnection.HTTP_OK) {
                     throw new UpdateException(
                         "DOWNLOAD_FAILED",
-                        "The update download was redirected without a target."
+                        "The update download was refused."
                     );
                 }
-                url = new URL(url, next);
-                if (!isRedirectUrl(url)) {
-                    throw new UpdateException(
-                        "INVALID_URL",
-                        "The update download was redirected to an unsafe host."
-                    );
-                }
-                continue;
+                break;
             }
-            if (status != HttpURLConnection.HTTP_OK) {
-                connection.disconnect();
-                connection = null;
+            if (connection == null) {
                 throw new UpdateException(
                     "DOWNLOAD_FAILED",
-                    "The update download was refused."
+                    "The update download had too many redirects."
                 );
             }
-            break;
-        }
-        if (connection == null) {
-            throw new UpdateException(
-                "DOWNLOAD_FAILED",
-                "The update download had too many redirects."
-            );
-        }
-        long contentLength = connection.getContentLengthLong();
-        if (
-            contentLength > MAX_DOWNLOAD_BYTES ||
-            (contentLength >= 0 && contentLength != expectedSize)
-        ) {
-            connection.disconnect();
-            throw new UpdateException(
-                "SIZE_MISMATCH",
-                "The update size did not match the release."
-            );
-        }
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        long total = 0;
-        try (
-            InputStream input = connection.getInputStream();
-            FileOutputStream output = new FileOutputStream(target)
-        ) {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = input.read(buffer)) != -1) {
-                total += read;
-                if (total > expectedSize || total > MAX_DOWNLOAD_BYTES) {
-                    throw new UpdateException(
-                        "DOWNLOAD_TOO_LARGE",
-                        "The update exceeded its declared size."
-                    );
+            long contentLength = connection.getContentLengthLong();
+            if (
+                contentLength > MAX_DOWNLOAD_BYTES ||
+                (contentLength >= 0 && contentLength != expectedSize)
+            ) {
+                throw new UpdateException(
+                    "SIZE_MISMATCH",
+                    "The update size did not match the release."
+                );
+            }
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            long total = 0;
+            try (
+                InputStream input = connection.getInputStream();
+                FileOutputStream output = new FileOutputStream(target)
+            ) {
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = input.read(buffer)) != -1) {
+                    total += read;
+                    if (total > expectedSize || total > MAX_DOWNLOAD_BYTES) {
+                        throw new UpdateException(
+                            "DOWNLOAD_TOO_LARGE",
+                            "The update exceeded its declared size."
+                        );
+                    }
+                    output.write(buffer, 0, read);
+                    digest.update(buffer, 0, read);
                 }
-                output.write(buffer, 0, read);
-                digest.update(buffer, 0, read);
+            }
+            if (total != expectedSize) {
+                throw new UpdateException(
+                    "SIZE_MISMATCH",
+                    "The update size did not match the release."
+                );
+            }
+            String actual = hex(digest.digest());
+            if (!actual.equals(expectedDigest)) {
+                throw new UpdateException(
+                    "DIGEST_MISMATCH",
+                    "The update did not match its SHA-256 checksum."
+                );
             }
         } finally {
-            connection.disconnect();
-        }
-        if (total != expectedSize) {
-            throw new UpdateException(
-                "SIZE_MISMATCH",
-                "The update size did not match the release."
-            );
-        }
-        String actual = hex(digest.digest());
-        if (!actual.equals(expectedDigest)) {
-            throw new UpdateException(
-                "DIGEST_MISMATCH",
-                "The update did not match its SHA-256 checksum."
-            );
+            if (connection != null) connection.disconnect();
         }
     }
 

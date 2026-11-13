@@ -30,6 +30,8 @@ const installedVersion = (info: NativeAppInfo | null) =>
 const installedCode = (info: NativeAppInfo | null) =>
   info?.versionCode ?? buildVersionCode ?? null;
 
+const nativeInfoTimeoutMs = 5000;
+
 export function AppUpdatesSettings() {
   const native = androidUpdaterAvailable();
   const [info, setInfo] = useState<NativeAppInfo | null>(null);
@@ -44,17 +46,31 @@ export function AppUpdatesSettings() {
   useEffect(() => {
     if (!native) return;
     let active = true;
+    let generation = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const load = () => {
-      void readNativeAppInfo().then(
-        (value) => {
-          if (!active) return;
-          setInfo(value);
-          setInfoState(value ? 'ready' : 'error');
-        },
-        () => {
-          if (!active) return;
-          setInfoState('error');
-        },
+      const request = ++generation;
+      let settled = false;
+      if (timer) clearTimeout(timer);
+      setInfo(null);
+      setInfoState('checking');
+      const finish = (value: NativeAppInfo | null, failed = false) => {
+        if (!active || request !== generation || settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        timer = undefined;
+        setInfo(value);
+        setInfoState(failed || !value ? 'error' : 'ready');
+      };
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error('Native app information timed out.')),
+          nativeInfoTimeoutMs,
+        );
+      });
+      void Promise.race([readNativeAppInfo(), timeout]).then(
+        (value) => finish(value),
+        () => finish(null, true),
       );
     };
     load();
@@ -64,6 +80,7 @@ export function AppUpdatesSettings() {
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       active = false;
+      if (timer) clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [native]);
@@ -227,7 +244,13 @@ export function AppUpdatesSettings() {
               : ''}
           </p>
           {response.latest.notes.trim() && (
-            <p className="app-update-notes">{response.latest.notes}</p>
+            <p
+              className="app-update-notes"
+              tabIndex={0}
+              aria-label="Release notes"
+            >
+              {response.latest.notes}
+            </p>
           )}
           {response.latest.android && native && info?.canInstallPackages && (
             <button

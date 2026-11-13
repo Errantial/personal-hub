@@ -56,6 +56,9 @@ test('Account shows a synthetic Android update at 320 px without offering a web 
     }),
   ).toBeVisible();
   await expect(page.getByText(/Synthetic release notes/)).toBeVisible();
+  const notes = page.getByLabel('Release notes');
+  await notes.focus();
+  await expect(notes).toBeFocused();
   await expect(
     page.getByText(
       'Open Personal Hub on Android to download and install this update.',

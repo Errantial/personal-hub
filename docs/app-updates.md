@@ -52,8 +52,10 @@ Validation is deliberately narrow:
 
 - The manifest is at most 64 KiB; notes are at most 4,000 characters.
 - `versionName` is a short safe token and `versionCode` is a positive integer.
-- Asset URLs must be HTTPS with no credentials, query or fragment and must start
-  at `https://github.com/Errantial/personal-hub/releases/download/`.
+- The shared contract requires HTTPS asset URLs without credentials, query or
+  fragment. The server and Android app additionally require the
+  `https://github.com/Errantial/personal-hub/releases/download/` path and
+  validate each asset against the release.
 - The manifest's Android and desktop URLs must match assets actually attached to
   that GitHub release, including their declared sizes.
 - Each referenced asset name is safe (no path separators or `..`); each digest
@@ -130,10 +132,12 @@ signing key and its passwords are supplied only through the existing
    certificate. It requires the current commit to be clean,
    checks that an existing local or remote tag points at `HEAD`, and creates the
    release. Replacing assets on an existing release requires the explicit
-   `--replace` flag; prefer a new `versionCode` forward fix. Replacement uses
-   `gh release upload --clobber`, then edits the title and notes. Uploading is a
-   real network write and remains owner-authorized; this release implementation
-   did not run it.
+   `--replace` flag; the script downloads the existing `release-manifest.json`
+   and refuses unless the new `versionCode` is greater. It temporarily marks the
+   release draft, uploads with `gh release upload --clobber`, then publishes it
+   again with the new title and notes. This is still not atomic; prefer a new
+   `versionCode` forward fix. Uploading is a real network write and remains
+   owner-authorized; this release implementation did not run it.
 
    `--build --origin https://hub.ecg.name` can run the signed build first. The
    server origin is baked into the APK. `--tag`, `--channel`, `--output-dir` and

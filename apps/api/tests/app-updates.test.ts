@@ -232,6 +232,47 @@ describe('app update service', () => {
     expect(calls).toHaveLength(2);
   });
 
+  it('follows only bounded GitHub asset redirects', async () => {
+    const redirected =
+      'https://objects.githubusercontent.com/synthetic/manifest';
+    const fetcher: GithubFetch = async (input) => {
+      const url = String(input);
+      if (
+        url ===
+        `https://api.github.com/repos/${appUpdateRepository}/releases/latest`
+      )
+        return json(release);
+      if (url === manifestUrl)
+        return new Response(null, {
+          status: 302,
+          headers: { location: redirected },
+        });
+      if (url === redirected) return json(manifest);
+      throw new Error(`Unexpected network URL: ${url}`);
+    };
+    expect((await createAppUpdateService({ fetcher }).check(1)).state).toBe(
+      'update-available',
+    );
+
+    const foreign: GithubFetch = async (input) => {
+      const url = String(input);
+      if (
+        url ===
+        `https://api.github.com/repos/${appUpdateRepository}/releases/latest`
+      )
+        return json(release);
+      if (url === manifestUrl)
+        return new Response(null, {
+          status: 302,
+          headers: { location: 'https://example.test/manifest.json' },
+        });
+      throw new Error(`Unexpected network URL: ${url}`);
+    };
+    expect(
+      (await createAppUpdateService({ fetcher: foreign }).check(1)).reason,
+    ).toBe('GITHUB_UNAVAILABLE');
+  });
+
   it('shares one cold GitHub read across concurrent checks', async () => {
     let releaseCalls = 0;
     let manifestCalls = 0;

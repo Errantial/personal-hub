@@ -2,11 +2,12 @@ import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { basename } from 'node:path';
+import { appUpdateRepository } from '@hub/contracts';
 
 export const maximumArtifactBytes = 250 * 1024 * 1024;
 export const maximumNotesCharacters = 4000;
 export const manifestAssetName = 'release-manifest.json';
-export const releaseRepository = 'Errantial/personal-hub';
+export const releaseRepository = appUpdateRepository;
 export const productionCertificateSha256 =
   'F9:F1:69:37:1A:E0:E7:FA:D1:3B:0A:99:B3:10:BE:54:FC:28:94:01:00:C8:91:1F:BC:51:8D:C3:10:92:53:E7';
 
@@ -33,11 +34,29 @@ export function androidBuildArguments(origin) {
   return ['run', 'android:build', '--', '--release', '--origin', origin];
 }
 
+export function androidBuildCommand(origin, platform = process.platform) {
+  const args = androidBuildArguments(origin);
+  return platform === 'win32'
+    ? { command: 'cmd.exe', args: ['/d', '/c', 'npm', ...args] }
+    : { command: 'npm', args };
+}
+
 export function normalizeCertificateSha256(value) {
   const normalized = value.replaceAll(':', '').toLowerCase();
   if (!/^[a-f0-9]{64}$/.test(normalized))
     throw new Error('Use a SHA-256 certificate fingerprint.');
   return normalized;
+}
+
+export function assertReplacementAdvances(existing, next) {
+  if (!Number.isInteger(existing) || existing <= 0)
+    throw new Error('The existing release versionCode is invalid.');
+  if (!Number.isInteger(next) || next <= 0)
+    throw new Error('The replacement versionCode is invalid.');
+  if (next <= existing)
+    throw new Error(
+      `Replacement versionCode ${next} must be greater than existing ${existing}; publish a forward fix instead.`,
+    );
 }
 
 /** Reads `aapt dump badging` package identity. */

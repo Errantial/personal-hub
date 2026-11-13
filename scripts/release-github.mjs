@@ -3,15 +3,19 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
-  androidBuildArguments,
+  androidBuildCommand,
   artifactDetails,
+  assertReplacementAdvances,
   boundedNotes,
   buildReleaseManifest,
   manifestAssetName,
@@ -291,6 +295,42 @@ function copyArtifact(source, destination) {
     copyFileSync(source, destination);
 }
 
+function readExistingReleaseVersionCode(tag) {
+  const directory = mkdtempSync(join(tmpdir(), 'hub-release-existing-'));
+  try {
+    const result = spawnSync(
+      'gh',
+      [
+        'release',
+        'download',
+        tag,
+        '--repo',
+        releaseRepository,
+        '--pattern',
+        manifestAssetName,
+        '--dir',
+        directory,
+        '--clobber',
+      ],
+      { encoding: 'utf8' },
+    );
+    if (result.status !== 0)
+      throw new Error(
+        `The existing release manifest for ${tag} could not be read; refusing --replace.`,
+      );
+    const parsed = JSON.parse(
+      readFileSync(join(directory, manifestAssetName), 'utf8'),
+    );
+    if (!Number.isInteger(parsed.versionCode) || parsed.versionCode <= 0)
+      throw new Error(
+        `The existing release manifest for ${tag} has no valid versionCode; refusing --replace.`,
+      );
+    return parsed.versionCode;
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   const options = parseArguments(process.argv.slice(2));
   const root = git('rev-parse', '--show-toplevel');
@@ -308,14 +348,8 @@ async function main() {
     );
   if (options.build) {
     console.log('Building the signed release APK...');
-    const buildArgs = androidBuildArguments(options.origin);
-    execFileSync(
-      process.platform === 'win32' ? 'cmd.exe' : 'npm',
-      process.platform === 'win32'
-        ? ['/d', '/c', 'npm', ...buildArgs]
-        : buildArgs,
-      { stdio: 'inherit' },
-    );
+    const build = androidBuildCommand(options.origin);
+    execFileSync(build.command, build.args, { stdio: 'inherit' });
     requireCleanTree();
   }
   const apkName = `personal-hub-${versionName}.apk`;
@@ -413,6 +447,8 @@ async function main() {
     throw new Error(
       `Release ${tag} already exists. Re-run with --replace only for a deliberate same-tag replacement; prefer a new versionCode forward fix.`,
     );
+  if (exists)
+    assertReplacementAdvances(readExistingReleaseVersionCode(tag), versionCode);
   const flags =
     options.channel === 'beta'
       ? ['--prerelease']
@@ -434,6 +470,8 @@ async function main() {
       ...flags,
     );
   } else {
+    // Keep the release unavailable while assets are replaced, then publish.
+    gh('release', 'edit', tag, '--repo', releaseRepository, '--draft=true');
     gh(
       'release',
       'upload',
