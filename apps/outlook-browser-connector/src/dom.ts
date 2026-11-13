@@ -21,7 +21,7 @@ export const domSelectors = {
   count:
     '[data-testid="message-list-count"], [data-testid="total-count"], [data-testid*="count" i][aria-label], [aria-label*="total messages" i]',
   loadMore:
-    'a[rel="next"], [data-testid="pagination-next"], [data-testid*="load-more" i], button[aria-label*="load more" i], a[aria-label*="load more" i], button[aria-label*="show more" i], a[aria-label*="show more" i]',
+    'a[rel="next"], [data-testid="pagination-next"], [data-testid*="load-more" i], button, a, [role="button"]',
   readingPanes:
     '[data-app-section="reading-pane"], [data-testid="reading-pane"], [aria-label*="Reading pane" i], [role="main"][aria-label*="message" i]',
   body: '[data-testid="message-body"], [role="document"], [aria-label*="Message body" i]',
@@ -165,6 +165,12 @@ export function readMessageList(
     .filter((value) => Number.isFinite(value) && value > 0);
   const loadMore = [...root.querySelectorAll(selectors.loadMore)].some(
     (node) => {
+      if (node.closest('[role="option"]')) return false;
+      if (
+        node.tagName === 'A' &&
+        (node.getAttribute('href') ?? '').includes('/id/')
+      )
+        return false;
       const label = `${node.getAttribute('aria-label') ?? ''} ${elementText(node)}`;
       return /(?:load|show)\s+more|next|more messages/i.test(label);
     },

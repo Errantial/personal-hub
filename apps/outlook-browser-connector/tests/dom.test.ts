@@ -37,6 +37,7 @@ it('marks a virtualized, unlinked or load-more list as partial instead of comple
   expect(snapshot.loadMore).toBe(true);
   expect(snapshot.totalCount).toBe(12);
   expect(snapshot.setSize).toBe(12);
+  expect(snapshot.rows[0]?.senderAddress).toBe('advisor@example.test');
   const assessment = assessMessageList({
     identities: snapshot.rows.filter((row) => row.href).length,
     renderedOptions: 2,
