@@ -45,6 +45,9 @@ async function gitRepository() {
   execFileSync('git', ['config', 'user.name', 'Release Test'], {
     cwd: directory,
   });
+  execFileSync('git', ['config', 'commit.gpgsign', 'false'], {
+    cwd: directory,
+  });
   execFileSync('git', ['add', '.'], { cwd: directory });
   execFileSync('git', ['commit', '-qm', 'initial'], { cwd: directory });
   const short = execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], {

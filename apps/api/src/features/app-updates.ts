@@ -115,13 +115,16 @@ async function boundedText(response: Response, limit: number) {
   const declared = response.headers.get('content-length');
   if (declared !== null) {
     const length = Number(declared);
-    if (Number.isFinite(length) && length > limit) return null;
+    if (Number.isFinite(length) && length > limit) {
+      if (response.body) await response.body.cancel().catch(() => undefined);
+      return null;
+    }
   }
   if (!response.body) return null;
-  const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
   try {
+    const reader = response.body.getReader();
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
