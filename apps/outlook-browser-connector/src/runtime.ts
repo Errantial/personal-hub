@@ -350,7 +350,7 @@ function mergeSnapshot(
   return atBottom(snapshot);
 }
 
-async function sweepOnce(page: Page, origin: OutlookOrigin) {
+export async function sweepOnce(page: Page, origin: OutlookOrigin) {
   const result: SweepResult = {
     rows: new Map(),
     unresolved: 0,

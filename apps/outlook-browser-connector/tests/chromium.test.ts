@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
 import { expect, it } from 'vitest';
+import { sweepOnce } from '../src/runtime.js';
 
 const root = process.cwd();
 const connector = join(root, 'apps', 'outlook-browser-connector');
@@ -82,6 +83,14 @@ it.skipIf(!browserAvailable)(
       expect(list).toMatchObject({ options: 30, unresolved: 0 });
       expect(list.scrollHeight).toBeGreaterThan(120);
       expect(list.scrollHeight).toBeLessThan(5000);
+      await page.evaluate(
+        'globalThis.__name = globalThis.__name || ((target) => target)',
+      );
+      const sweep = await sweepOnce(page, 'https://outlook.office.com');
+      expect(sweep.rows.size).toBe(30);
+      expect(sweep.reachedBottom).toBe(true);
+      expect(sweep.unresolved).toBe(0);
+
       const scrolled = (await page.evaluate(
         `(${compiled.scrollMessageList.toString()})(document, ${JSON.stringify(compiled.domSelectors)}, 'next')`,
       )) as { scrollTop: number };
