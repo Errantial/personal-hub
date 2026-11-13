@@ -43,6 +43,17 @@ const environmentSchema = z
       .transform((value) => value.split(',').map((origin) => origin.trim()))
       .pipe(z.array(originSchema).min(1)),
     SETUP_TOKEN: z.string().min(32).optional(),
+    // Optional GitHub API token for update checks. Server memory only; it is
+    // never returned to clients, exported or logged.
+    GITHUB_TOKEN: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z
+        .string()
+        .min(1)
+        .max(4096)
+        .regex(/^[\x21-\x7e]+$/)
+        .optional(),
+    ),
     // Client addresses come from X-Forwarded-For only when the connecting
     // peer is a loopback reverse proxy. Without this every client behind the
     // proxy shares one address and therefore one rate-limit bucket.

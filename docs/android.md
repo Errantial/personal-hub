@@ -2,7 +2,7 @@
 
 The Capacitor APK bundles the React UI. The framework remains provisional until the owner's Mudita Kompakt passes the checks in [platforms.md](platforms.md). Native local reminder alarms are implemented; background synchronization is not.
 
-The path to a release is in [android-release-plan.md](android-release-plan.md) (D58).
+The path to a release is in [android-release-plan.md](android-release-plan.md) (D58). The signed GitHub release feed and in-app updater are described in [app-updates.md](app-updates.md).
 
 ## Build
 
@@ -17,7 +17,7 @@ npm run android:build -- --origin https://your-hub.example
 
 Output: `.artifacts/android/personal-hub-debug.apk`. The API origin is fixed public build configuration; there is no runtime server picker yet. The server must allow `https://localhost` in `WEB_ORIGINS` alongside the website's HTTPS origin. Native HTTP sends that origin and the existing owner cookie; server authorization and mutation checks remain intact. Do not remove origin checks or enable browser CORS.
 
-Every build gets `versionCode` = the commit count of `HEAD` and `versionName` = `<package version>+<short commit>` (with `.dirty` for uncommitted changes). The name is shown in Settings › Account › App version. The script writes a `.sha256` file next to each APK.
+Every build gets `versionCode` = the commit count of `HEAD` and `versionName` = `<package version>+<short commit>` (with `.dirty` for uncommitted changes). The name is shown in Settings › Account › App updates, and the build script also passes the code into the web bundle so the version comparison works even before the native bridge responds. The script writes a `.sha256` file next to each APK.
 
 `--release` builds a **signed** APK, `personal-hub-<versionName>.apk`, and refuses to run without a signing key or with uncommitted changes. It verifies the result with the SDK's `apksigner`. Supply the key only through the environment:
 
@@ -56,6 +56,12 @@ Prefer a forward fix with a higher `versionCode` over a rollback. If a rollback 
 **Signing key.** Every release must use the same key. Keep the keystore outside the repository with an offline backup and record its certificate fingerprint with each release. Never put the keystore path or passwords in the repository, a build log, or chat.
 
 **Release audit.** Release builds set `android:allowBackup="false"`, `android:usesCleartextTraffic="false"`, `loggingBehavior: "none"`, and the Capacitor request logger off. The `--test` origin is rejected. The APK does not include Google Services or Firebase. Recheck these in the built APK's merged manifest and confirm no test key or test connection is packaged before distributing it.
+
+## In-app updates
+
+Settings › Account › App updates checks the latest stable GitHub release through the owner-authorized server endpoint and offers a bounded download/install action. The native `AppUpdater` plugin reports the installed version and whether this package may install unknown apps, opens the Android setting for this package, downloads only a manifest-supplied HTTPS URL, verifies its SHA-256 and declared size, and launches Android's package-installer prompt through the existing `FileProvider`. It never installs silently and deletes failed or partial files. The app declares `REQUEST_INSTALL_PACKAGES`.
+
+The manifest, tag and release runbook are in [app-updates.md](app-updates.md). The website can check the release feed but does not install; Settings says to open the Android app. No desktop build is published in this release. An update must use the same production signing key; Android rejects a different key. Emulator and Kompakt evidence for the installer prompt, permission toggle and download path is still required separately from server/web tests.
 
 ## Native reminder alarms
 
@@ -109,7 +115,7 @@ Native service workers are disabled because the shell is bundled. API callers ke
 
 ## Remaining acceptance
 
-Record emulator and hardware results separately. Actual Kompakt API/WebView, input, viewport, monochrome contrast, scrolling/ghosting, sleep modes and battery remain device gates. Native reminder alarms passed emulator scheduling, permission-state and closed-app delivery checks; future-alarm reboot survival, Doze and Mudita power modes still need device evidence. Production TLS login/session recovery and release signing are separate acceptance checks.
+Record emulator and hardware results separately. Actual Kompakt API/WebView, input, viewport, monochrome contrast, scrolling/ghosting, sleep modes and battery remain device gates. Native reminder alarms passed emulator scheduling, permission-state and closed-app delivery checks; future-alarm reboot survival, Doze and Mudita power modes still need device evidence. Production TLS login/session recovery and release signing are separate acceptance checks. The in-app updater has server/web/unit coverage but no emulator or Kompakt install-prompt, permission-toggle or downloaded-APK evidence yet.
 
 ## Shell changes and the 2026-11-01 emulator regression
 

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import {
+  Temporal,
   reminderSchema,
   taskResponseSchema,
   tasksResponseSchema,
@@ -856,11 +857,23 @@ it('accepts a recurring reminder proposal through the agent write path', async (
 });
 
 it('creates one reminder per event occurrence offset', async () => {
+  const start = Temporal.Now.zonedDateTimeISO('America/Denver')
+    .add({ days: 2 })
+    .with({
+      hour: 19,
+      minute: 0,
+      second: 0,
+      millisecond: 0,
+      microsecond: 0,
+      nanosecond: 0,
+    });
+  const firstDate = start.toPlainDate();
+  const secondDate = firstDate.add({ days: 7 });
   const created = await post('calendar', {
     title: 'Weekly planning',
     notes: '',
-    startsAt: '2026-11-10T19:00:00-07:00',
-    endsAt: '2026-11-10T20:00:00-07:00',
+    startsAt: start.toInstant().toString(),
+    endsAt: start.add({ hours: 1 }).toInstant().toString(),
     timeZone: 'America/Denver',
     sensitivity: 'unlabeled',
     allDay: false,
@@ -899,12 +912,18 @@ it('creates one reminder per event occurrence offset', async () => {
     (row) => row.targetId === eventId && row.offsetMinutes === 60,
   );
   expect(generated.map((row) => row.occurrenceDate).sort()).toEqual([
-    '2026-11-10',
-    '2026-11-17',
+    firstDate.toString(),
+    secondDate.toString(),
   ]);
   expect(
-    generated.find((row) => row.occurrenceDate === '2026-11-10')!.scheduledAt,
-  ).toBe('2026-11-11T01:00:00.000Z');
+    generated.find((row) => row.occurrenceDate === firstDate.toString())!
+      .scheduledAt,
+  ).toBe(
+    start
+      .subtract({ minutes: 60 })
+      .toInstant()
+      .toString({ smallestUnit: 'millisecond' }),
+  );
 
   const event = created.json().event as { id: string; version: number };
   const deleted = await del(`calendar/${event.id}`, {

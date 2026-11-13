@@ -69,6 +69,8 @@ import {
   startReminderWorker,
 } from './features/reminders.js';
 import { registerTrackedDeadlines } from './features/tracked-deadlines.js';
+import { registerAppUpdates } from './features/app-updates.js';
+import type { GithubFetch } from './features/app-updates.js';
 
 export async function buildApp(
   options: FastifyServerOptions = {},
@@ -80,6 +82,9 @@ export async function buildApp(
     canvasApiFetcher?: CanvasApiFetcher;
     /** Tests inject this; the default is the global fetch. */
     openRouterFetch?: OpenRouterFetch;
+    /** Tests inject this; update checks never reach GitHub in tests. */
+    githubFetch?: GithubFetch;
+    appUpdateNow?: () => number;
   } = {},
 ) {
   const config = runtime.config ?? readConfig({});
@@ -151,6 +156,13 @@ export async function buildApp(
   registerCanvasReconciliation(app, database, auth);
   registerCanvasPlannerWork(app, database, auth);
   registerTrackedDeadlines(app, database, auth);
+  registerAppUpdates(
+    app,
+    auth,
+    config,
+    runtime.githubFetch ?? fetch,
+    runtime.appUpdateNow,
+  );
   registerOutlook(app, database, auth);
   registerAIRouting(app, database, auth);
   registerAIPreflight(app, database, auth, config);
