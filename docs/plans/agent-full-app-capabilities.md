@@ -1,6 +1,6 @@
 # Full-app agent capabilities
 
-Status: inventory, phase-1 implementation and recurring items, 2026-11-09. Phase 1 (registry, task/event delete/restore, study preferences, audit snapshots and undo) is implemented; the matrix marks the remaining phases. This follows the deployed context/reminder slice (PR #73, release `f99fdf7`).
+Status: inventory, phase-1 implementation, recurring items and phase-2 implementation, 2026-11-13. Phase 1 (registry, task/event delete/restore, study preferences, audit snapshots and undo) and phase 2 (classes/topics, academic work, tracked-deadline overrides/completion) are implemented; the matrix marks the remaining phases. This follows the deployed context/reminder slice (PR #73, release `f99fdf7`).
 
 ## Inventory
 
@@ -14,9 +14,9 @@ The app exposes planner records (tasks, reminders, calendar series/occurrences, 
 | Task reminders | context (`planner-reminder-v1`) | existing `reminder.create`, including recurrence | existing `reminder.update` | existing `reminder.cancel` (Tier 2; this/future/series) | n/a |
 | Calendar events | context (`planner-event-v1`) | existing `event.create`, including recurrence and offsets | existing `event.update` | **new** `event.delete` (Tier 2; series) | **new** `event.restore`; batch missing |
 | Occurrences | context | n/a | occurrence edit (this/future) | occurrence delete (this/future/series) | missing undo |
-| Classes/topics | context (`planner-course-v1`) | missing | missing | missing | missing |
-| Academic work | selected context only | missing | missing | missing | batch/restore missing |
-| Tracked deadlines | context (`tracked-deadline-v1`) | n/a | missing | n/a | complete/reopen missing |
+| Classes/topics | context (`planner-course-v1`, `planner-topic-v1`) | **new** `course.create`, `topic.create` (Tier 1) | **new** `course.update`, `topic.update` (Tier 1) | **new** `course.delete`, `topic.delete` (Tier 2) | undo restores the captured class/topic and class cascade; no standalone restore/batch |
+| Academic work | selected context only (`academic-work-v1`); `c` refs for creation | **new** `academicWork.create` (Tier 1) | **new** `academicWork.update` (Tier 1; no grade mutation) | **new** `academicWork.delete` (Tier 2) | **new** `academicWork.restore` (Tier 2; direct ID); batch missing |
+| Tracked deadlines | context (`tracked-deadline-v1`; completed refs only on owner asks) | n/a | **new** `trackedDeadline.update` (Tier 1) | n/a | **new** `trackedDeadline.complete` / `trackedDeadline.reopen` (Tier 1, local only) |
 | Responsibilities/agents | agent UI | missing | missing | missing | pause/resume missing |
 | Notifications | API/UI | n/a | missing (not implemented) | n/a | bulk read missing |
 | Preferences | API/UI | n/a | `study.preferences.update` (Tier 1) | n/a | revert is a normal update |
@@ -58,6 +58,18 @@ Implemented `apps/api/src/ai/capabilities.ts` with owner-scoped definitions for 
 `GET /api/v1/ai/capabilities/audit` returns recent decisions; `POST /api/v1/ai/capabilities/undo` reverses a stored snapshot. Settings > AI > Actions shows the new grant group, a Tier-1 automatic button and the audit list with Undo. Marked task/event updates continue through the existing audited proposal path; their existing proposal Undo is unchanged.
 
 Still missing from the full matrix: classes/topics, academic-work CRUD/batch/restore, tracked-deadline overrides/completion, responsibilities, memory, study goals/plans, notification reads, and mail labels/read/archive/drafts. These are the next phases; the registry and audit/undo schema are ready for them.
+
+
+## Phase 2 receipt
+
+Implemented through the same `apps/api/src/ai/capabilities.ts` registry and audit/undo path:
+
+- **Classes/topics:** `course.create`, `course.update`, `course.delete`, `topic.create`, `topic.update`, `topic.delete`. Class creates/updates are Tier 1; class/topic deletes are Tier 2. `topic.create` and academic-work creates use pinned `c` refs; topic updates/deletes use new pinned `p` refs. Class deletion keeps the existing tombstone plus topic cascade; Undo restores the captured class and only the topics that were active before deletion.
+- **Academic work:** `academicWork.create`, `academicWork.update`, `academicWork.delete`, `academicWork.restore`. Create/update are Tier 1; delete/restore are Tier 2. Updates only target the owner's explicitly selected `w` refs, keep the original class, preserve a recorded score, and refuse a submitted-to-open status change with `ACADEMIC_SCORE_REVIEW_REQUIRED`. No capability accepts a grade.
+- **Tracked deadlines:** `trackedDeadline.update` (title override, priority, notes, due override, sensitivity), `trackedDeadline.complete` and `trackedDeadline.reopen` are Tier 1 local owner-data changes. They never call Canvas and never claim submission, mastery or source completeness. Open `d` refs are sent to owner asks; completed refs from the last 30 days are added only for owner asks so reopen is addressable.
+- **Context:** `assistantContext` adds an allowlisted topic projection (`ref`, name, class ref, confidence, progress, sensitivity), pinned by version in `planner-topic-v1`. Topic eligibility fails closed: the effective labels are the union of topic sensitivity, class sensitivity and every retained `academic_labels` entry; a legacy null label history is withheld. The prompt explains `c`/`p`/`w`/`d` refs and prohibits inferred grades, claimed Canvas submission/completion and source-completeness claims. No private IDs are sent.
+
+Before/after snapshots, audit rows, operation-ID retry, Tier/auto-approve behavior and Undo are covered for each new capability; class/topic deletes use the existing soft-delete tombstones. New audit rows keep `target_kind` null under the existing check constraint and populate `target_id`, including class deletes and Undo rows. Undo restores captured owner fields but does not lower labels already propagated to dependents. Academic-work restore remains a direct-ID capability, matching `task.restore`, because deleted work is not part of explicit AI selection. No migration was needed: the existing audit `general` capability and action/target checks already accept these tools. Batch operations, class/topic standalone restore, responsibilities, memory, study goals/plans, notification reads and mail actions remain out of scope.
 
 
 ## Auto-approve toggle (added 2026-11-07)

@@ -29,7 +29,7 @@ export const trackedDeadlineAvailabilitySchema = z.enum([
 ]);
 export const trackedDeadlineTimedDueSchema = z.object({
   kind: z.literal('timed'),
-  dueAt: z.string().datetime(),
+  dueAt: z.string().datetime({ offset: true }),
   timeZone: deadlineTimeZoneSchema.nullable(),
 });
 export const trackedDeadlineDateDueSchema = z.object({

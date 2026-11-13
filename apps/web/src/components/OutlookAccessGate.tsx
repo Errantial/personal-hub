@@ -24,7 +24,7 @@ function nextAction(state: OutlookAccessGate) {
   if (state.status === 'scope-review-required')
     return 'Confirm whether shared-mailbox access is actually required before choosing any additional delegated scope.';
   if (state.status === 'blocked')
-    return 'Record the school capability that is blocked and stop. Browser feasibility is a separate proposal, not an automatic fallback.';
+    return 'Record the school capability that is blocked and stop. Authorized browser collection is implemented separately in development and is not an automatic Graph fallback.';
   return 'Verify the mailbox backend, school-managed tenant, mailbox scope, app-registration availability and delegated consent policy before implementing OAuth.';
 }
 

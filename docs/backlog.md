@@ -1,6 +1,10 @@
 # Implementation backlog
 
-## Current milestone: small OpenRouter mail broker (2026-10-16)
+## Current release lane: 2026-11-13
+
+`release/2026-11-13` integrates the GitHub release feed and Android in-app updater, assistant capability matrix phase 2, and the read-only Outlook Web browser collector. The exact-SHA owner approval gate still applies before main or production. Remaining release gates: Android SDK/JDK compile and Kompakt install/update evidence, live Outlook sign-in/MFA and coverage, unattended Outlook scheduling, and the remaining moderate/low dependency audit findings.
+
+## Previous milestone: small OpenRouter mail broker (2026-10-16)
 
 PR #48 merged as `f895cb6`; the synthetic runner passed 829 local tests (three optional PostgreSQL skips) and Linux/Windows/PostgreSQL CI on `831d065`. Actual paid model evaluation, configuration/deployment and owner acceptance remain pending. P8 part 2 study suggestions merged in PR #49, P9 explicit per-ask memory and forget/history enforcement merged in PR #50, P10 source-health and connector reconciliation merged in PR #51 as `d6311b6`, P11 browser runtime/ingestion merged in PR #52 as `d1cb055`, browser/calendar-feed reconciliation merged in PR #53 as `fc0fffb`, and P12 Outlook access-gate development merged in PR #54 as `2fa12fd`. Live two-course/all-selected-course Canvas acceptance, owner feed comparison and scheduler installation remain separate gates. P12's migration 072 plus owner-visible, versioned backend/tenant-class/mailbox-scope/app-registration/delegated-consent findings perform no Microsoft sign-in, OAuth/token storage, mailbox read or permission request; the actual Graph adapter remains blocked on account-specific gate evidence. P13 is preserved as a design-only [inbound MCP threat/grant/auth specification](mcp-inbound-design.md), but the owner moved MCP compatibility and P13-P16 implementation to post-v1 on 2026-10-17. No client, SDK, auth service, export destination or MCP endpoint is selected or enabled.
 
@@ -73,7 +77,7 @@ Acceptance remaining for the broader planner milestone: an Android edit survives
 
 - Verify Oracle CPU architecture, supported Bridge host/uptime, and persistent storage.
 - Compare authorized Canvas API, calendar feed, and text-browser coverage; never store the private calendar URL in the repository.
-- Use the [Outlook access gate](outlook.md) to verify the school mailbox backend, school-managed tenant, mailbox scope, app-registration route and Graph delegated-consent policy. Implement a read-only Graph adapter only if that live gate permits it; browser fallback remains a separate proposal.
+- Use the [Outlook access gate](outlook.md) to verify the school mailbox backend, school-managed tenant, mailbox scope, app-registration route and Graph delegated-consent policy. Implement a read-only Graph adapter only if that live gate permits it. A separate read-only Outlook Web browser collector is implemented in development; live sign-in/MFA, selectors, two-folder/all-selected-folder coverage and scheduling remain owner gates.
 - Prove Proton Mail/Gmail completeness through Bridge and a text-only Proton Calendar write path.
 - Confirm provider/model choices, numeric spending caps, and data retention before paid AI processing.
 

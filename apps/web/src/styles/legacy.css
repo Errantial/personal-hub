@@ -236,6 +236,78 @@
   color: var(--text-muted);
   line-height: 1.8;
 }
+.app-update-details {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+.app-update-details div {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+}
+.app-update-details dt {
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+}
+.app-update-details dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.app-update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0;
+}
+.app-update-release {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.app-update-release h3 {
+  margin: 0;
+  font-size: var(--text-title-small);
+  overflow-wrap: anywhere;
+}
+.app-update-notes {
+  max-width: 100%;
+  max-height: 14rem;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-subtle);
+  color: var(--text);
+  font-size: var(--text-caption);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.app-update-notes:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.app-update-meta,
+.app-update-desktop {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--text-muted);
+}
+@media (max-width: 480px) {
+  .app-update-details div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .app-update-details dd {
+    text-align: left;
+  }
+}
 .checkbox-label {
   display: flex;
   gap: 10px;
