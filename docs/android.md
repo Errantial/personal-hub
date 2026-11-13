@@ -19,7 +19,7 @@ Output: `.artifacts/android/personal-hub-debug.apk`. The API origin is fixed pub
 
 Every build gets `versionCode` = the commit count of `HEAD` and `versionName` = `<package version>+<short commit>` (with `.dirty` for uncommitted changes). The name is shown in Settings › Account › App updates, and the build script also passes the code into the web bundle so the version comparison works even before the native bridge responds. The script writes a `.sha256` file next to each APK.
 
-`--release` builds a **signed** APK, `personal-hub-<versionName>.apk`, and refuses to run without a signing key or with uncommitted changes. It verifies the result with the SDK's `apksigner`. Supply the key only through the environment:
+`--release` builds a **signed** APK, `personal-hub-<versionName>.apk`, and refuses to run without a signing key, an `--origin https://...` server origin, or with uncommitted changes. It verifies the result with the SDK's `apksigner`. Supply the key only through the environment:
 
 - `HUB_ANDROID_KEYSTORE`: absolute path to the release keystore, kept outside the repository with an offline backup.
 - `HUB_ANDROID_KEYSTORE_PASSWORD` and `HUB_ANDROID_KEY_ALIAS`.

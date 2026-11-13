@@ -24,6 +24,8 @@ import java.security.MessageDigest;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 
 /**
@@ -44,6 +46,7 @@ public class AppUpdaterPlugin extends Plugin {
     );
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final AtomicBoolean installing = new AtomicBoolean(false);
 
     @Override
     public void load() {
@@ -53,8 +56,15 @@ public class AppUpdaterPlugin extends Plugin {
         File directory = new File(getContext().getCacheDir(), "updates");
         File[] files = directory.listFiles();
         if (files != null) {
+            long cutoff = System.currentTimeMillis() - 24L * 60 * 60 * 1000;
             for (File file : files) {
-                if (file.getName().endsWith(".part")) file.delete();
+                if (
+                    file.getName().endsWith(".part") ||
+                    (file.getName().endsWith(".apk") &&
+                        file.lastModified() < cutoff)
+                ) {
+                    file.delete();
+                }
             }
         }
     }
@@ -162,11 +172,27 @@ public class AppUpdaterPlugin extends Plugin {
             );
             return;
         }
-        executor.execute(() -> downloadAndLaunch(call, location, size, digest));
+        if (!installing.compareAndSet(false, true)) {
+            call.reject(
+                "An update is already being prepared.",
+                "INSTALL_IN_PROGRESS"
+            );
+            return;
+        }
+        try {
+            executor.execute(() -> downloadAndLaunch(call, location, size, digest));
+        } catch (RejectedExecutionException error) {
+            installing.set(false);
+            call.reject(
+                "The updater is unavailable. Reopen Personal Hub.",
+                "UPDATER_UNAVAILABLE"
+            );
+        }
     }
 
     @Override
     protected void handleOnDestroy() {
+        installing.set(false);
         executor.shutdownNow();
     }
 
@@ -178,18 +204,24 @@ public class AppUpdaterPlugin extends Plugin {
     ) {
         File directory = new File(getContext().getCacheDir(), "updates");
         if (!directory.exists() && !directory.mkdirs()) {
+            installing.set(false);
             call.reject(
                 "The update could not be prepared. Nothing was installed.",
                 "DOWNLOAD_FAILED"
             );
             return;
         }
-        File target = new File(directory, "personal-hub-update.apk");
-        File partial = new File(directory, "personal-hub-update.apk.part");
-        // A failed attempt never leaves a file that could be mistaken for an
-        // update. The system installer reads only the verified target.
-        target.delete();
-        partial.delete();
+        String suffix = Long.toString(System.currentTimeMillis());
+        File target = new File(
+            directory,
+            "personal-hub-update-" + suffix + ".apk"
+        );
+        File partial = new File(
+            directory,
+            "personal-hub-update-" + suffix + ".apk.part"
+        );
+        // A unique target means a later attempt cannot overwrite an APK that
+        // the system installer may still be reading.
         try {
             download(location, partial, expectedSize, expectedDigest);
             if (!partial.renameTo(target)) {
@@ -210,6 +242,8 @@ public class AppUpdaterPlugin extends Plugin {
                 "The update could not be downloaded. Nothing was installed.",
                 "DOWNLOAD_FAILED"
             );
+        } finally {
+            installing.set(false);
         }
     }
 

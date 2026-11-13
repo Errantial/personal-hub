@@ -6,6 +6,53 @@ import { basename } from 'node:path';
 export const maximumArtifactBytes = 250 * 1024 * 1024;
 export const maximumNotesCharacters = 4000;
 export const manifestAssetName = 'release-manifest.json';
+export const releaseRepository = 'Errantial/personal-hub';
+export const productionCertificateSha256 =
+  'F9:F1:69:37:1A:E0:E7:FA:D1:3B:0A:99:B3:10:BE:54:FC:28:94:01:00:C8:91:1F:BC:51:8D:C3:10:92:53:E7';
+
+export function safeOrigin(value) {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === 'https:' &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash &&
+      url.pathname === '/' &&
+      url.origin === value
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function androidBuildArguments(origin) {
+  if (!safeOrigin(origin))
+    throw new Error('Use --origin https://your-server for the release build.');
+  return ['run', 'android:build', '--', '--release', '--origin', origin];
+}
+
+export function normalizeCertificateSha256(value) {
+  const normalized = value.replaceAll(':', '').toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(normalized))
+    throw new Error('Use a SHA-256 certificate fingerprint.');
+  return normalized;
+}
+
+/** Reads `aapt dump badging` package identity. */
+export function parseAaptBadging(value) {
+  const match =
+    /package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'/.exec(
+      value,
+    );
+  if (!match) throw new Error('The APK package identity could not be read.');
+  return {
+    packageName: match[1],
+    versionCode: Number(match[2]),
+    versionName: match[3],
+  };
+}
 
 export function safeAssetName(value) {
   return (
@@ -95,6 +142,10 @@ export function buildReleaseManifest({
     throw new Error('The Android asset name is not safe.');
   if (!android.name.endsWith('.apk'))
     throw new Error('The Android asset must be an APK.');
+  if (android.name !== `personal-hub-${versionName}.apk`)
+    throw new Error(
+      `The Android asset must be named personal-hub-${versionName}.apk.`,
+    );
   if (!/^[a-f0-9]{64}$/.test(android.sha256))
     throw new Error('The Android asset digest is not a SHA-256.');
   if (

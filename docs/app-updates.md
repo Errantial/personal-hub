@@ -1,9 +1,10 @@
 # App updates and the GitHub release feed
 
-Status: implemented on `release/2026-11-13` for the Android app; not deployed
-and not published. This work created no GitHub release, uploaded no APK and did
-not use the production signing key. Desktop is a reserved manifest slot only;
-no desktop application is built or published in this release.
+Status: implemented on `feat/app-updates`, pending merge into
+`release/2026-11-13`; not deployed and not published. This work created no
+GitHub release, uploaded no APK and did not use the production signing key.
+Desktop is a reserved manifest slot only; no desktop application is built or
+published in this release.
 
 ## Update check
 
@@ -55,10 +56,10 @@ Validation is deliberately narrow:
   at `https://github.com/Errantial/personal-hub/releases/download/`.
 - The manifest's Android and desktop URLs must match assets actually attached to
   that GitHub release, including their declared sizes.
-- Each referenced asset name is safe; each digest is 64 lowercase hex
-  characters; each size is 1 byte to 250 MiB.
-- A `desktop` entry is `{ platform, url, sha256, size }`. The array is empty in
-  this release.
+- Each referenced asset name is safe (no path separators or `..`); each digest
+  is 64 lowercase hex characters; each size is 1 byte to 250 MiB.
+- A `desktop` entry is `{ platform, url, sha256, size }`. Platforms use a short
+  lowercase token and must be unique; the array is empty in this release.
 
 The Android app re-checks that an update URL starts at the same repository
 download path, follows only HTTPS redirects to GitHub asset hosts, aborts above
@@ -87,10 +88,11 @@ signature verification, and an authenticated `gh` CLI for publishing. The
 signing key and its passwords are supplied only through the existing
 `HUB_ANDROID_*` environment variables described in [android.md](android.md).
 
-1. Build the signed APK on the machine that holds the production key:
+1. Build the signed APK on the machine that holds the production key. The
+   server origin is part of the build and must be the production HTTPS origin:
 
    ```sh
-   npm run android:build -- --release
+   npm run android:build -- --release --origin https://hub.ecg.name
    ```
 
    The build script refuses uncommitted changes, verifies the signature with
@@ -120,19 +122,27 @@ signing key and its passwords are supplied only through the existing
      --publish
    ```
 
-   Publishing requires the Android SDK, verifies the APK signature, requires
-   the current commit to be clean, checks that an existing local or remote tag
-   points at `HEAD`, and creates or updates the release. An existing release is
-   updated with `gh release upload --clobber`, then its title and notes are
-   edited. Uploading is a real network write and remains owner-authorized; this
-   release implementation did not run it.
+   Publishing requires the Android SDK. It reads `aapt dump badging` to match
+   the package, version name and version code, verifies the signature and
+   compares the certificate SHA-256 with the recorded production certificate
+   (`F9:F1:69:37:1A:E0:E7:FA:D1:3B:0A:99:B3:10:BE:54:FC:28:94:01:00:C8:91:1F:BC:51:8D:C3:10:92:53:E7`)
+   unless `--certificate-sha256` explicitly selects a different test
+   certificate. It requires the current commit to be clean,
+   checks that an existing local or remote tag points at `HEAD`, and creates the
+   release. Replacing assets on an existing release requires the explicit
+   `--replace` flag; prefer a new `versionCode` forward fix. Replacement uses
+   `gh release upload --clobber`, then edits the title and notes. Uploading is a
+   real network write and remains owner-authorized; this release implementation
+   did not run it.
 
-   `--build` can run the signed build first. `--tag`, `--repo`, `--channel`,
-   `--output-dir` and repeated `--desktop <platform>=<path>` are available.
+   `--build --origin https://hub.ecg.name` can run the signed build first. The
+   server origin is baked into the APK. `--tag`, `--channel`, `--output-dir` and
+   repeated `--desktop <platform>=<path>` are available.
 
-4. Verify the published release:
+4. Verify the published release from the staging directory:
 
    ```sh
+   cd .artifacts/release
    sha256sum -c personal-hub-<versionName>.apk.sha256
    curl -fsSL https://api.github.com/repos/Errantial/personal-hub/releases/latest
    ```

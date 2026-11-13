@@ -90,6 +90,14 @@ export async function installNativeUpdate(asset: InstallAsset) {
       throw new Error('Return to Personal Hub and try again.', {
         cause: error,
       });
+    if (detail.includes('INSTALL_IN_PROGRESS'))
+      throw new Error('An update is already being prepared.', {
+        cause: error,
+      });
+    if (detail.includes('UPDATER_UNAVAILABLE'))
+      throw new Error('The updater is unavailable. Reopen Personal Hub.', {
+        cause: error,
+      });
     if (detail.includes('NO_INSTALLER'))
       throw new Error('Android has no package installer available.', {
         cause: error,

@@ -144,4 +144,10 @@ test('Account shows a malformed-manifest state and an offline check failure', as
   await expect(
     page.getByText('Connect to check for updates.', { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByText(
+      'The latest release has no usable update manifest. Nothing was installed.',
+      { exact: true },
+    ),
+  ).toHaveCount(0);
 });

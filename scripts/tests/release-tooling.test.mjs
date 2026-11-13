@@ -5,12 +5,16 @@ import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { releaseManifestSchema } from '@hub/contracts';
 import {
+  androidBuildArguments,
   artifactDetails,
   boundedNotes,
   buildReleaseManifest,
   maximumNotesCharacters,
+  normalizeCertificateSha256,
+  parseAaptBadging,
   parseDesktopArgument,
   releaseAssetUrl,
+  safeOrigin,
 } from '../release-tooling.mjs';
 
 const directories = [];
@@ -161,4 +165,103 @@ it('parses desktop arguments and builds safe asset URLs', () => {
   expect(() =>
     releaseAssetUrl('Errantial/personal-hub', '../tag', 'app.apk'),
   ).toThrow('tag');
+});
+
+it('constructs the release build with the required server origin', () => {
+  expect(androidBuildArguments('https://hub.ecg.name')).toEqual([
+    'run',
+    'android:build',
+    '--',
+    '--release',
+    '--origin',
+    'https://hub.ecg.name',
+  ]);
+  expect(() => androidBuildArguments('http://hub.ecg.name')).toThrow(
+    '--origin',
+  );
+  expect(() => androidBuildArguments('https://hub.ecg.name/')).toThrow(
+    '--origin',
+  );
+  expect(safeOrigin('https://hub.ecg.name')).toBe(true);
+  expect(safeOrigin('https://user:pass@hub.ecg.name')).toBe(false);
+  expect(safeOrigin('https://hub.ecg.name/path')).toBe(false);
+});
+
+it('reads the APK package identity from aapt badging output', () => {
+  expect(
+    parseAaptBadging(
+      "package: name='dev.personalhub.app' versionCode='317' versionName='0.1.0+d939f6b' compileSdkVersion='36'",
+    ),
+  ).toEqual({
+    packageName: 'dev.personalhub.app',
+    versionCode: 317,
+    versionName: '0.1.0+d939f6b',
+  });
+  expect(() => parseAaptBadging('not badging')).toThrow(
+    'package identity could not be read',
+  );
+});
+
+it('normalizes certificate fingerprints and requires the exact APK name', () => {
+  expect(
+    normalizeCertificateSha256(
+      'F9:F1:69:37:1A:E0:E7:FA:D1:3B:0A:99:B3:10:BE:54:FC:28:94:01:00:C8:91:1F:BC:51:8D:C3:10:92:53:E7',
+    ),
+  ).toBe('f9f169371ae0e7fad13b0a99b310be54fc28940100c8911fbc518dc3109253e7');
+  expect(() => normalizeCertificateSha256('not-a-fingerprint')).toThrow(
+    'SHA-256',
+  );
+  expect(() =>
+    buildReleaseManifest({
+      repo: 'Errantial/personal-hub',
+      tag: 'android-0.1.0-300',
+      channel: 'stable',
+      versionName: '0.1.0+abc1234',
+      versionCode: 300,
+      notes: 'Synthetic release notes.',
+      android: {
+        name: 'renamed.apk',
+        sha256: 'a'.repeat(64),
+        size: 10,
+      },
+    }),
+  ).toThrow('personal-hub-0.1.0+abc1234.apk');
+});
+
+it('rejects duplicate or malformed desktop platforms in the contract', () => {
+  const asset = {
+    url: 'https://github.com/Errantial/personal-hub/releases/download/tag/app.exe',
+    sha256: 'a'.repeat(64),
+    size: 10,
+  };
+  const base = {
+    formatVersion: 1,
+    channel: 'stable',
+    versionName: '0.1.0+abc1234',
+    versionCode: 300,
+    notes: 'Synthetic release notes.',
+    android: null,
+    desktop: [],
+  };
+  expect(() =>
+    releaseManifestSchema.parse({
+      ...base,
+      desktop: [{ ...asset, platform: 'Windows' }],
+    }),
+  ).toThrow();
+  expect(() =>
+    releaseManifestSchema.parse({
+      ...base,
+      desktop: [
+        { ...asset, platform: 'windows' },
+        { ...asset, platform: 'windows' },
+      ],
+    }),
+  ).toThrow();
+  expect(() =>
+    releaseManifestSchema.parse({
+      ...base,
+      desktop: [{ ...asset, platform: 'windows' }],
+    }),
+  ).not.toThrow();
 });

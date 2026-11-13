@@ -53,6 +53,10 @@ function fakeGithub(
   options: {
     release?: unknown;
     manifest?: unknown;
+    releaseText?: string;
+    manifestText?: string;
+    releaseHeaders?: Record<string, string>;
+    manifestHeaders?: Record<string, string>;
     releaseStatus?: number;
     manifestStatus?: number;
     reject?: boolean;
@@ -69,10 +73,26 @@ function fakeGithub(
     if (
       url ===
       `https://api.github.com/repos/${appUpdateRepository}/releases/latest`
-    )
+    ) {
+      if (options.releaseText !== undefined)
+        return new Response(options.releaseText, {
+          status: options.releaseStatus ?? 200,
+          ...(options.releaseHeaders
+            ? { headers: options.releaseHeaders }
+            : {}),
+        });
       return json(options.release ?? release, options.releaseStatus ?? 200);
-    if (url === manifestUrl)
+    }
+    if (url === manifestUrl) {
+      if (options.manifestText !== undefined)
+        return new Response(options.manifestText, {
+          status: options.manifestStatus ?? 200,
+          ...(options.manifestHeaders
+            ? { headers: options.manifestHeaders }
+            : {}),
+        });
       return json(options.manifest ?? manifest, options.manifestStatus ?? 200);
+    }
     throw new Error(`Unexpected network URL: ${url}`);
   };
   return { fetcher, calls };
@@ -210,6 +230,148 @@ describe('app update service', () => {
     now += 101;
     await service.check(1);
     expect(calls).toHaveLength(2);
+  });
+
+  it('shares one cold GitHub read across concurrent checks', async () => {
+    let releaseCalls = 0;
+    let manifestCalls = 0;
+    let releaseGateResolve!: () => void;
+    const releaseGate = new Promise<void>((resolve) => {
+      releaseGateResolve = resolve;
+    });
+    const fetcher: GithubFetch = async (input) => {
+      const url = String(input);
+      if (
+        url ===
+        `https://api.github.com/repos/${appUpdateRepository}/releases/latest`
+      ) {
+        releaseCalls += 1;
+        await releaseGate;
+        return json(release);
+      }
+      if (url === manifestUrl) {
+        manifestCalls += 1;
+        return json(manifest);
+      }
+      throw new Error(`Unexpected network URL: ${url}`);
+    };
+    const service = createAppUpdateService({ fetcher });
+    const first = service.check(1);
+    const second = service.check(1);
+    await Promise.resolve();
+    expect(releaseCalls).toBe(1);
+    releaseGateResolve();
+    const [left, right] = await Promise.all([first, second]);
+    expect(left).toEqual(right);
+    expect(releaseCalls).toBe(1);
+    expect(manifestCalls).toBe(1);
+  });
+
+  it('rejects declared and streamed manifest bodies above the hard cap', async () => {
+    const declared = createAppUpdateService({
+      fetcher: fakeGithub({
+        manifestText: JSON.stringify(manifest),
+        manifestHeaders: { 'content-length': String(64 * 1024 + 1) },
+      }).fetcher,
+    });
+    expect((await declared.check(1)).reason).toBe('MANIFEST_INVALID');
+
+    const streamed = createAppUpdateService({
+      fetcher: fakeGithub({
+        manifestText: 'x'.repeat(64 * 1024 + 1),
+        manifestHeaders: { 'content-length': '1' },
+      }).fetcher,
+    });
+    expect((await streamed.check(1)).reason).toBe('MANIFEST_INVALID');
+  });
+
+  it('accepts a cross-checked desktop asset and rejects a mismatched one', async () => {
+    const desktopName = 'personal-hub-windows-setup.exe';
+    const desktopUrl = `https://github.com/${appUpdateRepository}/releases/download/${tag}/${desktopName}`;
+    const desktopSize = 2048;
+    const releaseWithDesktop = {
+      ...release,
+      assets: [
+        ...release.assets,
+        {
+          name: desktopName,
+          browser_download_url: desktopUrl,
+          size: desktopSize,
+        },
+      ],
+    };
+    const manifestWithDesktop = {
+      ...manifest,
+      desktop: [
+        {
+          platform: 'windows',
+          url: desktopUrl,
+          sha256: digest,
+          size: desktopSize,
+        },
+      ],
+    };
+    const valid = createAppUpdateService({
+      fetcher: fakeGithub({
+        release: releaseWithDesktop,
+        manifest: manifestWithDesktop,
+      }).fetcher,
+    });
+    const result = await valid.check(1);
+    expect(result.state).toBe('update-available');
+    expect(result.latest?.desktop).toEqual([
+      expect.objectContaining({ platform: 'windows', size: desktopSize }),
+    ]);
+
+    const invalid = createAppUpdateService({
+      fetcher: fakeGithub({
+        release: releaseWithDesktop,
+        manifest: {
+          ...manifestWithDesktop,
+          desktop: [
+            {
+              ...manifestWithDesktop.desktop[0]!,
+              size: desktopSize + 1,
+            },
+          ],
+        },
+      }).fetcher,
+    });
+    expect((await invalid.check(1)).reason).toBe('MANIFEST_INVALID');
+  });
+
+  it.each([
+    [
+      'a missing manifest asset response',
+      { manifestStatus: 404 },
+      'MANIFEST_MISSING',
+    ],
+    ['a manifest server error', { manifestStatus: 500 }, 'GITHUB_UNAVAILABLE'],
+    [
+      'malformed release JSON',
+      { releaseText: 'synthetic-not-json' },
+      'GITHUB_UNAVAILABLE',
+    ],
+    [
+      'a draft release',
+      { release: { ...release, draft: true } },
+      'RELEASE_NOT_FOUND',
+    ],
+    [
+      'duplicate manifest assets',
+      {
+        release: {
+          ...release,
+          assets: [release.assets[0], release.assets[0], release.assets[1]],
+        },
+      },
+      'MANIFEST_MISSING',
+    ],
+  ])('handles %s', async (_, options, reason) => {
+    const service = createAppUpdateService({
+      fetcher: fakeGithub(options as Parameters<typeof fakeGithub>[0]).fetcher,
+    });
+    expect((await service.check(1)).reason).toBe(reason);
   });
 
   it.each([

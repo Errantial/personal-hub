@@ -29,27 +29,51 @@ export const releaseAssetSchema = z.strictObject({
     .max(250 * 1024 * 1024),
 });
 
+export const desktopPlatformSchema = z
+  .string()
+  .min(2)
+  .max(32)
+  .regex(/^[a-z][a-z0-9-]{1,31}$/);
+
 export const desktopReleaseAssetSchema = releaseAssetSchema.extend({
-  platform: z.string().min(2).max(32),
+  platform: desktopPlatformSchema,
 });
+
+const uniqueDesktopPlatforms = (
+  value: { desktop: { platform: string }[] },
+  context: z.RefinementCtx,
+) => {
+  const platforms = new Set<string>();
+  value.desktop.forEach((asset, index) => {
+    if (platforms.has(asset.platform))
+      context.addIssue({
+        code: 'custom',
+        path: ['desktop', index, 'platform'],
+        message: 'Desktop platforms must be unique.',
+      });
+    platforms.add(asset.platform);
+  });
+};
 
 /**
  * `release-manifest.json` is the preferred asset in a GitHub release. The
  * server cross-checks it against the release's actual asset list before use.
  */
-export const releaseManifestSchema = z.strictObject({
-  formatVersion: z.literal(1),
-  channel: releaseChannelSchema,
-  versionName: z
-    .string()
-    .min(1)
-    .max(80)
-    .regex(/^[0-9A-Za-z][0-9A-Za-z.+_-]*$/),
-  versionCode: z.number().int().positive().max(2_100_000_000),
-  notes: z.string().max(4000),
-  android: releaseAssetSchema.nullable(),
-  desktop: z.array(desktopReleaseAssetSchema).max(8),
-});
+export const releaseManifestSchema = z
+  .strictObject({
+    formatVersion: z.literal(1),
+    channel: releaseChannelSchema,
+    versionName: z
+      .string()
+      .min(1)
+      .max(80)
+      .regex(/^[0-9A-Za-z][0-9A-Za-z.+_-]*$/),
+    versionCode: z.number().int().positive().max(2_100_000_000),
+    notes: z.string().max(4000),
+    android: releaseAssetSchema.nullable(),
+    desktop: z.array(desktopReleaseAssetSchema).max(8),
+  })
+  .superRefine(uniqueDesktopPlatforms);
 
 export const appUpdatePlatformSchema = z.literal('android');
 
@@ -67,14 +91,16 @@ export const appUpdateUnavailableReasonSchema = z.enum([
   'GITHUB_UNAVAILABLE',
 ]);
 
-export const appUpdateLatestSchema = z.strictObject({
-  versionName: z.string().min(1).max(80),
-  versionCode: z.number().int().positive().max(2_100_000_000),
-  channel: releaseChannelSchema,
-  notes: z.string().max(4000),
-  android: releaseAssetSchema.nullable(),
-  desktop: z.array(desktopReleaseAssetSchema).max(8),
-});
+export const appUpdateLatestSchema = z
+  .strictObject({
+    versionName: z.string().min(1).max(80),
+    versionCode: z.number().int().positive().max(2_100_000_000),
+    channel: releaseChannelSchema,
+    notes: z.string().max(4000),
+    android: releaseAssetSchema.nullable(),
+    desktop: z.array(desktopReleaseAssetSchema).max(8),
+  })
+  .superRefine(uniqueDesktopPlatforms);
 
 export const appUpdateResponseSchema = z
   .strictObject({

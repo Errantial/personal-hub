@@ -74,6 +74,7 @@ export function AppUpdatesSettings() {
     ? resolveUpdateDecision(response, currentCode)
     : null;
   const comparisonCode = currentCode ?? response?.installedVersionCode ?? 0;
+  const versionLoading = native && infoState === 'checking';
   const permission = !native
     ? 'Not applicable on the website'
     : info
@@ -85,6 +86,7 @@ export function AppUpdatesSettings() {
         : 'Checking…';
 
   async function check() {
+    if (native && infoState === 'checking') return;
     setBusy('check');
     setError('');
     setStatus('');
@@ -95,6 +97,7 @@ export function AppUpdatesSettings() {
       );
       setResponse(value);
     } catch (cause) {
+      setResponse(null);
       setError(
         cause instanceof RequestError
           ? cause.message
@@ -182,7 +185,7 @@ export function AppUpdatesSettings() {
         <button
           type="button"
           className="secondary-button"
-          disabled={busy !== ''}
+          disabled={busy !== '' || versionLoading}
           onClick={() => void check()}
         >
           {busy === 'check' ? 'Checking…' : 'Check now'}

@@ -82,7 +82,7 @@ export function isGithubReleaseAssetUrl(value: string) {
 }
 
 const safeAssetName = (name: string) =>
-  /^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/.test(name);
+  /^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/.test(name) && !name.includes('..');
 
 function sameReleaseAssetUrl(left: string, right: string) {
   try {
@@ -112,9 +112,36 @@ function findReleaseAsset(release: GithubRelease, url: string, size: number) {
 }
 
 async function boundedText(response: Response, limit: number) {
-  const text = await response.text();
-  if (new TextEncoder().encode(text).byteLength > limit) return null;
-  return text;
+  const declared = response.headers.get('content-length');
+  if (declared !== null) {
+    const length = Number(declared);
+    if (Number.isFinite(length) && length > limit) return null;
+  }
+  if (!response.body) return null;
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > limit) {
+        await reader.cancel().catch(() => undefined);
+        return null;
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return null;
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(merged);
 }
 
 export type AppUpdateService = ReturnType<typeof createAppUpdateService>;
@@ -136,6 +163,7 @@ export function createAppUpdateService(options: {
   const successTtl = options.successCacheMs ?? successCacheMs;
   const failureTtl = options.failureCacheMs ?? failureCacheMs;
   let cached: { at: number; value: ReleaseResult } | null = null;
+  let inflight: Promise<ReleaseResult> | null = null;
 
   const fetchWithTimeout = async (
     url: string,
@@ -229,20 +257,27 @@ export function createAppUpdateService(options: {
       const ttl = 'reason' in cached.value ? failureTtl : successTtl;
       if (current - cached.at < ttl) return cached.value;
     }
-    try {
-      const value = await readRelease();
-      cached = { at: current, value };
-      return value;
-    } catch (error) {
-      const value: ReleaseResult = {
-        reason:
-          error instanceof UpdateUnavailable
-            ? error.reason
-            : 'GITHUB_UNAVAILABLE',
-      };
-      cached = { at: current, value };
-      return value;
-    }
+    if (inflight) return inflight;
+    const task = (async () => {
+      try {
+        const value = await readRelease();
+        cached = { at: current, value };
+        return value;
+      } catch (error) {
+        const value: ReleaseResult = {
+          reason:
+            error instanceof UpdateUnavailable
+              ? error.reason
+              : 'GITHUB_UNAVAILABLE',
+        };
+        cached = { at: current, value };
+        return value;
+      } finally {
+        inflight = null;
+      }
+    })();
+    inflight = task;
+    return task;
   };
 
   const check = async (

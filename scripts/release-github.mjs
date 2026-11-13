@@ -10,12 +10,18 @@ import {
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
+  androidBuildArguments,
   artifactDetails,
   boundedNotes,
   buildReleaseManifest,
   manifestAssetName,
+  normalizeCertificateSha256,
+  parseAaptBadging,
   parseDesktopArgument,
+  productionCertificateSha256,
+  releaseRepository,
   safeAssetName,
+  safeOrigin,
   safeTag,
 } from './release-tooling.mjs';
 
@@ -29,19 +35,23 @@ repository root.
 Options:
   --apk <path>          Signed release APK. Defaults to the --release build path.
   --build               Run npm run android:build -- --release first.
+  --origin <url>        HTTPS server origin for --build (for example
+                        https://hub.ecg.name).
   --notes <text>        Bounded release notes. Defaults to a generated line.
   --notes-file <path>   Read release notes from a file instead.
   --tag <tag>           Release tag. Defaults to android-<version>-<code>.
   --channel <name>      stable (default) or beta.
   --desktop <p>=<path>  Optional desktop artifact; repeat for each platform.
-  --repo <owner/name>   GitHub repository. Defaults to Errantial/personal-hub.
   --output-dir <path>   Staging directory. Defaults to .artifacts/release.
+  --certificate-sha256  Expected APK certificate SHA-256. Defaults to the
+                        recorded production certificate.
+  --replace             Allow replacing assets on an existing release. Requires
+                        --publish and is never implied.
   --publish             Create or update the GitHub release with gh.
   --help                Show this message.
 
 The production signing key and its passwords remain environment-only. The
 script never reads, prints or stores them.`;
-const defaultRepo = 'Errantial/personal-hub';
 
 function value(args, index, flag) {
   const result = args[index];
@@ -50,13 +60,13 @@ function value(args, index, flag) {
   return result;
 }
 
-function parseArguments(args) {
+export function parseArguments(args) {
   const options = {
     publish: false,
     build: false,
+    replace: false,
     desktop: [],
     channel: 'stable',
-    repo: defaultRepo,
     outputDir: '.artifacts/release',
   };
   for (let index = 0; index < args.length; index += 1) {
@@ -73,8 +83,16 @@ function parseArguments(args) {
       options.build = true;
       continue;
     }
+    if (argument === '--replace') {
+      options.replace = true;
+      continue;
+    }
     if (argument === '--apk') {
       options.apk = value(args, (index += 1), '--apk');
+      continue;
+    }
+    if (argument === '--origin') {
+      options.origin = value(args, (index += 1), '--origin');
       continue;
     }
     if (argument === '--notes') {
@@ -93,12 +111,16 @@ function parseArguments(args) {
       options.channel = value(args, (index += 1), '--channel');
       continue;
     }
-    if (argument === '--repo') {
-      options.repo = value(args, (index += 1), '--repo');
-      continue;
-    }
     if (argument === '--output-dir') {
       options.outputDir = value(args, (index += 1), '--output-dir');
+      continue;
+    }
+    if (argument === '--certificate-sha256') {
+      options.certificateSha256 = value(
+        args,
+        (index += 1),
+        '--certificate-sha256',
+      );
       continue;
     }
     if (argument === '--desktop') {
@@ -113,8 +135,16 @@ function parseArguments(args) {
     throw new Error('Choose --notes or --notes-file, not both.');
   if (options.channel !== 'stable' && options.channel !== 'beta')
     throw new Error('Use --channel stable or --channel beta.');
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(options.repo))
-    throw new Error('Use --repo <owner>/<name>.');
+  if (options.build && !options.origin)
+    throw new Error('Use --build with --origin https://your-server.');
+  if (options.origin && !options.build)
+    throw new Error('Use --origin only with --build.');
+  if (options.origin && !safeOrigin(options.origin))
+    throw new Error('Use --origin https://your-server.');
+  if (options.replace && !options.publish)
+    throw new Error('Use --replace only with --publish.');
+  if (options.certificateSha256)
+    normalizeCertificateSha256(options.certificateSha256);
   return options;
 }
 
@@ -129,6 +159,26 @@ function requireCleanTree() {
 
 function packageVersion() {
   return JSON.parse(readFileSync('package.json', 'utf8')).version;
+}
+
+function findBuildTool(tool) {
+  const sdk = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT;
+  if (!sdk || !existsSync(sdk))
+    throw new Error(
+      'Set ANDROID_HOME or ANDROID_SDK_ROOT so the signed APK can be verified before publishing.',
+    );
+  const tools = join(sdk, 'build-tools');
+  if (!existsSync(tools))
+    throw new Error('The Android SDK build-tools directory is missing.');
+  const latest = readdirSync(tools)
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    .at(-1);
+  if (!latest) throw new Error('The Android SDK has no build-tools.');
+  return join(
+    tools,
+    latest,
+    process.platform === 'win32' ? `${tool}.exe` : tool,
+  );
 }
 
 function findApksigner() {
@@ -151,18 +201,19 @@ function findApksigner() {
   );
 }
 
-function verifySignature(apk) {
+function runTool(tool, args) {
+  if (process.platform === 'win32' && tool.endsWith('.bat')) {
+    const command = [tool, ...args].map((value) => `"${value}"`).join(' ');
+    return spawnSync('cmd.exe', ['/d', '/c', command], {
+      encoding: 'utf8',
+    });
+  }
+  return spawnSync(tool, args, { encoding: 'utf8' });
+}
+
+function verifySignature(apk, expectedFingerprint) {
   const apksigner = findApksigner();
-  const result =
-    process.platform === 'win32'
-      ? spawnSync(
-          'cmd.exe',
-          ['/d', '/c', `"${apksigner}" verify --print-certs "${apk}"`],
-          { encoding: 'utf8' },
-        )
-      : spawnSync(apksigner, ['verify', '--print-certs', apk], {
-          encoding: 'utf8',
-        });
+  const result = runTool(apksigner, ['verify', '--print-certs', apk]);
   if (result.status !== 0)
     throw new Error(
       `APK signature verification failed: ${(result.stderr || result.stdout || '').trim()}`,
@@ -170,8 +221,36 @@ function verifySignature(apk) {
   const fingerprint = /certificate SHA-256 digest:\s*([0-9a-f:]+)/i.exec(
     result.stdout,
   )?.[1];
+  if (!fingerprint)
+    throw new Error('The APK certificate SHA-256 could not be read.');
+  const expected = normalizeCertificateSha256(
+    expectedFingerprint ?? productionCertificateSha256,
+  );
+  if (normalizeCertificateSha256(fingerprint) !== expected)
+    throw new Error(
+      `The APK certificate ${fingerprint} is not the expected ${expectedFingerprint ?? productionCertificateSha256}.`,
+    );
+  console.log(`APK signature and certificate verified (${fingerprint}).`);
+}
+
+function verifyApkIdentity(apk, versionName, versionCode) {
+  const aapt = findBuildTool('aapt');
+  const result = runTool(aapt, ['dump', 'badging', apk]);
+  if (result.status !== 0)
+    throw new Error(
+      `The APK package identity could not be read: ${(result.stderr || result.stdout || '').trim()}`,
+    );
+  const info = parseAaptBadging(result.stdout ?? '');
+  if (info.packageName !== 'dev.personalhub.app')
+    throw new Error(
+      `The APK package is ${info.packageName}, not dev.personalhub.app.`,
+    );
+  if (info.versionName !== versionName || info.versionCode !== versionCode)
+    throw new Error(
+      `The APK is ${info.versionName} (${info.versionCode}), not ${versionName} (${versionCode}).`,
+    );
   console.log(
-    `APK signature verified${fingerprint ? ` (certificate SHA-256 ${fingerprint})` : ''}.`,
+    `APK identity verified: ${info.packageName} ${info.versionName} (${info.versionCode}).`,
   );
 }
 
@@ -229,13 +308,15 @@ async function main() {
     );
   if (options.build) {
     console.log('Building the signed release APK...');
+    const buildArgs = androidBuildArguments(options.origin);
     execFileSync(
       process.platform === 'win32' ? 'cmd.exe' : 'npm',
       process.platform === 'win32'
-        ? ['/d', '/c', 'npm', 'run', 'android:build', '--', '--release']
-        : ['run', 'android:build', '--', '--release'],
+        ? ['/d', '/c', 'npm', ...buildArgs]
+        : buildArgs,
       { stdio: 'inherit' },
     );
+    requireCleanTree();
   }
   const apkName = `personal-hub-${versionName}.apk`;
   const apk = resolve(options.apk ?? `.artifacts/android/${apkName}`);
@@ -264,7 +345,7 @@ async function main() {
     desktopSources.push({ source, name: details.name });
   }
   const manifest = buildReleaseManifest({
-    repo: options.repo,
+    repo: releaseRepository,
     tag,
     channel: options.channel,
     versionName,
@@ -273,7 +354,10 @@ async function main() {
     android,
     desktop,
   });
-  if (options.publish) verifySignature(apk);
+  if (options.publish) {
+    verifySignature(apk, options.certificateSha256);
+    verifyApkIdentity(apk, versionName, versionCode);
+  }
 
   const outputDir = resolve(options.outputDir);
   mkdirSync(outputDir, { recursive: true });
@@ -304,10 +388,14 @@ async function main() {
   if (!options.publish) {
     console.log('\nDry run. No GitHub release was created or changed.');
     console.log(
-      `Run the same command with --publish to upload ${assets.length} asset(s) to ${options.repo}.`,
+      `Run the same command with --publish to upload ${assets.length} asset(s) to ${releaseRepository}.`,
     );
     return;
   }
+
+  // Staging may have written into a tracked output directory. Refuse to
+  // publish if the tree is no longer clean.
+  requireCleanTree();
 
   const head = git('rev-parse', 'HEAD');
   const localTag = spawnSync(
@@ -320,7 +408,11 @@ async function main() {
   const remote = remoteTagSha(tag);
   if (remote && remote !== head)
     throw new Error(`The remote tag ${tag} does not point to HEAD.`);
-  const exists = releaseExists(tag, options.repo);
+  const exists = releaseExists(tag, releaseRepository);
+  if (exists && !options.replace)
+    throw new Error(
+      `Release ${tag} already exists. Re-run with --replace only for a deliberate same-tag replacement; prefer a new versionCode forward fix.`,
+    );
   const flags =
     options.channel === 'beta'
       ? ['--prerelease']
@@ -332,7 +424,7 @@ async function main() {
       tag,
       ...assets,
       '--repo',
-      options.repo,
+      releaseRepository,
       '--target',
       head,
       '--title',
@@ -348,7 +440,7 @@ async function main() {
       tag,
       ...assets,
       '--repo',
-      options.repo,
+      releaseRepository,
       '--clobber',
     );
     gh(
@@ -356,7 +448,7 @@ async function main() {
       'edit',
       tag,
       '--repo',
-      options.repo,
+      releaseRepository,
       '--title',
       `Personal Hub ${versionName}`,
       '--notes-file',
@@ -365,7 +457,7 @@ async function main() {
       ...flags,
     );
   }
-  console.log(`GitHub release ${exists ? 'updated' : 'created'}: ${tag}`);
+  console.log(`GitHub release ${exists ? 'replaced' : 'created'}: ${tag}`);
 }
 
 if (
