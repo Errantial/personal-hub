@@ -5,6 +5,7 @@ import {
   CollectionError,
   isMailRoute,
   nextSettleState,
+  outlookMessageIdentity,
   normalizeFolders,
   normalizeMessages,
   uncertainFolderList,
@@ -395,4 +396,22 @@ it('requires the Outlook mail route for discovery and rejects other same-origin 
   expect(isMailRoute('/mail/inbox')).toBe(true);
   expect(isMailRoute('/owa/')).toBe(false);
   expect(isMailRoute('/calendar')).toBe(false);
+});
+
+it('preserves message identity across folder-prefix redirects', () => {
+  expect(
+    outlookMessageIdentity(origin, `${origin}/mail/id/syntheticMessage0001`),
+  ).toMatchObject({
+    providerId: 'syntheticMessage0001',
+    folderProviderId: null,
+  });
+  expect(
+    outlookMessageIdentity(
+      origin,
+      `${origin}/mail/inbox/id/syntheticMessage0001`,
+    ),
+  ).toMatchObject({
+    providerId: 'syntheticMessage0001',
+    folderProviderId: 'inbox',
+  });
 });

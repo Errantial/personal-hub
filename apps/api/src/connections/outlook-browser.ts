@@ -1012,12 +1012,12 @@ export async function exportOutlookBrowser(tx: QueryExecutor, owner: string) {
     connection.folders.map((folder) => [folder.id, folder.sensitivity]),
   );
   const messageSensitivity = new Map(
-    connection.messages.map((message) => [
-      message.id,
+    messages.map((message) => [
+      String(message.id),
       strongest(
         connection.sensitivity,
-        String(folderLabel.get(message.browserFolderId) ?? 'unlabeled'),
-        message.sensitivity,
+        String(folderLabel.get(String(message.browserFolderId)) ?? 'unlabeled'),
+        String(message.sensitivity),
       ),
     ]),
   );

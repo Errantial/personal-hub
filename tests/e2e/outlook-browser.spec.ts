@@ -191,6 +191,7 @@ test('Outlook browser collection stays read-only, separate from the access gate 
   await expect(region).toContainText('read/unread');
   await expect(region).toContainText('read-receipt');
   await expect(region).toContainText('raw headers');
+  await expect(region).toContainText('move, flag, delete');
 
   await region.getByRole('button', { name: 'Create collector token' }).click();
   await expect(

@@ -210,34 +210,48 @@ export function readMessageList(
     const label = `${node.getAttribute('aria-label') ?? ''} ${elementText(node)}`;
     return /expand|collapsed|conversation/i.test(label);
   });
-  const ancestors: Element[] = [];
-  let ancestor = (root as Element).parentElement ?? null;
-  for (let depth = 0; depth < 5 && ancestor; depth++) {
-    ancestors.push(ancestor);
-    ancestor = ancestor.parentElement;
-  }
-  const candidates = (
-    [
-      root,
-      ...ancestors,
-      ...document.querySelectorAll(
-        '[data-testid*="scroll" i], [class*="scroll" i], [role="listbox"]',
-      ),
-      ...(document.scrollingElement ? [document.scrollingElement] : []),
-    ] as (Document | Element)[]
-  ).filter((node) => node !== document) as Element[];
-  const scroller = candidates.reduce<Element>((best, node) => {
+  const scrollable = (node: Element) => {
     const element = node as HTMLElement;
-    const bestElement = best as HTMLElement;
-    return (element.scrollHeight ?? 0) - (element.clientHeight ?? 0) >
-      (bestElement.scrollHeight ?? 0) - (bestElement.clientHeight ?? 0)
-      ? node
-      : best;
-  }, root as Element);
-  const scrollerElement = scroller as HTMLElement;
-  const scrollHeight = scrollerElement.scrollHeight ?? 0;
-  const clientHeight = scrollerElement.clientHeight ?? 0;
-  const scrollTop = scrollerElement.scrollTop ?? 0;
+    return (element.scrollHeight ?? 0) > (element.clientHeight ?? 0) + 4;
+  };
+  let candidates: Element[] = [];
+  if (root === document) {
+    if (document.scrollingElement) candidates.push(document.scrollingElement);
+  } else {
+    const rootElement = root as Element;
+    const local: Element[] = [];
+    if (scrollable(rootElement)) local.push(rootElement);
+    for (const node of rootElement.querySelectorAll(
+      '[data-testid*="scroll" i], [class*="scroll" i], [role="listbox"], [style*="overflow"]',
+    ))
+      if (scrollable(node)) local.push(node);
+    if (local.length) candidates = local;
+    else {
+      let ancestor = rootElement.parentElement;
+      for (let depth = 0; depth < 5 && ancestor; depth++) {
+        if (scrollable(ancestor)) candidates.push(ancestor);
+        ancestor = ancestor.parentElement;
+      }
+    }
+  }
+  const scroller = candidates.reduce<Element | null>((best, node) => {
+    if (!best) return node;
+    const delta = (element: Element) => {
+      const value = element as HTMLElement;
+      return (value.scrollHeight ?? 0) - (value.clientHeight ?? 0);
+    };
+    return delta(node) > delta(best) ? node : best;
+  }, null);
+  const scrollerElement =
+    scroller ??
+    (root === document
+      ? (document.scrollingElement as Element | null)
+      : (root as Element));
+  const scrollHeight =
+    (scrollerElement as HTMLElement | null)?.scrollHeight ?? 0;
+  const clientHeight =
+    (scrollerElement as HTMLElement | null)?.clientHeight ?? 0;
+  const scrollTop = (scrollerElement as HTMLElement | null)?.scrollTop ?? 0;
   return {
     rows,
     options: rows.length,
@@ -245,7 +259,7 @@ export function readMessageList(
     loadMore,
     next,
     collapsed,
-    totalCount: counts.length === 1 ? counts[0]! : null,
+    totalCount: counts.length ? Math.max(...counts) : null,
     setSize: setSizes.length ? Math.max(...setSizes) : null,
     rowIndexes: rows
       .map((row) => row.rowIndex)
@@ -272,69 +286,65 @@ export function scrollMessageList(
     ) ??
     document.querySelector(selectors.list) ??
     document;
-  const ancestors: Element[] = [];
-  let ancestor = (root as Element).parentElement ?? null;
-  for (let depth = 0; depth < 5 && ancestor; depth++) {
-    ancestors.push(ancestor);
-    ancestor = ancestor.parentElement;
-  }
-  const candidates = (
-    [
-      root,
-      ...ancestors,
-      ...document.querySelectorAll(
-        '[data-testid*="scroll" i], [class*="scroll" i], [role="listbox"]',
-      ),
-      ...(document.scrollingElement ? [document.scrollingElement] : []),
-    ] as (Document | Element)[]
-  ).filter((node) => node !== document) as Element[];
-  const scroller = candidates.reduce<Element>((best, node) => {
+  const scrollable = (node: Element) => {
     const element = node as HTMLElement;
-    const bestElement = best as HTMLElement;
-    return (element.scrollHeight ?? 0) - (element.clientHeight ?? 0) >
-      (bestElement.scrollHeight ?? 0) - (bestElement.clientHeight ?? 0)
-      ? node
-      : best;
-  }, root as Element) as HTMLElement;
-  if ((scroller.scrollHeight ?? 0) > (scroller.clientHeight ?? 0) + 4) {
-    if (position === 'top') scroller.scrollTop = 0;
-    else if (position === 'end') scroller.scrollTop = scroller.scrollHeight;
-    else
-      scroller.scrollTop = Math.min(
-        scroller.scrollHeight,
-        (scroller.scrollTop ?? 0) +
-          Math.max(1, (scroller.clientHeight ?? 1) * 0.8),
-      );
-    return {
-      scrollHeight: scroller.scrollHeight ?? 0,
-      clientHeight: scroller.clientHeight ?? 0,
-      scrollTop: scroller.scrollTop ?? 0,
-    };
+    return (element.scrollHeight ?? 0) > (element.clientHeight ?? 0) + 4;
+  };
+  let candidates: Element[] = [];
+  if (root === document) {
+    if (document.scrollingElement) candidates.push(document.scrollingElement);
+  } else {
+    const rootElement = root as Element;
+    const local: Element[] = [];
+    if (scrollable(rootElement)) local.push(rootElement);
+    for (const node of rootElement.querySelectorAll(
+      '[data-testid*="scroll" i], [class*="scroll" i], [role="listbox"], [style*="overflow"]',
+    ))
+      if (scrollable(node)) local.push(node);
+    if (local.length) candidates = local;
+    else {
+      let ancestor = rootElement.parentElement;
+      for (let depth = 0; depth < 5 && ancestor; depth++) {
+        if (scrollable(ancestor)) candidates.push(ancestor);
+        ancestor = ancestor.parentElement;
+      }
+    }
   }
-  const documentScroller = document.scrollingElement as HTMLElement | null;
-  if (documentScroller) {
-    if (position === 'top') documentScroller.scrollTop = 0;
-    else if (position === 'end')
-      documentScroller.scrollTop = documentScroller.scrollHeight;
-    else
-      documentScroller.scrollTop = Math.min(
-        documentScroller.scrollHeight,
-        (documentScroller.scrollTop ?? 0) +
-          Math.max(1, (documentScroller.clientHeight ?? 1) * 0.8),
-      );
-    return {
-      scrollHeight: documentScroller.scrollHeight ?? 0,
-      clientHeight: documentScroller.clientHeight ?? 0,
-      scrollTop: documentScroller.scrollTop ?? 0,
+  const scroller = candidates.reduce<Element | null>((best, node) => {
+    if (!best) return node;
+    const delta = (element: Element) => {
+      const value = element as HTMLElement;
+      return (value.scrollHeight ?? 0) - (value.clientHeight ?? 0);
     };
-  }
-  return { scrollHeight: 0, clientHeight: 0, scrollTop: 0 };
+    return delta(node) > delta(best) ? node : best;
+  }, null) as HTMLElement | null;
+  if (!scroller || !scrollable(scroller))
+    return { scrollHeight: 0, clientHeight: 0, scrollTop: 0 };
+  if (position === 'top') scroller.scrollTop = 0;
+  else if (position === 'end') scroller.scrollTop = scroller.scrollHeight;
+  else
+    scroller.scrollTop = Math.min(
+      scroller.scrollHeight,
+      (scroller.scrollTop ?? 0) +
+        Math.max(1, (scroller.clientHeight ?? 1) * 0.8),
+    );
+  return {
+    scrollHeight: scroller.scrollHeight ?? 0,
+    clientHeight: scroller.clientHeight ?? 0,
+    scrollTop: scroller.scrollTop ?? 0,
+  };
 }
 
 export function readReadingPane(
   pane: Element,
   arg: {
-    expected: { providerId: string; folderProviderId: string };
+    expected: {
+      providerId: string;
+      folderProviderId: string;
+      subject?: string | null;
+      sender?: string | null;
+      conversationId?: string | null;
+    };
     selectors: typeof domSelectors;
   },
 ): ReadingPaneResult {
@@ -412,6 +422,28 @@ export function readReadingPane(
       .querySelector('[data-conversationid]')
       ?.getAttribute('data-conversationid'),
   );
+  const expectedSubject = first(expected.subject);
+  const expectedSender = first(expected.sender);
+  const expectedConversation = first(expected.conversationId);
+  const normalizedSubject = subject.toLowerCase();
+  const normalizedExpectedSubject = expectedSubject.toLowerCase();
+  const subjectMatches =
+    Boolean(normalizedSubject && normalizedExpectedSubject) &&
+    (normalizedSubject === normalizedExpectedSubject ||
+      (normalizedSubject.length >= 8 &&
+        normalizedExpectedSubject.length >= 8 &&
+        (normalizedSubject.startsWith(normalizedExpectedSubject) ||
+          normalizedExpectedSubject.startsWith(normalizedSubject))));
+  const identityMatches =
+    Boolean(declaredId) ||
+    (Boolean(expectedConversation) &&
+      expectedConversation.toLowerCase() === conversationId.toLowerCase()) ||
+    (Boolean(expectedSender) &&
+      expectedSender.toLowerCase() === sender.toLowerCase()) ||
+    subjectMatches;
+  if (!identityMatches) {
+    return { status: 'mismatch', detail: null, fingerprint: '' };
+  }
   return {
     status: 'ok',
     detail: {

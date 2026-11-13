@@ -5,7 +5,9 @@
   "type": "module",
   "description": "Read-only local Outlook Web browser collector for bounded plain-text mail metadata.",
   "scripts": {
-    "sync": "tsx src/main.ts sync",
+    "build": "tsc -p tsconfig.build.json",
+    "sync": "node dist/main.js sync",
+    "presync": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

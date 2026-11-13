@@ -299,7 +299,7 @@ function mergeRow(previous: MessageRowSnapshot, row: MessageRowSnapshot) {
   };
 }
 
-type SweepResult = {
+export type SweepResult = {
   rows: Map<string, MessageRowSnapshot>;
   unresolved: number;
   loadMore: boolean;
@@ -393,10 +393,14 @@ function sameKeys(left: Map<string, unknown>, right: Map<string, unknown>) {
   return true;
 }
 
-function mergeSweeps(first: SweepResult, second: SweepResult): SweepResult {
+export function mergeSweeps(
+  first: SweepResult,
+  second: SweepResult,
+): SweepResult {
   const merged: SweepResult = {
     ...first,
     rows: new Map(first.rows),
+    unresolved: Math.max(first.unresolved, second.unresolved),
     loadMore: first.loadMore || second.loadMore,
     next: first.next || second.next,
     collapsed: first.collapsed || second.collapsed,
@@ -419,8 +423,13 @@ function mergeSweeps(first: SweepResult, second: SweepResult): SweepResult {
 async function readingPane(
   page: Page,
   config: OutlookBrowserConnectorConfig,
-  expected: { providerId: string; folderProviderId: string },
-  expectedPath: string,
+  expected: {
+    providerId: string;
+    folderProviderId: string;
+    subject?: string | null;
+    sender?: string | null;
+    conversationId?: string | null;
+  },
 ) {
   const panes = page.locator(readingPaneSelector);
   const count = await panes.count();
@@ -447,13 +456,20 @@ async function readingPane(
   if (visible !== 1 || !pane) return null;
   let lastFingerprint = '';
   let stable = 0;
-  const normalizePath = (value: string) => value.replace(/\/+$/, '');
   for (let pass = 0; pass < 12; pass++) {
-    const path = currentPath(page, config);
-    if (!path || normalizePath(path) !== normalizePath(expectedPath)) {
-      // Avoid projecting a pane after navigation away from the requested row.
+    let current: ReturnType<typeof outlookMessageIdentity>;
+    try {
+      current = outlookMessageIdentity(config.outlookOrigin, page.url());
+    } catch {
       return null;
     }
+    if (
+      !current ||
+      current.providerId !== expected.providerId ||
+      (current.folderProviderId !== null &&
+        current.folderProviderId !== expected.folderProviderId)
+    )
+      return null;
     const result = await pane.evaluate(readReadingPane, {
       expected,
       selectors: domSelectors,
@@ -499,8 +515,7 @@ async function detailFor(
     config,
     `${config.outlookOrigin}${new URL(requested.canonicalUrl).pathname}`,
   );
-  const requestedPath = new URL(requested.canonicalUrl).pathname;
-  if (!requireOutlookPath(page, config, requestedPath)) return null;
+  if (!requireOutlookPath(page, config, null)) return null;
   let identity: ReturnType<typeof outlookMessageIdentity>;
   try {
     identity = outlookMessageIdentity(config.outlookOrigin, page.url());
@@ -515,15 +530,13 @@ async function detailFor(
   )
     return null;
   if (statusKind(response) !== 'ok') return null;
-  return readingPane(
-    page,
-    config,
-    {
-      providerId: requested.providerId,
-      folderProviderId,
-    },
-    requestedPath,
-  );
+  return readingPane(page, config, {
+    providerId: requested.providerId,
+    folderProviderId,
+    subject: row.subject,
+    sender: row.sender,
+    conversationId: row.conversationId,
+  });
 }
 
 export async function openBrowserCollector(
@@ -545,6 +558,13 @@ export async function openBrowserCollector(
     throw new CollectionError('browser-unavailable');
   }
   const page = context.pages()[0] ?? (await context.newPage());
+  // tsx/esbuild keepNames can inject a __name helper into serialized function
+  // sources. The compiled sync path does not need it, but a user invoking the
+  // source loader must not fail in the browser scope. This must run on every
+  // document because navigation replaces the page global.
+  await page.addInitScript(
+    'globalThis.__name = globalThis.__name || ((target) => target)',
+  );
   return {
     discover: async () => {
       const response = await openPage(page, config, `${origin}/mail/`);

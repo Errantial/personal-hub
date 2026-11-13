@@ -507,6 +507,85 @@ it('reconciles only complete folder observations, keeps captures append-only and
   expect(JSON.stringify(exported.records)).not.toContain('discoveryHash');
 });
 
+it('exports read-time sensitivity for captures outside the 200-message summary window', async () => {
+  const token = await issueToken();
+  let attemptId = await begin(token);
+  await discover(token, attemptId);
+  await collector(token, 'POST', 'attempt/finish', {
+    attemptId,
+    outcome: 'partial',
+    errorCode: null,
+  });
+  const selected = await selectFolder();
+  attemptId = await begin(token);
+  await discover(token, attemptId);
+  await collector(token, 'POST', 'folder', {
+    attemptId,
+    folderId: selected.id,
+    status: 'complete',
+    capturedAt: '2026-11-13T18:00:00.000Z',
+    messages: [
+      message('syntheticOldMessage0001', {
+        subject: 'Old synthetic message',
+        receivedAt: '2020-01-01T00:00:00.000Z',
+      }),
+    ],
+  });
+  expect(
+    (
+      await collector(token, 'POST', 'attempt/finish', {
+        attemptId,
+        outcome: 'complete',
+        errorCode: null,
+      })
+    ).statusCode,
+  ).toBe(200);
+  const original = (await get()).messages.find(
+    (value) => value.providerId === 'syntheticOldMessage0001',
+  )!;
+  for (let index = 1; index <= 200; index++) {
+    const suffix = String(index).padStart(4, '0');
+    await database.query(
+      `INSERT INTO outlook_browser_messages(id,owner_id,browser_folder_id,provider_id,canonical_url,subject,sender_display,sender_address,received_at,snippet,body_text,captured_at,availability,sensitivity)
+       VALUES($1,$2,$3,$4,$5,$6,'Synthetic Advisor','advisor@example.test','2026-11-13T12:00:00Z','Bulk preview','Bulk synthetic body','2026-11-13T12:00:00Z','available','unlabeled')`,
+      [
+        randomUUID(),
+        ownerId,
+        selected.id,
+        `syntheticBulk${suffix}`,
+        `https://outlook.office.com/mail/inbox/id/syntheticBulk${suffix}`,
+        `Bulk synthetic ${suffix}`,
+      ],
+    );
+  }
+  const state = await get();
+  const folder = state.folders.find((value) => value.id === selected.id)!;
+  expect(
+    (
+      await owner('PUT', `${base}/folders/${folder.id}`, {
+        operationId: randomUUID(),
+        expectedVersion: folder.version,
+        selected: true,
+        notes: '',
+        sensitivity: 'restricted',
+      })
+    ).statusCode,
+  ).toBe(200);
+  const exported = (await owner('GET', '/api/v1/planner/export')).json();
+  expect(exported.records.outlookBrowserMessages).toHaveLength(201);
+  const capture = exported.records.outlookBrowserMessageCaptures.find(
+    (value: { browserMessageId: string }) =>
+      value.browserMessageId === original.id,
+  );
+  expect(capture).toMatchObject({ effectiveSensitivity: 'restricted' });
+  expect(
+    exported.records.outlookBrowserMessages.every(
+      (value: { effectiveSensitivity: string }) =>
+        value.effectiveSensitivity === 'restricted',
+    ),
+  ).toBe(true);
+});
+
 it('invalidates complete coverage when selected folders change and requires every folder', async () => {
   const token = await issueToken();
   let attemptId = await begin(token);

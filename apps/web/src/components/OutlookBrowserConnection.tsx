@@ -200,12 +200,13 @@ export function OutlookBrowserConnection() {
         interactive Outlook Web sign-in. It imports selected folder coverage,
         bounded message metadata and plain text only. It does not use Microsoft
         Graph, export cookies, read hidden API responses, take screenshots,
-        download attachments or send, write or change calendar items. No HTML,
-        raw headers, cookies or session data are stored. Opening a reading pane
-        can follow your account's normal read/unread and read-receipt settings,
-        so this is not a guarantee of zero server-side state change. Partial or
-        inaccessible folders never remove unseen messages. This is separate from
-        the Graph access gate above.
+        download attachments or send, move, flag, delete, write or change
+        calendar items. No HTML, raw headers, cookies or session data are
+        stored. Opening a reading pane can follow your account's normal
+        read/unread and read-receipt settings, so this is not a guarantee of
+        zero server-side state change. Partial or inaccessible folders never
+        remove unseen messages. This is separate from the Graph access gate
+        above.
       </Help>
       <p className="meta">
         Last contact:{' '}

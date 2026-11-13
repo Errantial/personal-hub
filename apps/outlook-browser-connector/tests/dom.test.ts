@@ -8,6 +8,7 @@ import {
   domSelectors,
   readMessageList,
   readReadingPane,
+  scrollMessageList,
 } from '../src/dom.js';
 
 const origin: OutlookOrigin = 'https://outlook.office.com';
@@ -182,6 +183,63 @@ it('distinguishes delayed, empty, proven-empty, ambiguous and stale panes', asyn
       selectors: domSelectors,
     }).status,
   ).toBe('mismatch');
+
+  const noIdMatch = await documentFor('reading-pane-no-id-match.html');
+  expect(
+    readReadingPane(paneFrom(noIdMatch), {
+      expected: {
+        ...expected,
+        subject: 'Synthetic subject',
+        sender: 'Synthetic Advisor',
+        conversationId: 'syntheticConversation0001',
+      },
+      selectors: domSelectors,
+    }).status,
+  ).toBe('ok');
+
+  const noIdStale = await documentFor('reading-pane-no-id-stale.html');
+  expect(
+    readReadingPane(paneFrom(noIdStale), {
+      expected: {
+        ...expected,
+        subject: 'Synthetic subject',
+        sender: 'Synthetic Advisor',
+        conversationId: 'syntheticConversation0001',
+      },
+      selectors: domSelectors,
+    }).status,
+  ).toBe('mismatch');
+});
+
+it('uses the list scroll container instead of a taller document', async () => {
+  const document = await documentFor('tall-page-virtualized.html');
+  const scroller = document.querySelector('[data-testid="message-scroll"]')!;
+  Object.defineProperty(scroller, 'scrollHeight', { value: 1000 });
+  Object.defineProperty(scroller, 'clientHeight', { value: 200 });
+  Object.defineProperty(scroller, 'scrollTop', {
+    value: 0,
+    writable: true,
+  });
+  for (const element of [document.documentElement, document.body]) {
+    Object.defineProperty(element, 'scrollHeight', { value: 5000 });
+    Object.defineProperty(element, 'clientHeight', { value: 800 });
+    Object.defineProperty(element, 'scrollTop', {
+      value: 0,
+      writable: true,
+    });
+  }
+  const snapshot = readMessageList(document, domSelectors);
+  expect(snapshot.scrollHeight).toBe(1000);
+  expect(snapshot.clientHeight).toBe(200);
+  expect(snapshot.scrollable).toBe(true);
+  const scrolled = scrollMessageList(document, domSelectors, 'next');
+  expect(scrolled.scrollTop).toBe(160);
+  expect((document.documentElement as HTMLElement).scrollTop).toBe(0);
+});
+
+it('uses the maximum total from range-style count badges', async () => {
+  const document = await documentFor('count-range-list.html');
+  expect(readMessageList(document, domSelectors).totalCount).toBe(120);
 });
 
 it('does not project a foreign-origin message link as a folder record', async () => {
